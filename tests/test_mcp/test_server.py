@@ -1,5 +1,7 @@
 # tests.test_mcp.test_server — MCP server integration tests
 # Tests all 10 tools, 3 resources, 2 prompts using FastMCP in-memory Client
+# Updated: Tightened reflect assertion, added resource guards, export validation,
+#          birth replacement warning test, _soul_path reset
 
 from __future__ import annotations
 
@@ -18,8 +20,10 @@ from soul_protocol.mcp.server import mcp
 def _reset_soul():
     """Reset global soul state between tests."""
     server_module._soul = None
+    server_module._soul_path = None
     yield
     server_module._soul = None
+    server_module._soul_path = None
 
 
 # --- Helpers ---
@@ -107,8 +111,9 @@ async def test_soul_reflect():
         await _birth(client)
         result = await client.call_tool("soul_reflect", {})
         data = json.loads(result.data)
-        # Without CognitiveEngine, reflect may return skipped or a heuristic result
-        assert "status" in data
+        # Without CognitiveEngine, reflect returns skipped
+        assert data["status"] == "skipped"
+        assert "reason" in data
 
 
 async def test_soul_state():
@@ -203,6 +208,7 @@ async def test_identity_resource():
     async with Client(mcp) as client:
         await _birth(client)
         result = await client.read_resource("soul://identity")
+        assert result, "Expected non-empty resource response"
         data = json.loads(result[0].text)
         assert data["name"] == "TestBot"
         assert "did" in data
@@ -213,6 +219,7 @@ async def test_core_memory_resource():
     async with Client(mcp) as client:
         await _birth(client)
         result = await client.read_resource("soul://memory/core")
+        assert result, "Expected non-empty resource response"
         data = json.loads(result[0].text)
         assert "persona" in data
         assert "human" in data
@@ -222,6 +229,7 @@ async def test_state_resource():
     async with Client(mcp) as client:
         await _birth(client)
         result = await client.read_resource("soul://state")
+        assert result, "Expected non-empty resource response"
         data = json.loads(result[0].text)
         assert "mood" in data
         assert "energy" in data
@@ -257,3 +265,22 @@ async def test_prompts_without_soul():
         content = result.messages[0].content
         text = content if isinstance(content, str) else content.text
         assert "No soul loaded" in text
+
+
+# --- Validation Tests ---
+
+
+async def test_soul_birth_replacement_warning():
+    async with Client(mcp) as client:
+        await _birth(client, "First")
+        result = await client.call_tool("soul_birth", {"name": "Second"})
+        data = json.loads(result.data)
+        assert data["name"] == "Second"
+        assert "warning" in data
+
+
+async def test_soul_export_rejects_non_soul_extension():
+    async with Client(mcp) as client:
+        await _birth(client)
+        with pytest.raises(Exception):
+            await client.call_tool("soul_export", {"path": "/tmp/evil.txt"})

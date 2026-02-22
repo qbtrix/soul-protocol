@@ -9,7 +9,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/soul-protocol)](https://pypi.org/project/soul-protocol/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-301%20passing-brightgreen)](https://github.com/OCEAN/soul-protocol/actions)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](https://github.com/OCEAN/soul-protocol/actions)
 
 ---
 

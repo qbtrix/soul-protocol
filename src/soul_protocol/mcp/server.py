@@ -1,6 +1,9 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
 # 10 tools, 3 resources, 2 prompts for AI agent integration
 #
+# Updated: Added _soul_path tracking for save round-trips,
+#          path validation on soul_export, soul_birth replacement warning
+#
 # Usage:
 #   SOUL_PATH=aria.soul soul-mcp
 #   Or call soul_birth to create a new soul at runtime
@@ -9,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP  # optional dep: pip install soul-protocol[mcp]
@@ -19,6 +23,7 @@ from ..types import Interaction, MemoryType, Mood
 mcp = FastMCP("soul-protocol", instructions="Soul Protocol MCP server. Provides persistent AI identity and memory.")
 
 _soul: Soul | None = None
+_soul_path: str | None = None
 
 
 async def _get_soul() -> Soul:
@@ -40,10 +45,15 @@ async def soul_birth(name: str, archetype: str = "", values: list[str] | None = 
         archetype: Optional archetype (e.g. "The Compassionate Creator")
         values: Optional list of core values
     """
-    global _soul
+    global _soul, _soul_path
+    replaced = _soul is not None
     soul = await Soul.birth(name, archetype=archetype, values=values or [])
     _soul = soul
-    return json.dumps({"name": soul.name, "did": soul.did, "status": "born"})
+    _soul_path = None  # new soul has no file path yet
+    result: dict[str, Any] = {"name": soul.name, "did": soul.did, "status": "born"}
+    if replaced:
+        result["warning"] = "An existing soul was replaced. Call soul_save first to preserve it."
+    return json.dumps(result)
 
 
 @mcp.tool
@@ -170,11 +180,13 @@ async def soul_save(path: str | None = None) -> str:
     """Persist the soul to disk as YAML config.
 
     Args:
-        path: File path to save to. Uses last known path if omitted.
+        path: File path to save to. If omitted, saves to the original SOUL_PATH
+              location (or ~/.soul/<soul_id>/ if no path is known).
     """
     soul = await _get_soul()
-    await soul.save(path)
-    return json.dumps({"status": "saved", "name": soul.name})
+    save_path = path or _soul_path
+    await soul.save(save_path)
+    return json.dumps({"status": "saved", "path": save_path or "~/.soul/", "name": soul.name})
 
 
 @mcp.tool
@@ -183,11 +195,14 @@ async def soul_export(path: str) -> str:
     Contains identity, memory, state, and self-model.
 
     Args:
-        path: Output file path (should end in .soul)
+        path: Output file path (must end in .soul)
     """
     soul = await _get_soul()
-    await soul.export(path)
-    return json.dumps({"status": "exported", "path": path, "name": soul.name})
+    resolved = Path(path).resolve()
+    if resolved.suffix != ".soul":
+        raise ValueError(f"Export path must end in .soul, got: {path!r}")
+    await soul.export(resolved)
+    return json.dumps({"status": "exported", "path": str(resolved), "name": soul.name})
 
 
 # --- Resources (3) ---
@@ -271,8 +286,11 @@ def run_server() -> None:
     """Entry point for the soul-mcp console script."""
     import asyncio
 
+    global _soul_path
     path = os.environ.get("SOUL_PATH")
     if path:
+        _soul_path = path
+
         async def _load() -> None:
             global _soul
             _soul = await Soul.awaken(path)

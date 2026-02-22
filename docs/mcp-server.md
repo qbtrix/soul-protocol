@@ -226,14 +226,15 @@ Prompts are pre-built text templates that MCP clients can request.
 You can also use the MCP server from Python without running it as a subprocess:
 
 ```python
+from fastmcp import Client
 from soul_protocol.mcp import create_server
 
 mcp = create_server()
 
-# Use with FastMCP's test client
-async with mcp.test_client() as client:
+# Use with FastMCP's in-process client
+async with Client(mcp) as client:
     result = await client.call_tool("soul_birth", {"name": "Aria"})
-    print(result)
+    print(result.data)
 
 # Or compose with other MCP servers in a larger system
 ```
