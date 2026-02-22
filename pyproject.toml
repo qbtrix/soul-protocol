@@ -1,5 +1,6 @@
 # soul-protocol — Portable AI identity and memory
-# Updated: v0.2.2 — Pluggable retrieval, memory consolidation, fact conflict resolution
+# Updated: v0.2.2 — Added MCP server (fastmcp), soul-mcp entry point, mcp optional dep
+#   v0.2.2 — Pluggable retrieval, memory consolidation, fact conflict resolution
 
 [build-system]
 requires = ["hatchling"]
@@ -39,6 +40,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mcp = [
+    "fastmcp>=2.0",
+]
 graph = ["networkx>=3.0"]
 vector = ["numpy>=1.24"]
 dev = [
@@ -50,6 +54,7 @@ dev = [
 
 [project.scripts]
 soul = "soul_protocol.cli.main:cli"
+soul-mcp = "soul_protocol.mcp:run_server"
 
 [project.urls]
 Homepage = "https://github.com/OCEAN/soul-protocol"
