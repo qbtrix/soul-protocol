@@ -1,6 +1,7 @@
 <!-- Covers: Platform integration guide for Soul Protocol. Claude Code (MCP + CLAUDE.md template),
      Claude Desktop, Cursor, Windsurf, custom Python agents, LangChain/LangGraph, CrewAI,
-     integration tiers, portability patterns, and MCP tools reference table. -->
+     integration tiers, portability patterns, and MCP tools reference table.
+     Updated: Use soul init as primary setup path, .soul/ folder format, dashboard link. -->
 
 # Integrations
 
@@ -42,12 +43,23 @@ pip install soul-protocol[mcp]
 
 ### Step 1: Create a Soul
 
-```bash
-# Birth a new soul
-soul birth "MyAssistant" --archetype "The Coding Expert"
+The fastest path is `soul init`, which creates a `.soul/` folder in your project (like `.git/` for identity):
 
-# Export to portable .soul file
-soul export MyAssistant.yaml --output my-assistant.soul
+```bash
+soul init "MyAssistant" --archetype "The Coding Expert" --values "precision,clarity"
+```
+
+This creates a `.soul/` directory with identity, personality, state, and empty memory tiers. You can verify it works:
+
+```bash
+soul inspect .soul/
+soul dashboard .soul/   # Opens a visual web dashboard
+```
+
+Alternatively, create a portable `.soul` file:
+
+```bash
+soul birth "MyAssistant" --archetype "The Coding Expert"
 ```
 
 ### Step 2: Add MCP Server Config
@@ -60,14 +72,14 @@ Add the soul MCP server to `.claude/settings.local.json` in your project root:
     "soul": {
       "command": "soul-mcp",
       "env": {
-        "SOUL_PATH": "/absolute/path/to/my-assistant.soul"
+        "SOUL_PATH": "/absolute/path/to/your/project/.soul"
       }
     }
   }
 }
 ```
 
-`SOUL_PATH` must be an absolute path. The server loads the soul on startup and keeps it in memory across tool calls.
+`SOUL_PATH` can be a `.soul/` directory or a `.soul` archive file. Must be an absolute path. The server loads the soul on startup and keeps it in memory across tool calls.
 
 ### Step 3: Add CLAUDE.md Instructions
 
@@ -109,6 +121,16 @@ continuity across sessions.
   High energy means more enthusiastic, exploratory responses.
 ```
 
+### Step 4: Visualize (Optional)
+
+Open the dashboard to see your soul's identity, memory, and state:
+
+```bash
+soul dashboard .soul/
+```
+
+This starts a local web server at `localhost:5678` with dark theme, OCEAN personality bars, memory browser, and knowledge graph. See [CLI Reference](cli-reference.md) for options.
+
 ### What This Gives You
 
 With the MCP server and CLAUDE.md instructions in place, your Claude Code agent will:
@@ -121,7 +143,7 @@ With the MCP server and CLAUDE.md instructions in place, your Claude Code agent 
 
 ## Claude Desktop
 
-Claude Desktop supports MCP servers natively. Add the soul server to your config file.
+Claude Desktop supports MCP servers natively. First create a soul (`soul init "MyAssistant"` in any directory), then add the soul server to your config file.
 
 **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
@@ -132,7 +154,7 @@ Claude Desktop supports MCP servers natively. Add the soul server to your config
     "soul": {
       "command": "soul-mcp",
       "env": {
-        "SOUL_PATH": "/absolute/path/to/my-assistant.soul"
+        "SOUL_PATH": "/absolute/path/to/.soul"
       }
     }
   }
@@ -150,7 +172,7 @@ Claude Desktop will discover all 10 soul tools automatically. Use the `soul_syst
 
 ## Cursor
 
-Cursor supports MCP servers through its settings. Add the soul server to `.cursor/mcp.json` in your project root:
+Cursor supports MCP servers through its settings. Run `soul init "MyAssistant"` in your project, then add the soul server to `.cursor/mcp.json` in your project root:
 
 ```json
 {
@@ -158,7 +180,7 @@ Cursor supports MCP servers through its settings. Add the soul server to `.curso
     "soul": {
       "command": "soul-mcp",
       "env": {
-        "SOUL_PATH": "/absolute/path/to/my-assistant.soul"
+        "SOUL_PATH": "/absolute/path/to/your/project/.soul"
       }
     }
   }
@@ -189,7 +211,7 @@ The soul tools appear in Cursor's MCP tool list. The agent can call them inline 
 
 ## Windsurf
 
-Windsurf supports MCP servers in its configuration. Add the soul server to your Windsurf MCP settings:
+Windsurf supports MCP servers in its configuration. Run `soul init "MyAssistant"` in your project, then add the soul server to your Windsurf MCP settings:
 
 ```json
 {
@@ -197,7 +219,7 @@ Windsurf supports MCP servers in its configuration. Add the soul server to your 
     "soul": {
       "command": "soul-mcp",
       "env": {
-        "SOUL_PATH": "/absolute/path/to/my-assistant.soul"
+        "SOUL_PATH": "/absolute/path/to/your/project/.soul"
       }
     }
   }
