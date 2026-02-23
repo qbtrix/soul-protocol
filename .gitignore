@@ -37,8 +37,9 @@ Thumbs.db
 # UV
 uv.lock
 
-# Soul files (don't commit user souls)
+# Soul files and directories (don't commit user souls)
 *.soul
+.soul/
 
 # Internal docs (not for public repo)
 idocs/

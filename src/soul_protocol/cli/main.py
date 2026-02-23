@@ -1,6 +1,7 @@
 # cli/main.py — Click CLI for the Soul Protocol
-# Updated: v0.3.0 — Added `soul init` (creates .soul/ project folder) and
-#   `soul dashboard` (starts local web UI) commands.
+# Updated: v0.3.1 — Added `soul open` command (auto-opens dashboard for any .soul path).
+#   Fixed `soul init` to resolve paths relative to cwd, not uv run dir.
+#   v0.3.0 — Added `soul init`, `soul dashboard`.
 #   v0.2.2 — Fixed version_option to read from package __version__.
 # Created: 2026-02-22 — Commands: birth, inspect, status, export, migrate
 
@@ -81,10 +82,11 @@ def init(name, archetype, values, from_file, soul_dir):
     async def _init():
         from soul_protocol.soul import Soul
 
-        soul_path = Path(soul_dir)
+        # Resolve relative to actual cwd (not uv run directory)
+        soul_path = Path(soul_dir) if Path(soul_dir).is_absolute() else Path.cwd() / soul_dir
 
         if soul_path.exists() and (soul_path / "soul.json").exists():
-            if not click.confirm(f"{soul_dir}/ already contains a soul. Overwrite?"):
+            if not click.confirm(f"{soul_path}/ already contains a soul. Overwrite?"):
                 console.print("[dim]Cancelled.[/dim]")
                 return
 
@@ -104,9 +106,9 @@ def init(name, archetype, values, from_file, soul_dir):
                 values=values_list,
             )
 
-        await soul.save_local(soul_dir)
+        await soul.save_local(str(soul_path))
 
-        console.print(f"\n[green]OK[/green] Soul initialized in [bold]{soul_dir}/[/bold]\n")
+        console.print(f"\n[green]OK[/green] Soul initialized in [bold]{soul_path}/[/bold]\n")
         console.print(f"  Name:      [bold]{soul.name}[/bold]")
         console.print(f"  Archetype: {soul.archetype or '(none)'}")
         console.print(f"  DID:       [dim]{soul.did}[/dim]")
@@ -131,6 +133,26 @@ def dashboard(path, port, no_open):
     from soul_protocol.dashboard.app import start_dashboard
 
     start_dashboard(path, port=port, open_browser=not no_open)
+
+
+@cli.command("open")
+@click.argument("path", type=click.Path(exists=True), default=".soul")
+@click.option("--port", "-p", type=int, default=5678, help="Server port")
+def open_cmd(path, port):
+    """Open a soul in the visual dashboard.
+
+    Accepts a .soul file, .soul/ directory, or any directory containing soul.json.
+    If no path is given, opens .soul/ in the current directory.
+    """
+    from soul_protocol.dashboard.app import start_dashboard
+
+    p = Path(path)
+    if not p.exists():
+        console.print(f"[red]Not found:[/red] {path}")
+        console.print("[dim]Run 'soul init' to create a .soul/ folder.[/dim]")
+        raise SystemExit(1)
+
+    start_dashboard(str(p), port=port, open_browser=True)
 
 
 @cli.command()
