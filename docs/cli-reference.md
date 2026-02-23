@@ -1,6 +1,6 @@
-<!-- Covers: CLI installation, all 9 commands (init, birth, inspect, status, export, migrate, retire, list, dashboard)
+<!-- Covers: CLI installation, all 10 commands (init, birth, open, inspect, status, export, migrate, retire, list, dashboard)
      with usage examples, options tables, and output descriptions.
-     Updated: Added soul init and soul dashboard commands. -->
+     Updated: Added soul open command. -->
 
 # CLI Reference
 
@@ -308,6 +308,40 @@ soul dashboard --no-open
 The dashboard uses mood-reactive accent colors -- the entire color scheme shifts based on the soul's current mood. Zero external dependencies (pure HTML/CSS/JS served via Python stdlib).
 
 Press `Ctrl+C` to stop the server.
+
+---
+
+### `soul open`
+
+Quick shortcut to open a soul in the visual dashboard. Accepts any soul path — `.soul` file, `.soul/` directory, or any directory containing `soul.json`. If no path is given, opens `.soul/` in the current directory.
+
+```bash
+# Open .soul/ in current directory (default)
+soul open
+
+# Open a specific .soul file
+soul open aria.soul
+
+# Open a .soul/ directory
+soul open .soul/
+
+# Use a different port
+soul open --port 8080
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | No | Path to `.soul` file or directory. Defaults to `.soul`. |
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--port INT` | `-p` | HTTP server port. Defaults to 5678. |
+
+**Behavior:** Same as `soul dashboard`, but simpler to type and always auto-opens the browser. Designed for the common case: you're in a project with a `.soul/` folder and just want to see it.
 
 ---
 
