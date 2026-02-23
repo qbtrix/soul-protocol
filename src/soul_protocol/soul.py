@@ -1,5 +1,7 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
-# Updated: v0.2.2 — Accept optional SearchStrategy for pluggable retrieval.
+# Updated: v0.3.0 — awaken() now supports directory paths (.soul/ folders).
+#   Added save_local() for flat directory saving without soul_id nesting.
+#   v0.2.2 — Accept optional SearchStrategy for pluggable retrieval.
 #   reflect(apply=True) auto-applies consolidation. Added general_events property.
 #   v0.2.1 — Accept optional CognitiveEngine for LLM-enhanced cognition.
 #   Added reflect() method for LLM-driven memory consolidation.
@@ -127,10 +129,11 @@ class Soul:
         engine: CognitiveEngine | None = None,
         search_strategy: SearchStrategy | None = None,
     ) -> Soul:
-        """Awaken a Soul from a .soul file, soul.json, soul.yaml, or soul.md.
+        """Awaken a Soul from a .soul file, directory, soul.json, soul.yaml, or soul.md.
 
         Args:
-            source: Path to soul file, or raw bytes of a .soul archive.
+            source: Path to soul file/directory, or raw bytes of a .soul archive.
+                    Directories must contain a ``soul.json`` file.
             engine: Optional CognitiveEngine for LLM-enhanced cognition.
             search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
         """
@@ -140,7 +143,17 @@ class Soul:
             config, memory_data = await unpack_soul(source)
         else:
             path = Path(source)
-            if path.suffix == ".soul":
+
+            # Directory support: load from .soul/ folders or any dir with soul.json
+            if path.is_dir():
+                from .storage.file import load_soul_full
+
+                config, memory_data = await load_soul_full(path)
+                if config is None:
+                    raise FileNotFoundError(
+                        f"No soul.json found in directory: {path}"
+                    )
+            elif path.suffix == ".soul":
                 config, memory_data = await unpack_soul(path.read_bytes())
             elif path.suffix == ".json":
                 config = SoulConfig.model_validate_json(path.read_text())
@@ -418,6 +431,20 @@ class Soul:
         save_path = Path(path) if path else None
         memory_data = self._memory.to_dict()
         await save_soul_full(self.serialize(), memory_data, path=save_path)
+
+    async def save_local(self, path: str | Path = ".soul") -> None:
+        """Save to a local directory (flat, no soul_id nesting).
+
+        Designed for .soul/ project folders where the directory IS the soul.
+
+        Args:
+            path: Target directory (default ``".soul"``).
+        """
+        from .storage.file import save_soul_flat
+
+        config = self.serialize()
+        memory_data = self._memory.to_dict()
+        await save_soul_flat(config, memory_data, Path(path))
 
     async def export(self, path: str | Path) -> None:
         """Export soul as a portable .soul file with full memory data."""

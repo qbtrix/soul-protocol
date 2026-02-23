@@ -1,0 +1,1103 @@
+<!-- Soul Protocol Dashboard — Visual identity, memory, and state explorer -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Soul Dashboard</title>
+  <style>
+    /* ── Design Tokens ─────────────────────────────────────────────────── */
+    :root {
+      --bg:           #0f0f1a;
+      --surface:      #1a1a2e;
+      --surface-alt:  #16213e;
+      --border:       #2a2a3e;
+      --text:         #e8e8e8;
+      --text-muted:   #8888aa;
+      --accent:       #7f8c8d;        /* overridden dynamically by mood */
+      --accent-dim:   color-mix(in srgb, var(--accent) 16%, transparent);
+      --accent-glow:  color-mix(in srgb, var(--accent) 30%, transparent);
+      --episodic:     #3498db;
+      --semantic:     #2ecc71;
+      --procedural:   #9b59b6;
+      --radius:       10px;
+      --radius-sm:    6px;
+      --sidebar-w:    262px;
+      --transition:   0.22s ease;
+    }
+
+    /* ── Reset ──────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    ::selection { background: var(--accent-glow); }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar       { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* ── Loading Screen ─────────────────────────────────────────────────── */
+    #loading-screen {
+      position: fixed; inset: 0;
+      background: var(--bg);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 20px;
+      z-index: 999;
+      transition: opacity 0.45s ease;
+    }
+    #loading-screen.fade-out { opacity: 0; pointer-events: none; }
+
+    .loading-orb {
+      width: 52px; height: 52px; border-radius: 50%;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      animation: spin 1s linear infinite;
+      transition: border-top-color var(--transition);
+    }
+    .loading-label {
+      color: var(--text-muted);
+      font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Error State ────────────────────────────────────────────────────── */
+    #error-state {
+      display: none; position: fixed; inset: 0; background: var(--bg);
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 10px; z-index: 998;
+    }
+    #error-state.visible { display: flex; }
+    #error-state h2 { color: #e74c3c; font-size: 1.15rem; }
+    #error-state p  { color: var(--text-muted); max-width: 360px; text-align: center; font-size: 13px; }
+    .btn-retry {
+      margin-top: 6px; padding: 8px 22px;
+      background: var(--surface-alt); border: 1px solid var(--border);
+      color: var(--text); border-radius: var(--radius-sm); cursor: pointer;
+      font-size: 13px; transition: border-color var(--transition);
+    }
+    .btn-retry:hover { border-color: var(--accent); }
+
+    /* ── App Shell ──────────────────────────────────────────────────────── */
+    #app { display: none; flex-direction: column; height: 100vh; overflow: hidden; }
+    #app.visible { display: flex; }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    #header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 13px 24px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-shrink: 0; z-index: 10; position: relative;
+    }
+    /* Mood-reactive bottom glow */
+    #header::after {
+      content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+      background: var(--accent); opacity: 0.65;
+      transition: background var(--transition);
+    }
+
+    .header-left { display: flex; align-items: center; gap: 10px; }
+    .header-logo {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--accent-dim); border: 1.5px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; color: var(--accent); line-height: 1;
+      transition: background var(--transition), border-color var(--transition), color var(--transition);
+      user-select: none;
+    }
+    #header h1 { font-size: 1rem; font-weight: 600; letter-spacing: 0.02em; }
+    #header h1 span { color: var(--text-muted); font-weight: 400; }
+
+    .header-right { display: flex; align-items: center; gap: 14px; }
+    #soul-name-badge {
+      font-size: 0.78rem; padding: 3px 13px; border-radius: 20px; font-weight: 500;
+      letter-spacing: 0.04em; color: var(--accent);
+      background: var(--accent-dim); border: 1px solid var(--accent);
+      transition: color var(--transition), background var(--transition), border-color var(--transition);
+    }
+    #refresh-btn {
+      width: 32px; height: 32px; background: var(--surface-alt);
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      cursor: pointer; color: var(--text-muted); font-size: 17px;
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color var(--transition), color var(--transition), transform 0.5s ease;
+      user-select: none;
+    }
+    #refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+    #refresh-btn.spinning { transform: rotate(360deg); }
+
+    /* ── Layout Body ────────────────────────────────────────────────────── */
+    #layout {
+      display: flex; flex: 1; overflow: hidden;
+    }
+
+    /* ── Sidebar ────────────────────────────────────────────────────────── */
+    #sidebar {
+      width: var(--sidebar-w); flex-shrink: 0;
+      background: var(--surface); border-right: 1px solid var(--border);
+      overflow-y: auto; display: flex; flex-direction: column;
+      padding: 0 0 32px;
+    }
+
+    .sb-section { padding: 18px 16px; border-bottom: 1px solid var(--border); }
+    .sb-section:last-child { border-bottom: none; }
+
+    .sb-label {
+      font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.14em;
+      color: var(--text-muted); font-weight: 700; margin-bottom: 10px;
+    }
+
+    /* Identity block */
+    #soul-name   { font-size: 1.55rem; font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; margin-bottom: 2px; }
+    #soul-archetype { font-size: 0.78rem; color: var(--accent); font-style: italic; margin-bottom: 12px; transition: color var(--transition); }
+
+    .info-row {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 6px; margin-bottom: 5px;
+    }
+    .info-key   { color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
+    .info-val   { font-size: 11.5px; text-align: right; }
+    .did-chip {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 10px; color: var(--accent); cursor: pointer;
+      border-bottom: 1px dashed var(--accent);
+      transition: opacity var(--transition), color var(--transition), border-color var(--transition);
+    }
+    .did-chip:hover { opacity: 0.65; }
+
+    .lifecycle-pill {
+      display: inline-block; padding: 2px 10px; border-radius: 20px;
+      font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+      background: color-mix(in srgb, #2ecc71 18%, transparent);
+      border: 1px solid #2ecc71; color: #2ecc71;
+    }
+    .lifecycle-pill.inactive {
+      background: color-mix(in srgb, #95a5a6 18%, transparent);
+      border-color: #95a5a6; color: #95a5a6;
+    }
+
+    .values-wrap { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+    .value-chip {
+      padding: 2px 9px; border-radius: 20px; font-size: 10px; font-weight: 500;
+      background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent);
+      transition: background var(--transition), border-color var(--transition), color var(--transition);
+    }
+
+    /* OCEAN bars */
+    .ocean-row { margin-bottom: 8px; }
+    .ocean-header { display: flex; justify-content: space-between; margin-bottom: 3px; }
+    .ocean-key  { font-size: 10.5px; color: var(--text-muted); }
+    .ocean-num  { font-size: 10.5px; color: var(--text); }
+    .ocean-track { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .ocean-fill {
+      height: 100%; border-radius: 2px; width: 0;
+      background: linear-gradient(90deg, #3498db, var(--accent));
+      transition: width 0.85s cubic-bezier(.4,0,.2,1), background var(--transition);
+    }
+
+    /* Stats grid */
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .stat-cell {
+      background: var(--surface-alt); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 9px 10px; text-align: center;
+    }
+    .stat-num {
+      font-size: 1.25rem; font-weight: 700; color: var(--accent);
+      line-height: 1; transition: color var(--transition);
+    }
+    .stat-key { font-size: 9.5px; color: var(--text-muted); margin-top: 2px; }
+
+    /* Comms */
+    .comm-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .comm-key  { font-size: 11px; color: var(--text-muted); }
+    .comm-val  {
+      font-size: 11px; color: var(--text); background: var(--surface-alt);
+      border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1px 8px;
+    }
+
+    /* ── Main ───────────────────────────────────────────────────────────── */
+    #main {
+      flex: 1; overflow-y: auto; padding: 24px;
+      display: flex; flex-direction: column; gap: 28px;
+    }
+
+    .section-heading {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.13em;
+      color: var(--text-muted); font-weight: 700; margin-bottom: 12px;
+    }
+
+    /* ── Card base ──────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    .card:hover {
+      border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+      box-shadow: 0 4px 22px color-mix(in srgb, var(--accent) 7%, transparent);
+    }
+
+    /* ── State cards ────────────────────────────────────────────────────── */
+    .state-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+
+    .state-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px 14px; text-align: center;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    .state-card:hover {
+      border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+      box-shadow: 0 4px 22px color-mix(in srgb, var(--accent) 7%, transparent);
+    }
+    .sc-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); margin-bottom: 12px; }
+
+    /* Mood */
+    .mood-text {
+      font-size: 1.3rem; font-weight: 700; color: var(--accent); text-transform: capitalize;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: color var(--transition);
+    }
+    .mood-dot {
+      width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex-shrink: 0;
+      transition: background var(--transition);
+      animation: mood-pulse 2.8s ease-in-out infinite;
+    }
+    @keyframes mood-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.45; transform: scale(0.75); }
+    }
+
+    /* Circular SVG gauge */
+    .gauge-wrap    { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .gauge-svg     { transform: rotate(-90deg); overflow: visible; }
+    .g-track       { fill: none; stroke: var(--border); stroke-width: 4.5; }
+    .g-fill        {
+      fill: none; stroke: var(--accent); stroke-width: 4.5; stroke-linecap: round;
+      transition: stroke-dashoffset 1.1s cubic-bezier(.4,0,.2,1), stroke var(--transition);
+      animation: ring-pulse 3.5s ease-in-out infinite;
+    }
+    @keyframes ring-pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.65; }
+    }
+    .gauge-pct  { font-size: 1.1rem; font-weight: 700; line-height: 1; }
+    .gauge-sub  { font-size: 9.5px; color: var(--text-muted); }
+
+    /* Bar gauge */
+    .bar-gauge-val { font-size: 1.1rem; font-weight: 700; margin-bottom: 9px; }
+    .bar-track  { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .bar-fill   {
+      height: 100%; border-radius: 3px; background: var(--accent); width: 0;
+      transition: width 1.1s cubic-bezier(.4,0,.2,1), background var(--transition);
+      animation: bar-pulse 3.5s ease-in-out infinite;
+    }
+    @keyframes bar-pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.6; }
+    }
+
+    /* Focus dots */
+    .focus-val  { font-size: 1.1rem; font-weight: 700; text-transform: capitalize; margin-bottom: 10px; }
+    .focus-dots { display: flex; justify-content: center; gap: 5px; }
+    .f-dot {
+      width: 9px; height: 9px; border-radius: 50%; background: var(--border);
+      transition: background var(--transition);
+    }
+    .f-dot.on { background: var(--accent); }
+
+    /* ── 2-column grids ─────────────────────────────────────────────────── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* Core memory cards */
+    .cm-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px;
+      max-height: 165px; overflow-y: auto;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    .cm-card:hover {
+      border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+      box-shadow: 0 4px 22px color-mix(in srgb, var(--accent) 7%, transparent);
+    }
+    .cm-title {
+      font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--accent); font-weight: 700; margin-bottom: 8px;
+      transition: color var(--transition);
+    }
+    .cm-body { font-size: 12.5px; color: var(--text-muted); line-height: 1.75; }
+
+    /* Self model */
+    .si-item { margin-bottom: 11px; }
+    .si-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .si-name { font-size: 12px; text-transform: capitalize; }
+    .si-conf { font-size: 11px; color: var(--accent); font-weight: 600; transition: color var(--transition); }
+    .si-track { height: 3.5px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .si-fill  {
+      height: 100%; background: var(--accent); border-radius: 2px; width: 0;
+      transition: width 0.85s cubic-bezier(.4,0,.2,1) 0.2s, background var(--transition);
+    }
+    .si-ev { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+    .rn-row { display: flex; gap: 10px; margin-bottom: 7px; align-items: flex-start; }
+    .rn-name { font-size: 12px; color: var(--accent); font-weight: 600; flex-shrink: 0; min-width: 64px; transition: color var(--transition); }
+    .rn-desc { font-size: 12px; color: var(--text-muted); }
+
+    /* ── Memory Browser ─────────────────────────────────────────────────── */
+    .mem-controls {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px;
+    }
+    .mem-search {
+      flex: 1; min-width: 150px; background: var(--surface-alt);
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      padding: 7px 13px; color: var(--text); font-size: 13px;
+      outline: none; transition: border-color var(--transition);
+    }
+    .mem-search::placeholder { color: var(--text-muted); }
+    .mem-search:focus { border-color: var(--accent); }
+
+    .mem-select {
+      background: var(--surface-alt); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 7px 10px;
+      color: var(--text); font-size: 12px; outline: none; cursor: pointer;
+      transition: border-color var(--transition);
+    }
+    .mem-select:focus { border-color: var(--accent); }
+    #mem-counter { font-size: 11px; color: var(--text-muted); white-space: nowrap; margin-left: auto; align-self: center; }
+
+    .mem-list { display: flex; flex-direction: column; gap: 6px; }
+    .mem-item {
+      background: var(--surface-alt); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 11px 14px;
+      display: flex; align-items: flex-start; gap: 10px;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    .mem-item:hover {
+      border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+      box-shadow: 0 2px 12px color-mix(in srgb, var(--accent) 5%, transparent);
+    }
+
+    .type-badge {
+      flex-shrink: 0; margin-top: 1px;
+      font-size: 8.5px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.07em; padding: 2px 7px; border-radius: 20px;
+    }
+    .tb-episodic {
+      background: color-mix(in srgb, var(--episodic) 16%, transparent);
+      border: 1px solid var(--episodic); color: var(--episodic);
+      box-shadow: 0 0 7px color-mix(in srgb, var(--episodic) 22%, transparent);
+    }
+    .tb-semantic {
+      background: color-mix(in srgb, var(--semantic) 16%, transparent);
+      border: 1px solid var(--semantic); color: var(--semantic);
+      box-shadow: 0 0 7px color-mix(in srgb, var(--semantic) 22%, transparent);
+    }
+    .tb-procedural {
+      background: color-mix(in srgb, var(--procedural) 16%, transparent);
+      border: 1px solid var(--procedural); color: var(--procedural);
+      box-shadow: 0 0 7px color-mix(in srgb, var(--procedural) 22%, transparent);
+    }
+
+    .mem-body { flex: 1; min-width: 0; }
+    .mem-content { font-size: 13px; color: var(--text); line-height: 1.5; }
+    .mem-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; align-items: center; }
+    .mem-imp  { font-size: 11px; color: #f1c40f; }
+    .mem-emo  {
+      font-size: 10px; color: var(--text-muted); background: var(--surface);
+      border: 1px solid var(--border); border-radius: 20px; padding: 1px 7px;
+    }
+    .mem-date { font-size: 10px; color: var(--text-muted); }
+    .mem-conf { font-size: 10px; color: var(--text-muted); }
+
+    /* ── Knowledge Graph ────────────────────────────────────────────────── */
+    .entity-row  { display: flex; flex-wrap: wrap; gap: 6px; }
+    .entity-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--surface-alt); border: 1px solid var(--border);
+      border-radius: 20px; padding: 4px 12px; font-size: 12px;
+      transition: border-color var(--transition);
+    }
+    .entity-chip:hover { border-color: var(--accent); }
+    .etype { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+    .edge-list { display: flex; flex-direction: column; gap: 6px; }
+    .edge-item {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 7px;
+      background: var(--surface-alt); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 8px 12px; font-size: 12px;
+      transition: border-color var(--transition);
+    }
+    .edge-item:hover { border-color: var(--accent); }
+    .e-node   { color: var(--text); font-weight: 500; }
+    .e-arrow  { color: var(--text-muted); }
+    .e-rel    {
+      color: var(--accent); font-size: 10.5px; font-style: italic;
+      padding: 1px 8px; border-radius: 20px; background: var(--accent-dim);
+      transition: color var(--transition), background var(--transition);
+    }
+
+    /* ── Empty state ────────────────────────────────────────────────────── */
+    .empty {
+      text-align: center; padding: 28px 16px;
+      color: var(--text-muted); font-size: 12.5px;
+    }
+    .empty-ico { font-size: 1.8rem; margin-bottom: 8px; opacity: 0.35; }
+
+    /* ── Toast ──────────────────────────────────────────────────────────── */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px; z-index: 1000;
+      background: var(--surface-alt); border: 1px solid var(--accent);
+      border-radius: var(--radius-sm); padding: 9px 18px;
+      font-size: 12px; color: var(--text);
+      opacity: 0; transform: translateY(12px); pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease,
+                  border-color var(--transition);
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+
+    /* ── Responsive ─────────────────────────────────────────────────────── */
+    @media (max-width: 960px) {
+      :root { --sidebar-w: 220px; }
+      .state-row { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 700px) {
+      #sidebar { display: none; }
+      .state-row { grid-template-columns: 1fr 1fr; }
+      .grid-2   { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loading -->
+  <div id="loading-screen">
+    <div class="loading-orb"></div>
+    <div class="loading-label">Loading soul&#x2026;</div>
+  </div>
+
+  <!-- Error -->
+  <div id="error-state">
+    <h2>&#9888; Could not reach /api/soul</h2>
+    <p>Make sure the Soul Protocol server is running. The dashboard connects to <code>/api/soul</code> on the local server.</p>
+    <button class="btn-retry" onclick="boot()">Retry</button>
+  </div>
+
+  <!-- App -->
+  <div id="app">
+
+    <!-- Header -->
+    <header id="header">
+      <div class="header-left">
+        <div class="header-logo">&#9830;</div>
+        <h1>Soul <span>Dashboard</span></h1>
+      </div>
+      <div class="header-right">
+        <span id="soul-name-badge"></span>
+        <button id="refresh-btn" title="Refresh data" onclick="handleRefresh()">&#10227;</button>
+      </div>
+    </header>
+
+    <!-- Layout -->
+    <div id="layout">
+
+      <!-- Sidebar -->
+      <aside id="sidebar">
+
+        <div class="sb-section">
+          <div class="sb-label">Identity</div>
+          <div id="soul-name"></div>
+          <div id="soul-archetype"></div>
+          <div class="info-row">
+            <span class="info-key">DID</span>
+            <span id="soul-did" class="info-val did-chip" title="Click to copy" onclick="copyDID()"></span>
+          </div>
+          <div class="info-row">
+            <span class="info-key">Born</span>
+            <span id="soul-born" class="info-val"></span>
+          </div>
+          <div class="info-row">
+            <span class="info-key">Age</span>
+            <span id="soul-age" class="info-val"></span>
+          </div>
+          <div class="info-row">
+            <span class="info-key">Status</span>
+            <span id="soul-lifecycle" class="lifecycle-pill"></span>
+          </div>
+          <div class="sb-label" style="margin-top:12px;">Core Values</div>
+          <div id="soul-values" class="values-wrap"></div>
+        </div>
+
+        <div class="sb-section">
+          <div class="sb-label">OCEAN Personality</div>
+          <div id="ocean-bars"></div>
+        </div>
+
+        <div class="sb-section">
+          <div class="sb-label">Memory Stats</div>
+          <div id="soul-stats" class="stat-grid"></div>
+        </div>
+
+        <div class="sb-section">
+          <div class="sb-label">Communication Style</div>
+          <div id="soul-comms"></div>
+        </div>
+
+      </aside>
+
+      <!-- Main -->
+      <main id="main">
+
+        <!-- Current State -->
+        <section>
+          <div class="section-heading">Current State</div>
+          <div class="state-row" id="state-cards"></div>
+        </section>
+
+        <!-- Core Memory -->
+        <section>
+          <div class="section-heading">Core Memory</div>
+          <div class="grid-2" id="core-memory"></div>
+        </section>
+
+        <!-- Self Model -->
+        <section>
+          <div class="section-heading">Self Model</div>
+          <div class="grid-2" id="self-model"></div>
+        </section>
+
+        <!-- Memory Browser -->
+        <section>
+          <div class="section-heading">Memory Browser</div>
+          <div class="mem-controls">
+            <input
+              type="text" id="mem-search" class="mem-search"
+              placeholder="Search memories&#x2026;" oninput="filterMem()"
+            />
+            <select id="mem-type" class="mem-select" onchange="filterMem()">
+              <option value="all">All types</option>
+              <option value="episodic">Episodic</option>
+              <option value="semantic">Semantic</option>
+              <option value="procedural">Procedural</option>
+            </select>
+            <select id="mem-sort" class="mem-select" onchange="filterMem()">
+              <option value="importance">By importance</option>
+              <option value="newest">Newest first</option>
+              <option value="type">By type</option>
+            </select>
+            <span id="mem-counter"></span>
+          </div>
+          <div id="mem-list" class="mem-list"></div>
+        </section>
+
+        <!-- Knowledge Graph -->
+        <section>
+          <div class="section-heading">Knowledge Graph</div>
+          <div id="knowledge-graph"></div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast"></div>
+
+  <script>
+    /* ── Mood accent palette ──────────────────────────────────────────── */
+    const MOOD_PALETTE = {
+      neutral:       '#7f8c8d',
+      curious:       '#3498db',
+      focused:       '#2ecc71',
+      tired:         '#95a5a6',
+      excited:       '#e74c3c',
+      contemplative: '#9b59b6',
+      satisfied:     '#27ae60',
+      concerned:     '#f39c12',
+    };
+
+    /* OCEAN trait display names */
+    const OCEAN_NAMES = [
+      ['openness',          'Openness'],
+      ['conscientiousness', 'Conscientiousness'],
+      ['extraversion',      'Extraversion'],
+      ['agreeableness',     'Agreeableness'],
+      ['neuroticism',       'Neuroticism'],
+    ];
+
+    /* Type sort order for Memory Browser */
+    const TYPE_ORDER = { episodic: 0, semantic: 1, procedural: 2 };
+
+    /* Flat memory list (populated at render time) */
+    let flatMemories = [];
+    let storedDID    = '';
+
+    /* ── Boot ──────────────────────────────────────────────────────────── */
+    document.addEventListener('DOMContentLoaded', boot);
+
+    async function boot() {
+      setLoadingVisible(true);
+      document.getElementById('error-state').classList.remove('visible');
+      try {
+        const resp = await fetch('/api/soul');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        renderAll(data);
+        setLoadingVisible(false);
+        document.getElementById('app').classList.add('visible');
+      } catch (err) {
+        setLoadingVisible(false);
+        document.getElementById('error-state').classList.add('visible');
+        console.error('[Soul Dashboard] fetch failed:', err);
+      }
+    }
+
+    function handleRefresh() {
+      const btn = document.getElementById('refresh-btn');
+      btn.classList.remove('spinning');
+      /* Force reflow so transition can replay */
+      void btn.offsetWidth;
+      btn.classList.add('spinning');
+      boot();
+    }
+
+    function setLoadingVisible(show) {
+      const el = document.getElementById('loading-screen');
+      if (show) { el.classList.remove('fade-out'); }
+      else       { el.classList.add('fade-out'); }
+    }
+
+    /* ── Accent color (mood-reactive) ──────────────────────────────────── */
+    function applyMoodAccent(mood) {
+      const color = MOOD_PALETTE[mood] || MOOD_PALETTE.neutral;
+      document.documentElement.style.setProperty('--accent', color);
+    }
+
+    /* ── Master render ─────────────────────────────────────────────────── */
+    function renderAll(d) {
+      applyMoodAccent(d.state?.mood || 'neutral');
+      renderHeader(d.identity);
+      renderIdentity(d.identity, d.lifecycle);
+      renderOCEAN(d.dna?.personality || {});
+      renderStats(d.stats || {});
+      renderComms(d.dna?.communication || {});
+      renderStateCards(d.state || {});
+      renderCoreMemory(d.core_memory || {});
+      renderSelfModel(d.self_model || {});
+      buildFlatMemories(d.memories || {});
+      filterMem();
+      renderKnowledgeGraph(d.graph || {});
+    }
+
+    /* ── Header ────────────────────────────────────────────────────────── */
+    function renderHeader(identity) {
+      const name = identity?.name || 'Soul';
+      document.getElementById('soul-name-badge').textContent = name;
+      document.title = `${name} — Soul Dashboard`;
+    }
+
+    /* ── Sidebar: Identity ─────────────────────────────────────────────── */
+    function renderIdentity(id, lifecycle) {
+      if (!id) return;
+
+      document.getElementById('soul-name').textContent      = id.name      || '—';
+      document.getElementById('soul-archetype').textContent = id.archetype || '';
+
+      storedDID = id.did || '';
+      const didEl = document.getElementById('soul-did');
+      didEl.textContent = trunc(storedDID, 22);
+      didEl.title       = storedDID + '  (click to copy)';
+
+      const born    = id.born ? new Date(id.born) : null;
+      const ageDays = born ? Math.floor((Date.now() - born) / 86_400_000) : null;
+      document.getElementById('soul-born').textContent =
+        born ? born.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+      document.getElementById('soul-age').textContent =
+        ageDays !== null ? `${ageDays} day${ageDays !== 1 ? 's' : ''}` : '—';
+
+      const lc    = lifecycle || 'unknown';
+      const badge = document.getElementById('soul-lifecycle');
+      badge.textContent = lc;
+      badge.className   = `lifecycle-pill${lc !== 'active' ? ' inactive' : ''}`;
+
+      /* Core values */
+      const wrap = document.getElementById('soul-values');
+      wrap.innerHTML = '';
+      (id.core_values || []).forEach(v => {
+        const chip = document.createElement('span');
+        chip.className   = 'value-chip';
+        chip.textContent = v;
+        wrap.appendChild(chip);
+      });
+    }
+
+    /* ── Sidebar: OCEAN bars ───────────────────────────────────────────── */
+    function renderOCEAN(p) {
+      const el = document.getElementById('ocean-bars');
+      el.innerHTML = '';
+      OCEAN_NAMES.forEach(([key, label]) => {
+        const pct = Math.round((p[key] ?? 0) * 100);
+        el.insertAdjacentHTML('beforeend', `
+          <div class="ocean-row">
+            <div class="ocean-header">
+              <span class="ocean-key">${label}</span>
+              <span class="ocean-num">${pct}%</span>
+            </div>
+            <div class="ocean-track">
+              <div class="ocean-fill" data-w="${pct}%"></div>
+            </div>
+          </div>
+        `);
+      });
+      /* Trigger CSS width transitions on next frame */
+      requestAnimationFrame(() => {
+        el.querySelectorAll('.ocean-fill').forEach(bar => {
+          bar.style.width = bar.dataset.w;
+        });
+      });
+    }
+
+    /* ── Sidebar: Stats ────────────────────────────────────────────────── */
+    function renderStats(s) {
+      const items = [
+        ['Episodic',   s.episodic_count   ?? 0],
+        ['Semantic',   s.semantic_count   ?? 0],
+        ['Procedural', s.procedural_count ?? 0],
+        ['Entities',   s.entity_count     ?? 0],
+        ['Total',      s.total_memories   ?? 0],
+      ];
+      document.getElementById('soul-stats').innerHTML = items.map(([k, v]) =>
+        `<div class="stat-cell">
+           <div class="stat-num">${v}</div>
+           <div class="stat-key">${k}</div>
+         </div>`
+      ).join('');
+    }
+
+    /* ── Sidebar: Comms ────────────────────────────────────────────────── */
+    function renderComms(c) {
+      const items = [
+        ['Warmth',    c.warmth      || '—'],
+        ['Verbosity', c.verbosity   || '—'],
+        ['Humor',     c.humor_style || '—'],
+        ['Emoji',     c.emoji_usage || '—'],
+      ];
+      document.getElementById('soul-comms').innerHTML = items.map(([k, v]) =>
+        `<div class="comm-row">
+           <span class="comm-key">${k}</span>
+           <span class="comm-val">${esc(v)}</span>
+         </div>`
+      ).join('');
+    }
+
+    /* ── State Cards ───────────────────────────────────────────────────── */
+    function renderStateCards(st) {
+      const mood   = st.mood           || 'neutral';
+      const energy = st.energy         ?? 0;
+      const social = st.social_battery ?? 0;
+      const focus  = st.focus          || 'medium';
+
+      /* SVG circular gauge */
+      const r    = 25;
+      const circ = +(2 * Math.PI * r).toFixed(3);
+      const gaugeHtml = (pct, sub) => {
+        const offset = +(circ * (1 - pct / 100)).toFixed(3);
+        return `<div class="gauge-wrap">
+          <svg class="gauge-svg" width="62" height="62" viewBox="0 0 62 62">
+            <circle class="g-track" cx="31" cy="31" r="${r}"/>
+            <circle class="g-fill"  cx="31" cy="31" r="${r}"
+              stroke-dasharray="${circ}" stroke-dashoffset="${circ}"
+              data-offset="${offset}"/>
+          </svg>
+          <div class="gauge-pct">${Math.round(pct)}%</div>
+          <div class="gauge-sub">${sub}</div>
+        </div>`;
+      };
+
+      /* Focus level (low=1, medium=2, high=3) */
+      const focusLevel = { low: 1, medium: 2, high: 3 }[focus] ?? 2;
+      const focusDots  = [1, 2, 3].map(i =>
+        `<div class="f-dot${i <= focusLevel ? ' on' : ''}"></div>`
+      ).join('');
+
+      const container = document.getElementById('state-cards');
+      container.innerHTML = `
+        <div class="state-card">
+          <div class="sc-label">Mood</div>
+          <div class="mood-text">
+            <span class="mood-dot"></span>
+            <span>${esc(mood)}</span>
+          </div>
+        </div>
+        <div class="state-card">
+          <div class="sc-label">Energy</div>
+          ${gaugeHtml(energy, 'energy')}
+        </div>
+        <div class="state-card">
+          <div class="sc-label">Focus</div>
+          <div class="focus-val">${esc(focus)}</div>
+          <div class="focus-dots">${focusDots}</div>
+        </div>
+        <div class="state-card">
+          <div class="sc-label">Social Battery</div>
+          <div class="bar-gauge-val">${Math.round(social)}%</div>
+          <div class="bar-track">
+            <div class="bar-fill" data-w="${Math.round(social)}%"></div>
+          </div>
+        </div>
+      `;
+
+      /* Animate gauges after paint */
+      requestAnimationFrame(() => {
+        container.querySelectorAll('.g-fill').forEach(el => {
+          el.style.strokeDashoffset = el.dataset.offset;
+        });
+        container.querySelectorAll('.bar-fill').forEach(el => {
+          el.style.width = el.dataset.w;
+        });
+      });
+    }
+
+    /* ── Core Memory ───────────────────────────────────────────────────── */
+    function renderCoreMemory(cm) {
+      document.getElementById('core-memory').innerHTML = `
+        <div class="cm-card">
+          <div class="cm-title">Persona</div>
+          <div class="cm-body">${esc(cm.persona || 'No persona defined yet.')}</div>
+        </div>
+        <div class="cm-card">
+          <div class="cm-title">Human Profile</div>
+          <div class="cm-body">${esc(cm.human || 'No human profile recorded yet.')}</div>
+        </div>
+      `;
+    }
+
+    /* ── Self Model ────────────────────────────────────────────────────── */
+    function renderSelfModel(sm) {
+      const images    = sm.self_images        || {};
+      const relNotes  = sm.relationship_notes || {};
+
+      const imagesHtml = Object.keys(images).length === 0
+        ? emptyState('No self-images recorded yet.')
+        : Object.entries(images).map(([name, data]) => {
+            const pct = Math.round((data.confidence ?? 0) * 100);
+            const ev  = data.evidence_count ?? 0;
+            return `<div class="si-item">
+              <div class="si-header">
+                <span class="si-name">${esc(name.replace(/_/g, ' '))}</span>
+                <span class="si-conf">${pct}%</span>
+              </div>
+              <div class="si-track">
+                <div class="si-fill" data-w="${pct}%"></div>
+              </div>
+              <div class="si-ev">${ev} evidence point${ev !== 1 ? 's' : ''}</div>
+            </div>`;
+          }).join('');
+
+      const relHtml = Object.keys(relNotes).length === 0
+        ? emptyState('No relationship notes yet.')
+        : Object.entries(relNotes).map(([name, desc]) =>
+            `<div class="rn-row">
+               <span class="rn-name">${esc(name)}</span>
+               <span class="rn-desc">${esc(desc)}</span>
+             </div>`
+          ).join('');
+
+      const container = document.getElementById('self-model');
+      container.innerHTML = `
+        <div class="card">
+          <div class="section-heading">Self-Images</div>
+          ${imagesHtml}
+        </div>
+        <div class="card">
+          <div class="section-heading">Relationship Notes</div>
+          ${relHtml}
+        </div>
+      `;
+
+      requestAnimationFrame(() => {
+        container.querySelectorAll('.si-fill').forEach(el => {
+          el.style.width = el.dataset.w;
+        });
+      });
+    }
+
+    /* ── Memory Browser ────────────────────────────────────────────────── */
+    function buildFlatMemories(memories) {
+      flatMemories = [];
+      (memories.episodic   || []).forEach(m => flatMemories.push({ ...m, type: 'episodic'   }));
+      (memories.semantic   || []).forEach(m => flatMemories.push({ ...m, type: 'semantic'   }));
+      (memories.procedural || []).forEach(m => flatMemories.push({ ...m, type: 'procedural' }));
+    }
+
+    function filterMem() {
+      const q    = (document.getElementById('mem-search').value || '').toLowerCase().trim();
+      const type = document.getElementById('mem-type').value;
+      const sort = document.getElementById('mem-sort').value;
+
+      let list = flatMemories.filter(m => {
+        const okType   = type === 'all' || m.type === type;
+        const okSearch = !q || m.content.toLowerCase().includes(q);
+        return okType && okSearch;
+      });
+
+      if (sort === 'importance') {
+        list.sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0));
+      } else if (sort === 'newest') {
+        list.sort((a, b) => {
+          const da = a.created_at ? new Date(a.created_at) : new Date(0);
+          const db = b.created_at ? new Date(b.created_at) : new Date(0);
+          return db - da;
+        });
+      } else if (sort === 'type') {
+        list.sort((a, b) => (TYPE_ORDER[a.type] ?? 9) - (TYPE_ORDER[b.type] ?? 9));
+      }
+
+      document.getElementById('mem-counter').textContent =
+        `${list.length} of ${flatMemories.length}`;
+
+      const el = document.getElementById('mem-list');
+      if (list.length === 0) {
+        el.innerHTML = emptyState('No memories match your search.');
+        return;
+      }
+
+      el.innerHTML = list.map(m => {
+        const impHtml  = m.importance != null
+          ? `<span class="mem-imp" title="Importance ${m.importance}/10">&#9733; ${m.importance}</span>` : '';
+        const emoHtml  = m.emotion
+          ? `<span class="mem-emo">${esc(m.emotion)}</span>` : '';
+        const dateHtml = m.created_at
+          ? `<span class="mem-date">${fmtDate(m.created_at)}</span>` : '';
+        const confHtml = m.confidence != null
+          ? `<span class="mem-conf">conf: ${Math.round(m.confidence * 100)}%</span>` : '';
+
+        return `<div class="mem-item">
+          <span class="type-badge tb-${m.type}">${m.type.slice(0, 4)}</span>
+          <div class="mem-body">
+            <div class="mem-content">${esc(m.content)}</div>
+            <div class="mem-meta">${impHtml}${emoHtml}${dateHtml}${confHtml}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    /* ── Knowledge Graph ───────────────────────────────────────────────── */
+    function renderKnowledgeGraph(graph) {
+      const entities = graph.entities || {};
+      const edges    = graph.edges    || [];
+      const el       = document.getElementById('knowledge-graph');
+
+      if (!Object.keys(entities).length && !edges.length) {
+        el.innerHTML = emptyState('No knowledge graph data yet.');
+        return;
+      }
+
+      const chips = Object.entries(entities).map(([n, t]) =>
+        `<div class="entity-chip">
+           <span>${esc(n)}</span>
+           <span class="etype">${esc(t)}</span>
+         </div>`
+      ).join('');
+
+      const edgeItems = edges.map(e =>
+        `<div class="edge-item">
+           <span class="e-node">${esc(e.source)}</span>
+           <span class="e-arrow">&#8594;</span>
+           <span class="e-rel">${esc(e.relation)}</span>
+           <span class="e-arrow">&#8594;</span>
+           <span class="e-node">${esc(e.target)}</span>
+         </div>`
+      ).join('');
+
+      el.innerHTML = `
+        <div class="grid-2">
+          <div class="card">
+            <div class="section-heading">Entities (${Object.keys(entities).length})</div>
+            <div class="entity-row">${chips}</div>
+          </div>
+          <div class="card">
+            <div class="section-heading">Relationships (${edges.length})</div>
+            <div class="edge-list">${edgeItems || emptyState('No edges yet.')}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    /* ── Copy DID ──────────────────────────────────────────────────────── */
+    function copyDID() {
+      if (!storedDID) return;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(storedDID)
+          .then(() => toast('DID copied'))
+          .catch(()  => fallbackCopy(storedDID));
+      } else {
+        fallbackCopy(storedDID);
+      }
+    }
+    function fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      toast('DID copied');
+    }
+
+    /* ── Toast ─────────────────────────────────────────────────────────── */
+    let _toastTimer;
+    function toast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(_toastTimer);
+      _toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+    }
+
+    /* ── Utilities ─────────────────────────────────────────────────────── */
+    /* HTML-escape a string safely */
+    function esc(str) {
+      if (str == null) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    /* Truncate with ellipsis */
+    function trunc(str, max) {
+      if (!str) return '';
+      return str.length > max ? str.slice(0, max) + '\u2026' : str;
+    }
+
+    /* Format ISO date to short locale string */
+    function fmtDate(iso) {
+      try {
+        return new Date(iso).toLocaleString('en-US', {
+          month: 'short', day: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        });
+      } catch { return iso; }
+    }
+
+    /* Reusable empty-state HTML */
+    function emptyState(msg) {
+      return `<div class="empty">
+        <div class="empty-ico">&#9744;</div>
+        ${esc(msg)}
+      </div>`;
+    }
+  </script>
+
+</body>
+</html>

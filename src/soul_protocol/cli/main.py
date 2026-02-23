@@ -1,5 +1,7 @@
 # cli/main.py — Click CLI for the Soul Protocol
-# Updated: v0.2.2 — Fixed version_option to read from package __version__.
+# Updated: v0.3.0 — Added `soul init` (creates .soul/ project folder) and
+#   `soul dashboard` (starts local web UI) commands.
+#   v0.2.2 — Fixed version_option to read from package __version__.
 # Created: 2026-02-22 — Commands: birth, inspect, status, export, migrate
 
 from __future__ import annotations
@@ -56,6 +58,79 @@ def birth(name, archetype, from_file, output):
         console.print(f"[dim]Saved to {out}[/dim]")
 
     asyncio.run(_birth())
+
+
+@cli.command()
+@click.argument("name", required=False)
+@click.option("--archetype", "-a", default="The Companion", help="Soul archetype")
+@click.option(
+    "--values", "-v", default="curiosity,empathy,honesty",
+    help="Comma-separated core values",
+)
+@click.option(
+    "--from-file", "-f", "from_file", type=click.Path(exists=True),
+    help="Initialize from existing .soul file",
+)
+@click.option(
+    "--dir", "-d", "soul_dir", default=".soul",
+    help="Directory to create (default: .soul)",
+)
+def init(name, archetype, values, from_file, soul_dir):
+    """Initialize a .soul/ folder in the current directory."""
+
+    async def _init():
+        from soul_protocol.soul import Soul
+
+        soul_path = Path(soul_dir)
+
+        if soul_path.exists() and (soul_path / "soul.json").exists():
+            if not click.confirm(f"{soul_dir}/ already contains a soul. Overwrite?"):
+                console.print("[dim]Cancelled.[/dim]")
+                return
+
+        if from_file:
+            soul = await Soul.awaken(from_file)
+            console.print(f"[green]Loaded[/green] {soul.name} from {from_file}")
+        else:
+            if not name:
+                name_input = click.prompt("Soul name")
+            else:
+                name_input = name
+
+            values_list = [v.strip() for v in values.split(",")]
+            soul = await Soul.birth(
+                name=name_input,
+                archetype=archetype,
+                values=values_list,
+            )
+
+        await soul.save_local(soul_dir)
+
+        console.print(f"\n[green]OK[/green] Soul initialized in [bold]{soul_dir}/[/bold]\n")
+        console.print(f"  Name:      [bold]{soul.name}[/bold]")
+        console.print(f"  Archetype: {soul.archetype or '(none)'}")
+        console.print(f"  DID:       [dim]{soul.did}[/dim]")
+        console.print(f"  Values:    {', '.join(soul.identity.core_values)}")
+        console.print()
+        console.print("[dim]Next steps:[/dim]")
+        console.print(f"  [cyan]soul inspect {soul_dir}/[/cyan]     -- view soul details")
+        console.print(f"  [cyan]soul dashboard {soul_dir}/[/cyan]   -- open visual dashboard")
+        console.print(
+            f"  [cyan]soul export {soul_dir}/ -o name.soul[/cyan] -- create portable .soul file"
+        )
+
+    asyncio.run(_init())
+
+
+@cli.command()
+@click.argument("path", type=click.Path(), default=".soul", required=False)
+@click.option("--port", "-p", type=int, default=5678, help="Server port")
+@click.option("--no-open", is_flag=True, help="Don't auto-open browser")
+def dashboard(path, port, no_open):
+    """Open the visual Soul dashboard in your browser."""
+    from soul_protocol.dashboard.app import start_dashboard
+
+    start_dashboard(path, port=port, open_browser=not no_open)
 
 
 @cli.command()

@@ -1,5 +1,7 @@
 # storage/file.py — FileStorage backend persisting souls to the local filesystem.
-# Updated: v0.2.2 — Added general_events.json persistence alongside memory tiers.
+# Updated: v0.3.0 — Added save_soul_flat() for .soul/ project folder support.
+#   Flat save writes directly to target dir without soul_id nesting.
+#   v0.2.2 — Added general_events.json persistence alongside memory tiers.
 #   v0.2.0 — Added self_model.json persistence alongside memory tiers.
 #   save_soul_full/load_soul_full for full memory persistence.
 #   Atomic writes via temp directory + shutil.move.
@@ -222,3 +224,38 @@ async def load_soul_full(path: Path) -> tuple[SoulConfig | None, dict]:
                 memory_data[name] = json.loads(f.read_text(encoding="utf-8"))
 
     return config, memory_data
+
+
+async def save_soul_flat(
+    config: SoulConfig,
+    memory_data: dict,
+    path: Path,
+) -> None:
+    """Save soul config + memory to a directory WITHOUT soul_id nesting.
+
+    Used for .soul/ project folders where the directory IS the soul.
+    Atomic: writes to temp dir, then moves files into place.
+
+    Args:
+        config: The SoulConfig to persist.
+        memory_data: Dict as produced by MemoryManager.to_dict().
+        path: Target directory (e.g. ``.soul/``). Created if missing.
+    """
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+
+    # Atomic write: build in temp dir, then move individual files into place
+    with tempfile.TemporaryDirectory(dir=path.parent) as tmp:
+        tmp_dir = Path(tmp) / path.name
+        tmp_dir.mkdir()
+        _write_soul_files(tmp_dir, config, memory_data)
+
+        # Move files into target (preserve existing dir structure)
+        for item in tmp_dir.iterdir():
+            dest = path / item.name
+            if dest.exists():
+                if dest.is_dir():
+                    shutil.rmtree(dest)
+                else:
+                    dest.unlink()
+            shutil.move(str(item), str(dest))
