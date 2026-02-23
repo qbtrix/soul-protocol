@@ -1,7 +1,9 @@
 # memory/self_model.py — Klein's self-concept model for digital souls.
-# Created: v0.2.0 — The soul learns who it is from accumulated experience.
-#   Tracks self-images (domain-specific identity facets) and relationship notes.
-#   Heuristic domain detection from extracted facts and interaction content.
+# Updated: 2026-02-23 — Emergent domain discovery replaces hardcoded domain matching.
+#   Domains now grow organically from interaction content instead of being limited
+#   to 6 predefined categories. DEFAULT_SEED_DOMAINS provides backward-compatible
+#   bootstrapping. Domain keywords expand over time as the soul encounters new content.
+#   Added STOP_WORDS filtering, dynamic domain creation, and seed_domains constructor param.
 
 from __future__ import annotations
 
@@ -10,10 +12,45 @@ from soul_protocol.types import Interaction, MemoryEntry, SelfImage
 
 
 # ---------------------------------------------------------------------------
-# Domain detection: keyword → self-image domain mapping
+# Stop words: common English words that don't contribute to domain identity.
+# tokenize() already strips words < 3 chars, so we only need 3+ letter words.
 # ---------------------------------------------------------------------------
 
-DOMAIN_KEYWORDS: dict[str, list[str]] = {
+STOP_WORDS: frozenset[str] = frozenset({
+    # Articles & determiners
+    "the", "this", "that", "these", "those", "which", "what",
+    # Pronouns
+    "you", "your", "yours", "yourself", "she", "her", "hers", "him", "his",
+    "they", "them", "their", "theirs", "its", "who", "whom", "whose",
+    # Common verbs & auxiliaries
+    "are", "was", "were", "been", "being", "have", "has", "had", "having",
+    "does", "did", "doing", "will", "would", "shall", "should", "may",
+    "might", "must", "can", "could", "need",
+    # Prepositions & conjunctions
+    "for", "and", "nor", "but", "yet", "not", "with", "from", "into",
+    "about", "than", "then", "also", "just", "more", "most", "very",
+    "too", "some", "any", "all", "each", "every", "both", "few", "many",
+    "much", "own", "other", "another", "same", "such", "only",
+    "over", "under", "between", "through", "after", "before", "during",
+    "above", "below", "out", "off", "down", "once", "here", "there",
+    "when", "where", "why", "how", "while", "until",
+    # Conversational filler
+    "help", "please", "thanks", "thank", "sure", "okay", "yes", "yeah",
+    "hey", "hello", "well", "like", "really", "think", "know",
+    "want", "get", "got", "let", "see", "say", "said", "thing", "things",
+    "way", "make", "made", "use", "used", "try", "give", "take",
+    "come", "look", "going", "now", "new", "one", "two",
+})
+
+
+# ---------------------------------------------------------------------------
+# Default seed domains: sensible bootstrapping keywords for common use cases.
+# Renamed from DOMAIN_KEYWORDS — kept for backward compatibility and to give
+# new souls a head start before they accumulate enough experience to discover
+# their own domains.
+# ---------------------------------------------------------------------------
+
+DEFAULT_SEED_DOMAINS: dict[str, list[str]] = {
     "technical_helper": [
         "python", "javascript", "code", "programming", "debug", "error",
         "api", "database", "server", "deploy", "git", "docker",
@@ -31,7 +68,7 @@ DOMAIN_KEYWORDS: dict[str, list[str]] = {
         "education", "tutorial", "guide", "documentation",
     ],
     "problem_solver": [
-        "solve", "fix", "issue", "problem", "solution", "help",
+        "solve", "fix", "issue", "problem", "solution",
         "troubleshoot", "diagnose", "analyze", "investigate",
         "debug", "resolve", "broken",
     ],
@@ -47,6 +84,9 @@ DOMAIN_KEYWORDS: dict[str, list[str]] = {
     ],
 }
 
+# Backward-compatible alias
+DOMAIN_KEYWORDS = DEFAULT_SEED_DOMAINS
+
 
 class SelfModelManager:
     """Tracks the soul's evolving self-concept (Klein's self-model).
@@ -54,12 +94,21 @@ class SelfModelManager:
     The soul learns who it is by observing what it does. Over time, patterns
     emerge: "I help with code a lot → I am a technical helper."
 
-    This is not programmed — it's discovered from experience.
+    Domains are not hardcoded — they're discovered from experience. The soul
+    starts with optional seed domains for bootstrapping, then creates new
+    domains on the fly as it encounters content outside known categories.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, seed_domains: dict[str, list[str]] | None = None) -> None:
         self._self_images: dict[str, SelfImage] = {}
         self._relationship_notes: dict[str, str] = {}
+        # Domain keywords are dynamic — they grow with experience
+        self._domain_keywords: dict[str, set[str]] = {}
+
+        # Load seed domains (defaults if none provided)
+        source = seed_domains if seed_domains is not None else DEFAULT_SEED_DOMAINS
+        for domain, keywords in source.items():
+            self._domain_keywords[domain] = set(keywords)
 
     @property
     def self_images(self) -> dict[str, SelfImage]:
@@ -78,8 +127,12 @@ class SelfModelManager:
     ) -> None:
         """Update self-concept based on an observed interaction.
 
-        Scans the interaction content and extracted facts for domain keywords.
-        Each match increments the evidence for that self-image domain.
+        Uses emergent domain discovery:
+        1. Tokenize interaction content, filter stop words
+        2. Score against existing domains (seed + learned)
+        3. If a good match (>= 2 keyword overlaps), reinforce that domain
+           and expand its vocabulary with new keywords
+        4. If no good match but >= 2 meaningful keywords, create a new domain
 
         Args:
             interaction: The interaction that was observed.
@@ -92,11 +145,27 @@ class SelfModelManager:
         for fact in extracted_facts:
             tokens |= tokenize(fact.content)
 
-        # Score each domain by keyword matches
-        for domain, keywords in DOMAIN_KEYWORDS.items():
-            matches = sum(1 for kw in keywords if kw in tokens)
-            if matches > 0:
-                self._update_domain(domain, matches)
+        # Filter out stop words to get meaningful keywords
+        meaningful = tokens - STOP_WORDS
+
+        # Score against existing domains
+        best_domain: str | None = None
+        best_score = 0
+        for domain, keywords in self._domain_keywords.items():
+            score = len(meaningful & keywords)
+            if score > best_score:
+                best_score = score
+                best_domain = domain
+
+        if best_domain and best_score >= 2:
+            # Good match — reinforce existing domain and expand its vocabulary
+            self._update_domain(best_domain, best_score)
+            self._domain_keywords[best_domain] |= meaningful
+        elif len(meaningful) >= 2:
+            # No good match — create a new domain from content
+            domain_name = self._generate_domain_name(meaningful)
+            self._domain_keywords[domain_name] = set(meaningful)
+            self._update_domain(domain_name, len(meaningful))
 
         # Extract relationship notes from facts
         for fact in extracted_facts:
@@ -111,6 +180,25 @@ class SelfModelManager:
                     self._relationship_notes["user"] = (
                         f"{existing}; Works at: {workplace}" if existing else f"Works at: {workplace}"
                     )
+
+    @staticmethod
+    def _generate_domain_name(keywords: set[str]) -> str:
+        """Generate a descriptive domain name from a set of meaningful keywords.
+
+        Picks the 1-2 most distinctive keywords (longest words are more specific)
+        and joins them with an underscore.
+
+        Args:
+            keywords: Set of meaningful (non-stop) tokens from the interaction.
+
+        Returns:
+            A snake_case domain name like "cooking_recipe" or "fitness".
+        """
+        # Sort by length descending (longer = more specific), then alphabetically for stability
+        ranked = sorted(keywords, key=lambda w: (-len(w), w))
+        if len(ranked) >= 2:
+            return f"{ranked[0]}_{ranked[1]}"
+        return ranked[0] if ranked else "general"
 
     def _update_domain(self, domain: str, match_count: int) -> None:
         """Increment evidence for a self-image domain.
@@ -155,7 +243,7 @@ class SelfModelManager:
         """Serialize the self-model to a plain dict.
 
         Returns:
-            Dict with self_images and relationship_notes.
+            Dict with self_images, relationship_notes, and domain_keywords.
         """
         return {
             "self_images": {
@@ -163,6 +251,10 @@ class SelfModelManager:
                 for domain, img in self._self_images.items()
             },
             "relationship_notes": dict(self._relationship_notes),
+            "domain_keywords": {
+                domain: sorted(keywords)
+                for domain, keywords in self._domain_keywords.items()
+            },
         }
 
     @classmethod
@@ -181,6 +273,10 @@ class SelfModelManager:
             manager._self_images[domain] = SelfImage.model_validate(img_data)
 
         manager._relationship_notes = dict(data.get("relationship_notes", {}))
+
+        # Restore learned domain keywords (merges with defaults already loaded by __init__)
+        for domain, keywords in data.get("domain_keywords", {}).items():
+            manager._domain_keywords[domain] = set(keywords)
 
         return manager
 
