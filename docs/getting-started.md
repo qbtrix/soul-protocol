@@ -1,4 +1,6 @@
-<!-- Covers: Installation, optional extras, first soul walkthrough, observe() pipeline explanation, next steps -->
+<!-- Covers: Installation, optional extras, soul init quickstart, first soul walkthrough,
+     observe() pipeline explanation, dashboard, next steps.
+     Updated: Added soul init section, dashboard section. -->
 
 # Getting Started
 
@@ -32,7 +34,36 @@ pip install soul-protocol[mcp,graph,vector]
 **Python version**: Requires Python 3.11 or later.
 
 
-## Your First Soul
+## Quick Start: `soul init`
+
+The fastest way to start is the CLI. This creates a `.soul/` folder in your project -- like `.git/` for identity:
+
+```bash
+soul init "Aria" --archetype "The Compassionate Creator" --values "empathy,creativity,honesty"
+```
+
+This creates a `.soul/` directory with identity, DNA, state, and empty memory tiers. You can immediately inspect it:
+
+```bash
+soul inspect .soul/
+soul status .soul/
+soul dashboard .soul/    # Opens a visual web dashboard
+```
+
+The `.soul/` folder is human-readable (JSON + markdown), git-friendly, and cloud-syncable. You can also seed from an existing `.soul` file:
+
+```bash
+soul init --from-file colleague-shared-aria.soul
+```
+
+To export your `.soul/` folder as a portable archive:
+
+```bash
+soul export .soul/ -o aria.soul
+```
+
+
+## Your First Soul (Python)
 
 Here is a complete example that creates a soul, gives it memories, recalls them, and saves to disk. Every method on `Soul` is async, so we run inside an `asyncio` event loop.
 
@@ -187,6 +218,17 @@ soul = await Soul.birth(
 See the [CognitiveEngine Guide](cognitive-engine.md) for details.
 
 
+## Visual Dashboard
+
+Once you have a soul with some memories, open the dashboard for a visual overview:
+
+```bash
+soul dashboard .soul/
+```
+
+This starts a local web server at `http://localhost:5678` with a dark-themed UI showing your soul's identity, OCEAN personality bars, state gauges, memory browser (with search and filter), knowledge graph, and self-model. The accent colors shift based on the soul's current mood.
+
+
 ## Next Steps
 
 - **[Core Concepts](core-concepts.md)** -- Identity, DNA, OCEAN personality, state management, evolution
@@ -194,4 +236,5 @@ See the [CognitiveEngine Guide](cognitive-engine.md) for details.
 - **[CognitiveEngine Guide](cognitive-engine.md)** -- Plug in any LLM, custom search strategies, prompt templates
 - **[API Reference](api-reference.md)** -- Complete Soul class API, all types and models
 - **[MCP Server](mcp-server.md)** -- FastMCP server for agent integration
-- **[CLI Reference](cli-reference.md)** -- Command-line tools for soul management
+- **[Integrations](integrations.md)** -- Give Claude Code, Cursor, or any agent a `.soul`
+- **[CLI Reference](cli-reference.md)** -- All 9 commands for soul management

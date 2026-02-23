@@ -33,7 +33,8 @@ file and migrate between any platform.
 | **Portability** | `.soul` file format -- zip archive with identity, memory, and state |
 | **Integration** | Single `CognitiveEngine.think()` method -- plug in any LLM |
 | **Retrieval** | Pluggable `SearchStrategy` -- swap in embeddings with one class |
-| **CLI** | 7 commands: `birth`, `inspect`, `status`, `export`, `migrate`, `retire`, `list` |
+| **CLI** | 9 commands: `init`, `birth`, `inspect`, `status`, `export`, `migrate`, `retire`, `list`, `dashboard` |
+| **Dashboard** | Local web UI to visualize identity, memory, state, OCEAN, knowledge graph |
 
 ---
 
@@ -54,6 +55,21 @@ pip install soul-protocol[dev]      # pytest, ruff, mypy
 ---
 
 ## Quick Start
+
+### From the CLI
+
+```bash
+# Initialize a .soul/ folder in your project (like .git/)
+soul init "Aria" --archetype "The Compassionate Creator"
+
+# Inspect your soul
+soul inspect .soul/
+
+# Open the visual dashboard
+soul dashboard
+```
+
+### From Python
 
 ```python
 import asyncio
@@ -209,10 +225,46 @@ memories = await soul.recall("Python projects")
 
 ---
 
+## .soul/ Folder
+
+Like `.git/` for repos or `.claude/` for Claude Code, the `.soul/` folder gives
+your project a persistent AI identity:
+
+```bash
+soul init "Aria" --archetype "The Coding Expert"
+```
+
+Creates a human-readable, git-friendly, cloud-syncable folder:
+
+```
+.soul/
+├── soul.json       # Identity, DNA, config
+├── state.json      # Mood, energy, focus
+├── dna.md          # Human-readable personality
+└── memory/         # All 5 memory tiers as JSON
+```
+
+Load from a directory just like a file: `soul = await Soul.awaken(".soul/")`
+
+---
+
+## Dashboard
+
+Visualize your soul's identity, memory, and state in a local web UI:
+
+```bash
+soul dashboard .soul/
+```
+
+Opens at `localhost:5678` with dark theme, mood-reactive accent colors, OCEAN
+personality bars, memory browser with search/filter, and knowledge graph.
+
+---
+
 ## MCP Server
 
 Soul Protocol ships with an MCP (Model Context Protocol) server for agent
-integration:
+integration. Give Claude Code, Cursor, or any MCP client a persistent soul:
 
 ```bash
 pip install soul-protocol[mcp]
@@ -220,9 +272,9 @@ SOUL_PATH=aria.soul soul-mcp
 ```
 
 Exposes 10 tools that any MCP-compatible agent can call: observe interactions,
-recall memories, inspect state, and more.
-
-See [MCP documentation](https://modelcontextprotocol.io/) for integration details.
+recall memories, inspect state, and more. See the
+[integrations guide](docs/integrations.md) for Claude Code, Cursor, and other
+platforms.
 
 ---
 
@@ -234,13 +286,15 @@ soul <command> [options]
 
 | Command | Description | Example |
 |---|---|---|
-| `birth` | Birth a new soul | `soul birth Aria --archetype "The Creator"` |
-| `inspect` | Inspect a soul file (identity, OCEAN traits, state) | `soul inspect aria.soul` |
-| `status` | Show current mood, energy, social battery | `soul status aria.soul` |
-| `export` | Export to .soul, .json, .yaml, or .md | `soul export aria.soul -o aria.json -f json` |
+| `init` | Initialize a .soul/ folder in the current directory | `soul init Aria --archetype "The Creator"` |
+| `birth` | Birth a new soul and export as .soul file | `soul birth Aria --archetype "The Creator"` |
+| `inspect` | Inspect a soul file or folder (identity, OCEAN, state) | `soul inspect .soul/` |
+| `status` | Show current mood, energy, social battery | `soul status .soul/` |
+| `export` | Export to .soul, .json, .yaml, or .md | `soul export .soul/ -o aria.json -f json` |
 | `migrate` | Convert SOUL.md to .soul format | `soul migrate SOUL.md -o aria.soul` |
 | `retire` | Retire a soul (preserves memories by default) | `soul retire aria.soul` |
 | `list` | List all saved souls in ~/.soul/ | `soul list` |
+| `dashboard` | Open visual web dashboard | `soul dashboard .soul/` |
 
 ---
 

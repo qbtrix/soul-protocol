@@ -1,5 +1,6 @@
-<!-- Covers: CLI installation, all 7 commands (birth, inspect, status, export, migrate, retire, list)
-     with usage examples, options tables, and output descriptions. -->
+<!-- Covers: CLI installation, all 9 commands (init, birth, inspect, status, export, migrate, retire, list, dashboard)
+     with usage examples, options tables, and output descriptions.
+     Updated: Added soul init and soul dashboard commands. -->
 
 # CLI Reference
 
@@ -18,6 +19,69 @@ soul --version
 ```
 
 ## Commands
+
+### `soul init`
+
+Initialize a `.soul/` folder in the current directory. This is the recommended way to start using Soul Protocol in a project -- like `git init` for identity.
+
+```bash
+# Interactive -- prompts for name
+soul init
+
+# Provide name, archetype, and values
+soul init "Aria" --archetype "The Coding Expert" --values "creativity,precision"
+
+# Seed from an existing .soul file
+soul init --from-file aria.soul
+
+# Custom directory name (default: .soul)
+soul init "Aria" --dir .my-soul
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `NAME` | No | Soul name. If omitted, the CLI prompts interactively. |
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--archetype TEXT` | `-a` | Character archetype. Defaults to "The Companion". |
+| `--values TEXT` | `-v` | Comma-separated core values. Defaults to "curiosity,empathy,honesty". |
+| `--from-file PATH` | `-f` | Seed from an existing `.soul` file, `.yaml`, `.json`, or `.md`. |
+| `--dir PATH` | `-d` | Directory to create. Defaults to `.soul`. |
+
+**Output:** Creates a `.soul/` folder with the following structure:
+
+```
+.soul/
+├── soul.json           # Identity, DNA, config
+├── state.json          # Current mood, energy, focus, social battery
+├── dna.md              # Human-readable personality markdown
+└── memory/
+    ├── core.json       # Persona definition + human knowledge
+    ├── episodic.json   # Experience log
+    ├── semantic.json   # Extracted facts
+    ├── procedural.json # Learned patterns
+    ├── graph.json      # Knowledge graph
+    ├── self_model.json # Self-concept
+    └── general_events.json
+```
+
+If a `.soul/` folder already exists with a `soul.json`, the CLI asks for confirmation before overwriting.
+
+After initialization, all other `soul` commands work with the `.soul/` directory:
+
+```bash
+soul inspect .soul/
+soul status .soul/
+soul dashboard .soul/
+soul export .soul/ -o aria.soul
+```
+
+---
 
 ### `soul birth`
 
@@ -196,6 +260,54 @@ soul list
 **Arguments:** None.
 
 **Output:** A table of soul IDs found under `~/.soul/`. Each entry corresponds to a subdirectory containing a `soul.json` file. If no souls are found, prints a notice.
+
+---
+
+### `soul dashboard`
+
+Open a visual web dashboard for a soul. Starts a local HTTP server that displays identity, OCEAN personality, state gauges, memory browser, knowledge graph, and self-model.
+
+```bash
+# Open dashboard for .soul/ folder (default)
+soul dashboard
+
+# Open dashboard for a specific path
+soul dashboard aria.soul
+soul dashboard .soul/
+
+# Use a different port
+soul dashboard --port 8080
+
+# Don't auto-open browser
+soul dashboard --no-open
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | No | Path to `.soul` file or `.soul/` directory. Defaults to `.soul`. |
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--port INT` | `-p` | HTTP server port. Defaults to 5678. |
+| `--no-open` | | Don't automatically open the browser. |
+
+**Behavior:** The dashboard loads the soul's data (identity, DNA, state, all memory tiers, knowledge graph, self-model) and serves a single-page web application at `http://localhost:<port>`. The page features:
+
+- **Identity card** with name, archetype, DID, values, lifecycle
+- **OCEAN personality bars** with animated fills
+- **State gauges** for mood, energy, focus, and social battery
+- **Core memory viewer** (persona + human knowledge)
+- **Memory browser** with search, type filtering, and sort
+- **Knowledge graph** entity and relationship display
+- **Self-model** with confidence bars and relationship notes
+
+The dashboard uses mood-reactive accent colors -- the entire color scheme shifts based on the soul's current mood. Zero external dependencies (pure HTML/CSS/JS served via Python stdlib).
+
+Press `Ctrl+C` to stop the server.
 
 ---
 
