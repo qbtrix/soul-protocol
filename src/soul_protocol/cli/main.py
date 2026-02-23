@@ -1,4 +1,8 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: 2026-02-23 — Added --config/-c option and OCEAN trait flags
+#   (--openness, --conscientiousness, --extraversion, --agreeableness,
+#   --neuroticism) to the birth command for flexible soul configuration.
+#   Uses Soul.birth_from_config() when --config is provided.
 # Created: 2026-02-22 — Commands: birth, inspect, status, export, migrate
 
 from __future__ import annotations
@@ -26,14 +30,39 @@ def cli():
 @click.argument("name", required=False)
 @click.option("--archetype", "-a", help="Soul archetype (e.g. 'The Companion')")
 @click.option("--from-file", "-f", type=click.Path(exists=True), help="Create from soul.md/yaml/json")
+@click.option(
+    "--config", "-c", "config_file",
+    type=click.Path(exists=True),
+    help="Config YAML/JSON with full soul parameters",
+)
+@click.option("--openness", type=float, help="OCEAN openness (0.0-1.0)")
+@click.option("--conscientiousness", type=float, help="OCEAN conscientiousness (0.0-1.0)")
+@click.option("--extraversion", type=float, help="OCEAN extraversion (0.0-1.0)")
+@click.option("--agreeableness", type=float, help="OCEAN agreeableness (0.0-1.0)")
+@click.option("--neuroticism", type=float, help="OCEAN neuroticism (0.0-1.0)")
 @click.option("--output", "-o", type=click.Path(), help="Output path for .soul file")
-def birth(name, archetype, from_file, output):
-    """Birth a new Soul."""
+def birth(
+    name, archetype, from_file, config_file,
+    openness, conscientiousness, extraversion, agreeableness, neuroticism,
+    output,
+):
+    """Birth a new Soul.
+
+    Create a soul with custom personality using OCEAN trait flags,
+    a config file (--config), or an existing soul file (--from-file).
+    """
 
     async def _birth():
         from soul_protocol.soul import Soul
 
-        if from_file:
+        if config_file:
+            # Birth from a full config YAML/JSON file
+            soul = await Soul.birth_from_config(config_file)
+            console.print(
+                f"[green]Birthed[/green] [bold]{soul.name}[/bold] "
+                f"from config {config_file} ({soul.did})"
+            )
+        elif from_file:
             soul = await Soul.awaken(from_file)
             console.print(f"[green]Birthed[/green] {soul.name} from {from_file}")
         else:
@@ -44,11 +73,31 @@ def birth(name, archetype, from_file, output):
 
             archetype_input = archetype or "The Companion"
 
+            # Build ocean dict from CLI flags if any are provided
+            ocean_flags = {
+                "openness": openness,
+                "conscientiousness": conscientiousness,
+                "extraversion": extraversion,
+                "agreeableness": agreeableness,
+                "neuroticism": neuroticism,
+            }
+            ocean = {k: v for k, v in ocean_flags.items() if v is not None}
+
             soul = await Soul.birth(
                 name=name_input,
                 archetype=archetype_input,
+                ocean=ocean or None,
             )
             console.print(f"[green]Birthed[/green] [bold]{soul.name}[/bold] ({soul.did})")
+
+            # Show OCEAN values if any were customized
+            if ocean:
+                p = soul.dna.personality
+                console.print(
+                    f"[dim]OCEAN: O={p.openness:.1f} C={p.conscientiousness:.1f} "
+                    f"E={p.extraversion:.1f} A={p.agreeableness:.1f} "
+                    f"N={p.neuroticism:.1f}[/dim]"
+                )
 
         out = output or f"./{soul.name.lower()}.soul"
         await soul.export(out)
