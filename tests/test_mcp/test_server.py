@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from pathlib import Path
 
 import pytest
 from fastmcp import Client
@@ -225,16 +226,20 @@ async def test_soul_save():
     async with Client(mcp) as client:
         await _birth(client)
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "test_soul.yaml")
+            path = os.path.join(tmpdir, "test_soul")
             result = await client.call_tool(
                 "soul_save", {"path": path},
             )
             data = json.loads(result.data)
             assert data["status"] == "saved"
-            assert any(
-                f.endswith(".yaml")
-                for f in os.listdir(tmpdir)
-            )
+            # save() creates <path>/<soul_id>/ directory structure
+            save_dir = Path(path)
+            assert save_dir.is_dir()
+            soul_dirs = list(save_dir.iterdir())
+            assert len(soul_dirs) >= 1
+            # Should contain soul.json inside the soul_id subdir
+            soul_files = list(save_dir.glob("*/soul.json"))
+            assert len(soul_files) == 1
 
 
 async def test_soul_export():
@@ -374,3 +379,64 @@ async def test_prompts_without_soul():
             else content.text
         )
         assert "No soul loaded" in text
+
+
+# --- Resource Error Tests ---
+
+
+async def test_resource_without_soul_raises():
+    async with Client(mcp) as client:
+        with pytest.raises(Exception):
+            await client.read_resource("soul://identity")
+
+
+# --- Lifespan Tests ---
+
+
+async def test_lifespan_loads_soul_from_path(tmp_path):
+    """Test that SOUL_PATH env var loads a soul on startup."""
+    from soul_protocol import Soul
+
+    # Create a real .soul file
+    soul = await Soul.birth("LifespanTest", values=["testing"])
+    soul_file = tmp_path / "test.soul"
+    await soul.export(str(soul_file))
+
+    # Patch env and reset state
+    old_env = os.environ.get("SOUL_PATH")
+    os.environ["SOUL_PATH"] = str(soul_file)
+    server_module._soul = None
+    server_module._soul_path = None
+    try:
+        async with Client(mcp) as client:
+            result = await client.call_tool("soul_state", {})
+            data = json.loads(result.data)
+            assert "mood" in data
+            assert data["lifecycle"] == "active"
+    finally:
+        if old_env is None:
+            os.environ.pop("SOUL_PATH", None)
+        else:
+            os.environ["SOUL_PATH"] = old_env
+        server_module._soul = None
+        server_module._soul_path = None
+
+
+async def test_lifespan_handles_bad_path(tmp_path):
+    """Bad SOUL_PATH degrades gracefully — server starts without soul."""
+    old_env = os.environ.get("SOUL_PATH")
+    os.environ["SOUL_PATH"] = str(tmp_path / "nonexistent.soul")
+    server_module._soul = None
+    server_module._soul_path = None
+    try:
+        async with Client(mcp) as client:
+            # Server should start, but no soul loaded
+            with pytest.raises(Exception):
+                await client.call_tool("soul_state", {})
+    finally:
+        if old_env is None:
+            os.environ.pop("SOUL_PATH", None)
+        else:
+            os.environ["SOUL_PATH"] = old_env
+        server_module._soul = None
+        server_module._soul_path = None

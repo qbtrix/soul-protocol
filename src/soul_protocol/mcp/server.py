@@ -35,7 +35,21 @@ async def _lifespan(server: FastMCP):
     path = os.environ.get("SOUL_PATH")
     if path:
         _soul_path = path
-        _soul = await Soul.awaken(path)
+        try:
+            _soul = await Soul.awaken(path)
+        except (FileNotFoundError, ValueError) as e:
+            import sys
+            print(
+                f"soul-mcp: failed to load SOUL_PATH={path!r}: {e}",
+                file=sys.stderr, flush=True,
+            )
+            print(
+                "soul-mcp: starting without a soul."
+                " Call soul_birth to create one.",
+                file=sys.stderr, flush=True,
+            )
+            _soul = None
+            _soul_path = None
     yield
     _soul = None
     _soul_path = None
@@ -279,18 +293,20 @@ async def soul_prompt() -> str:
 
 @mcp.tool
 async def soul_save(path: str | None = None) -> str:
-    """Persist the soul to disk as YAML config.
+    """Persist the soul to disk. Creates a directory with config,
+    memory, and state files under <path>/<soul_id>/.
 
     Args:
-        path: File path to save to. If omitted, saves to the
-              original SOUL_PATH or ~/.soul/<soul_id>/.
+        path: Base directory to save into. If omitted, saves to
+              the original SOUL_PATH or ~/.soul/<soul_id>/.
     """
     soul = await _get_soul()
     save_path = path or _soul_path
     await soul.save(save_path)
+    default_path = str(Path.home() / ".soul" / soul.did)
     return json.dumps({
         "status": "saved",
-        "path": save_path or f"~/.soul/{soul.did}/",
+        "path": save_path or default_path,
         "name": soul.name,
     })
 
@@ -366,6 +382,8 @@ async def soul_state_resource() -> str:
 
 
 # --- Prompts (2) ---
+# Prompts return fallback text (not errors) when no soul is loaded.
+# Access _soul directly instead of _get_soul() to handle None gracefully.
 
 
 @mcp.prompt

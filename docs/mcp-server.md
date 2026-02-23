@@ -107,7 +107,7 @@ Store a memory directly, bypassing the observe pipeline.
 |-----------|------|---------|-------------|
 | `content` | `str` | required | The memory content |
 | `importance` | `int` | `5` | Importance on a 1-10 scale |
-| `memory_type` | `str` | `"semantic"` | One of: `core`, `episodic`, `semantic`, `procedural` |
+| `memory_type` | `str` | `"semantic"` | One of: `episodic`, `semantic`, `procedural`. The `core` type is rejected — use `soul://memory/core` resource to read core memory. |
 | `emotion` | `str` | `None` | Optional emotion label (e.g. "joy", "frustration") |
 
 **Returns:** JSON with `memory_id`, `type`, and `importance`.
@@ -180,11 +180,11 @@ Generate the complete system prompt for LLM injection. Includes identity, DNA, p
 
 ### `soul_save`
 
-Persist the soul to disk as a YAML config with full memory data.
+Persist the soul to disk. Creates a directory structure with config, memory, and state files.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `path` | `str` | `None` | File path. Uses the last known path if omitted. |
+| `path` | `str` | `None` | Base directory path. Creates `<path>/<soul_id>/` with soul data. Uses original `SOUL_PATH` or `~/.soul/<soul_id>/` if omitted. |
 
 **Returns:** JSON with `status` and `name`.
 

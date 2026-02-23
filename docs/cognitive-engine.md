@@ -46,7 +46,7 @@ assert isinstance(my_engine, CognitiveEngine)
 from anthropic import AsyncAnthropic
 
 class ClaudeEngine:
-    def __init__(self, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, model: str = "claude-sonnet-4-5-20250514"):
         self.client = AsyncAnthropic()
         self.model = model
 
