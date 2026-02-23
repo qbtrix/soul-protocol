@@ -1,4 +1,4 @@
-<!-- Covers: Documentation index, quick links to all guides, version info, project links -->
+<!-- Covers: Documentation index, quick links to all guides (including integrations), version info, project links -->
 
 # Soul Protocol Documentation
 
@@ -17,6 +17,7 @@ A soul remembers. A soul grows. A soul migrates.
 | [CognitiveEngine Guide](cognitive-engine.md) | Plug in any LLM, SearchStrategy, prompt templates |
 | [API Reference](api-reference.md) | Complete Soul class API, all types and models |
 | [MCP Server](mcp-server.md) | FastMCP server for agent integration -- tools, resources, prompts |
+| [Integrations](integrations.md) | Claude Code, Cursor, custom agents -- give any agent a .soul |
 | [CLI Reference](cli-reference.md) | Command-line interface for soul management |
 | [Architecture](architecture.md) | Design philosophy, psychology stack, module structure |
 
