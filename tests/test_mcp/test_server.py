@@ -1,7 +1,7 @@
 # tests.test_mcp.test_server — MCP server integration tests
 # Tests all 10 tools, 3 resources, 2 prompts using FastMCP in-memory Client
-# Updated: Tightened reflect assertion, added resource guards, export validation,
-#          birth replacement warning test, _soul_path reset
+# Updated: Enum validation, core memory guard, export validation,
+#          birth replacement warning, resource guards, lifespan
 
 from __future__ import annotations
 
@@ -30,7 +30,11 @@ def _reset_soul():
 
 
 async def _birth(client: Client, name: str = "TestBot") -> dict:
-    result = await client.call_tool("soul_birth", {"name": name, "archetype": "Test Archetype", "values": ["curiosity", "honesty"]})
+    result = await client.call_tool(
+        "soul_birth",
+        {"name": name, "archetype": "Test Archetype",
+         "values": ["curiosity", "honesty"]},
+    )
     return json.loads(result.data)
 
 
@@ -47,7 +51,9 @@ async def test_soul_birth():
 
 async def test_soul_birth_minimal():
     async with Client(mcp) as client:
-        result = await client.call_tool("soul_birth", {"name": "Minimal"})
+        result = await client.call_tool(
+            "soul_birth", {"name": "Minimal"},
+        )
         data = json.loads(result.data)
         assert data["name"] == "Minimal"
 
@@ -69,7 +75,6 @@ async def test_soul_observe():
 async def test_soul_remember_and_recall():
     async with Client(mcp) as client:
         await _birth(client)
-        # Remember
         result = await client.call_tool("soul_remember", {
             "content": "User prefers dark mode",
             "importance": 8,
@@ -79,11 +84,15 @@ async def test_soul_remember_and_recall():
         assert mem_data["type"] == "semantic"
         assert mem_data["importance"] == 8
 
-        # Recall
-        result = await client.call_tool("soul_recall", {"query": "dark mode", "limit": 5})
+        result = await client.call_tool(
+            "soul_recall", {"query": "dark mode", "limit": 5},
+        )
         data = json.loads(result.data)
         assert data["count"] >= 1
-        assert any("dark mode" in m["content"] for m in data["memories"])
+        assert any(
+            "dark mode" in m["content"]
+            for m in data["memories"]
+        )
 
 
 async def test_soul_remember_with_emotion():
@@ -98,10 +107,42 @@ async def test_soul_remember_with_emotion():
         assert "memory_id" in data
 
 
+async def test_soul_remember_rejects_core_type():
+    async with Client(mcp) as client:
+        await _birth(client)
+        with pytest.raises(Exception, match="core"):
+            await client.call_tool("soul_remember", {
+                "content": "test",
+                "memory_type": "core",
+            })
+
+
+async def test_soul_remember_rejects_invalid_type():
+    async with Client(mcp) as client:
+        await _birth(client)
+        with pytest.raises(Exception, match="Invalid memory_type"):
+            await client.call_tool("soul_remember", {
+                "content": "test",
+                "memory_type": "invalid",
+            })
+
+
+async def test_soul_remember_clamps_importance():
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool("soul_remember", {
+            "content": "test", "importance": 99,
+        })
+        data = json.loads(result.data)
+        assert data["importance"] == 10
+
+
 async def test_soul_recall_empty():
     async with Client(mcp) as client:
         await _birth(client)
-        result = await client.call_tool("soul_recall", {"query": "nonexistent topic"})
+        result = await client.call_tool(
+            "soul_recall", {"query": "nonexistent topic"},
+        )
         data = json.loads(result.data)
         assert data["count"] == 0
 
@@ -111,7 +152,6 @@ async def test_soul_reflect():
         await _birth(client)
         result = await client.call_tool("soul_reflect", {})
         data = json.loads(result.data)
-        # Without CognitiveEngine, reflect returns skipped
         assert data["status"] == "skipped"
         assert "reason" in data
 
@@ -131,8 +171,10 @@ async def test_soul_state():
 async def test_soul_feel():
     async with Client(mcp) as client:
         await _birth(client)
-        # energy is a delta, not absolute — starts at 100, -20 -> 80
-        result = await client.call_tool("soul_feel", {"mood": "curious", "energy": -20.0})
+        # energy is a delta — starts at 100, -20 -> 80
+        result = await client.call_tool(
+            "soul_feel", {"mood": "curious", "energy": -20.0},
+        )
         data = json.loads(result.data)
         assert data["mood"] == "curious"
         assert data["energy"] == 80.0
@@ -141,9 +183,32 @@ async def test_soul_feel():
 async def test_soul_feel_partial():
     async with Client(mcp) as client:
         await _birth(client)
-        result = await client.call_tool("soul_feel", {"mood": "focused"})
+        result = await client.call_tool(
+            "soul_feel", {"mood": "focused"},
+        )
         data = json.loads(result.data)
         assert data["mood"] == "focused"
+
+
+async def test_soul_feel_rejects_invalid_mood():
+    async with Client(mcp) as client:
+        await _birth(client)
+        with pytest.raises(Exception, match="Invalid mood"):
+            await client.call_tool(
+                "soul_feel", {"mood": "invalid_mood"},
+            )
+
+
+async def test_soul_feel_clamps_energy():
+    async with Client(mcp) as client:
+        await _birth(client)
+        # Extreme delta should be clamped to -100..100
+        result = await client.call_tool(
+            "soul_feel", {"energy": -1e10},
+        )
+        data = json.loads(result.data)
+        # Energy starts at 100, delta clamped to -100 -> 0
+        assert data["energy"] == 0.0
 
 
 async def test_soul_prompt():
@@ -161,26 +226,29 @@ async def test_soul_save():
         await _birth(client)
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "test_soul.yaml")
-            result = await client.call_tool("soul_save", {"path": path})
+            result = await client.call_tool(
+                "soul_save", {"path": path},
+            )
             data = json.loads(result.data)
             assert data["status"] == "saved"
-            # save_soul_full creates its own directory structure
-            assert any(f.endswith(".yaml") for f in os.listdir(tmpdir))
+            assert any(
+                f.endswith(".yaml")
+                for f in os.listdir(tmpdir)
+            )
 
 
 async def test_soul_export():
     async with Client(mcp) as client:
         await _birth(client)
-        with tempfile.NamedTemporaryFile(suffix=".soul", delete=False) as f:
-            path = f.name
-        try:
-            result = await client.call_tool("soul_export", {"path": path})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "test.soul")
+            result = await client.call_tool(
+                "soul_export", {"path": path},
+            )
             data = json.loads(result.data)
             assert data["status"] == "exported"
             assert os.path.exists(path)
             assert os.path.getsize(path) > 0
-        finally:
-            os.unlink(path)
 
 
 # --- Error Tests ---
@@ -199,6 +267,39 @@ async def test_observe_without_soul_raises_error():
                 "user_input": "hello",
                 "agent_output": "hi",
             })
+
+
+# --- Validation Tests ---
+
+
+async def test_soul_birth_replacement_warning():
+    async with Client(mcp) as client:
+        await _birth(client, "First")
+        result = await client.call_tool(
+            "soul_birth", {"name": "Second"},
+        )
+        data = json.loads(result.data)
+        assert data["name"] == "Second"
+        assert "warning" in data
+
+
+async def test_soul_export_rejects_non_soul_extension():
+    async with Client(mcp) as client:
+        await _birth(client)
+        with pytest.raises(Exception, match=r"\.soul"):
+            await client.call_tool(
+                "soul_export", {"path": "/tmp/evil.txt"},
+            )
+
+
+async def test_soul_export_rejects_missing_parent():
+    async with Client(mcp) as client:
+        await _birth(client)
+        with pytest.raises(Exception, match="Parent directory"):
+            await client.call_tool(
+                "soul_export",
+                {"path": "/nonexistent/dir/test.soul"},
+            )
 
 
 # --- Resource Tests ---
@@ -244,8 +345,10 @@ async def test_system_prompt():
         await _birth(client)
         result = await client.get_prompt("soul_system_prompt", {})
         content = result.messages[0].content
-        # Prompt content can be str or structured
-        text = content if isinstance(content, str) else content.text
+        text = (
+            content if isinstance(content, str)
+            else content.text
+        )
         assert "TestBot" in text
 
 
@@ -254,7 +357,10 @@ async def test_introduction_prompt():
         await _birth(client)
         result = await client.get_prompt("soul_introduction", {})
         content = result.messages[0].content
-        text = content if isinstance(content, str) else content.text
+        text = (
+            content if isinstance(content, str)
+            else content.text
+        )
         assert "TestBot" in text
         assert "curiosity" in text or "honesty" in text
 
@@ -263,24 +369,8 @@ async def test_prompts_without_soul():
     async with Client(mcp) as client:
         result = await client.get_prompt("soul_system_prompt", {})
         content = result.messages[0].content
-        text = content if isinstance(content, str) else content.text
+        text = (
+            content if isinstance(content, str)
+            else content.text
+        )
         assert "No soul loaded" in text
-
-
-# --- Validation Tests ---
-
-
-async def test_soul_birth_replacement_warning():
-    async with Client(mcp) as client:
-        await _birth(client, "First")
-        result = await client.call_tool("soul_birth", {"name": "Second"})
-        data = json.loads(result.data)
-        assert data["name"] == "Second"
-        assert "warning" in data
-
-
-async def test_soul_export_rejects_non_soul_extension():
-    async with Client(mcp) as client:
-        await _birth(client)
-        with pytest.raises(Exception):
-            await client.call_tool("soul_export", {"path": "/tmp/evil.txt"})
