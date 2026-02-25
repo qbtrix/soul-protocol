@@ -1,4 +1,7 @@
 # memory/self_model.py — Klein's self-concept model for digital souls.
+# Updated: 2026-02-25 — Capped per-interaction keyword expansion to 10 tokens,
+#   preferring longer (more specific) words. Prevents early domains from bloating
+#   and absorbing unrelated topics (e.g., a cooking domain swallowing music content).
 # Updated: 2026-02-23 — Emergent domain discovery replaces hardcoded domain matching.
 #   Domains now grow organically from interaction content instead of being limited
 #   to 6 predefined categories. DEFAULT_SEED_DOMAINS provides backward-compatible
@@ -40,6 +43,11 @@ STOP_WORDS: frozenset[str] = frozenset({
     "want", "get", "got", "let", "see", "say", "said", "thing", "things",
     "way", "make", "made", "use", "used", "try", "give", "take",
     "come", "look", "going", "now", "new", "one", "two",
+    # Generic action/question words that don't identify a domain
+    "start", "first", "best", "good", "great", "better", "right",
+    "whats", "dont", "doesnt", "cant", "wont", "isnt", "arent",
+    "min", "per", "always", "never", "keep", "put", "set",
+    "asked", "user", "read", "tell", "keep", "show", "run",
 })
 
 
@@ -159,11 +167,17 @@ class SelfModelManager:
 
         if best_domain and best_score >= 2:
             # Good match — reinforce existing domain and expand its vocabulary
+            # Only add tokens that co-occurred with the matching tokens (same
+            # interaction), but cap the expansion per interaction to prevent a
+            # single large domain from absorbing all future content.
             self._update_domain(best_domain, best_score)
-            # Cap keyword growth to prevent unbounded memory usage
-            merged = self._domain_keywords[best_domain] | meaningful
-            if len(merged) <= 500:
-                self._domain_keywords[best_domain] = merged
+            current_kws = self._domain_keywords[best_domain]
+            new_tokens = meaningful - current_kws
+            max_expand = 10  # limit new keywords per interaction
+            if new_tokens and len(current_kws) + min(len(new_tokens), max_expand) <= 500:
+                # Prefer longer (more specific) tokens when expanding
+                ranked_new = sorted(new_tokens, key=lambda w: -len(w))[:max_expand]
+                self._domain_keywords[best_domain] |= set(ranked_new)
         elif len(meaningful) >= 2:
             # No good match — create a new domain from content
             domain_name = self._generate_domain_name(meaningful)
