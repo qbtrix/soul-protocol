@@ -1,5 +1,5 @@
 # soul-protocol — Portable AI identity and memory
-# Updated: v0.2.1 — CognitiveEngine: LLM as first-class citizen
+# Updated: v0.2.2 — Pluggable retrieval, memory consolidation, fact conflict resolution
 
 [build-system]
 requires = ["hatchling"]
@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soul-protocol"
-version = "0.2.1"
+version = "0.2.2"
 description = "The open standard for portable AI identity and memory"
 readme = "README.md"
 license = "MIT"

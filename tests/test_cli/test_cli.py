@@ -1,4 +1,5 @@
 # test_cli.py — Tests for the CLI interface using click.testing.CliRunner.
+# Updated: v0.2.2 — Version test now checks package version dynamically.
 # Created: 2026-02-22 — Covers --version, birth, inspect, and status commands.
 
 from __future__ import annotations
@@ -16,7 +17,8 @@ def test_version():
     result = runner.invoke(cli, ["--version"])
 
     assert result.exit_code == 0
-    assert "0.1.0" in result.output
+    from soul_protocol import __version__
+    assert __version__ in result.output
 
 
 def test_birth_command(tmp_path):

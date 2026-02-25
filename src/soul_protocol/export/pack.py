@@ -1,6 +1,7 @@
 # export/pack.py — Create .soul zip archives from a SoulConfig.
-# Updated: v0.2.0 — Added self_model.json to memory/ directory in archives.
-#   Includes episodic, semantic, procedural, graph, and self_model tiers.
+# Updated: v0.2.2 — Added general_events.json to memory/ directory in archives.
+#   v0.2.0 — Added self_model.json to memory/ directory in archives.
+#   Includes episodic, semantic, procedural, graph, self_model, and general_events tiers.
 
 from __future__ import annotations
 
@@ -67,7 +68,7 @@ async def pack_soul(
 
         # Additional memory tiers (only if memory_data provided)
         if memory_data:
-            for tier_name in ["episodic", "semantic", "procedural", "graph", "self_model"]:
+            for tier_name in ["episodic", "semantic", "procedural", "graph", "self_model", "general_events"]:
                 default = {} if tier_name in ("graph", "self_model") else []
                 tier_data = memory_data.get(tier_name, default)
                 zf.writestr(

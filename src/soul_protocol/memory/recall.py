@@ -1,5 +1,6 @@
 # memory/recall.py — RecallEngine for cross-store memory retrieval.
-# Updated: v0.2.0 — Replaced flat relevance scoring with ACT-R activation-based
+# Updated: v0.2.2 — Accept optional SearchStrategy for pluggable spreading activation.
+#   v0.2.0 — Replaced flat relevance scoring with ACT-R activation-based
 #   ranking. Memories are now scored by base-level activation (recency + frequency),
 #   spreading activation (query relevance), and emotional boost (somatic markers).
 #   Access timestamps are updated on retrieval (strengthens future recall).
@@ -8,12 +9,16 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from soul_protocol.memory.activation import compute_activation
 from soul_protocol.memory.episodic import EpisodicStore
 from soul_protocol.memory.procedural import ProceduralStore
 from soul_protocol.memory.semantic import SemanticStore
 from soul_protocol.types import MemoryEntry, MemoryType
+
+if TYPE_CHECKING:
+    from soul_protocol.memory.strategy import SearchStrategy
 
 # Cap access_timestamps to prevent unbounded memory growth in long-running sessions.
 # 100 timestamps is sufficient for ACT-R power-law decay calculations.
@@ -33,10 +38,12 @@ class RecallEngine:
         episodic: EpisodicStore,
         semantic: SemanticStore,
         procedural: ProceduralStore,
+        strategy: SearchStrategy | None = None,
     ) -> None:
         self._episodic = episodic
         self._semantic = semantic
         self._procedural = procedural
+        self._strategy = strategy
 
     async def recall(
         self,
@@ -82,8 +89,11 @@ class RecallEngine:
         now = datetime.now()
 
         # Score by ACT-R activation (deterministic — no noise in recall ranking)
+        # Uses pluggable strategy for spreading activation if provided (v0.2.2)
         results.sort(
-            key=lambda e: -compute_activation(e, query, now=now, noise=False),
+            key=lambda e: -compute_activation(
+                e, query, now=now, noise=False, strategy=self._strategy
+            ),
         )
 
         # Update access metadata on retrieved entries (strengthens future recall).

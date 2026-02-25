@@ -1,5 +1,6 @@
 # memory/activation.py — ACT-R activation-based memory scoring.
-# Created: v0.2.0 — Implements Anderson's ACT-R power-law decay,
+# Updated: v0.2.2 — Accept optional SearchStrategy for pluggable spreading activation.
+#   Created: v0.2.0 — Implements Anderson's ACT-R power-law decay,
 #   spreading activation via token overlap, emotional boost from
 #   somatic markers, and stochastic noise for natural variability.
 
@@ -8,9 +9,13 @@ from __future__ import annotations
 import math
 import random
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from soul_protocol.memory.search import relevance_score
 from soul_protocol.types import MemoryEntry, SomaticMarker
+
+if TYPE_CHECKING:
+    from soul_protocol.memory.strategy import SearchStrategy
 
 
 # ---------------------------------------------------------------------------
@@ -62,20 +67,27 @@ def base_level_activation(
     return math.log(total)
 
 
-def spreading_activation(query: str, content: str) -> float:
+def spreading_activation(
+    query: str,
+    content: str,
+    strategy: SearchStrategy | None = None,
+) -> float:
     """Compute spreading activation from query context.
 
-    Reuses the existing token-overlap relevance scoring. In ACT-R terms,
-    this is the associative strength between the query (source) and the
-    memory (target).
+    Uses the provided SearchStrategy for scoring, or falls back to
+    token-overlap relevance scoring. In ACT-R terms, this is the
+    associative strength between the query (source) and the memory (target).
 
     Args:
         query: The retrieval cue (search query).
         content: The memory content to score against.
+        strategy: Optional pluggable scoring strategy (v0.2.2).
 
     Returns:
         Activation spread value (0.0 to 1.0).
     """
+    if strategy is not None:
+        return strategy.score(query, content)
     return relevance_score(query, content)
 
 
@@ -110,6 +122,7 @@ def compute_activation(
     query: str,
     now: datetime | None = None,
     noise: bool = True,
+    strategy: SearchStrategy | None = None,
 ) -> float:
     """Compute total activation for a memory entry.
 
@@ -127,6 +140,7 @@ def compute_activation(
         query: The retrieval cue.
         now: Current time (defaults to datetime.now()).
         noise: Whether to add stochastic noise (disable for deterministic tests).
+        strategy: Optional pluggable scoring strategy for spreading activation (v0.2.2).
 
     Returns:
         Total activation score (higher = more likely to be recalled).
@@ -141,8 +155,8 @@ def compute_activation(
         # Scale importance (1-10) to roughly match ACT-R range
         base = (entry.importance - 5) * 0.2  # maps 1-10 to -0.8 to 1.0
 
-    # Spreading activation from query
-    spread = spreading_activation(query, entry.content)
+    # Spreading activation from query (uses pluggable strategy if provided)
+    spread = spreading_activation(query, entry.content, strategy=strategy)
 
     # Emotional boost
     emo = emotional_boost(entry.somatic)

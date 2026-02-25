@@ -1,6 +1,8 @@
 # memory/semantic.py — SemanticStore for fact-based memories with confidence.
-# Updated: 2026-02-22 — Replaced substring search with token-overlap relevance
-# scoring via search.py. Results now sorted by relevance, importance, recency.
+# Updated: v0.2.2 — Filter superseded facts from search() and facts().
+#   Added include_superseded parameter to facts() for history access.
+#   2026-02-22 — Replaced substring search with token-overlap relevance
+#   scoring via search.py. Results now sorted by relevance, importance, recency.
 
 from __future__ import annotations
 
@@ -57,6 +59,8 @@ class SemanticStore:
         """
         scored: list[tuple[float, MemoryEntry]] = []
         for fact in self._facts.values():
+            if fact.superseded_by is not None:
+                continue
             if fact.importance < min_importance:
                 continue
             score = relevance_score(query, fact.content)
@@ -73,10 +77,18 @@ class SemanticStore:
             return True
         return False
 
-    def facts(self) -> list[MemoryEntry]:
-        """Return all semantic facts, sorted by importance descending."""
+    def facts(self, include_superseded: bool = False) -> list[MemoryEntry]:
+        """Return all semantic facts, sorted by importance descending.
+
+        Args:
+            include_superseded: If True, include facts that have been
+                superseded by newer facts. Default False.
+        """
+        facts_list = list(self._facts.values())
+        if not include_superseded:
+            facts_list = [f for f in facts_list if f.superseded_by is None]
         return sorted(
-            self._facts.values(),
+            facts_list,
             key=lambda e: (-e.importance, -e.created_at.timestamp()),
         )
 

@@ -1,5 +1,6 @@
 # storage/file.py — FileStorage backend persisting souls to the local filesystem.
-# Updated: v0.2.0 — Added self_model.json persistence alongside memory tiers.
+# Updated: v0.2.2 — Added general_events.json persistence alongside memory tiers.
+#   v0.2.0 — Added self_model.json persistence alongside memory tiers.
 #   save_soul_full/load_soul_full for full memory persistence.
 #   Atomic writes via temp directory + shutil.move.
 #   Path traversal guard on soul_id.
@@ -156,7 +157,8 @@ def _write_soul_files(soul_dir: Path, config: SoulConfig, memory_data: dict) -> 
     mem_dir.mkdir(exist_ok=True)
 
     for key, default in [("core", {}), ("episodic", []), ("semantic", []),
-                         ("procedural", []), ("graph", {}), ("self_model", {})]:
+                         ("procedural", []), ("graph", {}), ("self_model", {}),
+                         ("general_events", [])]:
         (mem_dir / f"{key}.json").write_text(
             json.dumps(memory_data.get(key, default), indent=2, default=str),
             encoding="utf-8",
@@ -214,7 +216,7 @@ async def load_soul_full(path: Path) -> tuple[SoulConfig | None, dict]:
     memory_data: dict = {}
     mem_dir = path / "memory"
     if mem_dir.exists():
-        for name in ["core", "episodic", "semantic", "procedural", "graph", "self_model"]:
+        for name in ["core", "episodic", "semantic", "procedural", "graph", "self_model", "general_events"]:
             f = mem_dir / f"{name}.json"
             if f.exists():
                 memory_data[name] = json.loads(f.read_text(encoding="utf-8"))

@@ -1,8 +1,9 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
 # Updated: v0.3.0 — Expanded birth() with ocean, communication, biorhythms,
 #   persona, and seed_domains parameters for flexible soul configuration at
-#   creation time. Added birth_from_config() classmethod to birth a soul from
-#   a YAML/JSON config file.
+#   creation time. Added birth_from_config() classmethod.
+#   v0.2.2 — Accept optional SearchStrategy for pluggable retrieval.
+#   reflect(apply=True) auto-applies consolidation. Added general_events property.
 #   v0.2.1 — Accept optional CognitiveEngine for LLM-enhanced cognition.
 #   Added reflect() method for LLM-driven memory consolidation.
 #   birth() and awaken() pass engine to MemoryManager.
@@ -16,15 +17,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .cognitive.engine import CognitiveEngine
 from typing import Any
 
+from .cognitive.engine import CognitiveEngine
+from .memory.strategy import SearchStrategy
 from .types import (
     Biorhythms,
     CommunicationStyle,
     CoreMemory,
     DNA,
     EvolutionConfig,
+    GeneralEvent,
     Identity,
     Interaction,
     LifecycleState,
@@ -54,18 +57,21 @@ class Soul:
         self,
         config: SoulConfig,
         engine: CognitiveEngine | None = None,
+        search_strategy: SearchStrategy | None = None,
     ) -> None:
         self._config = config
         self._identity = config.identity
         self._dna = config.dna
         self._lifecycle = config.lifecycle
         self._engine = engine
+        self._search_strategy = search_strategy
 
         self._memory = MemoryManager(
             core=config.core_memory,
             settings=config.memory,
             core_values=config.identity.core_values,
             engine=engine,
+            search_strategy=search_strategy,
         )
         self._state = StateManager(config.state)
         self._evolution = EvolutionManager(config.evolution)
@@ -82,6 +88,7 @@ class Soul:
         communication_style: str | None = None,
         bonded_to: str | None = None,
         engine: CognitiveEngine | None = None,
+        search_strategy: SearchStrategy | None = None,
         # v0.3.0 — Flexible configuration parameters
         ocean: dict[str, float] | None = None,
         communication: dict[str, str] | None = None,
@@ -100,6 +107,7 @@ class Soul:
             communication_style: Communication style description (legacy).
             bonded_to: Entity this soul is bonded to.
             engine: Optional CognitiveEngine for LLM-enhanced cognition.
+            search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
             ocean: OCEAN personality traits, e.g. {"openness": 0.8, ...}.
                    Unspecified traits default to 0.5.
             communication: Communication style dict, e.g. {"warmth": "high", ...}.
@@ -160,7 +168,7 @@ class Soul:
         if persona:
             config.core_memory.persona = persona
 
-        soul = cls(config, engine=engine)
+        soul = cls(config, engine=engine, search_strategy=search_strategy)
 
         # Initialize core memory
         soul._memory.set_core(
@@ -220,12 +228,14 @@ class Soul:
         cls,
         source: str | Path | bytes,
         engine: CognitiveEngine | None = None,
+        search_strategy: SearchStrategy | None = None,
     ) -> Soul:
         """Awaken a Soul from a .soul file, soul.json, soul.yaml, or soul.md.
 
         Args:
             source: Path to soul file, or raw bytes of a .soul archive.
             engine: Optional CognitiveEngine for LLM-enhanced cognition.
+            search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
         """
         memory_data: dict = {}
 
@@ -245,11 +255,15 @@ class Soul:
             elif path.suffix == ".md":
                 from .parsers.markdown import soul_from_md
 
-                return cls(await soul_from_md(path.read_text()), engine=engine)
+                return cls(
+                    await soul_from_md(path.read_text()),
+                    engine=engine,
+                    search_strategy=search_strategy,
+                )
             else:
                 raise ValueError(f"Unknown soul format: {path.suffix}")
 
-        soul = cls(config, engine=engine)
+        soul = cls(config, engine=engine, search_strategy=search_strategy)
         soul._lifecycle = LifecycleState.ACTIVE
 
         # If full memory data was included, replace the default memory manager
@@ -259,6 +273,7 @@ class Soul:
                 config.memory,
                 core_values=config.identity.core_values,
                 engine=engine,
+                search_strategy=search_strategy,
             )
 
         return soul
@@ -430,18 +445,31 @@ class Soul:
         """Edit core memory."""
         await self._memory.edit_core(persona=persona, human=human)
 
-    async def reflect(self) -> ReflectionResult | None:
-        """Trigger a reflection pass (LLM-only, no-op with heuristics).
+    async def reflect(self, *, apply: bool = True) -> ReflectionResult | None:
+        """Trigger a reflection pass with optional auto-apply.
 
         The soul reviews recent interactions, consolidates memories,
         and updates its self-understanding. Call periodically (e.g.,
         every 10-20 interactions, or at session end).
 
+        Args:
+            apply: If True (default), consolidate results into memory.
+                Summaries become semantic memories, themes create
+                GeneralEvents, self-insight updates the self-model.
+
         Returns:
             ReflectionResult with themes, summaries, and insights,
             or None if no CognitiveEngine is available.
         """
-        return await self._memory.reflect(soul_name=self.name)
+        result = await self._memory.reflect(soul_name=self.name)
+        if result is not None and apply:
+            await self._memory.consolidate(result, soul_name=self.name)
+        return result
+
+    @property
+    def general_events(self) -> list[GeneralEvent]:
+        """Access the soul's general events (Conway hierarchy)."""
+        return list(self._memory._general_events.values())
 
     # ============ State / Feelings ============
 

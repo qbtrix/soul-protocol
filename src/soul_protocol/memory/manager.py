@@ -1,5 +1,7 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
-# Updated: v0.2.1 — Integrated CognitiveProcessor for LLM-enhanced observe().
+# Updated: v0.2.2 — Added SearchStrategy support, consolidate() for reflect auto-apply,
+#   GeneralEvent storage (Conway hierarchy), fact conflict resolution via supersede.
+#   v0.2.1 — Integrated CognitiveProcessor for LLM-enhanced observe().
 #   All psychology steps now go through CognitiveProcessor which delegates to
 #   either an LLM (CognitiveEngine) or v0.2.0 heuristics (HeuristicEngine).
 #   Added reflect() method for LLM-driven memory consolidation.
@@ -12,6 +14,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -24,10 +27,12 @@ from soul_protocol.memory.episodic import EpisodicStore
 from soul_protocol.memory.graph import KnowledgeGraph
 from soul_protocol.memory.procedural import ProceduralStore
 from soul_protocol.memory.recall import RecallEngine
+from soul_protocol.memory.search import relevance_score
 from soul_protocol.memory.self_model import SelfModelManager
 from soul_protocol.memory.semantic import SemanticStore
 from soul_protocol.types import (
     CoreMemory,
+    GeneralEvent,
     Interaction,
     MemoryEntry,
     MemorySettings,
@@ -37,6 +42,7 @@ from soul_protocol.types import (
 
 if TYPE_CHECKING:
     from soul_protocol.cognitive.engine import CognitiveEngine
+    from soul_protocol.memory.strategy import SearchStrategy
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +141,15 @@ _STOP_WORDS: set[str] = {
 }
 
 
+# v0.2.2 — Precompute fact prefixes for conflict detection.
+# Each FACT_PATTERN template like "User lives in {0}" becomes prefix "User lives in".
+_FACT_PREFIXES: list[str] = [
+    template.split("{")[0].strip()
+    for _, _, template in FACT_PATTERNS
+    if "{" in template
+]
+
+
 def _clean_captured(text: str) -> str:
     """Strip whitespace and trailing punctuation from a regex capture."""
     return text.strip().rstrip(".,;:!?")
@@ -174,10 +189,12 @@ class MemoryManager:
         settings: MemorySettings,
         core_values: list[str] | None = None,
         engine: CognitiveEngine | None = None,
+        search_strategy: SearchStrategy | None = None,
     ) -> None:
         self._settings = settings
         self._core_values = core_values or []
         self._engine = engine
+        self._search_strategy = search_strategy
 
         # Initialize subsystems
         self._core_manager = CoreMemoryManager(core)
@@ -189,10 +206,14 @@ class MemoryManager:
             episodic=self._episodic,
             semantic=self._semantic,
             procedural=self._procedural,
+            strategy=search_strategy,
         )
 
         # v0.2.0 — Psychology modules
         self._self_model = SelfModelManager()
+
+        # v0.2.2 — GeneralEvent storage (Conway hierarchy)
+        self._general_events: dict[str, GeneralEvent] = {}
 
         # v0.2.1 — Cognitive processor (LLM or heuristic)
         # Lazy import to avoid circular dependency:
@@ -325,6 +346,8 @@ class MemoryManager:
         facts = await self._cognitive.extract_facts(
             interaction, self._semantic.facts()
         )
+        # v0.2.2 — Resolve fact conflicts before storing
+        await self._resolve_fact_conflicts(facts)
         for fact in facts:
             await self.add(fact)
 
@@ -562,6 +585,163 @@ class MemoryManager:
             soul_name=soul_name,
         )
 
+    # ---- Consolidation (v0.2.2) ----
+
+    async def consolidate(
+        self, result: ReflectionResult, soul_name: str = "soul"
+    ) -> dict:
+        """Apply a ReflectionResult to memory: summaries, themes, self-insight, emotions.
+
+        Called by Soul.reflect(apply=True) to actually consolidate the LLM's
+        reflection into persistent memory changes.
+
+        Args:
+            result: The ReflectionResult from reflect().
+            soul_name: The soul's name (for self-model notes).
+
+        Returns:
+            Dict summarizing what was applied:
+              - summaries: int (count of semantic memories created)
+              - general_events: int (count of GeneralEvents created/updated)
+              - self_insight: bool (whether self-model was updated)
+              - emotional_pattern: bool (whether pattern was stored)
+        """
+        applied: dict = {
+            "summaries": 0,
+            "general_events": 0,
+            "self_insight": False,
+            "emotional_pattern": False,
+        }
+
+        # 1. Summaries → semantic memories
+        for summary in result.summaries:
+            content = summary.get("summary", "")
+            if content:
+                importance = min(10, max(1, int(summary.get("importance", 5))))
+                await self.add(
+                    MemoryEntry(
+                        type=MemoryType.SEMANTIC,
+                        content=content,
+                        importance=importance,
+                    )
+                )
+                applied["summaries"] += 1
+
+        # 2. Themes → GeneralEvents (Conway hierarchy)
+        for theme in result.themes:
+            if theme:
+                await self._create_or_update_general_event(theme)
+                applied["general_events"] += 1
+
+        # 3. Self-insight → self-model
+        if result.self_insight:
+            self._self_model._relationship_notes["self_insight"] = result.self_insight
+            applied["self_insight"] = True
+
+        # 4. Emotional patterns → semantic memory
+        if result.emotional_patterns:
+            await self.add(
+                MemoryEntry(
+                    type=MemoryType.SEMANTIC,
+                    content=f"Emotional pattern: {result.emotional_patterns}",
+                    importance=6,
+                )
+            )
+            applied["emotional_pattern"] = True
+
+        return applied
+
+    async def _create_or_update_general_event(self, theme: str) -> str:
+        """Create or update a GeneralEvent for a theme and link matching episodes.
+
+        If an event with this theme already exists, it is updated. Otherwise
+        a new GeneralEvent is created. Episodes matching the theme (by
+        token-overlap > 0.3) are linked via their general_event_id field.
+
+        Args:
+            theme: The theme string for the general event.
+
+        Returns:
+            The GeneralEvent ID.
+        """
+        # Find existing event with matching theme, or create new
+        existing = next(
+            (ge for ge in self._general_events.values() if ge.theme == theme),
+            None,
+        )
+
+        if existing:
+            event = existing
+        else:
+            event_id = uuid.uuid4().hex[:12]
+            event = GeneralEvent(
+                id=event_id,
+                theme=theme,
+                started_at=datetime.now(),
+                last_updated=datetime.now(),
+            )
+            self._general_events[event_id] = event
+
+        # Link episodes that match this theme
+        for entry in self._episodic.entries():
+            if entry.general_event_id:
+                continue  # already grouped
+            score = relevance_score(theme, entry.content)
+            if score > 0.3:
+                entry.general_event_id = event.id
+                if entry.id not in event.episode_ids:
+                    event.episode_ids.append(entry.id)
+
+        event.last_updated = datetime.now()
+        return event.id
+
+    # ---- Fact conflict resolution (v0.2.2) ----
+
+    def _find_conflict(
+        self, new_content: str, existing_facts: list[MemoryEntry]
+    ) -> MemoryEntry | None:
+        """Find an existing fact that the new content contradicts.
+
+        Uses template prefix matching: if two facts share the same prefix
+        (e.g., "User lives in") but differ in value, they conflict.
+
+        Args:
+            new_content: The content of the new fact.
+            existing_facts: List of existing semantic facts.
+
+        Returns:
+            The conflicting MemoryEntry, or None.
+        """
+        for prefix in _FACT_PREFIXES:
+            if new_content.startswith(prefix):
+                for fact in existing_facts:
+                    if fact.superseded_by is not None:
+                        continue
+                    if fact.content.startswith(prefix) and fact.content != new_content:
+                        return fact
+        return None
+
+    async def _resolve_fact_conflicts(
+        self, new_facts: list[MemoryEntry]
+    ) -> list[MemoryEntry]:
+        """Detect and resolve conflicting facts before storage.
+
+        Marks old conflicting facts as superseded by the new fact.
+
+        Args:
+            new_facts: List of newly extracted facts (not yet stored).
+
+        Returns:
+            The same list of new facts (unmodified — conflicts are resolved
+            by marking old facts, not by removing new ones).
+        """
+        existing = self._semantic.facts()
+        for fact in new_facts:
+            conflict = self._find_conflict(fact.content, existing)
+            if conflict:
+                conflict.superseded_by = fact.id or "new"
+        return new_facts
+
     # ---- Lifecycle ----
 
     async def clear(self) -> None:
@@ -574,12 +754,14 @@ class MemoryManager:
         self._semantic = SemanticStore(max_facts=self._settings.semantic_max_facts)
         self._procedural = ProceduralStore()
         self._graph = KnowledgeGraph()
+        self._general_events = {}
 
         # Rebuild recall engine with new stores
         self._recall_engine = RecallEngine(
             episodic=self._episodic,
             semantic=self._semantic,
             procedural=self._procedural,
+            strategy=self._search_strategy,
         )
 
     @property
@@ -593,7 +775,7 @@ class MemoryManager:
         """Serialize the entire memory state to a plain dict.
 
         Includes core memory, all store entries, the knowledge graph,
-        and the self-model.
+        the self-model, and general events.
         """
         return {
             "core": self._core_manager.get().model_dump(),
@@ -601,7 +783,8 @@ class MemoryManager:
                 entry.model_dump(mode="json") for entry in self._episodic.entries()
             ],
             "semantic": [
-                fact.model_dump(mode="json") for fact in self._semantic.facts()
+                fact.model_dump(mode="json")
+                for fact in self._semantic.facts(include_superseded=True)
             ],
             "procedural": [
                 proc.model_dump(mode="json")
@@ -609,6 +792,10 @@ class MemoryManager:
             ],
             "graph": self._graph.to_dict(),
             "self_model": self._self_model.to_dict(),
+            "general_events": [
+                ge.model_dump(mode="json")
+                for ge in self._general_events.values()
+            ],
         }
 
     @classmethod
@@ -618,6 +805,7 @@ class MemoryManager:
         settings: MemorySettings,
         core_values: list[str] | None = None,
         engine: CognitiveEngine | None = None,
+        search_strategy: SearchStrategy | None = None,
     ) -> MemoryManager:
         """Deserialize memory state from a plain dict.
 
@@ -626,6 +814,7 @@ class MemoryManager:
             settings: MemorySettings to configure the new manager.
             core_values: Core values for significance scoring.
             engine: Optional CognitiveEngine for LLM-enhanced processing.
+            search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
 
         Returns:
             A fully reconstituted MemoryManager.
@@ -634,7 +823,13 @@ class MemoryManager:
         core_data = data.get("core", {})
         core = CoreMemory(**core_data)
 
-        manager = cls(core=core, settings=settings, core_values=core_values, engine=engine)
+        manager = cls(
+            core=core,
+            settings=settings,
+            core_values=core_values,
+            engine=engine,
+            search_strategy=search_strategy,
+        )
 
         # Restore episodic memories
         for entry_data in data.get("episodic", []):
@@ -660,5 +855,10 @@ class MemoryManager:
         self_model_data = data.get("self_model", {})
         if self_model_data:
             manager._self_model = SelfModelManager.from_dict(self_model_data)
+
+        # Restore general events (v0.2.2)
+        for ge_data in data.get("general_events", []):
+            ge = GeneralEvent.model_validate(ge_data)
+            manager._general_events[ge.id] = ge
 
         return manager

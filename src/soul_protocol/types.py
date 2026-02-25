@@ -1,5 +1,6 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
-# Updated: v0.2.1 — Added ReflectionResult for CognitiveEngine reflection output.
+# Updated: v0.2.2 — Added superseded_by field to MemoryEntry for fact conflict resolution.
+#   v0.2.1 — Added ReflectionResult for CognitiveEngine reflection output.
 #   v0.2.0 — Added SomaticMarker, SignificanceScore, GeneralEvent, SelfImage
 #   for psychology-informed memory. Extended MemoryEntry with somatic markers,
 #   access_timestamps, significance, and general_event_id fields.
@@ -160,6 +161,8 @@ class MemoryEntry(BaseModel):
     access_timestamps: list[datetime] = Field(default_factory=list)
     significance: float = 0.0
     general_event_id: str | None = None
+    # v0.2.2 — Fact conflict resolution
+    superseded_by: str | None = None
 
 
 class CoreMemory(BaseModel):
