@@ -1,4 +1,6 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: v0.3.1 — Wired seed_domains through Soul.__init__() → MemoryManager
+#   → SelfModelManager. Custom seed domains now replace default bootstrapping.
 # Updated: v0.3.0 — Expanded birth() with ocean, communication, biorhythms,
 #   persona, and seed_domains parameters for flexible soul configuration at
 #   creation time. Added birth_from_config() classmethod.
@@ -57,6 +59,7 @@ class Soul:
         config: SoulConfig,
         engine: CognitiveEngine | None = None,
         search_strategy: SearchStrategy | None = None,
+        seed_domains: dict[str, list[str]] | None = None,
     ) -> None:
         self._config = config
         self._identity = config.identity
@@ -71,6 +74,7 @@ class Soul:
             core_values=config.identity.core_values,
             engine=engine,
             search_strategy=search_strategy,
+            seed_domains=seed_domains,
         )
         self._state = StateManager(config.state)
         self._evolution = EvolutionManager(config.evolution)
@@ -115,9 +119,9 @@ class Soul:
                         Unspecified fields keep model defaults.
             persona: Core memory persona text. If provided, overrides the
                      personality parameter for core memory initialization.
-            seed_domains: Not yet wired through to the self-model.
-                          Accepted for forward compatibility but currently
-                          ignored. Will configure seed domains in a future release.
+            seed_domains: Custom seed domains for the self-model, e.g.
+                          {"cooking": ["recipe", "bake", ...]}. Replaces
+                          the default 6 bootstrapping domains.
             **kwargs: Additional arguments (reserved for future use).
         """
         identity = Identity(
@@ -163,7 +167,12 @@ class Soul:
         # Use explicit persona text, fall back to personality, fall back to default
         persona_text = persona or personality or f"I am {name}."
 
-        soul = cls(config, engine=engine, search_strategy=search_strategy)
+        soul = cls(
+            config,
+            engine=engine,
+            search_strategy=search_strategy,
+            seed_domains=seed_domains,
+        )
 
         # Initialize core memory
         soul._memory.set_core(

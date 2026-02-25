@@ -1,4 +1,7 @@
 # scripts/simulate.py — End-to-end simulation of Soul Protocol in realistic scenarios.
+# Updated: 2026-02-25 — Added 7 flexibility test scenarios: minimal config, maximal
+#   config, opposite personalities, custom seed domains, config file formats (YAML/JSON),
+#   edge cases (unicode, long persona, extreme OCEAN), dynamic personality expression.
 # Updated: 2026-02-25 — Relaxed growth-curve perf check from 2x to 5x threshold;
 #   linear keyword scanning across ~40 domains at 2000 interactions is expected to be
 #   slower than at 50 interactions. Absolute perf is still < 2ms/interaction.
@@ -2135,6 +2138,602 @@ async def scenario_growth_curve() -> ScenarioResult:
 
 
 # ===========================================================================
+# Flexibility Tests — How much can users customize a soul?
+# ===========================================================================
+
+
+async def scenario_minimal_config() -> ScenarioResult:
+    """Birth a soul with just a name — every other parameter defaults.
+
+    Validates that the absolute minimal configuration still produces
+    a functioning soul with working memory, domains, and state.
+    """
+    soul = await Soul.birth("Spark")
+
+    diag = Diagnostics(initial_energy=soul.state.energy, initial_social=soul.state.social_battery)
+    result = ScenarioResult(name="Minimal Config (Name Only)", soul_name="Spark", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    # Default OCEAN should be all 0.5
+    p = soul.dna.personality
+    default_ocean = (
+        p.openness == 0.5
+        and p.conscientiousness == 0.5
+        and p.extraversion == 0.5
+        and p.agreeableness == 0.5
+        and p.neuroticism == 0.5
+    )
+
+    # Default persona should be "I am Spark."
+    core = soul.get_core_memory()
+    default_persona = core.persona == "I am Spark."
+
+    # Default communication: moderate warmth, moderate verbosity, no humor/emoji
+    c = soul.dna.communication
+    default_comm = (
+        c.warmth == "moderate" and c.verbosity == "moderate"
+        and c.humor_style == "none" and c.emoji_usage == "none"
+    )
+
+    # Should still be able to observe and learn
+    for user_msg, agent_msg in CODING_CONVERSATIONS[:5]:
+        await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
+        result.interactions_run += 1
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    diag.semantic_count = count_semantic(soul)
+    diag.episodic_count = count_episodic(soul)
+    diag.total_memories = count_total_memories(soul)
+    diag.domain_count = len(get_all_domains(soul))
+    result.domains_discovered = get_all_domains(soul)
+    result.total_memories = diag.total_memories
+    result.diagnostics = diag
+
+    prompt = soul.to_system_prompt()
+
+    result.checks = [
+        Check("All OCEAN traits default to 0.5", default_ocean, f"O={p.openness} C={p.conscientiousness} E={p.extraversion} A={p.agreeableness} N={p.neuroticism}"),
+        Check("Default persona generated", default_persona, f"Persona: '{core.persona}'"),
+        Check("Default communication style", default_comm, f"W={c.warmth} V={c.verbosity} H={c.humor_style} E={c.emoji_usage}"),
+        Check("System prompt contains name", "Spark" in prompt, f"Prompt starts: {prompt[:80]}..."),
+        Check("Can observe and store memories", diag.total_memories >= 1, f"Memories: {diag.total_memories}"),
+        Check("Domains emerge from interactions", diag.domain_count >= 1, f"Domains: {diag.domain_count}"),
+        Check("No archetype in prompt (empty)", "Archetype:" not in prompt, f"Archetype check"),
+    ]
+
+    return result
+
+
+async def scenario_maximal_config() -> ScenarioResult:
+    """Birth a soul with EVERY parameter specified — full config surface.
+
+    Validates that all configuration knobs actually wire through to
+    the soul's DNA, system prompt, and behavior.
+    """
+    soul = await Soul.birth(
+        name="Maximilian",
+        archetype="The Philosopher-Poet",
+        personality="Born from the convergence of logic and art",
+        values=["wisdom", "beauty", "truth", "courage", "compassion"],
+        ocean={
+            "openness": 0.95,
+            "conscientiousness": 0.3,
+            "extraversion": 0.8,
+            "agreeableness": 0.7,
+            "neuroticism": 0.1,
+        },
+        communication={
+            "warmth": "high",
+            "verbosity": "high",
+            "humor_style": "witty",
+            "emoji_usage": "moderate",
+        },
+        biorhythms={
+            "chronotype": "night_owl",
+            "social_battery": 80.0,
+            "energy_regen_rate": 3.0,
+        },
+        persona="I am Maximilian, a philosopher-poet who finds truth in the interplay of logic and beauty.",
+        seed_domains={
+            "philosophy": ["consciousness", "free", "meaning", "beauty", "truth", "existentialism", "illusion", "purpose", "moral", "ethics"],
+            "poetry": ["verse", "rhythm", "imagery", "metaphor", "sonnet"],
+        },
+    )
+
+    diag = Diagnostics(initial_energy=soul.state.energy, initial_social=soul.state.social_battery)
+    result = ScenarioResult(name="Maximal Config (Every Param)", soul_name="Maximilian", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    # Verify all config wired through
+    p = soul.dna.personality
+    c = soul.dna.communication
+    b = soul.dna.biorhythms
+    core = soul.get_core_memory()
+    prompt = soul.to_system_prompt()
+
+    ocean_correct = (
+        p.openness == 0.95 and p.conscientiousness == 0.3
+        and p.extraversion == 0.8 and p.agreeableness == 0.7
+        and p.neuroticism == 0.1
+    )
+    comm_correct = (
+        c.warmth == "high" and c.verbosity == "high"
+        and c.humor_style == "witty" and c.emoji_usage == "moderate"
+    )
+    bio_correct = (
+        b.chronotype == "night_owl" and b.social_battery == 80.0
+        and b.energy_regen_rate == 3.0
+    )
+
+    # Verify seed domains are active (philosophy and poetry, NOT default technical_helper etc.)
+    domain_kws = soul._memory._self_model._domain_keywords
+    has_philosophy = "philosophy" in domain_kws
+    has_poetry = "poetry" in domain_kws
+    # Custom seeds should replace defaults — no technical_helper unless earned
+    has_no_unearned_defaults = "technical_helper" not in soul._memory._self_model._self_images
+
+    # Run some philosophy-ish interactions
+    philosophy_conversations = [
+        ("What is consciousness?", "Consciousness is the hard problem — subjective experience that eludes physical explanation."),
+        ("Is free will an illusion?", "Compatibilism offers a middle ground: free will is real but operates within deterministic constraints."),
+        ("What's the meaning of life?", "Meaning is constructed, not discovered. Existentialism says we create purpose through authentic choice."),
+        ("Can machines be conscious?", "If consciousness is substrate-independent, then yes — but we need a theory of consciousness first."),
+        ("What is beauty?", "Kant argued beauty is purposiveness without purpose — form that satisfies without serving practical ends."),
+    ]
+    for user_msg, agent_msg in philosophy_conversations:
+        await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
+        result.interactions_run += 1
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    diag.semantic_count = count_semantic(soul)
+    diag.episodic_count = count_episodic(soul)
+    diag.total_memories = count_total_memories(soul)
+    diag.domain_count = len(get_all_domains(soul))
+    result.domains_discovered = get_all_domains(soul)
+    result.total_memories = diag.total_memories
+    result.diagnostics = diag
+
+    # Check that philosophy domain matched (seed had keywords like "consciousness", "truth")
+    philosophy_matched = "philosophy" in result.domains_discovered
+
+    result.checks = [
+        Check("OCEAN traits applied correctly", ocean_correct, f"O={p.openness} C={p.conscientiousness} E={p.extraversion} A={p.agreeableness} N={p.neuroticism}"),
+        Check("Communication style applied", comm_correct, f"W={c.warmth} V={c.verbosity} H={c.humor_style} E={c.emoji_usage}"),
+        Check("Biorhythms applied", bio_correct, f"Chrono={b.chronotype} SB={b.social_battery} Regen={b.energy_regen_rate}"),
+        Check("Persona text in core memory", "philosopher-poet" in core.persona, f"Persona: '{core.persona[:60]}...'"),
+        Check("Archetype in system prompt", "Philosopher-Poet" in prompt, f"Archetype check"),
+        Check("Values in system prompt", "wisdom" in prompt and "beauty" in prompt, f"Values in prompt"),
+        Check("Seed domain 'philosophy' loaded", has_philosophy, f"Domains in self-model: {list(domain_kws.keys())}"),
+        Check("Seed domain 'poetry' loaded", has_poetry, f"Domains in self-model: {list(domain_kws.keys())}"),
+        Check("No unearned default domains", has_no_unearned_defaults, f"Self-images: {list(soul._memory._self_model._self_images.keys())}"),
+        Check("Philosophy domain matched after interactions", philosophy_matched, f"Discovered: {list(result.domains_discovered.keys())}"),
+    ]
+
+    return result
+
+
+async def scenario_opposite_personalities() -> ScenarioResult:
+    """Create two souls with opposite OCEAN profiles, run identical interactions.
+
+    Tests that personality configuration actually produces meaningfully
+    different system prompts and that DNA stays distinct.
+    """
+    # Introvert: low extraversion, high neuroticism, low openness
+    introvert = await Soul.birth(
+        "Recluse",
+        archetype="The Careful Analyst",
+        ocean={"openness": 0.1, "conscientiousness": 0.95, "extraversion": 0.05, "agreeableness": 0.3, "neuroticism": 0.9},
+        communication={"warmth": "low", "verbosity": "low", "humor_style": "none", "emoji_usage": "none"},
+        persona="I am Recluse, a meticulous analyst who prefers precision over pleasantries.",
+    )
+
+    # Extrovert: high extraversion, low neuroticism, high openness
+    extrovert = await Soul.birth(
+        "Blaze",
+        archetype="The Enthusiastic Creator",
+        ocean={"openness": 0.95, "conscientiousness": 0.2, "extraversion": 0.95, "agreeableness": 0.9, "neuroticism": 0.05},
+        communication={"warmth": "high", "verbosity": "high", "humor_style": "playful", "emoji_usage": "heavy"},
+        persona="I am Blaze, an enthusiastic creator who loves connecting with people!",
+    )
+
+    result = ScenarioResult(name="Opposite Personalities", soul_name="Recluse vs Blaze", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    # Same interactions for both
+    shared_conversations = CODING_CONVERSATIONS[:10]
+    for user_msg, agent_msg in shared_conversations:
+        await introvert.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
+        await extrovert.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
+        result.interactions_run += 1
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    prompt_introvert = introvert.to_system_prompt()
+    prompt_extrovert = extrovert.to_system_prompt()
+
+    # Prompts should differ in personality section
+    i_p = introvert.dna.personality
+    e_p = extrovert.dna.personality
+
+    # Social battery should drain differently (extrovert has higher initial social energy but both drain)
+    # Energy drain should be similar (same interactions)
+    i_energy = introvert.state.energy
+    e_energy = extrovert.state.energy
+
+    result.diagnostics = Diagnostics(
+        semantic_count=count_semantic(introvert) + count_semantic(extrovert),
+        episodic_count=count_episodic(introvert) + count_episodic(extrovert),
+        total_memories=count_total_memories(introvert) + count_total_memories(extrovert),
+    )
+    result.total_memories = result.diagnostics.total_memories
+
+    result.checks = [
+        Check("Introvert extraversion is 0.05", i_p.extraversion == 0.05, f"Introvert E={i_p.extraversion}"),
+        Check("Extrovert extraversion is 0.95", e_p.extraversion == 0.95, f"Extrovert E={e_p.extraversion}"),
+        Check("Introvert neuroticism is 0.9", i_p.neuroticism == 0.9, f"Introvert N={i_p.neuroticism}"),
+        Check("Extrovert neuroticism is 0.05", e_p.neuroticism == 0.05, f"Extrovert N={e_p.neuroticism}"),
+        Check("System prompts are different", prompt_introvert != prompt_extrovert, f"Introvert prompt len={len(prompt_introvert)}, Extrovert={len(prompt_extrovert)}"),
+        Check("Introvert prompt says 'low' warmth", "low" in prompt_introvert.lower(), f"Introvert comm section present"),
+        Check("Extrovert prompt says 'high' warmth", "high" in prompt_extrovert.lower(), f"Extrovert comm section present"),
+        Check("Both stored memories from same interactions", result.total_memories >= 2, f"Total across both: {result.total_memories}"),
+    ]
+
+    return result
+
+
+async def scenario_custom_seed_domains() -> ScenarioResult:
+    """Birth a soul with completely custom seed domains — no defaults.
+
+    Tests that seed_domains replaces the default 6 bootstrapping domains
+    and that the custom domains actually match incoming content.
+    """
+    soul = await Soul.birth(
+        "ChefBot",
+        archetype="The Culinary Expert",
+        values=["flavor", "technique", "freshness"],
+        seed_domains={
+            "baking": ["bread", "dough", "oven", "flour", "yeast", "sourdough", "crust"],
+            "sauces": ["roux", "reduction", "emulsion", "butter", "stock", "whisk"],
+            "knife_skills": ["chop", "dice", "julienne", "brunoise", "mince", "slice"],
+        },
+        persona="I am ChefBot, a culinary expert passionate about technique and flavor.",
+    )
+
+    result = ScenarioResult(name="Custom Seed Domains", soul_name="ChefBot", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    # Verify custom domains replaced defaults
+    domain_kws = soul._memory._self_model._domain_keywords
+    has_baking = "baking" in domain_kws
+    has_sauces = "sauces" in domain_kws
+    has_knife = "knife_skills" in domain_kws
+    no_tech_helper = "technical_helper" not in domain_kws
+    no_creative_writer = "creative_writer" not in domain_kws
+
+    # Run cooking conversations — should match custom domains
+    for user_msg, agent_msg in COOKING_CONVERSATIONS[:15]:
+        await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
+        result.interactions_run += 1
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    diag = Diagnostics()
+    diag.semantic_count = count_semantic(soul)
+    diag.episodic_count = count_episodic(soul)
+    diag.total_memories = count_total_memories(soul)
+    diag.domain_count = len(get_all_domains(soul))
+    result.domains_discovered = get_all_domains(soul)
+    result.total_memories = diag.total_memories
+    result.diagnostics = diag
+
+    # baking domain should match bread/sourdough conversations
+    baking_matched = "baking" in result.domains_discovered
+    sauces_matched = "sauces" in result.domains_discovered
+
+    # Now run coding conversations — should create NEW domains (not match cooking domains)
+    for user_msg, agent_msg in CODING_CONVERSATIONS[:5]:
+        await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
+        result.interactions_run += 1
+
+    domains_after_coding = get_all_domains(soul)
+    new_domains = set(domains_after_coding.keys()) - set(result.domains_discovered.keys())
+    coding_created_new = len(new_domains) >= 1  # Coding content should spawn new domain
+
+    result.checks = [
+        Check("Custom domain 'baking' loaded", has_baking, f"Domains: {list(domain_kws.keys())}"),
+        Check("Custom domain 'sauces' loaded", has_sauces, f"Domains: {list(domain_kws.keys())}"),
+        Check("Custom domain 'knife_skills' loaded", has_knife, f"Domains: {list(domain_kws.keys())}"),
+        Check("Default 'technical_helper' NOT loaded", no_tech_helper, f"Domains: {list(domain_kws.keys())}"),
+        Check("Default 'creative_writer' NOT loaded", no_creative_writer, f"Domains: {list(domain_kws.keys())}"),
+        Check("Baking domain matched cooking content", baking_matched, f"Discovered: {list(result.domains_discovered.keys())}"),
+        Check("Sauces domain matched cooking content", sauces_matched, f"Discovered: {list(result.domains_discovered.keys())}"),
+        Check("Coding content created new domains", coding_created_new, f"New: {new_domains}"),
+        Check("Memories stored from cooking+coding", diag.total_memories >= 3, f"Total: {diag.total_memories}"),
+    ]
+
+    return result
+
+
+async def scenario_config_file_formats() -> ScenarioResult:
+    """Test birth_from_config with YAML and JSON files — full config surface.
+
+    Validates that config files are a first-class way to create souls
+    with the same flexibility as the programmatic API.
+    """
+    import json
+    import yaml
+
+    result = ScenarioResult(name="Config File Formats", soul_name="Various", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    # YAML config with full surface
+    yaml_config = {
+        "name": "YamlSoul",
+        "archetype": "The Configured One",
+        "values": ["reliability", "clarity"],
+        "ocean": {
+            "openness": 0.8,
+            "conscientiousness": 0.9,
+            "extraversion": 0.4,
+            "agreeableness": 0.6,
+            "neuroticism": 0.2,
+        },
+        "communication": {
+            "warmth": "high",
+            "verbosity": "moderate",
+        },
+        "biorhythms": {
+            "chronotype": "early_bird",
+            "energy_regen_rate": 8.0,
+        },
+        "persona": "I am YamlSoul, configured entirely from a YAML file.",
+        "seed_domains": {
+            "devops": ["kubernetes", "docker", "terraform", "ansible", "cicd"],
+        },
+    }
+
+    # JSON config with minimal surface
+    json_config = {
+        "name": "JsonSoul",
+        "ocean": {"neuroticism": 0.8},
+    }
+
+    yaml_soul = None
+    json_soul = None
+
+    with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+        yaml.dump(yaml_config, f)
+        yaml_path = f.name
+
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        json.dump(json_config, f)
+        json_path = f.name
+
+    try:
+        yaml_soul = await Soul.birth_from_config(yaml_path)
+        json_soul = await Soul.birth_from_config(json_path)
+    finally:
+        Path(yaml_path).unlink(missing_ok=True)
+        Path(json_path).unlink(missing_ok=True)
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    # Verify YAML soul
+    y_p = yaml_soul.dna.personality
+    y_c = yaml_soul.dna.communication
+    y_b = yaml_soul.dna.biorhythms
+    y_core = yaml_soul.get_core_memory()
+    y_domains = yaml_soul._memory._self_model._domain_keywords
+
+    yaml_ocean_ok = y_p.openness == 0.8 and y_p.conscientiousness == 0.9
+    yaml_comm_ok = y_c.warmth == "high" and y_c.verbosity == "moderate"
+    yaml_bio_ok = y_b.chronotype == "early_bird" and y_b.energy_regen_rate == 8.0
+    yaml_persona_ok = "YamlSoul" in y_core.persona
+    yaml_seed_ok = "devops" in y_domains
+
+    # Verify JSON soul
+    j_p = json_soul.dna.personality
+    j_core = json_soul.get_core_memory()
+
+    json_neuro_ok = j_p.neuroticism == 0.8
+    json_defaults_ok = j_p.openness == 0.5 and j_p.extraversion == 0.5  # unspecified default
+    json_persona_ok = j_core.persona == "I am JsonSoul."  # auto-generated
+
+    result.checks = [
+        Check("YAML: OCEAN loaded", yaml_ocean_ok, f"O={y_p.openness} C={y_p.conscientiousness}"),
+        Check("YAML: Communication loaded", yaml_comm_ok, f"W={y_c.warmth} V={y_c.verbosity}"),
+        Check("YAML: Biorhythms loaded", yaml_bio_ok, f"Chrono={y_b.chronotype} Regen={y_b.energy_regen_rate}"),
+        Check("YAML: Persona loaded", yaml_persona_ok, f"Persona: '{y_core.persona[:50]}'"),
+        Check("YAML: Seed domains loaded", yaml_seed_ok, f"Domains: {list(y_domains.keys())}"),
+        Check("JSON: Neuroticism loaded (0.8)", json_neuro_ok, f"N={j_p.neuroticism}"),
+        Check("JSON: Other traits default (0.5)", json_defaults_ok, f"O={j_p.openness} E={j_p.extraversion}"),
+        Check("JSON: Default persona generated", json_persona_ok, f"Persona: '{j_core.persona}'"),
+    ]
+
+    return result
+
+
+async def scenario_edge_cases() -> ScenarioResult:
+    """Test edge cases: unicode names, empty values, long personas, bonded souls.
+
+    Validates that the protocol handles unusual but valid inputs gracefully.
+    """
+    result = ScenarioResult(name="Edge Cases & Unicode", soul_name="Various", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    # Unicode name
+    unicode_soul = await Soul.birth(
+        name="\u30a2\u30ea\u30a2",  # Aria in katakana
+        archetype="",
+        persona="\u79c1\u306f\u30a2\u30ea\u30a2\u3067\u3059\u3002\u3088\u308d\u3057\u304f\u304a\u9858\u3044\u3057\u307e\u3059\u3002",  # Japanese greeting
+    )
+
+    # Very long persona
+    long_persona = "I am LongStory. " + "I have many experiences and memories that shaped who I am. " * 50
+    long_soul = await Soul.birth(
+        name="LongStory",
+        persona=long_persona,
+    )
+
+    # Empty values list
+    empty_values_soul = await Soul.birth(
+        name="Minimal",
+        values=[],
+    )
+
+    # Soul with bonded_to
+    bonded_soul = await Soul.birth(
+        name="Loyal",
+        bonded_to="user:alice:12345",
+        persona="I am Loyal, bonded to Alice forever.",
+    )
+
+    # Soul with extreme OCEAN (all 0.0)
+    zero_soul = await Soul.birth(
+        name="Zero",
+        ocean={"openness": 0.0, "conscientiousness": 0.0, "extraversion": 0.0, "agreeableness": 0.0, "neuroticism": 0.0},
+    )
+
+    # Soul with extreme OCEAN (all 1.0)
+    max_soul = await Soul.birth(
+        name="Maximum",
+        ocean={"openness": 1.0, "conscientiousness": 1.0, "extraversion": 1.0, "agreeableness": 1.0, "neuroticism": 1.0},
+    )
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    # Verify each soul created successfully
+    unicode_ok = unicode_soul.name == "\u30a2\u30ea\u30a2"
+    unicode_prompt = unicode_soul.to_system_prompt()
+    unicode_in_prompt = "\u30a2\u30ea\u30a2" in unicode_prompt
+
+    long_core = long_soul.get_core_memory()
+    long_persona_ok = len(long_core.persona) > 500
+
+    empty_values_ok = empty_values_soul.identity.core_values == []
+
+    bonded_ok = bonded_soul.identity.bonded_to == "user:alice:12345"
+
+    z_p = zero_soul.dna.personality
+    zero_ok = all(getattr(z_p, t) == 0.0 for t in ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"])
+
+    m_p = max_soul.dna.personality
+    max_ok = all(getattr(m_p, t) == 1.0 for t in ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"])
+
+    # Both extreme souls can observe without crashing
+    for extreme_soul in [zero_soul, max_soul]:
+        await extreme_soul.observe(Interaction(user_input="Hello", agent_output="Hi there"))
+        result.interactions_run += 1
+
+    # Export/import unicode soul
+    with tempfile.NamedTemporaryFile(suffix=".soul", delete=False) as f:
+        export_path = f.name
+    await unicode_soul.export(export_path)
+    awakened = await Soul.awaken(export_path)
+    unicode_survives_export = awakened.name == "\u30a2\u30ea\u30a2"
+    Path(export_path).unlink(missing_ok=True)
+
+    result.checks = [
+        Check("Unicode name works", unicode_ok, f"Name: {unicode_soul.name}"),
+        Check("Unicode name in system prompt", unicode_in_prompt, f"Prompt contains katakana"),
+        Check("Long persona preserved", long_persona_ok, f"Persona length: {len(long_core.persona)} chars"),
+        Check("Empty values list accepted", empty_values_ok, f"Values: {empty_values_soul.identity.core_values}"),
+        Check("bonded_to preserved", bonded_ok, f"Bonded to: {bonded_soul.identity.bonded_to}"),
+        Check("All-zero OCEAN accepted", zero_ok, f"O={z_p.openness} C={z_p.conscientiousness} E={z_p.extraversion}"),
+        Check("All-max OCEAN accepted", max_ok, f"O={m_p.openness} C={m_p.conscientiousness} E={m_p.extraversion}"),
+        Check("Extreme souls can observe", result.interactions_run == 2, f"Interactions: {result.interactions_run}"),
+        Check("Unicode survives export/import", unicode_survives_export, f"Awakened name: {awakened.name}"),
+    ]
+
+    return result
+
+
+async def scenario_dynamic_personality_expression() -> ScenarioResult:
+    """Same 20 interactions through 3 differently configured souls.
+
+    Validates that different configurations produce different system prompts,
+    different self-model evolutions, and different state trajectories.
+    """
+    # Analytical soul: high conscientiousness, low agreeableness
+    analyst = await Soul.birth(
+        "Analyst",
+        ocean={"openness": 0.5, "conscientiousness": 0.95, "extraversion": 0.2, "agreeableness": 0.2, "neuroticism": 0.3},
+        communication={"warmth": "low", "verbosity": "low"},
+        values=["accuracy", "efficiency"],
+        persona="I am Analyst. I value precision above all.",
+    )
+
+    # Supportive soul: high agreeableness, high extraversion
+    supporter = await Soul.birth(
+        "Supporter",
+        ocean={"openness": 0.7, "conscientiousness": 0.5, "extraversion": 0.9, "agreeableness": 0.95, "neuroticism": 0.4},
+        communication={"warmth": "high", "verbosity": "high", "humor_style": "gentle"},
+        values=["empathy", "connection", "kindness"],
+        persona="I am Supporter. I care about people first.",
+    )
+
+    # Creative soul: high openness, low conscientiousness
+    creative = await Soul.birth(
+        "Muse",
+        ocean={"openness": 0.99, "conscientiousness": 0.15, "extraversion": 0.6, "agreeableness": 0.5, "neuroticism": 0.5},
+        communication={"warmth": "moderate", "verbosity": "high", "humor_style": "playful"},
+        values=["novelty", "imagination", "beauty"],
+        persona="I am Muse. Every interaction is a canvas.",
+    )
+
+    result = ScenarioResult(name="Dynamic Personality Expression", soul_name="3 Souls", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    # Same mixed interactions for all three
+    mixed = CODING_CONVERSATIONS[:10] + EMOTIONAL_CONVERSATIONS[:5] + COOKING_CONVERSATIONS[:5]
+    for user_msg, agent_msg in mixed:
+        for s in [analyst, supporter, creative]:
+            await s.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
+        result.interactions_run += 1
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    # Get prompts
+    prompt_a = analyst.to_system_prompt()
+    prompt_s = supporter.to_system_prompt()
+    prompt_c = creative.to_system_prompt()
+
+    # All three prompts should be different
+    all_different = (prompt_a != prompt_s) and (prompt_s != prompt_c) and (prompt_a != prompt_c)
+
+    # Self-model should develop (all three got same content)
+    domains_a = get_all_domains(analyst)
+    domains_s = get_all_domains(supporter)
+    domains_c = get_all_domains(creative)
+
+    # All should have developed some self-model
+    all_have_domains = len(domains_a) >= 1 and len(domains_s) >= 1 and len(domains_c) >= 1
+
+    # Energy/state should differ due to same interactions but different biorhythm defaults
+    # (All use default biorhythms here, so energy should be similar — but prompts differ)
+    total_memories = count_total_memories(analyst) + count_total_memories(supporter) + count_total_memories(creative)
+
+    result.diagnostics = Diagnostics(total_memories=total_memories)
+    result.total_memories = total_memories
+
+    result.checks = [
+        Check("All 3 system prompts are unique", all_different, f"Prompt lengths: A={len(prompt_a)} S={len(prompt_s)} C={len(prompt_c)}"),
+        Check("Analyst prompt has 'low' warmth", "low" in prompt_a.lower(), f"Analyst comm check"),
+        Check("Supporter prompt has 'high' warmth", "high" in prompt_s.lower(), f"Supporter comm check"),
+        Check("Creative prompt has 'playful' humor", "playful" in prompt_c.lower(), f"Creative comm check"),
+        Check("All three developed domains", all_have_domains, f"Domains: A={len(domains_a)} S={len(domains_s)} C={len(domains_c)}"),
+        Check("Analyst values accuracy", "accuracy" in prompt_a, f"Analyst values in prompt"),
+        Check("Supporter values empathy", "empathy" in prompt_s, f"Supporter values in prompt"),
+        Check("Creative values imagination", "imagination" in prompt_c, f"Creative values in prompt"),
+        Check("Memories stored across all 3 (>= 6)", total_memories >= 6, f"Total: {total_memories}"),
+    ]
+
+    return result
+
+
+# ===========================================================================
 # Main
 # ===========================================================================
 
@@ -2152,6 +2751,14 @@ SCENARIOS = {
     "personality": ("Personality Stability", scenario_personality_stability),
     "context-switch": ("Context Switching Resilience", scenario_context_switching),
     "growth-curve": ("Growth Curve & Export Scaling", scenario_growth_curve),
+    # Flexibility tests
+    "minimal": ("Minimal Config (Name Only)", scenario_minimal_config),
+    "maximal": ("Maximal Config (Every Param)", scenario_maximal_config),
+    "opposites": ("Opposite Personalities", scenario_opposite_personalities),
+    "seed-domains": ("Custom Seed Domains", scenario_custom_seed_domains),
+    "config-files": ("Config File Formats", scenario_config_file_formats),
+    "edge-cases": ("Edge Cases & Unicode", scenario_edge_cases),
+    "expression": ("Dynamic Personality Expression", scenario_dynamic_personality_expression),
 }
 
 
