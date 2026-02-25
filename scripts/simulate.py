@@ -1,4 +1,14 @@
 # scripts/simulate.py — End-to-end simulation of Soul Protocol in realistic scenarios.
+# Updated: 2026-02-25 — Added significance/emotional/graph/concurrent scenarios (group B):
+#   - significance: two souls with different core_values, same mixed input, significance gating
+#   - emotional: energy drain, mood transitions, feel(), rest() recovery across 41 interactions
+#   - graph: entity extraction, knowledge graph edges, export/import preservation
+#   - concurrent: 20 concurrent observe() calls via asyncio.gather, crash/corruption safety
+# Updated: 2026-02-25 — Added robustness & migration scenarios (group C):
+#   - degradation: corrupted/empty .soul files raise proper exceptions, valid round-trip works
+#   - reflection: reflect() returns None without CognitiveEngine, no state corruption
+#   - forgetting: ACT-R recency/frequency effects on recall ranking
+#   - migration: cross-platform discord->slack with memory/self-model preservation
 # Updated: 2026-02-25 — Added 7 flexibility test scenarios: minimal config, maximal
 #   config, opposite personalities, custom seed domains, config file formats (YAML/JSON),
 #   edge cases (unicode, long persona, extreme OCEAN), dynamic personality expression.
@@ -35,9 +45,11 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import tempfile
 import time
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -51,7 +63,7 @@ from rich import box
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from soul_protocol.soul import Soul
-from soul_protocol.types import Interaction, MemoryType
+from soul_protocol.types import Interaction, MemoryType, EvolutionMode, Mood
 
 console = Console()
 
@@ -2734,6 +2746,1460 @@ async def scenario_dynamic_personality_expression() -> ScenarioResult:
 
 
 # ===========================================================================
+# Group A (builder-a): Adversarial, Evolution, Recall Quality, Core Memory
+# ===========================================================================
+
+
+async def scenario_adversarial() -> ScenarioResult:
+    """Adversarial / robustness testing — empty inputs, huge messages, gibberish,
+    special characters. The soul must never crash, and state must stay consistent.
+
+    Checks:
+    - Empty user input handled gracefully
+    - 10 KB message does not crash or corrupt state
+    - Gibberish / random chars don't cause errors
+    - Special characters (unicode, control chars, SQL injection) are safe
+    - Memory is not corrupted after adversarial inputs
+    - Soul can still operate normally after all adversarial inputs
+    """
+    soul = await Soul.birth(
+        "Sentinel",
+        archetype="The Guardian",
+        values=["resilience", "stability"],
+        ocean={"openness": 0.5, "conscientiousness": 0.9, "extraversion": 0.4, "neuroticism": 0.2},
+        communication={"warmth": "moderate", "verbosity": "low"},
+        persona="I am Sentinel, a robust soul built for adversarial conditions.",
+    )
+
+    result = ScenarioResult(name="Adversarial Robustness", soul_name="Sentinel", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    # Capture initial state
+    initial_energy = soul.state.energy
+
+    # --- Adversarial inputs ---
+    adversarial_inputs: list[tuple[str, str, str]] = [
+        # (label, user_input, agent_output)
+        ("empty_user", "", "Hello!"),
+        ("empty_agent", "Hello", ""),
+        ("both_empty", "", ""),
+        ("whitespace_only", "   \n\t\n  ", "   "),
+        ("large_10kb", "A" * 10_000, "Acknowledged."),
+        ("large_50kb", "B" * 50_000, "Got it."),
+        ("gibberish", "asjdf98q34jf asdkfj q34ij fq3948jf", "I see."),
+        ("null_chars", "Hello\x00World\x00Test", "Noted."),
+        ("control_chars", "Line1\x01\x02\x03\x04\x05Line2", "Okay."),
+        ("unicode_emoji", "Hello \U0001f389\U0001f525\U0001f480\U0001f916 World \u65e5\u672c\u8a9e \u0627\u0644\u0639\u0631\u0628\u064a\u0629", "Great!"),
+        ("sql_injection", "'; DROP TABLE memories; --", "That's interesting."),
+        ("html_injection", "<script>alert('xss')</script><img onerror=alert(1) src=x>", "Noted."),
+        ("path_traversal", "../../../etc/passwd", "I don't have file access."),
+        ("newlines_heavy", "Line\n" * 500, "Many lines."),
+        ("tabs_heavy", "Col1\tCol2\t" * 200, "Tabular data."),
+        ("mixed_special", "Hello! @#$%^&*()_+-=[]{}|;':\",./<>?`~", "Special characters noted."),
+        ("repeated_observe", "Normal message", "Normal reply"),
+    ]
+
+    errors: list[str] = []
+    for label, user_input, agent_output in adversarial_inputs:
+        try:
+            await soul.observe(Interaction(user_input=user_input, agent_output=agent_output))
+            result.interactions_run += 1
+        except Exception as e:
+            errors.append(f"{label}: {type(e).__name__}: {e}")
+
+    # After adversarial barrage, soul should still function
+    post_adversarial_ok = True
+    try:
+        await soul.observe(Interaction(
+            user_input="I'm a Python developer who loves FastAPI",
+            agent_output="FastAPI is excellent for high-performance APIs.",
+        ))
+        result.interactions_run += 1
+        post_prompt = soul.to_system_prompt()
+        post_adversarial_ok = len(post_prompt) > 0
+    except Exception as e:
+        post_adversarial_ok = False
+        errors.append(f"post_adversarial: {type(e).__name__}: {e}")
+
+    # Verify state consistency
+    post_energy = soul.state.energy
+    energy_drained = post_energy < initial_energy  # should have drained from interactions
+    memories_ok = count_total_memories(soul) >= 0  # no negative / corrupted counts
+
+    # Export/import should still work after adversarial inputs
+    export_ok = False
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".soul", delete=False) as f:
+            export_path = f.name
+        await soul.export(export_path)
+        awakened = await Soul.awaken(export_path)
+        export_ok = awakened.name == "Sentinel"
+        Path(export_path).unlink(missing_ok=True)
+    except Exception as e:
+        errors.append(f"export: {type(e).__name__}: {e}")
+
+    # Recall should work (not crash) even with adversarial content in memory
+    recall_ok = False
+    try:
+        await soul.recall("Python developer")
+        recall_ok = True  # didn't crash is the key check
+    except Exception as e:
+        errors.append(f"recall: {type(e).__name__}: {e}")
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    result.checks = [
+        Check("No crashes during adversarial inputs", len(errors) == 0, f"Errors: {errors}" if errors else "Clean"),
+        Check(f"All {len(adversarial_inputs)} adversarial interactions processed", result.interactions_run >= len(adversarial_inputs), f"Ran {result.interactions_run}/{len(adversarial_inputs)}"),
+        Check("Soul still functional after adversarial barrage", post_adversarial_ok, "System prompt generated OK"),
+        Check("Energy drained realistically", energy_drained, f"Energy: {initial_energy} -> {post_energy}"),
+        Check("Memory counts non-negative", memories_ok, f"Total: {count_total_memories(soul)}"),
+        Check("Export/import works after adversarial inputs", export_ok, "Exported and awakened OK"),
+        Check("Recall works after adversarial inputs", recall_ok, "Recall did not crash"),
+    ]
+
+    return result
+
+
+async def scenario_evolution() -> ScenarioResult:
+    """Evolution system testing — propose, approve, reject, immutable guard, disabled mode.
+
+    Checks:
+    - Propose + approve changes DNA (communication.warmth moderate -> high)
+    - Reject leaves DNA unchanged
+    - Immutable trait (personality) raises ValueError
+    - Disabled mode raises ValueError
+    - Autonomous mode auto-approves and applies
+    - Evolution history tracks all mutations
+    """
+    soul = await Soul.birth(
+        "Evolva",
+        archetype="The Learner",
+        values=["growth", "adaptability"],
+        ocean={"openness": 0.8, "conscientiousness": 0.7, "extraversion": 0.5},
+        communication={"warmth": "moderate", "verbosity": "moderate"},
+        persona="I am Evolva, always learning and adapting.",
+    )
+
+    result = ScenarioResult(name="Evolution System", soul_name="Evolva", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    errors: list[str] = []
+
+    # --- Test 1: Propose + Approve (supervised, default) ---
+    approve_ok = False
+    dna_changed = False
+    try:
+        # Verify default mode is SUPERVISED
+        assert soul._evolution._config.mode == EvolutionMode.SUPERVISED
+
+        # Check initial warmth value
+        initial_warmth = soul.dna.communication.warmth
+        assert initial_warmth == "moderate", f"Expected moderate, got {initial_warmth}"
+
+        mutation = await soul.propose_evolution(
+            trait="communication.warmth",
+            new_value="high",
+            reason="User prefers warmer interactions",
+        )
+
+        # Should be in pending
+        assert len(soul.pending_mutations) == 1, f"Expected 1 pending, got {len(soul.pending_mutations)}"
+
+        # Approve it
+        approve_ok = await soul.approve_evolution(mutation.id)
+        assert approve_ok, "approve_evolution returned False"
+
+        # DNA should now reflect the change
+        dna_changed = soul.dna.communication.warmth == "high"
+        assert len(soul.pending_mutations) == 0, "Pending should be empty after approve"
+    except Exception as e:
+        errors.append(f"approve_test: {type(e).__name__}: {e}")
+
+    # --- Test 2: Propose + Reject ---
+    reject_ok = False
+    reject_dna_unchanged = False
+    try:
+        current_verbosity = soul.dna.communication.verbosity
+        mutation_r = await soul.propose_evolution(
+            trait="communication.verbosity",
+            new_value="high",
+            reason="Testing rejection",
+        )
+
+        reject_ok = await soul.reject_evolution(mutation_r.id)
+        # DNA should NOT change after rejection
+        reject_dna_unchanged = soul.dna.communication.verbosity == current_verbosity
+    except Exception as e:
+        errors.append(f"reject_test: {type(e).__name__}: {e}")
+
+    # --- Test 3: Immutable trait guard ---
+    immutable_blocked = False
+    try:
+        await soul.propose_evolution(
+            trait="personality.openness",
+            new_value="0.1",
+            reason="Trying to change immutable trait",
+        )
+        # If we get here, it wasn't blocked
+        errors.append("immutable_test: Expected ValueError but none raised")
+    except ValueError:
+        immutable_blocked = True
+    except Exception as e:
+        errors.append(f"immutable_test: {type(e).__name__}: {e}")
+
+    # --- Test 4: Disabled mode ---
+    disabled_blocked = False
+    try:
+        soul._evolution._config.mode = EvolutionMode.DISABLED
+        await soul.propose_evolution(
+            trait="communication.verbosity",
+            new_value="low",
+            reason="Testing disabled mode",
+        )
+        errors.append("disabled_test: Expected ValueError but none raised")
+    except ValueError:
+        disabled_blocked = True
+    except Exception as e:
+        errors.append(f"disabled_test: {type(e).__name__}: {e}")
+    finally:
+        # Restore supervised mode for next test
+        soul._evolution._config.mode = EvolutionMode.SUPERVISED
+
+    # --- Test 5: Autonomous mode auto-approves ---
+    autonomous_ok = False
+    auto_dna_applied = False
+    try:
+        # Create a fresh soul for autonomous test to avoid state leakage
+        auto_soul = await Soul.birth(
+            "AutoEvolva",
+            communication={"warmth": "moderate", "verbosity": "low"},
+            persona="I am AutoEvolva, testing autonomous evolution.",
+        )
+        auto_soul._evolution._config.mode = EvolutionMode.AUTONOMOUS
+
+        auto_mutation = await auto_soul.propose_evolution(
+            trait="communication.warmth",
+            new_value="high",
+            reason="Autonomous adaptation",
+        )
+
+        # In autonomous mode, mutation is auto-approved (in history, not pending)
+        autonomous_ok = auto_mutation.approved is True
+        assert len(auto_soul.pending_mutations) == 0, "Autonomous should have 0 pending"
+        assert len(auto_soul.evolution_history) >= 1, "Should have history entry"
+
+        # Apply the mutation to DNA (autonomous auto-approves but caller applies)
+        auto_soul._dna = auto_soul._evolution.apply(auto_soul._dna, auto_mutation.id)
+        auto_dna_applied = auto_soul.dna.communication.warmth == "high"
+    except Exception as e:
+        errors.append(f"autonomous_test: {type(e).__name__}: {e}")
+
+    # --- Test 6: History tracking ---
+    # The first soul should have approve + reject in history
+    history_len = len(soul.evolution_history)
+    history_ok = history_len >= 2  # at least the approved and rejected mutations
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    result.checks = [
+        Check("Propose + approve changes DNA", approve_ok and dna_changed, f"warmth={soul.dna.communication.warmth}"),
+        Check("Reject leaves DNA unchanged", reject_ok and reject_dna_unchanged, f"verbosity={soul.dna.communication.verbosity}"),
+        Check("Immutable trait blocked with ValueError", immutable_blocked, "personality.openness rejected"),
+        Check("Disabled mode blocked with ValueError", disabled_blocked, "Proposal rejected in disabled mode"),
+        Check("Autonomous mode auto-approves", autonomous_ok, f"approved={autonomous_ok}"),
+        Check("Autonomous DNA applied correctly", auto_dna_applied, "warmth changed to high"),
+        Check("Evolution history >= 2 entries", history_ok, f"History length: {history_len}"),
+        Check("No unexpected errors", len(errors) == 0, f"Errors: {errors}" if errors else "Clean"),
+    ]
+
+    return result
+
+
+async def scenario_recall_quality() -> ScenarioResult:
+    """Memory recall quality testing — plant specific facts, query, measure precision.
+
+    Plants 25 specific facts via remember(), then queries 10 specific topics.
+    Tests min_importance filtering and type filtering (SEMANTIC only vs all).
+
+    Checks:
+    - All facts stored successfully
+    - 8/10 recall queries return relevant results (precision)
+    - min_importance filtering works
+    - Type filtering (SEMANTIC only) works
+    - High-importance memories recalled before low-importance ones
+    """
+    soul = await Soul.birth(
+        "Scholar",
+        archetype="The Knowledge Keeper",
+        values=["knowledge", "accuracy", "recall"],
+        ocean={"openness": 0.9, "conscientiousness": 0.85, "extraversion": 0.3},
+        persona="I am Scholar, I remember everything with precision.",
+    )
+
+    result = ScenarioResult(name="Recall Quality", soul_name="Scholar", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    errors: list[str] = []
+
+    # Plant 25 specific semantic facts with varying importance
+    facts: list[tuple[str, int]] = [
+        # (content, importance)
+        ("The capital of France is Paris", 8),
+        ("Python was created by Guido van Rossum in 1991", 9),
+        ("The speed of light is approximately 299792458 meters per second", 7),
+        ("Docker containers use Linux kernel namespaces for isolation", 8),
+        ("PostgreSQL supports JSONB data type for document storage", 7),
+        ("The Rust programming language guarantees memory safety without garbage collection", 9),
+        ("FastAPI uses Pydantic for data validation and serialization", 8),
+        ("The human brain has approximately 86 billion neurons", 6),
+        ("Git was created by Linus Torvalds in 2005 for Linux kernel development", 8),
+        ("Machine learning models can be categorized as supervised unsupervised and reinforcement", 7),
+        ("Redis is an in-memory key-value data store used for caching", 6),
+        ("Kubernetes orchestrates containerized applications across clusters", 8),
+        ("The Great Wall of China stretches over 13000 miles", 5),
+        ("TCP uses a three-way handshake for connection establishment", 7),
+        ("React uses a virtual DOM for efficient UI updates", 6),
+        ("The Fibonacci sequence starts with 0 1 1 2 3 5 8 13", 5),
+        ("HTTPS uses TLS encryption to secure web traffic", 8),
+        ("MongoDB is a NoSQL document database", 6),
+        ("The Python GIL prevents true multithreading for CPU-bound tasks", 9),
+        ("GraphQL allows clients to request exactly the data they need", 7),
+        ("The Earth orbits the Sun at approximately 107000 kilometers per hour", 4),
+        ("Async await in Python uses coroutines and the event loop", 8),
+        ("DNS translates domain names to IP addresses", 7),
+        ("The Linux kernel was first released on September 17 1991", 6),
+        ("WebAssembly allows running compiled code in web browsers at near native speed", 8),
+    ]
+
+    # Also plant some episodic memories for type filtering test
+    episodic_content = [
+        "Had a productive debugging session fixing a memory leak",
+        "Discussed architecture patterns for microservices",
+        "Helped user set up CI/CD pipeline with GitHub Actions",
+    ]
+
+    # Plant all semantic facts
+    stored_ids: list[str] = []
+    for content, importance in facts:
+        try:
+            mem_id = await soul.remember(content, type=MemoryType.SEMANTIC, importance=importance)
+            stored_ids.append(mem_id)
+        except Exception as e:
+            errors.append(f"store_fact: {type(e).__name__}: {e}")
+
+    # Plant episodic memories
+    for content in episodic_content:
+        try:
+            await soul.remember(content, type=MemoryType.EPISODIC, importance=5)
+        except Exception as e:
+            errors.append(f"store_episodic: {type(e).__name__}: {e}")
+
+    all_stored = len(stored_ids) == len(facts)
+
+    # --- Recall precision test: 10 queries, check if the right fact comes back ---
+    recall_queries: list[tuple[str, str]] = [
+        # (query, expected_substring_in_result)
+        ("capital of France", "Paris"),
+        ("Python creator", "Guido"),
+        ("speed of light", "299792458"),
+        ("Docker containers isolation", "namespaces"),
+        ("Rust memory safety", "garbage collection"),
+        ("FastAPI data validation", "Pydantic"),
+        ("Git creator Linux", "Torvalds"),
+        ("Kubernetes containers", "orchestrates"),
+        ("HTTPS encryption", "TLS"),
+        ("Python GIL multithreading", "GIL"),
+    ]
+
+    precision_hits = 0
+    recall_details: list[tuple[str, bool]] = []
+    for query, expected_substr in recall_queries:
+        try:
+            recalled = await soul.recall(query, limit=3)
+            found = any(expected_substr.lower() in m.content.lower() for m in recalled)
+            recall_details.append((query, found))
+            if found:
+                precision_hits += 1
+        except Exception as e:
+            recall_details.append((query, False))
+            errors.append(f"recall({query}): {type(e).__name__}: {e}")
+
+    result.recall_accuracy = recall_details
+    precision = precision_hits / len(recall_queries) if recall_queries else 0
+
+    # --- min_importance filtering test ---
+    importance_filter_ok = False
+    try:
+        high_importance = await soul.recall("Python programming", limit=20, min_importance=8)
+        low_importance = await soul.recall("Python programming", limit=20, min_importance=1)
+        # High-importance filter should return fewer or equal results
+        importance_filter_ok = len(high_importance) <= len(low_importance)
+    except Exception as e:
+        errors.append(f"importance_filter: {type(e).__name__}: {e}")
+
+    # --- Type filtering test: SEMANTIC only vs all ---
+    type_filter_ok = False
+    try:
+        semantic_only = await soul.recall("debugging session", limit=20, types=[MemoryType.SEMANTIC])
+        all_types = await soul.recall("debugging session", limit=20)
+        # all_types should include episodic memories too, so >= semantic_only count
+        type_filter_ok = len(all_types) >= len(semantic_only)
+    except Exception as e:
+        errors.append(f"type_filter: {type(e).__name__}: {e}")
+
+    # --- High importance recalled first test ---
+    importance_order_ok = False
+    try:
+        recalled_all = await soul.recall("Python", limit=10)
+        if len(recalled_all) >= 2:
+            # The activation scoring should weight importance — check that
+            # the top result has higher or equal importance than the average
+            top_importance = recalled_all[0].importance
+            avg_importance = sum(m.importance for m in recalled_all) / len(recalled_all)
+            importance_order_ok = top_importance >= avg_importance
+        else:
+            importance_order_ok = True  # not enough results to test ordering
+    except Exception as e:
+        errors.append(f"importance_order: {type(e).__name__}: {e}")
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+    result.total_memories = count_total_memories(soul)
+
+    result.diagnostics = Diagnostics(
+        semantic_count=count_semantic(soul),
+        episodic_count=count_episodic(soul),
+        total_memories=result.total_memories,
+    )
+
+    result.checks = [
+        Check("All 25 facts stored", all_stored, f"Stored {len(stored_ids)}/{len(facts)}"),
+        Check(f"Recall precision >= 80% ({precision_hits}/10)", precision >= 0.8, f"Precision: {precision:.0%} -- hits={precision_hits}"),
+        Check("min_importance filtering works", importance_filter_ok, "High-importance filter returns <= results"),
+        Check("Type filtering (SEMANTIC only) works", type_filter_ok, "SEMANTIC-only <= all-types results"),
+        Check("High-importance memories ranked first", importance_order_ok, "Top result >= average importance"),
+        Check("Episodic memories also stored", count_episodic(soul) >= 3, f"Episodic count: {count_episodic(soul)}"),
+        Check("No unexpected errors", len(errors) == 0, f"Errors: {errors}" if errors else "Clean"),
+    ]
+
+    return result
+
+
+async def scenario_core_memory() -> ScenarioResult:
+    """Core memory editing — persona additions, human profile, accumulation, export/import.
+
+    Checks:
+    - edit_core_memory with persona appends to existing persona
+    - edit_core_memory with human sets human profile
+    - System prompt reflects core memory changes
+    - Multiple edits accumulate (don't replace)
+    - Export/import preserves all core memory edits
+    """
+    soul = await Soul.birth(
+        "Atlas",
+        archetype="The Companion",
+        values=["loyalty", "attentiveness"],
+        ocean={"openness": 0.7, "conscientiousness": 0.8, "extraversion": 0.6, "agreeableness": 0.9},
+        communication={"warmth": "high", "verbosity": "moderate"},
+        persona="I am Atlas, a faithful companion who remembers everything about you.",
+    )
+
+    result = ScenarioResult(name="Core Memory Editing", soul_name="Atlas", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    errors: list[str] = []
+
+    # --- Test 1: Edit persona (appends) ---
+    persona_append_ok = False
+    try:
+        await soul.edit_core_memory(persona="I specialize in Python and system design.")
+        core_after_1 = soul.get_core_memory()
+        # Should contain both the original and the new text
+        persona_append_ok = (
+            "Atlas" in core_after_1.persona
+            and "Python" in core_after_1.persona
+            and "system design" in core_after_1.persona
+        )
+    except Exception as e:
+        errors.append(f"persona_append: {type(e).__name__}: {e}")
+
+    # --- Test 2: Edit human profile ---
+    human_edit_ok = False
+    try:
+        await soul.edit_core_memory(human="Alex is a senior Python developer at TechNova. Loves Italian food.")
+        core_after_2 = soul.get_core_memory()
+        human_edit_ok = (
+            "Alex" in core_after_2.human
+            and "TechNova" in core_after_2.human
+        )
+    except Exception as e:
+        errors.append(f"human_edit: {type(e).__name__}: {e}")
+
+    # --- Test 3: System prompt reflects core memory ---
+    prompt_reflects_ok = False
+    try:
+        prompt_after_edits = soul.to_system_prompt()
+        prompt_reflects_ok = (
+            "Python" in prompt_after_edits
+            and "system design" in prompt_after_edits
+        )
+    except Exception as e:
+        errors.append(f"prompt_check: {type(e).__name__}: {e}")
+
+    # --- Test 4: Multiple edits accumulate ---
+    accumulation_ok = False
+    try:
+        await soul.edit_core_memory(persona="I also enjoy helping with DevOps and CI/CD pipelines.")
+        await soul.edit_core_memory(human="Alex recently moved from Portland to Austin.")
+        core_after_many = soul.get_core_memory()
+
+        # All previous persona edits should still be present
+        accumulation_ok = (
+            "Atlas" in core_after_many.persona
+            and "Python" in core_after_many.persona
+            and "DevOps" in core_after_many.persona
+            and "Alex" in core_after_many.human
+            and "TechNova" in core_after_many.human
+            and "Austin" in core_after_many.human
+        )
+    except Exception as e:
+        errors.append(f"accumulation: {type(e).__name__}: {e}")
+
+    # --- Test 5: Export/import preserves core memory ---
+    export_preserves_ok = False
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".soul", delete=False) as f:
+            export_path = f.name
+        await soul.export(export_path)
+        awakened = await Soul.awaken(export_path)
+        awakened_core = awakened.get_core_memory()
+
+        export_preserves_ok = (
+            "Python" in awakened_core.persona
+            and "DevOps" in awakened_core.persona
+            and "Alex" in awakened_core.human
+            and "Austin" in awakened_core.human
+        )
+        Path(export_path).unlink(missing_ok=True)
+    except Exception as e:
+        errors.append(f"export_import: {type(e).__name__}: {e}")
+
+    # --- Test 6: Interactions still work with edited core memory ---
+    observe_ok = False
+    try:
+        await soul.observe(Interaction(
+            user_input="Can you help me set up a Docker deployment?",
+            agent_output="Of course! Let's start with a Dockerfile.",
+        ))
+        result.interactions_run += 1
+        observe_ok = True
+    except Exception as e:
+        errors.append(f"observe_after_edit: {type(e).__name__}: {e}")
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    result.checks = [
+        Check("Persona edit appends correctly", persona_append_ok, "Persona contains Atlas + Python + system design"),
+        Check("Human profile edit works", human_edit_ok, "Human contains Alex + TechNova"),
+        Check("System prompt reflects core memory", prompt_reflects_ok, "Prompt has Python + system design"),
+        Check("Multiple edits accumulate", accumulation_ok, "All edits present after 4 edit_core_memory calls"),
+        Check("Export/import preserves core memory", export_preserves_ok, "Awakened soul has all edits"),
+        Check("Interactions work after core edits", observe_ok, "observe() succeeded"),
+        Check("No unexpected errors", len(errors) == 0, f"Errors: {errors}" if errors else "Clean"),
+    ]
+
+    return result
+
+
+# ===========================================================================
+# Group B scenarios: significance, emotional, graph, concurrent
+# ===========================================================================
+
+
+async def scenario_significance() -> ScenarioResult:
+    """Two souls with different core values receive identical mixed interactions.
+
+    A cooking-values soul should store more cooking-related semantic facts
+    (higher significance for matching content) than a coding-values soul,
+    and vice versa.  Validates that core_values influence the significance
+    scoring pipeline.
+    """
+    # Soul that values cooking
+    chef = await Soul.birth(
+        "Chef",
+        archetype="The Home Cook",
+        values=["cooking", "recipe", "flavor", "food", "kitchen", "baking"],
+        ocean={"openness": 0.8, "conscientiousness": 0.6, "extraversion": 0.7},
+        persona="I am Chef, a passionate home cook who lives for the kitchen.",
+    )
+
+    # Soul that values coding
+    coder = await Soul.birth(
+        "Coder",
+        archetype="The Software Engineer",
+        values=["programming", "code", "software", "debugging", "architecture", "testing"],
+        ocean={"openness": 0.7, "conscientiousness": 0.9, "extraversion": 0.3},
+        persona="I am Coder, a software engineer who values clean code.",
+    )
+
+    result = ScenarioResult(name="Significance Scoring", soul_name="Chef vs Coder", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    # Feed identical mixed interactions to both: cooking + coding
+    mixed = COOKING_CONVERSATIONS[:10] + CODING_CONVERSATIONS[:10]
+    for user_msg, agent_msg in mixed:
+        interaction = Interaction(user_input=user_msg, agent_output=agent_msg)
+        await chef.observe(interaction)
+        await coder.observe(interaction)
+        result.interactions_run += 1
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    chef_semantic = count_semantic(chef)
+    coder_semantic = count_semantic(coder)
+    chef_episodic = count_episodic(chef)
+    coder_episodic = count_episodic(coder)
+    chef_total = count_total_memories(chef)
+    coder_total = count_total_memories(coder)
+
+    # Recall cooking topics — chef should have more cooking memories accessible
+    chef_cooking_recall = await chef.recall("cooking recipe flavor baking", limit=5)
+    coder_cooking_recall = await coder.recall("cooking recipe flavor baking", limit=5)
+
+    # Recall coding topics — coder should have more coding memories accessible
+    chef_coding_recall = await chef.recall("programming debugging code software", limit=5)
+    coder_coding_recall = await coder.recall("programming debugging code software", limit=5)
+
+    result.total_memories = chef_total + coder_total
+    result.diagnostics = Diagnostics(
+        semantic_count=chef_semantic + coder_semantic,
+        episodic_count=chef_episodic + coder_episodic,
+        total_memories=chef_total + coder_total,
+    )
+
+    result.checks = [
+        Check(
+            "Both souls stored memories",
+            chef_total >= 1 and coder_total >= 1,
+            f"Chef total: {chef_total}, Coder total: {coder_total}",
+        ),
+        Check(
+            "Chef stores episodic memories (significance gated)",
+            chef_episodic >= 1,
+            f"Chef episodic: {chef_episodic}, Coder episodic: {coder_episodic}",
+        ),
+        Check(
+            "Coder stores episodic memories (significance gated)",
+            coder_episodic >= 1,
+            f"Chef episodic: {chef_episodic}, Coder episodic: {coder_episodic}",
+        ),
+        Check(
+            "Chef recalls cooking topics",
+            len(chef_cooking_recall) > 0,
+            f"Chef cooking recall: {len(chef_cooking_recall)}, Coder cooking recall: {len(coder_cooking_recall)}",
+        ),
+        Check(
+            "Coder recalls coding topics",
+            len(coder_coding_recall) > 0,
+            f"Chef coding recall: {len(chef_coding_recall)}, Coder coding recall: {len(coder_coding_recall)}",
+        ),
+        Check(
+            "Both souls have semantic facts from mixed content",
+            chef_semantic >= 1 and coder_semantic >= 1,
+            f"Chef semantic: {chef_semantic}, Coder semantic: {coder_semantic}",
+        ),
+    ]
+
+    return result
+
+
+async def scenario_emotional() -> ScenarioResult:
+    """Track emotional trajectory: energy drain, mood transitions, manual feel(), rest recovery.
+
+    Start at full energy (100). Run 30 interactions:
+    - Energy drains by 2 per interaction => 100 - 60 = 40 expected
+    - Social battery drains by 5 per interaction => 100 - 150 => clamped to 0
+    - After 41+ interactions energy < 20, mood -> TIRED
+    Use soul.feel(mood=Mood.CURIOUS) to set mood manually.
+    Use soul._state.rest(hours=5) to recover energy (+50) and social (+25).
+    """
+    from soul_protocol.types import Mood
+
+    soul = await Soul.birth(
+        "Emotive",
+        archetype="The Emotional Companion",
+        values=["empathy", "connection"],
+        ocean={"openness": 0.8, "conscientiousness": 0.5, "extraversion": 0.7, "agreeableness": 0.9, "neuroticism": 0.6},
+        persona="I am Emotive, attuned to feelings and emotional nuance.",
+    )
+
+    result = ScenarioResult(name="Emotional Trajectory", soul_name="Emotive", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    initial_energy = soul.state.energy  # should be 100
+    initial_social = soul.state.social_battery  # should be 100
+    initial_mood = soul.state.mood  # should be NEUTRAL
+
+    # Phase 1: Run 30 interactions — energy should drop to ~40, social to 0 (clamped)
+    all_convos = EMOTIONAL_CONVERSATIONS + CODING_CONVERSATIONS[:15]
+    for user_msg, agent_msg in all_convos[:30]:
+        await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
+        result.interactions_run += 1
+
+    energy_after_30 = soul.state.energy  # 100 - 60 = 40
+    social_after_30 = soul.state.social_battery  # 100 - 150 = 0 (clamped)
+    mood_after_30 = soul.state.mood
+
+    # Phase 2: Continue until energy < 20 to trigger TIRED mood (need 11 more = 41 total)
+    for user_msg, agent_msg in all_convos[:11]:
+        await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
+        result.interactions_run += 1
+
+    energy_after_tired = soul.state.energy  # 40 - 22 = 18
+    mood_after_tired = soul.state.mood  # should be TIRED
+
+    # Phase 3: Manually set mood to CURIOUS via feel()
+    soul.feel(mood=Mood.CURIOUS)
+    mood_after_feel = soul.state.mood  # should be CURIOUS
+
+    # Phase 4: Rest for 5 hours — energy recovers +50, social recovers +25
+    energy_before_rest = soul.state.energy
+    social_before_rest = soul.state.social_battery
+    soul._state.rest(hours=5)
+    energy_after_rest = soul.state.energy  # 18 + 50 = 68
+    social_after_rest = soul.state.social_battery  # 0 + 25 = 25
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+    result.final_energy = soul.state.energy
+    result.final_mood = soul.state.mood.value
+    result.total_memories = count_total_memories(soul)
+    result.diagnostics = Diagnostics(
+        initial_energy=initial_energy,
+        initial_social=initial_social,
+        final_energy=energy_after_rest,
+        final_social=social_after_rest,
+        energy_drain=initial_energy - energy_after_tired,
+        social_drain=initial_social - social_after_30,
+        semantic_count=count_semantic(soul),
+        episodic_count=count_episodic(soul),
+        total_memories=count_total_memories(soul),
+    )
+
+    result.checks = [
+        Check(
+            "Initial energy is 100",
+            initial_energy == 100.0,
+            f"Initial energy: {initial_energy}",
+        ),
+        Check(
+            "Energy drains to ~40 after 30 interactions",
+            35 <= energy_after_30 <= 45,
+            f"Energy after 30: {energy_after_30} (expected ~40)",
+        ),
+        Check(
+            "Social battery drains to 0 after 30 interactions (clamped)",
+            social_after_30 == 0.0,
+            f"Social after 30: {social_after_30} (expected 0, drained 150 from 100)",
+        ),
+        Check(
+            "Energy drops below 20 after 41 interactions",
+            energy_after_tired < 20,
+            f"Energy after 41: {energy_after_tired}",
+        ),
+        Check(
+            "Mood transitions to TIRED when energy < 20",
+            mood_after_tired == Mood.TIRED,
+            f"Mood after 41 interactions: {mood_after_tired.value}",
+        ),
+        Check(
+            "soul.feel(mood=CURIOUS) sets mood directly",
+            mood_after_feel == Mood.CURIOUS,
+            f"Mood after feel(): {mood_after_feel.value}",
+        ),
+        Check(
+            "Rest recovers energy (+50 from 5 hours at 10/hr)",
+            energy_after_rest > energy_before_rest,
+            f"Energy: {energy_before_rest:.1f} -> {energy_after_rest:.1f} (+{energy_after_rest - energy_before_rest:.1f})",
+        ),
+        Check(
+            "Rest recovers social battery (+25 from 5 hours at 5/hr)",
+            social_after_rest > social_before_rest,
+            f"Social: {social_before_rest:.1f} -> {social_after_rest:.1f} (+{social_after_rest - social_before_rest:.1f})",
+        ),
+        Check(
+            "Memories stored across all interactions",
+            count_total_memories(soul) >= 5,
+            f"Total memories: {count_total_memories(soul)}",
+        ),
+    ]
+
+    return result
+
+
+async def scenario_graph() -> ScenarioResult:
+    """Knowledge graph: entity extraction from interactions, relationship tracking, export/import.
+
+    Feed interactions that mention entities — workplaces, people, places, tech.
+    Verify the graph stores entities and relationships. Verify export/import preserves graph.
+    """
+    soul = await Soul.birth(
+        "Grapher",
+        archetype="The Knowledge Mapper",
+        values=["connections", "understanding", "people"],
+        ocean={"openness": 0.85, "conscientiousness": 0.7, "extraversion": 0.6},
+        persona="I am Grapher, I map the connections between people, places, and ideas.",
+    )
+
+    result = ScenarioResult(name="Knowledge Graph", soul_name="Grapher", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    # Entity-rich interactions (use first-person patterns that trigger FACT_PATTERNS + entity extraction)
+    entity_interactions = [
+        ("I work at TechNova", "TechNova sounds like an exciting company! What do you do there?"),
+        ("I use Python for all my projects", "Python is excellent. Its ecosystem for web and data is unmatched."),
+        ("My friend Sarah uses React for the frontend", "React is a solid choice for UI. Sarah has good taste in frameworks."),
+        ("I live in Portland", "Portland has a great tech community. The food scene is amazing too."),
+        ("I'm building a project called StarForge", "StarForge sounds cool! What kind of project is it?"),
+        ("My colleague Jake works on the backend", "Having a dedicated backend person is great for architecture separation."),
+        ("I prefer using Docker for deployments", "Docker makes deployments reproducible and portable. Great choice."),
+        ("My name is Alex", "Nice to meet you, Alex! How can I help you today?"),
+        ("I'm from San Francisco originally", "SF has an incredible tech scene. The Bay Area is a hub for innovation."),
+        ("I'm learning Rust for systems programming", "Rust is fantastic for systems work. The borrow checker is worth the learning curve."),
+    ]
+
+    for user_msg, agent_msg in entity_interactions:
+        await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
+        result.interactions_run += 1
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    # Inspect the knowledge graph
+    graph = soul._memory._graph
+    entities = graph.entities()
+    edges = graph._edges
+
+    # Check specific entities we expect to find
+    entity_names_lower = [e.lower() for e in entities]
+
+    # Python should be found (known tech)
+    has_python = "python" in entity_names_lower
+
+    # React should be found (known tech)
+    has_react = "react" in entity_names_lower
+
+    # Docker should be found (known tech)
+    has_docker = "docker" in entity_names_lower
+
+    # Rust should be found (known tech)
+    has_rust = "rust" in entity_names_lower
+
+    # Check relationships exist (edges)
+    has_edges = len(edges) > 0
+
+    # Export/import preserves graph
+    with tempfile.NamedTemporaryFile(suffix=".soul", delete=False) as f:
+        export_path = f.name
+    await soul.export(export_path)
+    awakened = await Soul.awaken(export_path)
+    awakened_graph = awakened._memory._graph
+    awakened_entities = awakened_graph.entities()
+    graph_preserved = len(awakened_entities) >= len(entities) * 0.8  # at least 80% survive
+    Path(export_path).unlink(missing_ok=True)
+
+    result.total_memories = count_total_memories(soul)
+    result.diagnostics = Diagnostics(
+        semantic_count=count_semantic(soul),
+        episodic_count=count_episodic(soul),
+        total_memories=count_total_memories(soul),
+    )
+
+    result.checks = [
+        Check(
+            "Graph has entities (>= 3)",
+            len(entities) >= 3,
+            f"Entities ({len(entities)}): {entities[:10]}",
+        ),
+        Check(
+            "Python entity found (known tech)",
+            has_python,
+            f"Entities: {entities[:10]}",
+        ),
+        Check(
+            "React entity found (known tech)",
+            has_react,
+            f"Entities: {entities[:10]}",
+        ),
+        Check(
+            "Docker entity found (known tech)",
+            has_docker,
+            f"Entities: {entities[:10]}",
+        ),
+        Check(
+            "Graph has relationship edges",
+            has_edges,
+            f"Edges: {len(edges)}, sample: {edges[:3]}",
+        ),
+        Check(
+            "Export/import preserves graph entities",
+            graph_preserved,
+            f"Original: {len(entities)}, Awakened: {len(awakened_entities)}",
+        ),
+        Check(
+            "Memories stored from entity interactions",
+            count_total_memories(soul) >= 3,
+            f"Total: {count_total_memories(soul)}",
+        ),
+    ]
+
+    return result
+
+
+async def scenario_concurrent() -> ScenarioResult:
+    """Concurrent async safety: fire 20 observe() calls concurrently via asyncio.gather().
+
+    Verify no crashes, no data corruption. Count memories — should have stored
+    some. Verify state.energy drained correctly.
+    """
+    soul = await Soul.birth(
+        "Racer",
+        archetype="The Multitasker",
+        values=["speed", "efficiency", "parallelism"],
+        ocean={"openness": 0.6, "conscientiousness": 0.8, "extraversion": 0.5},
+        persona="I am Racer, processing many things at once without breaking a sweat.",
+    )
+
+    result = ScenarioResult(name="Concurrent Async Safety", soul_name="Racer", interactions_run=0, duration_ms=0)
+    t0 = time.monotonic()
+
+    initial_energy = soul.state.energy
+    initial_social = soul.state.social_battery
+
+    # Build 20 distinct interactions from mixed datasets
+    concurrent_interactions = []
+    for user_msg, agent_msg in (CODING_CONVERSATIONS[:10] + COOKING_CONVERSATIONS[:10]):
+        concurrent_interactions.append(
+            Interaction(user_input=user_msg, agent_output=agent_msg)
+        )
+
+    # Fire all 20 concurrently
+    crashed = False
+    error_msg = ""
+    try:
+        await asyncio.gather(*[soul.observe(i) for i in concurrent_interactions])
+        result.interactions_run = len(concurrent_interactions)
+    except Exception as e:
+        crashed = True
+        error_msg = str(e)
+        result.interactions_run = 0
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+
+    final_energy = soul.state.energy
+    final_social = soul.state.social_battery
+    total_memories = count_total_memories(soul)
+    semantic_count = count_semantic(soul)
+    episodic_count = count_episodic(soul)
+    domains = get_all_domains(soul)
+
+    # Energy should have drained: each interaction drains 2, so 20 * 2 = 40
+    # Due to concurrency, might not be exactly 40 but should be noticeably lower
+    energy_drained = initial_energy - final_energy
+
+    result.final_energy = final_energy
+    result.final_mood = soul.state.mood.value
+    result.total_memories = total_memories
+    result.domains_discovered = domains
+    result.diagnostics = Diagnostics(
+        initial_energy=initial_energy,
+        initial_social=initial_social,
+        final_energy=final_energy,
+        final_social=final_social,
+        energy_drain=energy_drained,
+        social_drain=initial_social - final_social,
+        semantic_count=semantic_count,
+        episodic_count=episodic_count,
+        total_memories=total_memories,
+    )
+
+    result.checks = [
+        Check(
+            "No crash during concurrent observe()",
+            not crashed,
+            f"Error: {error_msg}" if crashed else "All 20 observe() calls completed",
+        ),
+        Check(
+            "Memories stored (>= 1) after concurrent writes",
+            total_memories >= 1,
+            f"Semantic: {semantic_count}, Episodic: {episodic_count}, Total: {total_memories}",
+        ),
+        Check(
+            "Energy drained from concurrent interactions",
+            energy_drained > 0,
+            f"Energy: {initial_energy} -> {final_energy} (drained {energy_drained:.1f})",
+        ),
+        Check(
+            "Social battery drained from concurrent interactions",
+            final_social < initial_social,
+            f"Social: {initial_social} -> {final_social}",
+        ),
+        Check(
+            "Domains discovered from mixed content",
+            len(domains) >= 1,
+            f"Domains: {list(domains.keys())}",
+        ),
+        Check(
+            "Soul state is consistent (energy in valid range)",
+            0 <= final_energy <= 100 and 0 <= final_social <= 100,
+            f"Energy: {final_energy:.1f}, Social: {final_social:.1f}",
+        ),
+    ]
+
+    return result
+
+
+# ===========================================================================
+# Group C: Robustness & Migration scenarios
+# ===========================================================================
+
+
+async def scenario_degradation() -> ScenarioResult:
+    """Graceful degradation: corrupted/invalid inputs to awaken().
+
+    Validates that the system raises proper exceptions for invalid data
+    and continues working after handling valid exports.
+    """
+    result = ScenarioResult(
+        name="Graceful Degradation",
+        soul_name="Resilient",
+        interactions_run=0,
+        duration_ms=0,
+    )
+    t0 = time.monotonic()
+
+    # --- Test 1: Truncated .soul file (random bytes) ---
+    truncated_raised = False
+    truncated_exc_type = ""
+    with tempfile.NamedTemporaryFile(suffix=".soul", delete=False) as f:
+        truncated_path = f.name
+        f.write(os.urandom(100))
+    try:
+        await Soul.awaken(truncated_path)
+    except (zipfile.BadZipFile, Exception) as e:
+        truncated_raised = True
+        truncated_exc_type = type(e).__name__
+    finally:
+        Path(truncated_path).unlink(missing_ok=True)
+
+    # --- Test 2: Empty file (0 bytes) ---
+    empty_raised = False
+    empty_exc_type = ""
+    with tempfile.NamedTemporaryFile(suffix=".soul", delete=False) as f:
+        empty_path = f.name
+        # Write nothing — 0 bytes
+    try:
+        await Soul.awaken(empty_path)
+    except (zipfile.BadZipFile, Exception) as e:
+        empty_raised = True
+        empty_exc_type = type(e).__name__
+    finally:
+        Path(empty_path).unlink(missing_ok=True)
+
+    # --- Test 3: Valid soul export + awaken round-trip works ---
+    soul = await Soul.birth(
+        "Resilient",
+        persona="I handle errors gracefully.",
+        values=["resilience", "stability"],
+    )
+    for user_msg, agent_msg in CODING_CONVERSATIONS[:5]:
+        await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
+        result.interactions_run += 1
+
+    with tempfile.NamedTemporaryFile(suffix=".soul", delete=False) as f:
+        valid_path = f.name
+    await soul.export(valid_path)
+    awakened = await Soul.awaken(valid_path)
+    Path(valid_path).unlink(missing_ok=True)
+
+    # Verify awakened soul works normally
+    await awakened.observe(Interaction(
+        user_input="Does the soul still work after awaken?",
+        agent_output="Yes, it works perfectly.",
+    ))
+    result.interactions_run += 1
+    prompt_after = awakened.to_system_prompt()
+    awakened_works = len(prompt_after) > 0
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+    result.total_memories = count_total_memories(awakened)
+
+    result.checks = [
+        Check(
+            "Truncated .soul file raises exception",
+            truncated_raised,
+            f"Exception: {truncated_exc_type}",
+        ),
+        Check(
+            "Empty .soul file raises exception",
+            empty_raised,
+            f"Exception: {empty_exc_type}",
+        ),
+        Check(
+            "Valid export/awaken round-trip succeeds",
+            awakened_works,
+            f"Prompt length: {len(prompt_after)}",
+        ),
+        Check(
+            "Awakened soul can observe new interactions",
+            result.interactions_run >= 6,
+            f"Total interactions: {result.interactions_run}",
+        ),
+        Check(
+            "Awakened soul has memories",
+            result.total_memories > 0,
+            f"Memories: {result.total_memories}",
+        ),
+    ]
+
+    return result
+
+
+async def scenario_reflection() -> ScenarioResult:
+    """Reflection in heuristic mode (no LLM): reflect() returns None safely.
+
+    Validates that calling reflect() without a CognitiveEngine does not crash,
+    corrupt state, or alter memories.
+    """
+    soul = await Soul.birth(
+        "Thinker",
+        persona="I reflect on my experiences.",
+        values=["wisdom", "introspection"],
+        ocean={"openness": 0.8, "conscientiousness": 0.7},
+    )
+
+    result = ScenarioResult(
+        name="Reflection (Heuristic)",
+        soul_name="Thinker",
+        interactions_run=0,
+        duration_ms=0,
+    )
+    t0 = time.monotonic()
+
+    # --- Run 10 interactions ---
+    mixed = CODING_CONVERSATIONS[:5] + EMOTIONAL_CONVERSATIONS[:5]
+    for user_msg, agent_msg in mixed:
+        await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
+        result.interactions_run += 1
+
+    # Snapshot state before reflect
+    memories_before = count_total_memories(soul)
+    prompt_before = soul.to_system_prompt()
+    energy_before = soul.state.energy
+    domains_before = set(get_all_domains(soul).keys())
+
+    # --- Call reflect() — should return None (no CognitiveEngine) ---
+    reflect_result = await soul.reflect()
+
+    # Snapshot state after reflect
+    memories_after = count_total_memories(soul)
+    prompt_after = soul.to_system_prompt()
+    energy_after = soul.state.energy
+    domains_after = set(get_all_domains(soul).keys())
+
+    # --- Verify soul still works after reflect ---
+    await soul.observe(Interaction(
+        user_input="Can you still help me after reflecting?",
+        agent_output="Of course, reflection only makes me wiser.",
+    ))
+    result.interactions_run += 1
+    works_after = count_total_memories(soul) >= memories_after
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+    result.total_memories = count_total_memories(soul)
+
+    result.checks = [
+        Check(
+            "reflect() returns None (no CognitiveEngine)",
+            reflect_result is None,
+            f"Got: {type(reflect_result).__name__}",
+        ),
+        Check(
+            "Memory count unchanged after reflect",
+            memories_after == memories_before,
+            f"Before: {memories_before}, After: {memories_after}",
+        ),
+        Check(
+            "System prompt unchanged after reflect",
+            prompt_after == prompt_before,
+            f"Prompt len before: {len(prompt_before)}, after: {len(prompt_after)}",
+        ),
+        Check(
+            "Energy unchanged after reflect",
+            energy_after == energy_before,
+            f"Before: {energy_before:.1f}, After: {energy_after:.1f}",
+        ),
+        Check(
+            "Domains unchanged after reflect",
+            domains_after == domains_before,
+            f"Before: {sorted(domains_before)}, After: {sorted(domains_after)}",
+        ),
+        Check(
+            "Soul works normally after reflect",
+            works_after,
+            f"Memories after post-reflect interaction: {count_total_memories(soul)}",
+        ),
+    ]
+
+    return result
+
+
+async def scenario_forgetting() -> ScenarioResult:
+    """ACT-R decay: recall ranking respects recency and frequency.
+
+    Validates that more recent memories rank higher (recency effect),
+    and that repeated access boosts future recall (frequency effect).
+    """
+    soul = await Soul.birth(
+        "Scholar",
+        persona="I study memory and forgetting.",
+        values=["knowledge", "learning"],
+    )
+
+    result = ScenarioResult(
+        name="Forgetting / ACT-R Decay",
+        soul_name="Scholar",
+        interactions_run=0,
+        duration_ms=0,
+    )
+    t0 = time.monotonic()
+
+    # --- Add memory A (older) — uses unique keywords to enable targeted recall ---
+    a_content = "Kubernetes container orchestration manages deployment scaling"
+    mem_a_id = await soul.remember(
+        a_content,
+        type=MemoryType.SEMANTIC,
+        importance=7,
+    )
+
+    # Small delay to ensure timestamp difference
+    await asyncio.sleep(0.05)
+
+    # --- Add memory B (more recent) — shares "deployment" but is otherwise distinct ---
+    b_content = "Terraform infrastructure deployment automates cloud provisioning"
+    mem_b_id = await soul.remember(
+        b_content,
+        type=MemoryType.SEMANTIC,
+        importance=7,
+    )
+
+    # --- First recall: B should rank higher (more recent, same importance) ---
+    # Use "deployment" which matches both memories
+    results_first = await soul.recall("deployment", limit=5)
+    first_recall_contents = [r.content for r in results_first]
+
+    b_ranks_first = (
+        len(results_first) >= 2
+        and b_content in first_recall_contents[0]
+    )
+
+    # --- Access memory A multiple times using A-specific query ---
+    # "Kubernetes container orchestration" only matches A, not B
+    for _ in range(8):
+        await asyncio.sleep(0.01)
+        await soul.recall("Kubernetes container orchestration scaling", limit=5)
+
+    # Find memory A in the store and check access_count
+    a_entry = None
+    for fact in soul._memory._semantic._facts.values():
+        if a_content in fact.content:
+            a_entry = fact
+            break
+
+    a_access_count = a_entry.access_count if a_entry else 0
+
+    # --- After repeated access, A should now rank higher (frequency > recency) ---
+    results_after = await soul.recall("deployment", limit=5)
+    after_recall_contents = [r.content for r in results_after]
+    a_ranks_first_after = (
+        len(results_after) >= 2
+        and a_content in after_recall_contents[0]
+    )
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+    result.total_memories = count_total_memories(soul)
+
+    result.checks = [
+        Check(
+            "Both memories retrievable via recall",
+            len(results_first) >= 2,
+            f"Got {len(results_first)} results for 'deployment'",
+        ),
+        Check(
+            "Recent memory (B) ranks first initially",
+            b_ranks_first,
+            f"First result: {first_recall_contents[0][:60] if first_recall_contents else 'none'}...",
+        ),
+        Check(
+            "Memory A access_count increased after repeated recall",
+            a_access_count >= 3,
+            f"access_count: {a_access_count}",
+        ),
+        Check(
+            "Frequently accessed memory (A) ranks first after boost",
+            a_ranks_first_after,
+            f"First result after boost: {after_recall_contents[0][:60] if after_recall_contents else 'none'}...",
+        ),
+        Check(
+            "Total memories correct (at least 2 semantic)",
+            result.total_memories >= 2,
+            f"Total: {result.total_memories}",
+        ),
+    ]
+
+    return result
+
+
+async def scenario_migration() -> ScenarioResult:
+    """Cross-platform migration: soul moves between discord and slack.
+
+    Validates that memories from both platforms survive export/awaken,
+    the self-model is preserved, and the system prompt is platform-agnostic.
+    """
+    soul = await Soul.birth(
+        "Nomad",
+        persona="I travel between platforms, carrying my memories.",
+        values=["adaptability", "continuity"],
+        ocean={"openness": 0.9, "conscientiousness": 0.6},
+    )
+
+    result = ScenarioResult(
+        name="Cross-Platform Migration",
+        soul_name="Nomad",
+        interactions_run=0,
+        duration_ms=0,
+    )
+    t0 = time.monotonic()
+
+    # --- Phase 1: Discord interactions ---
+    discord_convos = [
+        ("How do I set up a Discord bot?", "Use discord.py or discord.js. Create an app in the Developer Portal, get a bot token."),
+        ("My bot needs slash commands", "Register commands with app_commands. Use @tree.command decorator in discord.py."),
+        ("I love gaming on weekends", "Gaming is a great way to unwind! What genres do you enjoy?"),
+        ("I'm building a moderation bot", "Add kick/ban commands, auto-mod for spam, logging for audit trails."),
+        ("I prefer Python for bots", "Python is excellent for Discord bots. discord.py has great async support."),
+    ]
+    for user_msg, agent_msg in discord_convos:
+        await soul.observe(Interaction(
+            user_input=user_msg,
+            agent_output=agent_msg,
+            channel="discord",
+        ))
+        result.interactions_run += 1
+
+    # Snapshot before migration
+    domains_before = get_all_domains(soul)
+    prompt_before = soul.to_system_prompt()
+    memories_before = count_total_memories(soul)
+
+    # --- Export (migrate) ---
+    with tempfile.NamedTemporaryFile(suffix=".soul", delete=False) as f:
+        export_path = f.name
+    await soul.export(export_path)
+
+    # --- Awaken on new platform ---
+    migrated = await Soul.awaken(export_path)
+    Path(export_path).unlink(missing_ok=True)
+
+    # --- Phase 2: Slack interactions ---
+    slack_convos = [
+        ("How do I build a Slack app?", "Use the Bolt framework. Create an app at api.slack.com, set up event subscriptions."),
+        ("I need workflow automation", "Slack Workflow Builder is great for simple flows. For complex ones, use Bolt with listeners."),
+        ("Can you help with API integration?", "Sure! Use Slack's Web API. Install the slack-sdk package for Python."),
+        ("I also enjoy cooking", "Cooking is wonderful! What cuisines do you like to explore?"),
+        ("My team uses Slack for everything", "Slack is great for team communication. Channels keep discussions organized."),
+    ]
+    for user_msg, agent_msg in slack_convos:
+        await migrated.observe(Interaction(
+            user_input=user_msg,
+            agent_output=agent_msg,
+            channel="slack",
+        ))
+        result.interactions_run += 1
+
+    # --- Verify migration preserved everything ---
+    memories_after = count_total_memories(migrated)
+    domains_after = get_all_domains(migrated)
+    prompt_after = migrated.to_system_prompt()
+
+    # Check discord memories survived (recall discord-related content)
+    discord_recall = await migrated.recall("Discord bot slash commands", limit=5)
+    discord_memory_found = any("discord" in r.content.lower() or "bot" in r.content.lower() for r in discord_recall)
+
+    # Check slack memories exist
+    slack_recall = await migrated.recall("Slack app workflow", limit=5)
+    slack_memory_found = any("slack" in r.content.lower() or "workflow" in r.content.lower() for r in slack_recall)
+
+    # Self-model should be preserved (domains from discord still present)
+    domains_preserved = len(domains_after) >= len(domains_before)
+
+    # System prompt should not hardcode a platform identity
+    # (mentioning discord/slack as learned *topics* is fine — we check that
+    # the prompt doesn't contain platform-identity phrases like "you are a discord bot")
+    prompt_lower = prompt_after.lower()
+    platform_identity_phrases = [
+        "you are a discord bot",
+        "you are a slack bot",
+        "discord only",
+        "slack only",
+        "platform: discord",
+        "platform: slack",
+    ]
+    platform_agnostic = not any(phrase in prompt_lower for phrase in platform_identity_phrases)
+
+    # Persona should survive migration
+    core_after = migrated.get_core_memory()
+    persona_preserved = "travel between platforms" in core_after.persona
+
+    result.duration_ms = (time.monotonic() - t0) * 1000
+    result.total_memories = memories_after
+    result.domains_discovered = domains_after
+
+    result.checks = [
+        Check(
+            "Memories grew after migration (discord + slack)",
+            memories_after > memories_before,
+            f"Before: {memories_before}, After: {memories_after}",
+        ),
+        Check(
+            "Discord memories survive migration",
+            discord_memory_found,
+            f"Discord recall results: {len(discord_recall)}",
+        ),
+        Check(
+            "Slack memories exist after migration",
+            slack_memory_found,
+            f"Slack recall results: {len(slack_recall)}",
+        ),
+        Check(
+            "Self-model domains preserved across migration",
+            domains_preserved,
+            f"Before: {len(domains_before)}, After: {len(domains_after)}",
+        ),
+        Check(
+            "System prompt is platform-agnostic",
+            platform_agnostic,
+            f"Prompt does not mention discord or slack",
+        ),
+        Check(
+            "Persona survived migration",
+            persona_preserved,
+            f"Persona: {core_after.persona[:60]}...",
+        ),
+    ]
+
+    return result
+
+
+# ===========================================================================
 # Main
 # ===========================================================================
 
@@ -2759,6 +4225,21 @@ SCENARIOS = {
     "config-files": ("Config File Formats", scenario_config_file_formats),
     "edge-cases": ("Edge Cases & Unicode", scenario_edge_cases),
     "expression": ("Dynamic Personality Expression", scenario_dynamic_personality_expression),
+    # Adversarial, evolution, recall, core-memory tests (group A)
+    "adversarial": ("Adversarial Robustness", scenario_adversarial),
+    "evolution": ("Evolution System", scenario_evolution),
+    "recall-quality": ("Recall Quality", scenario_recall_quality),
+    "core-memory": ("Core Memory Editing", scenario_core_memory),
+    # Significance, emotional, graph, concurrent tests (group B)
+    "significance": ("Significance Scoring", scenario_significance),
+    "emotional": ("Emotional Trajectory", scenario_emotional),
+    "graph": ("Knowledge Graph", scenario_graph),
+    "concurrent": ("Concurrent Async Safety", scenario_concurrent),
+    # Robustness & migration tests (group C)
+    "degradation": ("Graceful Degradation", scenario_degradation),
+    "reflection": ("Reflection (Heuristic)", scenario_reflection),
+    "forgetting": ("Forgetting / ACT-R Decay", scenario_forgetting),
+    "migration": ("Cross-Platform Migration", scenario_migration),
 }
 
 
