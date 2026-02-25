@@ -160,7 +160,10 @@ class SelfModelManager:
         if best_domain and best_score >= 2:
             # Good match — reinforce existing domain and expand its vocabulary
             self._update_domain(best_domain, best_score)
-            self._domain_keywords[best_domain] |= meaningful
+            # Cap keyword growth to prevent unbounded memory usage
+            merged = self._domain_keywords[best_domain] | meaningful
+            if len(merged) <= 500:
+                self._domain_keywords[best_domain] = merged
         elif len(meaningful) >= 2:
             # No good match — create a new domain from content
             domain_name = self._generate_domain_name(meaningful)
