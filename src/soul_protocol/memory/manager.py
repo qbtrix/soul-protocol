@@ -1,5 +1,7 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
-# Updated: v0.2.2 — Added SearchStrategy support, consolidate() for reflect auto-apply,
+# Updated: v0.2.3 — Expanded FACT_PATTERNS with Q&A knowledge extraction:
+#   user questions, recommendations, advice, comparisons, user goals/learning.
+#   v0.2.2 — Added SearchStrategy support, consolidate() for reflect auto-apply,
 #   GeneralEvent storage (Conway hierarchy), fact conflict resolution via supersede.
 #   v0.2.1 — Integrated CognitiveProcessor for LLM-enhanced observe().
 #   All psychology steps now go through CognitiveProcessor which delegates to
@@ -99,6 +101,78 @@ FACT_PATTERNS: list[tuple[re.Pattern[str], int, str]] = [
         re.compile(r"my favorite (\w+) is (\w[\w\s]{2,30})", re.IGNORECASE),
         6,
         "User's favorite {0} is {1}",
+    ),
+    # --- v0.2.3: Q&A knowledge extraction patterns ---
+    # User questions reveal interests/needs
+    (
+        re.compile(
+            r"how (?:do|can|should|would) (?:i|you|we) ([^.!?\n]{3,50})",
+            re.IGNORECASE,
+        ),
+        5,
+        "User asked about {0}",
+    ),
+    # Agent recommendations: "use X for/to/with Y"
+    (
+        re.compile(
+            r"\buse ([\w().\-]+(?:\s[\w().\-]+){0,4})"
+            r" (?:for|to|with|when|instead of) ([^.!?\n]{3,30})",
+            re.IGNORECASE,
+        ),
+        5,
+        "Recommendation: use {0} for {1}",
+    ),
+    # Advice: imperative "try/install/run X" at sentence start
+    (
+        re.compile(
+            r"(?:^|[.!?]\s+)(?:try|install|run|check out|look into)"
+            r" ([\w().\-]+(?:\s[\w().\-]+){0,3})",
+            re.IGNORECASE | re.MULTILINE,
+        ),
+        5,
+        "Advised: {0}",
+    ),
+    # Comparisons: "X vs Y", "X compared to Y"
+    (
+        re.compile(
+            r"(\w[\w\s]{1,20}?) (?:vs\.?|versus|compared to) (\w[^.!?\n]{1,30})",
+            re.IGNORECASE,
+        ),
+        5,
+        "Comparison discussed: {0} vs {1}",
+    ),
+    # User errors/struggles
+    (
+        re.compile(
+            r"(?:getting|having|seeing|encountering|returns?|got|get)"
+            r" ([^.!?\n]{3,30}?) errors?",
+            re.IGNORECASE,
+        ),
+        5,
+        "User encountered {0} errors",
+    ),
+    # User goals: "I want/need to X"
+    (
+        re.compile(r"i (?:want|need|have) to ([^.!?\n]{3,30})", re.IGNORECASE),
+        6,
+        "User wants to {0}",
+    ),
+    # User attempts: "I'm trying to X"
+    (
+        re.compile(
+            r"i(?:'m| am) trying to ([^.!?\n]{3,30})", re.IGNORECASE
+        ),
+        6,
+        "User is trying to {0}",
+    ),
+    # User learning: "I'm learning/studying/new to X"
+    (
+        re.compile(
+            r"i(?:'m| am) (?:learning|studying|new to) (\w[^.!?\n]{2,30})",
+            re.IGNORECASE,
+        ),
+        6,
+        "User is learning {0}",
     ),
 ]
 
@@ -331,7 +405,7 @@ class MemoryManager:
         sig_value = overall_significance(sig_score)
         significant = is_significant(sig_score)
 
-        # --- 3. Conditional episodic storage ---
+        # --- 3. Conditional episodic storage (first pass) ---
         episodic_id: str | None = None
         if significant:
             episodic_id = await self._episodic.add_with_psychology(
@@ -339,8 +413,6 @@ class MemoryManager:
                 somatic=somatic,
                 significance=sig_value,
             )
-        # Note: if not significant, the interaction still gets fact extraction
-        # below but won't appear in episodic memory
 
         # --- 4. Extract and store semantic facts (via CognitiveProcessor) ---
         facts = await self._cognitive.extract_facts(
@@ -350,6 +422,18 @@ class MemoryManager:
         await self._resolve_fact_conflicts(facts)
         for fact in facts:
             await self.add(fact)
+
+        # --- 4b. v0.2.3 — Promote to episodic if facts were extracted ---
+        # Any interaction that produces extracted facts is worth remembering,
+        # even if it didn't pass the initial significance gate.
+        if not significant and facts:
+            significant = True
+            sig_value = max(sig_value, 0.3)
+            episodic_id = await self._episodic.add_with_psychology(
+                interaction,
+                somatic=somatic,
+                significance=sig_value,
+            )
 
         # --- 5. Extract entities (via CognitiveProcessor) ---
         entities = await self._cognitive.extract_entities(interaction)
@@ -422,7 +506,11 @@ class MemoryManager:
         Returns:
             List of MemoryEntry objects ready to be added to the semantic store.
         """
-        combined = f"{interaction.user_input} {interaction.agent_output}"
+        # Join with period-space to create a sentence boundary between
+        # user input and agent output, preventing captures from crossing.
+        user = interaction.user_input.rstrip(" .")
+        agent = interaction.agent_output.rstrip(" .")
+        combined = f"{user}. {agent}" if agent else user
         extracted: list[MemoryEntry] = []
         seen_contents: set[str] = set()
 
