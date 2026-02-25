@@ -163,10 +163,6 @@ class Soul:
         # Use explicit persona text, fall back to personality, fall back to default
         persona_text = persona or personality or f"I am {name}."
 
-        # Set persona core memory if provided
-        if persona:
-            config.core_memory.persona = persona
-
         soul = cls(config, engine=engine, search_strategy=search_strategy)
 
         # Initialize core memory
