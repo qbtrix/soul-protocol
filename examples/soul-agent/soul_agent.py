@@ -224,7 +224,7 @@ async def main() -> None:
     )
 
     # -- Build system prompt from soul
-    system_prompt = soul.to_system_prompt() + (
+    tool_instructions = (
         "\n\n## Available Soul Tools\n"
         "You have access to tools for interacting with your soul memory system:\n"
         "- `soul_recall`: Search your memories for relevant information\n"
@@ -236,6 +236,7 @@ async def main() -> None:
         "use soul_recall to search your memories. Check soul_state periodically "
         "to stay aware of your emotional state."
     )
+    system_prompt = soul.to_system_prompt() + tool_instructions
 
     # -- Configure Agent SDK client
     soul_tool_names = [
@@ -270,8 +271,24 @@ async def main() -> None:
                 if user_input == "/quit":
                     break
 
+                # -- Build context-enriched query
+                # Inject live soul state + relevant memories so the agent
+                # stays grounded even as conversation context gets compressed
+                s = soul.state
+                memories = await soul.recall(user_input, limit=3)
+                context_parts = [
+                    f"[Soul state: mood={s.mood.value}, energy={s.energy:.0f}%, "
+                    f"social_battery={s.social_battery:.0f}%]",
+                ]
+                if memories:
+                    mem_lines = [f"- {m.content}" for m in memories]
+                    context_parts.append(
+                        "[Relevant memories:\n" + "\n".join(mem_lines) + "]"
+                    )
+                context_prefix = "\n".join(context_parts) + "\n\n"
+
                 # -- Send query to Claude via Agent SDK
-                await client.query(user_input)
+                await client.query(context_prefix + user_input)
 
                 # -- Collect response
                 agent_output = ""
