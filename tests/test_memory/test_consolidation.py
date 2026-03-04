@@ -482,7 +482,7 @@ class TestGeneralEventPersistence:
 
         await soul.save(tmp_path)
 
-        soul_dir = tmp_path / soul.did
+        soul_dir = tmp_path / soul.did.replace(":", "_")
         assert (soul_dir / "memory" / "general_events.json").exists()
 
         _, memory_data = await load_soul_full(soul_dir)

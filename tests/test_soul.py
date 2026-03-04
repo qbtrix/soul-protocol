@@ -203,9 +203,8 @@ async def test_save_load_full_roundtrip(tmp_path):
 
     await soul.save(tmp_path)
 
-    # Find the saved directory
-    soul_id = soul.did
-    soul_dir = tmp_path / soul_id
+    # Find the saved directory (colons in DID are replaced with underscores on disk)
+    soul_dir = tmp_path / soul.did.replace(":", "_")
     assert soul_dir.exists()
     assert (soul_dir / "soul.json").exists()
     assert (soul_dir / "memory" / "semantic.json").exists()
@@ -378,7 +377,7 @@ async def test_save_load_preserves_self_model(tmp_path):
 
     await soul.save(tmp_path)
 
-    soul_dir = tmp_path / soul.did
+    soul_dir = tmp_path / soul.did.replace(":", "_")
     assert (soul_dir / "memory" / "self_model.json").exists()
 
     # Load and verify self_model is in memory_data

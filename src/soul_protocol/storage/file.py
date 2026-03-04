@@ -22,11 +22,17 @@ DEFAULT_SOUL_DIR: Path = Path.home() / ".soul"
 
 
 def _safe_soul_id(config: SoulConfig) -> str:
-    """Extract soul_id from config and guard against path traversal."""
+    """Extract soul_id from config and sanitize for filesystem use.
+
+    DIDs contain colons (e.g. ``did:soul:name-hash``) which are illegal
+    in Windows paths. Replace colons with underscores to make them
+    cross-platform safe while keeping them human-readable.
+    """
     soul_id = config.identity.did or config.identity.name
     if ".." in soul_id or "/" in soul_id or "\\" in soul_id:
         raise ValueError(f"Soul ID contains unsafe path characters: {soul_id}")
-    return soul_id
+    # Colons are illegal in Windows paths — replace with underscores
+    return soul_id.replace(":", "_")
 
 
 class FileStorage:

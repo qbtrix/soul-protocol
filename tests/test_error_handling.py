@@ -1,10 +1,13 @@
 # test_error_handling.py — Tests for proper error handling in awaken(), export(), retire().
 # Created: v0.3.2 — Covers SoulFileNotFoundError, SoulCorruptError,
 #   SoulExportError, SoulRetireError.
+# Updated: fix Windows compatibility — NamedTemporaryFile handle management,
+#   skip chmod-based tests on Windows (no Unix-style permissions).
 
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -18,6 +21,8 @@ from soul_protocol.exceptions import (
     SoulFileNotFoundError,
     SoulRetireError,
 )
+
+_IS_WINDOWS = sys.platform == "win32"
 
 
 # ============ awaken() error handling ============
@@ -39,14 +44,15 @@ class TestAwakenErrors:
     @pytest.mark.asyncio
     async def test_awaken_corrupt_soul_file_raises_soul_corrupt(self):
         """A .soul file with invalid content should raise SoulCorruptError."""
-        with tempfile.NamedTemporaryFile(suffix=".soul", delete=False) as f:
-            f.write(b"this is not a zip archive")
-            f.flush()
-            try:
-                with pytest.raises(SoulCorruptError, match="Invalid .soul archive"):
-                    await Soul.awaken(f.name)
-            finally:
-                os.unlink(f.name)
+        tmp = tempfile.NamedTemporaryFile(suffix=".soul", delete=False)
+        tmp.write(b"this is not a zip archive")
+        tmp.flush()
+        tmp.close()
+        try:
+            with pytest.raises(SoulCorruptError, match="Invalid .soul archive"):
+                await Soul.awaken(tmp.name)
+        finally:
+            os.unlink(tmp.name)
 
     @pytest.mark.asyncio
     async def test_awaken_corrupt_bytes_raises_soul_corrupt(self):
@@ -57,23 +63,24 @@ class TestAwakenErrors:
     @pytest.mark.asyncio
     async def test_awaken_error_includes_path(self):
         """Error message should include the file path for debugging."""
-        path = "/tmp/nonexistent_soul_test.soul"
+        path = os.path.join(tempfile.gettempdir(), "nonexistent_soul_test.soul")
         with pytest.raises(SoulFileNotFoundError) as exc_info:
             await Soul.awaken(path)
-        assert path in str(exc_info.value)
+        assert "nonexistent_soul_test.soul" in str(exc_info.value)
         assert exc_info.value.path == path
 
     @pytest.mark.asyncio
     async def test_awaken_unknown_format_still_raises_value_error(self):
         """Unknown file extensions should still raise ValueError."""
-        with tempfile.NamedTemporaryFile(suffix=".xyz", delete=False) as f:
-            f.write(b"data")
-            f.flush()
-            try:
-                with pytest.raises(ValueError, match="Unknown soul format"):
-                    await Soul.awaken(f.name)
-            finally:
-                os.unlink(f.name)
+        tmp = tempfile.NamedTemporaryFile(suffix=".xyz", delete=False)
+        tmp.write(b"data")
+        tmp.flush()
+        tmp.close()
+        try:
+            with pytest.raises(ValueError, match="Unknown soul format"):
+                await Soul.awaken(tmp.name)
+        finally:
+            os.unlink(tmp.name)
 
 
 # ============ export() error handling ============
@@ -83,6 +90,7 @@ class TestExportErrors:
     """Test that export() raises SoulExportError on I/O failures."""
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(_IS_WINDOWS, reason="chmod 0o444 doesn't restrict writes on Windows")
     async def test_export_to_readonly_dir_raises_soul_export_error(self):
         """Exporting to a read-only directory should raise SoulExportError."""
         soul = await Soul.birth(name="ExportTest")
@@ -97,6 +105,7 @@ class TestExportErrors:
                 os.chmod(tmpdir, 0o755)
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(_IS_WINDOWS, reason="chmod 0o444 doesn't restrict writes on Windows")
     async def test_export_error_includes_path(self):
         """SoulExportError should include the target path."""
         soul = await Soul.birth(name="ExportTest")
@@ -116,12 +125,13 @@ class TestExportErrors:
     async def test_export_success_still_works(self):
         """Normal export should still work without errors."""
         soul = await Soul.birth(name="ExportTest")
-        with tempfile.NamedTemporaryFile(suffix=".soul", delete=False) as f:
-            try:
-                await soul.export(f.name)
-                assert os.path.getsize(f.name) > 0
-            finally:
-                os.unlink(f.name)
+        tmp = tempfile.NamedTemporaryFile(suffix=".soul", delete=False)
+        tmp.close()
+        try:
+            await soul.export(tmp.name)
+            assert os.path.getsize(tmp.name) > 0
+        finally:
+            os.unlink(tmp.name)
 
 
 # ============ retire() error handling ============

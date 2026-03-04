@@ -329,8 +329,8 @@ class TestMemoryPersistence:
 
         await soul.save(tmp_path)
 
-        # Verify file structure
-        soul_dir = tmp_path / soul.did
+        # Verify file structure (colons in DID are replaced with underscores on disk)
+        soul_dir = tmp_path / soul.did.replace(":", "_")
         assert (soul_dir / "soul.json").exists()
         assert (soul_dir / "memory" / "semantic.json").exists()
         assert (soul_dir / "memory" / "episodic.json").exists()
@@ -519,7 +519,7 @@ class TestDirectoryFormat:
         ))
 
         await soul.save(tmp_path)
-        soul_dir = tmp_path / soul.did
+        soul_dir = tmp_path / soul.did.replace(":", "_")
         config, mem_data = await load_soul_full(soul_dir)
 
         assert config is not None
