@@ -395,6 +395,70 @@ class Soul:
         """Total number of stored memories."""
         return self._memory.count()
 
+    async def context_for(
+        self,
+        user_input: str,
+        *,
+        max_memories: int = 5,
+        include_state: bool = True,
+        include_memories: bool = True,
+        include_self_model: bool = False,
+    ) -> str:
+        """Generate a per-turn context block for any agentic system.
+
+        Designed to be prepended to user messages or injected as context
+        so the agent stays grounded as conversation history gets compressed
+        or truncated. Works with any LLM framework — not tied to a specific SDK.
+
+        Returns a string with the soul's live state and relevant memories
+        for the current turn. Use alongside ``to_system_prompt()``::
+
+            # At session start — set once:
+            system = soul.to_system_prompt()
+
+            # Before each turn — always fresh:
+            context = await soul.context_for(user_input)
+            full_message = context + user_input
+
+        Args:
+            user_input: The current user message (used for memory retrieval).
+            max_memories: Maximum relevant memories to include.
+            include_state: Include current mood, energy, social battery.
+            include_memories: Recall and include relevant memories.
+            include_self_model: Include self-model insights.
+
+        Returns:
+            A context string ready to prepend to the user message.
+        """
+        parts: list[str] = []
+
+        if include_state:
+            s = self._state.current
+            parts.append(
+                f"[Soul state: mood={s.mood.value}, energy={s.energy:.0f}%, "
+                f"social_battery={s.social_battery:.0f}%]"
+            )
+
+        if include_memories and user_input.strip():
+            memories = await self._memory.recall(
+                query=user_input, limit=max_memories
+            )
+            if memories:
+                lines = [f"- {m.content}" for m in memories]
+                parts.append(
+                    "[Relevant memories:\n" + "\n".join(lines) + "]"
+                )
+
+        if include_self_model:
+            fragment = self._memory.self_model.to_prompt_fragment()
+            if fragment:
+                parts.append(f"[Self-model: {fragment}]")
+
+        if not parts:
+            return ""
+
+        return "\n".join(parts) + "\n\n"
+
     # ============ Memory ============
 
     async def remember(

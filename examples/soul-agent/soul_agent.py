@@ -274,21 +274,10 @@ async def main() -> None:
                 # -- Build context-enriched query
                 # Inject live soul state + relevant memories so the agent
                 # stays grounded even as conversation context gets compressed
-                s = soul.state
-                memories = await soul.recall(user_input, limit=3)
-                context_parts = [
-                    f"[Soul state: mood={s.mood.value}, energy={s.energy:.0f}%, "
-                    f"social_battery={s.social_battery:.0f}%]",
-                ]
-                if memories:
-                    mem_lines = [f"- {m.content}" for m in memories]
-                    context_parts.append(
-                        "[Relevant memories:\n" + "\n".join(mem_lines) + "]"
-                    )
-                context_prefix = "\n".join(context_parts) + "\n\n"
+                context = await soul.context_for(user_input, max_memories=3)
 
                 # -- Send query to Claude via Agent SDK
-                await client.query(context_prefix + user_input)
+                await client.query(context + user_input)
 
                 # -- Collect response
                 agent_output = ""
