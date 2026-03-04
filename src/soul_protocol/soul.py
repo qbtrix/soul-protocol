@@ -473,8 +473,8 @@ class Soul:
 
             await self._memory.update_graph(graph_entities)
 
-        # Update state based on interaction
-        self._state.on_interaction(interaction)
+        # Update state based on interaction + detected sentiment
+        self._state.on_interaction(interaction, somatic=result.get("somatic"))
 
         # Check for evolution triggers
         await self._evolution.check_triggers(self._dna, interaction)

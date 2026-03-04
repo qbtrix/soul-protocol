@@ -6,11 +6,53 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from soul_protocol.types import Interaction, Mood, SoulState
+from soul_protocol.types import Interaction, Mood, SomaticMarker, SoulState
 
 
 # Default recovery rate per hour of rest (energy points)
 _DEFAULT_ENERGY_REGEN_RATE: float = 10.0
+
+# Minimum arousal/valence magnitude to trigger a mood change.
+# Below this threshold the interaction is too mild to shift mood.
+_MOOD_THRESHOLD: float = 0.25
+
+
+def _somatic_to_mood(somatic: SomaticMarker) -> Mood | None:
+    """Map a somatic marker to a Mood, or None if too mild to shift.
+
+    Uses valence (positive/negative) and arousal (calm/intense) quadrants:
+      - High positive + high arousal → EXCITED
+      - High positive + low arousal  → SATISFIED
+      - Mild positive               → CURIOUS
+      - High negative + high arousal → CONCERNED
+      - High negative + low arousal  → CONTEMPLATIVE
+      - Near-zero valence + arousal  → None (no change)
+    """
+    v, a = somatic.valence, somatic.arousal
+
+    # Too mild — don't shift mood
+    if abs(v) < _MOOD_THRESHOLD and a < _MOOD_THRESHOLD:
+        return None
+
+    if v >= _MOOD_THRESHOLD:
+        # Positive
+        if a >= 0.5:
+            return Mood.EXCITED
+        elif a >= 0.2:
+            return Mood.CURIOUS
+        else:
+            return Mood.SATISFIED
+    elif v <= -_MOOD_THRESHOLD:
+        # Negative
+        if a >= 0.5:
+            return Mood.CONCERNED
+        else:
+            return Mood.CONTEMPLATIVE
+    else:
+        # Neutral valence but high arousal
+        if a >= 0.5:
+            return Mood.FOCUSED
+        return None
 
 
 class StateManager:
@@ -52,17 +94,33 @@ class StateManager:
             elif hasattr(self._state, key):
                 setattr(self._state, key, value)
 
-    def on_interaction(self, interaction: Interaction) -> None:
-        """Process an interaction, draining energy and social battery.
+    def on_interaction(
+        self,
+        interaction: Interaction,
+        somatic: SomaticMarker | None = None,
+    ) -> None:
+        """Process an interaction, draining energy and updating mood from sentiment.
 
         - Decreases energy by 2
         - Decreases social_battery by 5
         - Updates last_interaction to the interaction's timestamp
-        - If energy drops below 20, mood shifts to TIRED
+        - If a somatic marker is provided, maps it to a mood change
+        - If energy drops below 20, mood shifts to TIRED (overrides sentiment)
+
+        Args:
+            interaction: The interaction that occurred.
+            somatic: Optional somatic marker from sentiment detection.
         """
         self.update(energy=-2, social_battery=-5)
         self._state.last_interaction = interaction.timestamp
 
+        # Map somatic marker to mood
+        if somatic is not None:
+            new_mood = _somatic_to_mood(somatic)
+            if new_mood is not None:
+                self._state.mood = new_mood
+
+        # Low energy overrides everything
         if self._state.energy < 20:
             self._state.mood = Mood.TIRED
 
