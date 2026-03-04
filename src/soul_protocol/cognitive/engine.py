@@ -3,6 +3,11 @@
 #   CognitiveEngine: single-method protocol consumers implement.
 #   HeuristicEngine: zero-dependency fallback wrapping v0.2.0 heuristic modules.
 #   CognitiveProcessor: internal orchestrator delegating psychology tasks to engine.
+# Updated: 2026-03-04 — Fix: _is_heuristic_only now checks isinstance(engine, HeuristicEngine)
+#   only, dropping the "and fallback is None" condition. Previously, passing
+#   engine=HeuristicEngine() alongside any fallback set _is_heuristic_only=False,
+#   routing update_self_model() through the LLM path where _self_reflection()
+#   returned empty self_images — causing zero domain discovery.
 
 from __future__ import annotations
 
@@ -247,9 +252,7 @@ class CognitiveProcessor:
     ) -> None:
         self._engine = engine
         self._fallback = fallback
-        self._is_heuristic_only = (
-            isinstance(engine, HeuristicEngine) and fallback is None
-        )
+        self._is_heuristic_only = isinstance(engine, HeuristicEngine)
         self._fact_extractor = fact_extractor
         self._entity_extractor = entity_extractor
 

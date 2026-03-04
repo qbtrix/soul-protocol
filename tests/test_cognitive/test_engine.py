@@ -1,6 +1,8 @@
 # tests/test_cognitive/test_engine.py — Tests for CognitiveEngine, HeuristicEngine,
 #   CognitiveProcessor, and integration with Soul/MemoryManager.
 # Created: v0.2.1
+# Updated: 2026-03-04 — Regression tests for _is_heuristic_only bug: passing
+#   engine=HeuristicEngine() explicitly must preserve heuristic self-model path.
 
 from __future__ import annotations
 
@@ -540,3 +542,110 @@ class TestSoulIntegration:
         assert "extract_facts" in task_markers
         assert "extract_entities" in task_markers
         assert "self_reflection" in task_markers
+
+
+# ---------------------------------------------------------------------------
+# Regression: _is_heuristic_only with explicit HeuristicEngine() pass
+# ---------------------------------------------------------------------------
+
+
+class TestHeuristicOnlyRegression:
+    """When engine=HeuristicEngine() is passed explicitly, self-model domain
+    discovery must use the heuristic path, not the LLM path.
+
+    Previously, _is_heuristic_only required `fallback is None`, so passing
+    engine=HeuristicEngine() with any fallback present (e.g. MemoryManager
+    wraps it) set the flag False — routing update_self_model() through
+    _self_reflection() which returns empty self_images → zero domains.
+    """
+
+    def test_explicit_heuristic_engine_sets_flag(self) -> None:
+        """CognitiveProcessor with engine=HeuristicEngine() must be heuristic-only."""
+        processor = CognitiveProcessor(HeuristicEngine())
+        assert processor._is_heuristic_only is True
+
+    def test_explicit_heuristic_engine_with_fallback_still_heuristic(self) -> None:
+        """Even with a fallback present, HeuristicEngine primary → heuristic-only."""
+        processor = CognitiveProcessor(
+            HeuristicEngine(),
+            fallback=HeuristicEngine(),
+        )
+        assert processor._is_heuristic_only is True
+
+    def test_mock_llm_engine_is_not_heuristic_only(self) -> None:
+        """Non-heuristic engine → flag must be False."""
+        processor = CognitiveProcessor(MockLLMEngine())
+        assert processor._is_heuristic_only is False
+
+    @pytest.mark.asyncio
+    async def test_explicit_heuristic_engine_produces_domains(self) -> None:
+        """Soul.birth(engine=HeuristicEngine()) must discover domains from interactions.
+
+        Regression for the bug where zero domains were discovered when
+        engine=HeuristicEngine() was passed explicitly to Soul.birth().
+        """
+        soul = await Soul.birth(
+            "RegressionSoul",
+            values=["helpfulness", "curiosity"],
+        )
+
+        # Simulate topical interactions that heuristic self-model can classify
+        topics = [
+            ("I love writing Python code", "Python is great for many tasks"),
+            ("Can you help me debug this function?", "Sure, let me look at it"),
+            ("I use Python for data analysis too", "pandas and numpy are great"),
+            ("I enjoy solving coding puzzles", "That's a great way to learn"),
+            ("My favorite language is Python", "It has a great ecosystem"),
+        ]
+        for user_input, agent_output in topics:
+            await soul.observe(
+                Interaction(user_input=user_input, agent_output=agent_output)
+            )
+
+        # With the bug: 0 domains. With the fix: ≥1 domain discovered.
+        domains = soul.self_model.get_active_self_images()
+        assert len(domains) >= 1, (
+            f"Expected ≥1 domain after {len(topics)} topical interactions, "
+            f"got 0. This indicates _is_heuristic_only=False (the bug)."
+        )
+
+    @pytest.mark.asyncio
+    async def test_heuristic_engine_none_produces_same_domains(self) -> None:
+        """Soul.birth() with no engine must produce the same results as explicit HeuristicEngine()."""
+        interactions = [
+            Interaction(
+                user_input="I love writing Python code",
+                agent_output="Python is a wonderful language",
+            ),
+            Interaction(
+                user_input="Can you help me debug this loop?",
+                agent_output="Sure, let me trace through it",
+            ),
+            Interaction(
+                user_input="My main interest is machine learning",
+                agent_output="That's a fascinating field",
+            ),
+        ]
+
+        # Default (engine=None): heuristic path via Soul internals
+        soul_default = await Soul.birth("DefaultSoul", values=["curiosity"])
+        for interaction in interactions:
+            await soul_default.observe(interaction)
+
+        # Explicit HeuristicEngine: must take the same path
+        soul_explicit = await Soul.birth(
+            "ExplicitSoul",
+            values=["curiosity"],
+            engine=HeuristicEngine(),
+        )
+        for interaction in interactions:
+            await soul_explicit.observe(interaction)
+
+        default_domains = {img.domain for img in soul_default.self_model.get_active_self_images()}
+        explicit_domains = {img.domain for img in soul_explicit.self_model.get_active_self_images()}
+
+        # Both should discover the same domains from the same input
+        assert default_domains == explicit_domains, (
+            f"Default and explicit HeuristicEngine paths diverged.\n"
+            f"Default: {default_domains}\nExplicit: {explicit_domains}"
+        )
