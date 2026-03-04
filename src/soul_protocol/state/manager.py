@@ -1,6 +1,14 @@
 # state/manager.py — StateManager for tracking and mutating a soul's runtime state.
 # Created: 2026-02-22 — Manages mood, energy, social_battery, focus, and
 # interaction-driven state changes with delta-based updates and clamping.
+# Updated: 2026-03-04 — Two fixes to sentiment-driven mood:
+#   1. Mood inertia via EMA: valence is smoothed with exponential moving average
+#      (alpha=0.4) before the threshold check, so a single mild message can't
+#      flip mood — accumulated signal is required.
+#   2. Label-based mood mapping: _somatic_to_mood() now uses the label field
+#      from SomaticMarker as primary lookup (_LABEL_TO_MOOD dict), with
+#      valence/arousal quadrant logic as fallback for unlabeled markers.
+#      Removes duplicate quadrant math that already existed in sentiment.py.
 
 from __future__ import annotations
 
@@ -12,30 +20,53 @@ from soul_protocol.types import Interaction, Mood, SomaticMarker, SoulState
 # Default recovery rate per hour of rest (energy points)
 _DEFAULT_ENERGY_REGEN_RATE: float = 10.0
 
-# Minimum arousal/valence magnitude to trigger a mood change.
-# Below this threshold the interaction is too mild to shift mood.
+# Minimum EMA-smoothed valence/arousal magnitude to trigger a mood change.
 _MOOD_THRESHOLD: float = 0.25
+
+# EMA smoothing factor for valence history.
+# Weight given to current message vs accumulated history.
+# 0.4 means ~4 consecutive mild signals shift mood; 1 strong signal shifts immediately.
+_EMA_ALPHA: float = 0.4
+
+# Primary label → Mood lookup. Labels come from sentiment.py's _classify_label(),
+# which already did the quadrant math — no need to redo it here.
+_LABEL_TO_MOOD: dict[str, Mood] = {
+    "excitement": Mood.EXCITED,
+    "joy": Mood.SATISFIED,
+    "gratitude": Mood.SATISFIED,
+    "curiosity": Mood.CURIOUS,
+    "frustration": Mood.CONCERNED,
+    "sadness": Mood.CONTEMPLATIVE,
+    "confusion": Mood.FOCUSED,
+}
 
 
 def _somatic_to_mood(somatic: SomaticMarker) -> Mood | None:
     """Map a somatic marker to a Mood, or None if too mild to shift.
 
-    Uses valence (positive/negative) and arousal (calm/intense) quadrants:
-      - High positive + high arousal → EXCITED
-      - High positive + low arousal  → SATISFIED
-      - Mild positive               → CURIOUS
-      - High negative + high arousal → CONCERNED
-      - High negative + low arousal  → CONTEMPLATIVE
-      - Near-zero valence + arousal  → None (no change)
+    Uses label as primary lookup (avoids re-deriving quadrant logic that
+    sentiment.py already computed). Falls back to valence/arousal for
+    custom or unlabeled markers where label is 'neutral' but signal
+    still exceeds threshold.
+
+    Args:
+        somatic: Marker with EMA-smoothed valence, raw arousal, and label.
     """
     v, a = somatic.valence, somatic.arousal
 
-    # Too mild — don't shift mood
-    if abs(v) < _MOOD_THRESHOLD and a < _MOOD_THRESHOLD:
+    # EMA-smoothed valence is the inertia gate.
+    # Arousal stays for quality differentiation (excited vs satisfied, etc.)
+    # but does not override the valence gate — pure high-arousal neutral
+    # conversation should not shift mood on its own.
+    if abs(v) < _MOOD_THRESHOLD:
         return None
 
+    # Label-based lookup (sentiment.py already resolved the quadrant)
+    if somatic.label in _LABEL_TO_MOOD:
+        return _LABEL_TO_MOOD[somatic.label]
+
+    # Fallback: valence/arousal quadrants for unlabeled or custom markers
     if v >= _MOOD_THRESHOLD:
-        # Positive
         if a >= 0.5:
             return Mood.EXCITED
         elif a >= 0.2:
@@ -43,16 +74,9 @@ def _somatic_to_mood(somatic: SomaticMarker) -> Mood | None:
         else:
             return Mood.SATISFIED
     elif v <= -_MOOD_THRESHOLD:
-        # Negative
-        if a >= 0.5:
-            return Mood.CONCERNED
-        else:
-            return Mood.CONTEMPLATIVE
+        return Mood.CONCERNED if a >= 0.5 else Mood.CONTEMPLATIVE
     else:
-        # Neutral valence but high arousal
-        if a >= 0.5:
-            return Mood.FOCUSED
-        return None
+        return Mood.FOCUSED if a >= 0.5 else None
 
 
 class StateManager:
@@ -60,10 +84,16 @@ class StateManager:
 
     Provides delta-based updates for energy and social_battery (clamped 0-100),
     interaction-driven drain, and rest-based recovery.
+
+    Mood inertia is implemented via an exponential moving average (EMA) of
+    valence. A single mild message cannot flip mood — the smoothed signal
+    must exceed _MOOD_THRESHOLD. Strong signals still shift mood immediately.
     """
 
     def __init__(self, state: SoulState) -> None:
         self._state = state
+        # EMA of valence across recent interactions (mood inertia)
+        self._valence_ema: float = 0.0
 
     @property
     def current(self) -> SoulState:
@@ -114,9 +144,16 @@ class StateManager:
         self.update(energy=-2, social_battery=-5)
         self._state.last_interaction = interaction.timestamp
 
-        # Map somatic marker to mood
+        # Map somatic marker to mood via EMA-smoothed valence
         if somatic is not None:
-            new_mood = _somatic_to_mood(somatic)
+            # Smooth valence: current message gets _EMA_ALPHA weight, history the rest
+            self._valence_ema = _EMA_ALPHA * somatic.valence + (1 - _EMA_ALPHA) * self._valence_ema
+            smoothed = SomaticMarker(
+                valence=round(self._valence_ema, 3),
+                arousal=somatic.arousal,
+                label=somatic.label,
+            )
+            new_mood = _somatic_to_mood(smoothed)
             if new_mood is not None:
                 self._state.mood = new_mood
 
@@ -144,3 +181,4 @@ class StateManager:
         self._state.focus = "medium"
         self._state.social_battery = 100.0
         self._state.last_interaction = None
+        self._valence_ema = 0.0
