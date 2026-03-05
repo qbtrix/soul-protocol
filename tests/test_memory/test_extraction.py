@@ -12,7 +12,6 @@ from soul_protocol.soul import Soul
 from soul_protocol.types import (
     CoreMemory,
     Interaction,
-    MemoryEntry,
     MemorySettings,
     MemoryType,
 )

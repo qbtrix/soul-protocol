@@ -17,15 +17,11 @@ class StorageProtocol(Protocol):
     instances identified by ``soul_id``.
     """
 
-    async def save(
-        self, soul_id: str, config: SoulConfig, path: Path | None = None
-    ) -> None:
+    async def save(self, soul_id: str, config: SoulConfig, path: Path | None = None) -> None:
         """Persist a soul configuration."""
         ...
 
-    async def load(
-        self, soul_id: str, path: Path | None = None
-    ) -> SoulConfig | None:
+    async def load(self, soul_id: str, path: Path | None = None) -> SoulConfig | None:
         """Load a soul configuration, returning ``None`` if not found."""
         ...
 

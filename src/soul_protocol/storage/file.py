@@ -50,34 +50,24 @@ class FileStorage:
     def __init__(self, base_dir: Path | None = None) -> None:
         self._base_dir = base_dir or DEFAULT_SOUL_DIR
 
-    async def save(
-        self, soul_id: str, config: SoulConfig, path: Path | None = None
-    ) -> None:
+    async def save(self, soul_id: str, config: SoulConfig, path: Path | None = None) -> None:
         """Save a soul to the filesystem."""
         target_dir = (path or self._base_dir) / soul_id
         target_dir.mkdir(parents=True, exist_ok=True)
 
         # soul.json — full config
         soul_json_path = target_dir / "soul.json"
-        soul_json_path.write_text(
-            config.model_dump_json(indent=2), encoding="utf-8"
-        )
+        soul_json_path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
 
         # dna.md — human-readable personality
         dna_md_path = target_dir / "dna.md"
-        dna_md_path.write_text(
-            dna_to_markdown(config.identity, config.dna), encoding="utf-8"
-        )
+        dna_md_path.write_text(dna_to_markdown(config.identity, config.dna), encoding="utf-8")
 
         # state.json — current state snapshot
         state_json_path = target_dir / "state.json"
-        state_json_path.write_text(
-            config.state.model_dump_json(indent=2), encoding="utf-8"
-        )
+        state_json_path.write_text(config.state.model_dump_json(indent=2), encoding="utf-8")
 
-    async def load(
-        self, soul_id: str, path: Path | None = None
-    ) -> SoulConfig | None:
+    async def load(self, soul_id: str, path: Path | None = None) -> SoulConfig | None:
         """Load a soul from the filesystem, returning ``None`` if not found."""
         target_dir = (path or self._base_dir) / soul_id
         soul_json_path = target_dir / "soul.json"
@@ -151,22 +141,22 @@ async def load_soul(path: Path) -> SoulConfig | None:
 
 def _write_soul_files(soul_dir: Path, config: SoulConfig, memory_data: dict) -> None:
     """Write all soul files to a directory (used by save_soul_full)."""
-    (soul_dir / "soul.json").write_text(
-        config.model_dump_json(indent=2), encoding="utf-8"
-    )
-    (soul_dir / "state.json").write_text(
-        config.state.model_dump_json(indent=2), encoding="utf-8"
-    )
-    (soul_dir / "dna.md").write_text(
-        dna_to_markdown(config.identity, config.dna), encoding="utf-8"
-    )
+    (soul_dir / "soul.json").write_text(config.model_dump_json(indent=2), encoding="utf-8")
+    (soul_dir / "state.json").write_text(config.state.model_dump_json(indent=2), encoding="utf-8")
+    (soul_dir / "dna.md").write_text(dna_to_markdown(config.identity, config.dna), encoding="utf-8")
 
     mem_dir = soul_dir / "memory"
     mem_dir.mkdir(exist_ok=True)
 
-    for key, default in [("core", {}), ("episodic", []), ("semantic", []),
-                         ("procedural", []), ("graph", {}), ("self_model", {}),
-                         ("general_events", [])]:
+    for key, default in [
+        ("core", {}),
+        ("episodic", []),
+        ("semantic", []),
+        ("procedural", []),
+        ("graph", {}),
+        ("self_model", {}),
+        ("general_events", []),
+    ]:
         (mem_dir / f"{key}.json").write_text(
             json.dumps(memory_data.get(key, default), indent=2, default=str),
             encoding="utf-8",
@@ -224,7 +214,15 @@ async def load_soul_full(path: Path) -> tuple[SoulConfig | None, dict]:
     memory_data: dict = {}
     mem_dir = path / "memory"
     if mem_dir.exists():
-        for name in ["core", "episodic", "semantic", "procedural", "graph", "self_model", "general_events"]:
+        for name in [
+            "core",
+            "episodic",
+            "semantic",
+            "procedural",
+            "graph",
+            "self_model",
+            "general_events",
+        ]:
             f = mem_dir / f"{name}.json"
             if f.exists():
                 memory_data[name] = json.loads(f.read_text(encoding="utf-8"))

@@ -41,7 +41,6 @@ try:
         Interaction,
         MemoryType,
         Soul,
-        SoulFileNotFoundError,
     )
 except ImportError:
     print("Missing dependency: pip install -e ../..")
@@ -62,14 +61,18 @@ async def _get_soul() -> Soul:
 # -- Custom MCP tools (4) wrapping soul operations ----------------------------
 
 
-@tool("soul_recall", "Search the soul's memories by natural language query", {
-    "type": "object",
-    "properties": {
-        "query": {"type": "string", "description": "Search query"},
-        "limit": {"type": "integer", "description": "Max results (default 5)"},
+@tool(
+    "soul_recall",
+    "Search the soul's memories by natural language query",
+    {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query"},
+            "limit": {"type": "integer", "description": "Max results (default 5)"},
+        },
+        "required": ["query"],
     },
-    "required": ["query"],
-})
+)
 async def soul_recall(args: dict[str, Any]) -> dict[str, Any]:
     soul = await _get_soul()
     query = args["query"]
@@ -88,77 +91,102 @@ async def soul_recall(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": text}]}
 
 
-@tool("soul_state", "Get the soul's current mood, energy, focus, and social battery", {
-    "type": "object",
-    "properties": {},
-})
+@tool(
+    "soul_state",
+    "Get the soul's current mood, energy, focus, and social battery",
+    {
+        "type": "object",
+        "properties": {},
+    },
+)
 async def soul_state(args: dict[str, Any]) -> dict[str, Any]:
     soul = await _get_soul()
     s = soul.state
-    text = json.dumps({
-        "mood": s.mood.value,
-        "energy": round(s.energy, 1),
-        "focus": s.focus,
-        "social_battery": round(s.social_battery, 1),
-        "lifecycle": soul.lifecycle.value,
-    }, indent=2)
+    text = json.dumps(
+        {
+            "mood": s.mood.value,
+            "energy": round(s.energy, 1),
+            "focus": s.focus,
+            "social_battery": round(s.social_battery, 1),
+            "lifecycle": soul.lifecycle.value,
+        },
+        indent=2,
+    )
     return {"content": [{"type": "text", "text": text}]}
 
 
-@tool("soul_reflect", "Trigger memory reflection and consolidation", {
-    "type": "object",
-    "properties": {},
-})
+@tool(
+    "soul_reflect",
+    "Trigger memory reflection and consolidation",
+    {
+        "type": "object",
+        "properties": {},
+    },
+)
 async def soul_reflect(args: dict[str, Any]) -> dict[str, Any]:
     soul = await _get_soul()
     result = await soul.reflect()
     if result is None:
         text = json.dumps({"status": "skipped", "reason": "No CognitiveEngine for reflection"})
     else:
-        text = json.dumps({
-            "status": "reflected",
-            "themes": result.themes,
-            "emotional_patterns": result.emotional_patterns,
-            "self_insight": result.self_insight,
-        }, indent=2)
+        text = json.dumps(
+            {
+                "status": "reflected",
+                "themes": result.themes,
+                "emotional_patterns": result.emotional_patterns,
+                "self_insight": result.self_insight,
+            },
+            indent=2,
+        )
     return {"content": [{"type": "text", "text": text}]}
 
 
-@tool("soul_remember", "Explicitly store a memory", {
-    "type": "object",
-    "properties": {
-        "content": {"type": "string", "description": "The memory content to store"},
-        "memory_type": {
-            "type": "string",
-            "description": "Memory type: episodic, semantic, or procedural",
-            "enum": ["episodic", "semantic", "procedural"],
+@tool(
+    "soul_remember",
+    "Explicitly store a memory",
+    {
+        "type": "object",
+        "properties": {
+            "content": {"type": "string", "description": "The memory content to store"},
+            "memory_type": {
+                "type": "string",
+                "description": "Memory type: episodic, semantic, or procedural",
+                "enum": ["episodic", "semantic", "procedural"],
+            },
+            "importance": {
+                "type": "integer",
+                "description": "Importance 1-10 (default 5)",
+            },
         },
-        "importance": {
-            "type": "integer",
-            "description": "Importance 1-10 (default 5)",
-        },
+        "required": ["content"],
     },
-    "required": ["content"],
-})
+)
 async def soul_remember(args: dict[str, Any]) -> dict[str, Any]:
     soul = await _get_soul()
     content = args["content"]
     memory_type = MemoryType(args.get("memory_type", "semantic"))
     importance = max(1, min(10, args.get("importance", 5)))
     memory_id = await soul.remember(content, type=memory_type, importance=importance)
-    text = json.dumps({
-        "memory_id": memory_id,
-        "type": memory_type.value,
-        "importance": importance,
-    })
+    text = json.dumps(
+        {
+            "memory_id": memory_id,
+            "type": memory_type.value,
+            "importance": importance,
+        }
+    )
     return {"content": [{"type": "text", "text": text}]}
 
 
 # -- ANSI helpers --------------------------------------------------------------
 
 DIM, BOLD, CYAN, GREEN, YELLOW, RED, RST = (
-    "\033[2m", "\033[1m", "\033[36m", "\033[32m",
-    "\033[33m", "\033[31m", "\033[0m",
+    "\033[2m",
+    "\033[1m",
+    "\033[36m",
+    "\033[32m",
+    "\033[33m",
+    "\033[31m",
+    "\033[0m",
 )
 dim = lambda s: f"{DIM}{s}{RST}"  # noqa: E731
 bold = lambda s: f"{BOLD}{s}{RST}"  # noqa: E731
@@ -173,13 +201,25 @@ async def main() -> None:
 
     ap = argparse.ArgumentParser(description="Soul Agent — Claude Agent SDK + Soul Protocol")
     ap.add_argument("--soul", type=str, default=None, help="Path to .soul file to resume")
-    ap.add_argument("--config", type=str, default=None,
-                     help="Path to .yaml/.json config for birth (e.g. rohit.yaml)")
+    ap.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to .yaml/.json config for birth (e.g. rohit.yaml)",
+    )
     ap.add_argument("--name", type=str, default="Aria", help="Soul name (for new births)")
-    ap.add_argument("--archetype", type=str, default="The Thoughtful Companion",
-                     help="Archetype (for new births)")
-    ap.add_argument("--values", type=str, default="curiosity,empathy,honesty",
-                     help="Comma-separated core values (for new births)")
+    ap.add_argument(
+        "--archetype",
+        type=str,
+        default="The Thoughtful Companion",
+        help="Archetype (for new births)",
+    )
+    ap.add_argument(
+        "--values",
+        type=str,
+        default="curiosity,empathy,honesty",
+        help="Comma-separated core values (for new births)",
+    )
     args = ap.parse_args()
 
     # -- Banner
@@ -296,11 +336,13 @@ async def main() -> None:
                     print(f"\n{col(soul.name, CYAN)}: {agent_output}")
 
                 # -- Observe the interaction (psychology pipeline)
-                await soul.observe(Interaction(
-                    user_input=user_input,
-                    agent_output=agent_output or "(no response)",
-                    channel="soul-agent",
-                ))
+                await soul.observe(
+                    Interaction(
+                        user_input=user_input,
+                        agent_output=agent_output or "(no response)",
+                        channel="soul-agent",
+                    )
+                )
                 n_turns += 1
 
                 s = soul.state
@@ -327,8 +369,10 @@ async def main() -> None:
         print(col(f"  Export failed: {e}", RED))
 
     s = soul.state
-    print(f"  Session: {n_turns} turns, mood={s.mood.value}, "
-          f"energy={s.energy:.0f}%, {soul.memory_count} memories\n")
+    print(
+        f"  Session: {n_turns} turns, mood={s.mood.value}, "
+        f"energy={s.energy:.0f}%, {soul.memory_count} memories\n"
+    )
 
 
 if __name__ == "__main__":

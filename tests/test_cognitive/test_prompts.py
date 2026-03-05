@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from soul_protocol.cognitive.engine import _parse_json
 from soul_protocol.cognitive.prompts import (
     ENTITY_EXTRACTION_PROMPT,
@@ -99,21 +97,23 @@ class TestPromptJsonExamples:
         assert data[0]["content"] == "User is a developer"
 
     def test_entity_extraction_response(self) -> None:
-        response = (
-            '[{"name": "Python", "type": "technology", "relation": "uses"}]'
-        )
+        response = '[{"name": "Python", "type": "technology", "relation": "uses"}]'
         data = _parse_json(response)
         assert isinstance(data, list)
         assert data[0]["name"] == "Python"
 
     def test_reflect_response(self) -> None:
-        response = json.dumps({
-            "themes": ["coding", "AI"],
-            "summaries": [{"theme": "coding", "summary": "helped with Python", "importance": 7}],
-            "promote": ["ep_001"],
-            "emotional_patterns": "generally positive",
-            "self_insight": "I am a coding helper",
-        })
+        response = json.dumps(
+            {
+                "themes": ["coding", "AI"],
+                "summaries": [
+                    {"theme": "coding", "summary": "helped with Python", "importance": 7}
+                ],
+                "promote": ["ep_001"],
+                "emotional_patterns": "generally positive",
+                "self_insight": "I am a coding helper",
+            }
+        )
         data = _parse_json(response)
         assert "coding" in data["themes"]
 
@@ -129,8 +129,7 @@ class TestPromptJsonExamples:
 
     def test_preamble_fact_response(self) -> None:
         response = (
-            "I found the following facts:\n\n"
-            '[{"content": "User lives in NYC", "importance": 7}]'
+            'I found the following facts:\n\n[{"content": "User lives in NYC", "importance": 7}]'
         )
         data = _parse_json(response)
         assert isinstance(data, list)

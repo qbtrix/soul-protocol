@@ -26,10 +26,10 @@ if TYPE_CHECKING:
 DECAY_RATE: float = 0.5
 
 # Weight for each component in the final activation score
-W_BASE: float = 1.0        # base-level activation (recency + frequency)
-W_SPREAD: float = 1.5      # spreading activation (query relevance)
-W_EMOTION: float = 0.5     # emotional boost
-NOISE_SCALE: float = 0.1   # stochastic noise magnitude
+W_BASE: float = 1.0  # base-level activation (recency + frequency)
+W_SPREAD: float = 1.5  # spreading activation (query relevance)
+W_EMOTION: float = 0.5  # emotional boost
+NOISE_SCALE: float = 0.1  # stochastic noise magnitude
 
 
 def base_level_activation(

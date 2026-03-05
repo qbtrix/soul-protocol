@@ -10,8 +10,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -24,10 +22,10 @@ from soul_protocol.types import (
     SoulConfig,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 async def rich_soul() -> Soul:
@@ -80,6 +78,7 @@ async def rich_soul() -> Soul:
 # Test: Full Lifecycle
 # ---------------------------------------------------------------------------
 
+
 class TestFullLifecycle:
     """birth -> observe -> recall -> export -> awaken -> recall matches."""
 
@@ -93,10 +92,12 @@ class TestFullLifecycle:
 
     async def test_observe_updates_state(self, rich_soul: Soul):
         initial_energy = rich_soul.state.energy
-        await rich_soul.observe(Interaction(
-            user_input="One more question about testing",
-            agent_output="Sure, let me help with that.",
-        ))
+        await rich_soul.observe(
+            Interaction(
+                user_input="One more question about testing",
+                agent_output="Sure, let me help with that.",
+            )
+        )
         assert rich_soul.state.energy < initial_energy
         assert rich_soul.state.last_interaction is not None
 
@@ -113,7 +114,6 @@ class TestFullLifecycle:
         original_name = soul.name
         original_did = soul.did
         original_archetype = soul.archetype
-        original_mem_count = soul.memory_count
 
         # Export
         soul_path = tmp_path / "lifecycle.soul"
@@ -136,8 +136,7 @@ class TestFullLifecycle:
         # Recall works on restored soul
         results = await restored.recall("Docker Kubernetes")
         assert any(
-            "docker" in r.content.lower() or "kubernetes" in r.content.lower()
-            for r in results
+            "docker" in r.content.lower() or "kubernetes" in r.content.lower() for r in results
         )
 
         # Python memory survives
@@ -148,6 +147,7 @@ class TestFullLifecycle:
 # ---------------------------------------------------------------------------
 # Test: Config Roundtrip
 # ---------------------------------------------------------------------------
+
 
 class TestConfigRoundtrip:
     """birth_from_config -> export -> awaken -> config matches."""
@@ -234,6 +234,7 @@ persona: I am YamlTestBot, born from YAML.
 # Test: Memory Persistence
 # ---------------------------------------------------------------------------
 
+
 class TestMemoryPersistence:
     """Memory persistence across export/import."""
 
@@ -259,14 +260,18 @@ class TestMemoryPersistence:
 
     async def test_episodic_memories_from_observe_persist(self, tmp_path):
         soul = await Soul.birth("EpisodicPersist", values=["learning"])
-        await soul.observe(Interaction(
-            user_input="I'm really excited about learning Rust!",
-            agent_output="Rust is fantastic for systems programming!",
-        ))
-        await soul.observe(Interaction(
-            user_input="My name is Alex and I work at StartupCo",
-            agent_output="Nice to meet you, Alex!",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input="I'm really excited about learning Rust!",
+                agent_output="Rust is fantastic for systems programming!",
+            )
+        )
+        await soul.observe(
+            Interaction(
+                user_input="My name is Alex and I work at StartupCo",
+                agent_output="Nice to meet you, Alex!",
+            )
+        )
 
         soul_path = tmp_path / "episodic_persist.soul"
         await soul.export(str(soul_path))
@@ -289,7 +294,6 @@ class TestMemoryPersistence:
         assert "Pat" in core.human
 
     async def test_memory_count_preserved(self, rich_soul: Soul, tmp_path):
-        original_count = rich_soul.memory_count
 
         soul_path = tmp_path / "count_test.soul"
         await rich_soul.export(str(soul_path))
@@ -321,11 +325,15 @@ class TestMemoryPersistence:
 
         # Add memories across tiers
         await soul.remember("Semantic fact about Python", type=MemoryType.SEMANTIC, importance=7)
-        await soul.remember("Deploy with docker compose up", type=MemoryType.PROCEDURAL, importance=8)
-        await soul.observe(Interaction(
-            user_input="I love using pytest for testing my code",
-            agent_output="pytest is great with its fixture system!",
-        ))
+        await soul.remember(
+            "Deploy with docker compose up", type=MemoryType.PROCEDURAL, importance=8
+        )
+        await soul.observe(
+            Interaction(
+                user_input="I love using pytest for testing my code",
+                agent_output="pytest is great with its fixture system!",
+            )
+        )
 
         await soul.save(tmp_path)
 
@@ -347,6 +355,7 @@ class TestMemoryPersistence:
 # ---------------------------------------------------------------------------
 # Test: Self-Model Emergence
 # ---------------------------------------------------------------------------
+
 
 class TestSelfModelEmergence:
     """Self-model emergence after multiple observations."""
@@ -393,10 +402,12 @@ class TestSelfModelEmergence:
 
         # Observe many technical interactions to build confidence
         for i in range(10):
-            await soul.observe(Interaction(
-                user_input=f"Help me with Python coding problem #{i+1}",
-                agent_output=f"Here's a solution using Python best practices.",
-            ))
+            await soul.observe(
+                Interaction(
+                    user_input=f"Help me with Python coding problem #{i + 1}",
+                    agent_output="Here's a solution using Python best practices.",
+                )
+            )
 
         images = soul.self_model.get_active_self_images(limit=5)
         if images:
@@ -407,10 +418,12 @@ class TestSelfModelEmergence:
         soul = await Soul.birth("ExportModelTest")
 
         for i in range(5):
-            await soul.observe(Interaction(
-                user_input=f"Help me debug Python error #{i+1}",
-                agent_output="Let me trace through the code.",
-            ))
+            await soul.observe(
+                Interaction(
+                    user_input=f"Help me debug Python error #{i + 1}",
+                    agent_output="Let me trace through the code.",
+                )
+            )
 
         original_images = soul.self_model.get_active_self_images(limit=5)
         assert len(original_images) >= 1
@@ -432,14 +445,18 @@ class TestSelfModelEmergence:
     async def test_self_model_in_system_prompt(self):
         soul = await Soul.birth("PromptModelTest")
 
-        await soul.observe(Interaction(
-            user_input="Help me write Python code for data analysis",
-            agent_output="I can create a data analysis script for you.",
-        ))
-        await soul.observe(Interaction(
-            user_input="Debug my Python API endpoint",
-            agent_output="Let me check the route handler.",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input="Help me write Python code for data analysis",
+                agent_output="I can create a data analysis script for you.",
+            )
+        )
+        await soul.observe(
+            Interaction(
+                user_input="Debug my Python API endpoint",
+                agent_output="Let me check the route handler.",
+            )
+        )
 
         images = soul.self_model.get_active_self_images()
         if images:
@@ -450,6 +467,7 @@ class TestSelfModelEmergence:
 # ---------------------------------------------------------------------------
 # Test: Core Memory Editing
 # ---------------------------------------------------------------------------
+
 
 class TestCoreMemoryEditing:
     async def test_edit_persona(self):
@@ -487,6 +505,7 @@ class TestCoreMemoryEditing:
 # Test: Directory Format Roundtrip
 # ---------------------------------------------------------------------------
 
+
 class TestDirectoryFormat:
     async def test_save_local_and_awaken(self, tmp_path):
         soul = await Soul.birth("DirTest", persona="I am DirTest.")
@@ -513,10 +532,12 @@ class TestDirectoryFormat:
 
         soul = await Soul.birth("DirFull", values=["completeness"])
         await soul.remember("Test semantic fact", type=MemoryType.SEMANTIC, importance=7)
-        await soul.observe(Interaction(
-            user_input="I use Python 3.12",
-            agent_output="Python 3.12 has great performance improvements!",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input="I use Python 3.12",
+                agent_output="Python 3.12 has great performance improvements!",
+            )
+        )
 
         await soul.save(tmp_path)
         soul_dir = tmp_path / soul.did.replace(":", "_")
@@ -531,6 +552,7 @@ class TestDirectoryFormat:
 # ---------------------------------------------------------------------------
 # Test: State Persistence
 # ---------------------------------------------------------------------------
+
 
 class TestStatePersistence:
     async def test_mood_and_energy_in_export(self, tmp_path):
@@ -551,15 +573,19 @@ class TestStatePersistence:
         soul = await Soul.birth("TimestampTest")
         assert soul.state.last_interaction is None
 
-        await soul.observe(Interaction(
-            user_input="hello", agent_output="hi",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input="hello",
+                agent_output="hi",
+            )
+        )
         assert soul.state.last_interaction is not None
 
 
 # ---------------------------------------------------------------------------
 # Test: Error Handling
 # ---------------------------------------------------------------------------
+
 
 class TestErrorHandling:
     async def test_corrupt_soul_file(self, tmp_path):

@@ -4,10 +4,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from soul_protocol.memory.sentiment import detect_sentiment
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -204,7 +201,7 @@ def test_negation_of_negative_yields_mild_positive_valence():
 
 def test_dont_negation_works():
     """'don't' (contracted negation) also triggers valence flip."""
-    result = detect_sentiment("I don't like this at all")
+    detect_sentiment("I don't like this at all")
     # 'like' is not in word lists, but this tests the contraction is parsed
     # Use 'happy' to ensure the negation effect is observable
     negated = detect_sentiment("I don't feel happy about this")

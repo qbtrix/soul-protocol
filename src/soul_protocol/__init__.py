@@ -18,10 +18,10 @@ from .exceptions import (
 from .memory.strategy import SearchStrategy, TokenOverlapStrategy
 from .soul import Soul
 from .types import (
+    DNA,
     Biorhythms,
     CommunicationStyle,
     CoreMemory,
-    DNA,
     EvolutionConfig,
     EvolutionMode,
     GeneralEvent,

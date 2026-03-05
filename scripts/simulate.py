@@ -53,17 +53,17 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich import box
+from rich.table import Table
 
 # Ensure the package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from soul_protocol.soul import Soul
-from soul_protocol.types import Interaction, MemoryType, EvolutionMode, Mood
+from soul_protocol.types import EvolutionMode, Interaction, MemoryType, Mood
 
 console = Console()
 
@@ -75,145 +75,488 @@ console = Console()
 # First-person user statements that trigger FACT_PATTERNS in memory/manager.py.
 # These are mixed into conversation datasets so the soul extracts real facts.
 FIRST_PERSON_STATEMENTS: list[tuple[str, str]] = [
-    ("I'm a Python developer working on a FastAPI project", "That's great! FastAPI is an excellent choice for building high-performance APIs with Python."),
-    ("I prefer dark mode and minimal UI designs", "Dark mode is easier on the eyes. Minimal UI keeps the focus on content and functionality."),
-    ("I use Docker for all my deployments", "Docker is fantastic for reproducible environments. Containers make deployment predictable and portable."),
-    ("My favorite language is Rust", "Rust is impressive for systems programming. The borrow checker takes getting used to but the safety guarantees are worth it."),
-    ("I'm building a personal finance tracker app", "Cool project! Finance apps need solid data validation and security. Consider using encryption for sensitive data."),
-    ("I work at a startup called TechNova", "Startup life is exciting! How's the tech stack at TechNova? What are you building there?"),
-    ("I'm from San Francisco", "SF has an incredible tech scene. The Bay Area is a hub for innovation and engineering talent."),
-    ("I live in Portland now", "Portland has a growing tech community. Great food scene and lots of outdoor activities too."),
+    (
+        "I'm a Python developer working on a FastAPI project",
+        "That's great! FastAPI is an excellent choice for building high-performance APIs with Python.",
+    ),
+    (
+        "I prefer dark mode and minimal UI designs",
+        "Dark mode is easier on the eyes. Minimal UI keeps the focus on content and functionality.",
+    ),
+    (
+        "I use Docker for all my deployments",
+        "Docker is fantastic for reproducible environments. Containers make deployment predictable and portable.",
+    ),
+    (
+        "My favorite language is Rust",
+        "Rust is impressive for systems programming. The borrow checker takes getting used to but the safety guarantees are worth it.",
+    ),
+    (
+        "I'm building a personal finance tracker app",
+        "Cool project! Finance apps need solid data validation and security. Consider using encryption for sensitive data.",
+    ),
+    (
+        "I work at a startup called TechNova",
+        "Startup life is exciting! How's the tech stack at TechNova? What are you building there?",
+    ),
+    (
+        "I'm from San Francisco",
+        "SF has an incredible tech scene. The Bay Area is a hub for innovation and engineering talent.",
+    ),
+    (
+        "I live in Portland now",
+        "Portland has a growing tech community. Great food scene and lots of outdoor activities too.",
+    ),
     ("My name is Alex", "Nice to meet you, Alex! I'll remember that. How can I help you today?"),
-    ("I love cooking Italian food on weekends", "Italian cooking is wonderful! Fresh pasta, risotto, and a good ragu are so rewarding to make from scratch."),
-    ("I'm learning machine learning and neural networks", "ML is a fascinating field. Start with fundamentals — linear algebra, calculus, then move to frameworks like PyTorch."),
-    ("I use Neovim as my primary editor", "Neovim is powerful once you master the keybindings. Lua configuration makes it very extensible."),
-    ("I hate dealing with CSS layout issues", "CSS layout can be frustrating. Flexbox and Grid have made things much better. Try using a utility-first framework like Tailwind."),
-    ("I dislike meetings that could be emails", "You're not alone there. Async communication respects everyone's time and lets deep work happen."),
+    (
+        "I love cooking Italian food on weekends",
+        "Italian cooking is wonderful! Fresh pasta, risotto, and a good ragu are so rewarding to make from scratch.",
+    ),
+    (
+        "I'm learning machine learning and neural networks",
+        "ML is a fascinating field. Start with fundamentals — linear algebra, calculus, then move to frameworks like PyTorch.",
+    ),
+    (
+        "I use Neovim as my primary editor",
+        "Neovim is powerful once you master the keybindings. Lua configuration makes it very extensible.",
+    ),
+    (
+        "I hate dealing with CSS layout issues",
+        "CSS layout can be frustrating. Flexbox and Grid have made things much better. Try using a utility-first framework like Tailwind.",
+    ),
+    (
+        "I dislike meetings that could be emails",
+        "You're not alone there. Async communication respects everyone's time and lets deep work happen.",
+    ),
 ]
 
 CODING_CONVERSATIONS: list[tuple[str, str]] = [
-    ("How do I read a file in Python?", "Use open() with a context manager: with open('file.txt') as f: content = f.read()"),
-    ("What's the difference between a list and a tuple?", "Lists are mutable, tuples are immutable. Use tuples for fixed data, lists when you need to modify."),
-    ("My Flask app is returning 500 errors", "Check your error logs first. Add app.config['DEBUG'] = True to see the full traceback."),
-    ("How do I connect to PostgreSQL from Python?", "Use psycopg2 or asyncpg. Install with pip install psycopg2-binary, then connect with psycopg2.connect()."),
-    ("Can you explain async/await in Python?", "async defines a coroutine, await suspends it until a result is ready. Use asyncio.run() to start the event loop."),
-    ("How do I write unit tests?", "Use pytest. Create files named test_*.py, write functions starting with test_, use assert for checks."),
-    ("What's a good way to handle environment variables?", "Use python-dotenv for local dev. Load with load_dotenv(), access with os.environ.get('KEY')."),
-    ("How do I make a REST API with FastAPI?", "Install fastapi and uvicorn. Define routes with @app.get('/path'). Run with uvicorn main:app --reload."),
-    ("My code is running slowly, how do I profile it?", "Use cProfile: python -m cProfile script.py. For line-by-line, use line_profiler. For memory, use memory_profiler."),
-    ("How do I use Docker for my Python app?", "Create a Dockerfile: FROM python:3.12-slim, COPY requirements.txt, RUN pip install, COPY app code, CMD python main.py."),
-    ("What's the best way to handle errors in Python?", "Use try/except with specific exception types. Never bare except. Log errors, don't swallow them."),
-    ("How do I implement a binary search?", "def binary_search(arr, target): use lo, hi pointers, check mid = (lo+hi)//2, narrow based on comparison."),
-    ("Can you review my database schema?", "Your users table looks good. I'd add an index on email for faster lookups, and consider a created_at timestamp."),
-    ("How do I set up CI/CD with GitHub Actions?", "Create .github/workflows/ci.yml. Define triggers (push, PR), jobs (test, lint), steps (checkout, setup-python, pytest)."),
-    ("What's the difference between SQL and NoSQL?", "SQL is relational with schemas (Postgres, MySQL). NoSQL is flexible (MongoDB, Redis). Choose based on your data shape."),
-    ("How do I implement authentication in my API?", "Use JWT tokens. Hash passwords with bcrypt. Issue tokens on login, verify on each request with middleware."),
-    ("My git merge has conflicts, how do I resolve them?", "Open the conflicted files, look for <<<< markers, choose the right code, remove markers, git add, git commit."),
-    ("How do I deploy to AWS?", "For a simple app: EC2 instance, or use ECS with Docker, or go serverless with Lambda. Start with Elastic Beanstalk."),
-    ("Can you help me with regex?", "Sure. Use re.search(pattern, string). Common patterns: \\d+ for digits, \\w+ for words, .* for anything. Test on regex101.com."),
-    ("How do I implement caching in my app?", "Use Redis for distributed caching. For in-memory, use functools.lru_cache. Set TTL to avoid stale data."),
-    ("What's a good project structure for Python?", "Use src layout: src/package/, tests/, pyproject.toml. Separate concerns into modules. Keep __init__.py minimal."),
-    ("How do I handle file uploads in FastAPI?", "Use UploadFile parameter: async def upload(file: UploadFile). Read with await file.read(). Save to disk or S3."),
-    ("My API is getting rate limited, what do I do?", "Implement exponential backoff with jitter. Use a rate limiter like slowapi. Cache responses to reduce API calls."),
-    ("How do I write a CLI tool in Python?", "Use click or typer. Define commands with decorators. Add --help with docstrings. Package with entry_points in pyproject.toml."),
-    ("Can you explain decorators?", "A decorator wraps a function. @decorator syntax is sugar for func = decorator(func). Use for logging, auth, caching."),
-    ("How do I optimize my SQL queries?", "Use EXPLAIN ANALYZE to find bottlenecks. Add indexes on frequently queried columns. Avoid SELECT *, use pagination."),
-    ("What's the best way to handle configuration?", "Use pydantic-settings. Define a Settings class with environment variable sources. Validate at startup, not runtime."),
-    ("How do I implement WebSockets?", "FastAPI supports it natively. Use @app.websocket('/ws'). Accept connection, loop recv/send. Handle disconnects gracefully."),
-    ("My memory usage keeps growing, help!", "Profile with tracemalloc. Check for circular references, unclosed file handles, growing caches without bounds."),
-    ("How do I write a Python package?", "Create pyproject.toml with build-system, project metadata. Use src/ layout. Build with python -m build, publish with twine."),
-    ("Can you help me with Pydantic models?", "Define classes inheriting BaseModel. Use Field() for validation. model_validate() from dicts, model_dump_json() to serialize."),
-    ("How do I set up logging properly?", "Use the logging module. Configure with basicConfig or dictConfig. Use levels: DEBUG, INFO, WARNING, ERROR, CRITICAL."),
-    ("What's the difference between threads and processes?", "Threads share memory, limited by GIL for CPU work. Processes have separate memory, true parallelism. Use asyncio for I/O."),
-    ("How do I handle database migrations?", "Use Alembic with SQLAlchemy. alembic init, alembic revision --autogenerate, alembic upgrade head. Version your schema."),
-    ("How do I implement pagination?", "Use offset/limit or cursor-based. Cursor is better for large datasets. Return next_cursor in response for the client."),
-    ("Can you help me debug this memory leak?", "Use objgraph to find reference cycles. Check __del__ methods. Use weakref for caches. Profile with pympler."),
-    ("How do I write middleware in FastAPI?", "Use @app.middleware('http'). Process request, call next, process response. Good for auth, logging, CORS, timing."),
-    ("What's the best way to handle secrets?", "Never commit secrets. Use environment variables, AWS Secrets Manager, or HashiCorp Vault. Rotate regularly."),
-    ("How do I implement a queue system?", "Use Celery with Redis or RabbitMQ as broker. Define tasks with @app.task. Monitor with Flower."),
-    ("My tests are flaky, how do I fix them?", "Isolate external dependencies with mocks. Use deterministic data, not random. Fix time-dependent tests with freezegun."),
+    (
+        "How do I read a file in Python?",
+        "Use open() with a context manager: with open('file.txt') as f: content = f.read()",
+    ),
+    (
+        "What's the difference between a list and a tuple?",
+        "Lists are mutable, tuples are immutable. Use tuples for fixed data, lists when you need to modify.",
+    ),
+    (
+        "My Flask app is returning 500 errors",
+        "Check your error logs first. Add app.config['DEBUG'] = True to see the full traceback.",
+    ),
+    (
+        "How do I connect to PostgreSQL from Python?",
+        "Use psycopg2 or asyncpg. Install with pip install psycopg2-binary, then connect with psycopg2.connect().",
+    ),
+    (
+        "Can you explain async/await in Python?",
+        "async defines a coroutine, await suspends it until a result is ready. Use asyncio.run() to start the event loop.",
+    ),
+    (
+        "How do I write unit tests?",
+        "Use pytest. Create files named test_*.py, write functions starting with test_, use assert for checks.",
+    ),
+    (
+        "What's a good way to handle environment variables?",
+        "Use python-dotenv for local dev. Load with load_dotenv(), access with os.environ.get('KEY').",
+    ),
+    (
+        "How do I make a REST API with FastAPI?",
+        "Install fastapi and uvicorn. Define routes with @app.get('/path'). Run with uvicorn main:app --reload.",
+    ),
+    (
+        "My code is running slowly, how do I profile it?",
+        "Use cProfile: python -m cProfile script.py. For line-by-line, use line_profiler. For memory, use memory_profiler.",
+    ),
+    (
+        "How do I use Docker for my Python app?",
+        "Create a Dockerfile: FROM python:3.12-slim, COPY requirements.txt, RUN pip install, COPY app code, CMD python main.py.",
+    ),
+    (
+        "What's the best way to handle errors in Python?",
+        "Use try/except with specific exception types. Never bare except. Log errors, don't swallow them.",
+    ),
+    (
+        "How do I implement a binary search?",
+        "def binary_search(arr, target): use lo, hi pointers, check mid = (lo+hi)//2, narrow based on comparison.",
+    ),
+    (
+        "Can you review my database schema?",
+        "Your users table looks good. I'd add an index on email for faster lookups, and consider a created_at timestamp.",
+    ),
+    (
+        "How do I set up CI/CD with GitHub Actions?",
+        "Create .github/workflows/ci.yml. Define triggers (push, PR), jobs (test, lint), steps (checkout, setup-python, pytest).",
+    ),
+    (
+        "What's the difference between SQL and NoSQL?",
+        "SQL is relational with schemas (Postgres, MySQL). NoSQL is flexible (MongoDB, Redis). Choose based on your data shape.",
+    ),
+    (
+        "How do I implement authentication in my API?",
+        "Use JWT tokens. Hash passwords with bcrypt. Issue tokens on login, verify on each request with middleware.",
+    ),
+    (
+        "My git merge has conflicts, how do I resolve them?",
+        "Open the conflicted files, look for <<<< markers, choose the right code, remove markers, git add, git commit.",
+    ),
+    (
+        "How do I deploy to AWS?",
+        "For a simple app: EC2 instance, or use ECS with Docker, or go serverless with Lambda. Start with Elastic Beanstalk.",
+    ),
+    (
+        "Can you help me with regex?",
+        "Sure. Use re.search(pattern, string). Common patterns: \\d+ for digits, \\w+ for words, .* for anything. Test on regex101.com.",
+    ),
+    (
+        "How do I implement caching in my app?",
+        "Use Redis for distributed caching. For in-memory, use functools.lru_cache. Set TTL to avoid stale data.",
+    ),
+    (
+        "What's a good project structure for Python?",
+        "Use src layout: src/package/, tests/, pyproject.toml. Separate concerns into modules. Keep __init__.py minimal.",
+    ),
+    (
+        "How do I handle file uploads in FastAPI?",
+        "Use UploadFile parameter: async def upload(file: UploadFile). Read with await file.read(). Save to disk or S3.",
+    ),
+    (
+        "My API is getting rate limited, what do I do?",
+        "Implement exponential backoff with jitter. Use a rate limiter like slowapi. Cache responses to reduce API calls.",
+    ),
+    (
+        "How do I write a CLI tool in Python?",
+        "Use click or typer. Define commands with decorators. Add --help with docstrings. Package with entry_points in pyproject.toml.",
+    ),
+    (
+        "Can you explain decorators?",
+        "A decorator wraps a function. @decorator syntax is sugar for func = decorator(func). Use for logging, auth, caching.",
+    ),
+    (
+        "How do I optimize my SQL queries?",
+        "Use EXPLAIN ANALYZE to find bottlenecks. Add indexes on frequently queried columns. Avoid SELECT *, use pagination.",
+    ),
+    (
+        "What's the best way to handle configuration?",
+        "Use pydantic-settings. Define a Settings class with environment variable sources. Validate at startup, not runtime.",
+    ),
+    (
+        "How do I implement WebSockets?",
+        "FastAPI supports it natively. Use @app.websocket('/ws'). Accept connection, loop recv/send. Handle disconnects gracefully.",
+    ),
+    (
+        "My memory usage keeps growing, help!",
+        "Profile with tracemalloc. Check for circular references, unclosed file handles, growing caches without bounds.",
+    ),
+    (
+        "How do I write a Python package?",
+        "Create pyproject.toml with build-system, project metadata. Use src/ layout. Build with python -m build, publish with twine.",
+    ),
+    (
+        "Can you help me with Pydantic models?",
+        "Define classes inheriting BaseModel. Use Field() for validation. model_validate() from dicts, model_dump_json() to serialize.",
+    ),
+    (
+        "How do I set up logging properly?",
+        "Use the logging module. Configure with basicConfig or dictConfig. Use levels: DEBUG, INFO, WARNING, ERROR, CRITICAL.",
+    ),
+    (
+        "What's the difference between threads and processes?",
+        "Threads share memory, limited by GIL for CPU work. Processes have separate memory, true parallelism. Use asyncio for I/O.",
+    ),
+    (
+        "How do I handle database migrations?",
+        "Use Alembic with SQLAlchemy. alembic init, alembic revision --autogenerate, alembic upgrade head. Version your schema.",
+    ),
+    (
+        "How do I implement pagination?",
+        "Use offset/limit or cursor-based. Cursor is better for large datasets. Return next_cursor in response for the client.",
+    ),
+    (
+        "Can you help me debug this memory leak?",
+        "Use objgraph to find reference cycles. Check __del__ methods. Use weakref for caches. Profile with pympler.",
+    ),
+    (
+        "How do I write middleware in FastAPI?",
+        "Use @app.middleware('http'). Process request, call next, process response. Good for auth, logging, CORS, timing.",
+    ),
+    (
+        "What's the best way to handle secrets?",
+        "Never commit secrets. Use environment variables, AWS Secrets Manager, or HashiCorp Vault. Rotate regularly.",
+    ),
+    (
+        "How do I implement a queue system?",
+        "Use Celery with Redis or RabbitMQ as broker. Define tasks with @app.task. Monitor with Flower.",
+    ),
+    (
+        "My tests are flaky, how do I fix them?",
+        "Isolate external dependencies with mocks. Use deterministic data, not random. Fix time-dependent tests with freezegun.",
+    ),
 ]
 
 COOKING_CONVERSATIONS: list[tuple[str, str]] = [
-    ("How do I make sourdough bread?", "Start with a strong starter. Mix flour, water, salt. Autolyse 30 min. Stretch and fold every 30 min for 3 hours. Shape, cold proof overnight."),
-    ("What temperature should I cook chicken to?", "Internal temp of 165F (74C) for safety. I pull at 160F and let it rest -- carryover cooking finishes it."),
-    ("My pasta is always mushy", "Use plenty of salted water -- 1 gallon per pound. Cook 1-2 minutes less than the package says. Finish in the sauce."),
-    ("How do I make a roux?", "Equal parts butter and flour by weight. Melt butter, whisk in flour, cook to desired color -- white (2 min), blond (5 min), or dark (15+ min)."),
-    ("What's the secret to crispy fried chicken?", "Brine overnight. Double dredge in seasoned flour. Fry at 325F for 12-15 min. Rest on a wire rack, not paper towels."),
-    ("How do I caramelize onions properly?", "Low heat, butter, patience. Slice thin. Cook for 45-60 minutes, stirring occasionally. Add a pinch of salt to draw out moisture."),
-    ("My rice is always sticky", "Rinse until water runs clear. Use 1:1.5 rice to water ratio. Bring to boil, reduce to low, cover 18 min. Don't lift the lid."),
-    ("What knife should I buy first?", "A good 8-inch chef's knife. Victorinox Fibrox is great for beginners. Keep it sharp -- a honing steel every use, whetstone monthly."),
-    ("How do I make homemade pasta?", "400g 00 flour, 4 eggs, pinch of salt. Well method, knead 10 min until smooth. Rest 30 min. Roll thin, cut to shape."),
-    ("What's the Maillard reaction?", "Browning that happens above 280F when amino acids react with sugars. It creates hundreds of flavor compounds. Dry your food for better searing."),
-    ("How do I make a perfect steak?", "Room temp steak, dry surface, hot cast iron. Sear 3-4 min per side. Rest 5-10 min. Finish with butter, garlic, thyme."),
-    ("My cookies spread too much", "Chill your dough 30 min before baking. Use more flour or less butter. Cold butter, not melted. Higher oven temp (375F)."),
-    ("How do I make Thai green curry?", "Saute curry paste in coconut cream until fragrant. Add protein, vegetables, coconut milk, fish sauce, palm sugar, Thai basil."),
-    ("What's the difference between baking soda and baking powder?", "Baking soda is pure sodium bicarbonate, needs acid. Baking powder has acid built in. Double-acting rises twice."),
-    ("How do I properly season a cast iron pan?", "Thin coat of flaxseed oil, upside down in 500F oven for 1 hour. Repeat 3-4 times. Cook fatty foods initially to build layers."),
-    ("My bread dough won't rise", "Check your yeast -- proof it in warm water with sugar. Use water between 95-110F. Ensure a warm draft-free spot. Give it more time."),
-    ("How do I make bone broth?", "Roast bones at 400F for 30 min. Cover with cold water, add vinegar (extracts minerals), aromatics. Simmer 12-24 hours. Strain."),
-    ("What's the best way to cook vegetables?", "Depends on the veg. Roast root vegetables at 425F. Steam broccoli 3-4 min. Saute leafy greens quickly. Don't overcook."),
-    ("How do I temper chocolate?", "Melt to 115F, seed with chopped chocolate while stirring to 82F, then gently warm to 88-90F. The crystals give you snap and shine."),
-    ("My sauce keeps breaking", "Temperature too high or too fast. For emulsions, add fat slowly while whisking. For cream sauces, don't let it boil."),
+    (
+        "How do I make sourdough bread?",
+        "Start with a strong starter. Mix flour, water, salt. Autolyse 30 min. Stretch and fold every 30 min for 3 hours. Shape, cold proof overnight.",
+    ),
+    (
+        "What temperature should I cook chicken to?",
+        "Internal temp of 165F (74C) for safety. I pull at 160F and let it rest -- carryover cooking finishes it.",
+    ),
+    (
+        "My pasta is always mushy",
+        "Use plenty of salted water -- 1 gallon per pound. Cook 1-2 minutes less than the package says. Finish in the sauce.",
+    ),
+    (
+        "How do I make a roux?",
+        "Equal parts butter and flour by weight. Melt butter, whisk in flour, cook to desired color -- white (2 min), blond (5 min), or dark (15+ min).",
+    ),
+    (
+        "What's the secret to crispy fried chicken?",
+        "Brine overnight. Double dredge in seasoned flour. Fry at 325F for 12-15 min. Rest on a wire rack, not paper towels.",
+    ),
+    (
+        "How do I caramelize onions properly?",
+        "Low heat, butter, patience. Slice thin. Cook for 45-60 minutes, stirring occasionally. Add a pinch of salt to draw out moisture.",
+    ),
+    (
+        "My rice is always sticky",
+        "Rinse until water runs clear. Use 1:1.5 rice to water ratio. Bring to boil, reduce to low, cover 18 min. Don't lift the lid.",
+    ),
+    (
+        "What knife should I buy first?",
+        "A good 8-inch chef's knife. Victorinox Fibrox is great for beginners. Keep it sharp -- a honing steel every use, whetstone monthly.",
+    ),
+    (
+        "How do I make homemade pasta?",
+        "400g 00 flour, 4 eggs, pinch of salt. Well method, knead 10 min until smooth. Rest 30 min. Roll thin, cut to shape.",
+    ),
+    (
+        "What's the Maillard reaction?",
+        "Browning that happens above 280F when amino acids react with sugars. It creates hundreds of flavor compounds. Dry your food for better searing.",
+    ),
+    (
+        "How do I make a perfect steak?",
+        "Room temp steak, dry surface, hot cast iron. Sear 3-4 min per side. Rest 5-10 min. Finish with butter, garlic, thyme.",
+    ),
+    (
+        "My cookies spread too much",
+        "Chill your dough 30 min before baking. Use more flour or less butter. Cold butter, not melted. Higher oven temp (375F).",
+    ),
+    (
+        "How do I make Thai green curry?",
+        "Saute curry paste in coconut cream until fragrant. Add protein, vegetables, coconut milk, fish sauce, palm sugar, Thai basil.",
+    ),
+    (
+        "What's the difference between baking soda and baking powder?",
+        "Baking soda is pure sodium bicarbonate, needs acid. Baking powder has acid built in. Double-acting rises twice.",
+    ),
+    (
+        "How do I properly season a cast iron pan?",
+        "Thin coat of flaxseed oil, upside down in 500F oven for 1 hour. Repeat 3-4 times. Cook fatty foods initially to build layers.",
+    ),
+    (
+        "My bread dough won't rise",
+        "Check your yeast -- proof it in warm water with sugar. Use water between 95-110F. Ensure a warm draft-free spot. Give it more time.",
+    ),
+    (
+        "How do I make bone broth?",
+        "Roast bones at 400F for 30 min. Cover with cold water, add vinegar (extracts minerals), aromatics. Simmer 12-24 hours. Strain.",
+    ),
+    (
+        "What's the best way to cook vegetables?",
+        "Depends on the veg. Roast root vegetables at 425F. Steam broccoli 3-4 min. Saute leafy greens quickly. Don't overcook.",
+    ),
+    (
+        "How do I temper chocolate?",
+        "Melt to 115F, seed with chopped chocolate while stirring to 82F, then gently warm to 88-90F. The crystals give you snap and shine.",
+    ),
+    (
+        "My sauce keeps breaking",
+        "Temperature too high or too fast. For emulsions, add fat slowly while whisking. For cream sauces, don't let it boil.",
+    ),
 ]
 
 EMOTIONAL_CONVERSATIONS: list[tuple[str, str]] = [
-    ("I'm feeling really overwhelmed with work", "That sounds exhausting. Let's break it down -- what's the most urgent thing on your plate right now?"),
-    ("I got rejected from my dream job", "That's really painful, and it's okay to feel disappointed. One rejection doesn't define your worth or your future."),
-    ("I'm having trouble sleeping lately", "Sleep issues are tough. Some things that help: consistent schedule, no screens before bed, cool room, write worries down."),
-    ("My friend said something hurtful", "That stings. Sometimes people say things without realizing the impact. Do you want to talk about what happened?"),
-    ("I feel like I'm not making progress in life", "Progress isn't always visible. You're here, reflecting and wanting to grow -- that IS progress. What does progress look like to you?"),
-    ("I just got promoted!", "That's wonderful! You've clearly earned it. How does it feel? What's the new role like?"),
-    ("I'm nervous about a presentation tomorrow", "Nerves mean you care. Prepare your opening line cold -- once you start, momentum carries you. You've got this."),
-    ("I lost my pet yesterday", "I'm so sorry. Losing a companion is real grief. Tell me about them -- what was your favorite thing about them?"),
-    ("I'm struggling with motivation", "Motivation follows action, not the other way around. Start with something tiny -- 5 minutes. The rest often follows naturally."),
-    ("I had a fight with my partner", "Conflicts are hard. Give yourself some space to cool down. When you're ready, approach it as 'us vs the problem' not 'you vs me'."),
-    ("I feel lonely even around people", "That disconnect between being surrounded and feeling alone is more common than you think. What kind of connection are you missing?"),
-    ("I achieved my biggest goal this year!", "That's incredible! Take a moment to actually celebrate -- we often rush past our wins. What made this one possible?"),
-    ("I'm anxious about the future", "Uncertainty is uncomfortable. Focus on what you can control today. The future is built one day at a time, not all at once."),
-    ("I think I need to set better boundaries", "Recognizing that is the hardest step. Boundaries aren't selfish -- they protect your energy so you can show up fully for what matters."),
-    ("I'm grateful for our conversations", "That means a lot. These conversations matter to me too. It's good to have someone to think things through with."),
+    (
+        "I'm feeling really overwhelmed with work",
+        "That sounds exhausting. Let's break it down -- what's the most urgent thing on your plate right now?",
+    ),
+    (
+        "I got rejected from my dream job",
+        "That's really painful, and it's okay to feel disappointed. One rejection doesn't define your worth or your future.",
+    ),
+    (
+        "I'm having trouble sleeping lately",
+        "Sleep issues are tough. Some things that help: consistent schedule, no screens before bed, cool room, write worries down.",
+    ),
+    (
+        "My friend said something hurtful",
+        "That stings. Sometimes people say things without realizing the impact. Do you want to talk about what happened?",
+    ),
+    (
+        "I feel like I'm not making progress in life",
+        "Progress isn't always visible. You're here, reflecting and wanting to grow -- that IS progress. What does progress look like to you?",
+    ),
+    (
+        "I just got promoted!",
+        "That's wonderful! You've clearly earned it. How does it feel? What's the new role like?",
+    ),
+    (
+        "I'm nervous about a presentation tomorrow",
+        "Nerves mean you care. Prepare your opening line cold -- once you start, momentum carries you. You've got this.",
+    ),
+    (
+        "I lost my pet yesterday",
+        "I'm so sorry. Losing a companion is real grief. Tell me about them -- what was your favorite thing about them?",
+    ),
+    (
+        "I'm struggling with motivation",
+        "Motivation follows action, not the other way around. Start with something tiny -- 5 minutes. The rest often follows naturally.",
+    ),
+    (
+        "I had a fight with my partner",
+        "Conflicts are hard. Give yourself some space to cool down. When you're ready, approach it as 'us vs the problem' not 'you vs me'.",
+    ),
+    (
+        "I feel lonely even around people",
+        "That disconnect between being surrounded and feeling alone is more common than you think. What kind of connection are you missing?",
+    ),
+    (
+        "I achieved my biggest goal this year!",
+        "That's incredible! Take a moment to actually celebrate -- we often rush past our wins. What made this one possible?",
+    ),
+    (
+        "I'm anxious about the future",
+        "Uncertainty is uncomfortable. Focus on what you can control today. The future is built one day at a time, not all at once.",
+    ),
+    (
+        "I think I need to set better boundaries",
+        "Recognizing that is the hardest step. Boundaries aren't selfish -- they protect your energy so you can show up fully for what matters.",
+    ),
+    (
+        "I'm grateful for our conversations",
+        "That means a lot. These conversations matter to me too. It's good to have someone to think things through with.",
+    ),
 ]
 
 FITNESS_CONVERSATIONS: list[tuple[str, str]] = [
-    ("What's a good beginner workout routine?", "Start with 3 days/week full body: squats, push-ups, rows, lunges, planks. 3 sets of 10-12 reps. Rest 60-90 sec between sets."),
-    ("How much protein do I need?", "Aim for 0.7-1g per pound of body weight daily. Spread across meals. Lean meats, eggs, Greek yogurt, legumes are great sources."),
-    ("I can't seem to lose belly fat", "You can't spot reduce. Focus on overall calorie deficit, strength training to build muscle, adequate sleep, and stress management."),
-    ("What's the best cardio for heart health?", "Zone 2 training -- conversational pace for 30-60 min. Can be walking, cycling, swimming. 3-4 times per week builds aerobic base."),
-    ("How do I improve my flexibility?", "Daily stretching after workouts when muscles are warm. Hold stretches 30-60 sec. Yoga 2x/week is excellent. Consistency beats intensity."),
-    ("My knees hurt when I squat", "Check your form: weight in heels, knees tracking over toes. Try box squats or goblet squats. Strengthen your quads and glutes separately."),
-    ("How do I build a home gym on a budget?", "Start with: adjustable dumbbells, pull-up bar, resistance bands, yoga mat. That covers 90% of exercises. Add a bench later."),
-    ("What should I eat before a workout?", "A mix of carbs and protein 1-2 hours before. Something like oatmeal with banana, or toast with peanut butter. Keep fat low."),
-    ("How do I track my progress?", "Log your workouts -- weight, reps, sets. Take progress photos monthly. Measure waist, hips, chest. Don't rely solely on the scale."),
-    ("I hit a plateau in my bench press", "Try variations: pause reps, close grip, incline. Increase volume. Eat more. Deload for a week then come back. Progressive overload."),
+    (
+        "What's a good beginner workout routine?",
+        "Start with 3 days/week full body: squats, push-ups, rows, lunges, planks. 3 sets of 10-12 reps. Rest 60-90 sec between sets.",
+    ),
+    (
+        "How much protein do I need?",
+        "Aim for 0.7-1g per pound of body weight daily. Spread across meals. Lean meats, eggs, Greek yogurt, legumes are great sources.",
+    ),
+    (
+        "I can't seem to lose belly fat",
+        "You can't spot reduce. Focus on overall calorie deficit, strength training to build muscle, adequate sleep, and stress management.",
+    ),
+    (
+        "What's the best cardio for heart health?",
+        "Zone 2 training -- conversational pace for 30-60 min. Can be walking, cycling, swimming. 3-4 times per week builds aerobic base.",
+    ),
+    (
+        "How do I improve my flexibility?",
+        "Daily stretching after workouts when muscles are warm. Hold stretches 30-60 sec. Yoga 2x/week is excellent. Consistency beats intensity.",
+    ),
+    (
+        "My knees hurt when I squat",
+        "Check your form: weight in heels, knees tracking over toes. Try box squats or goblet squats. Strengthen your quads and glutes separately.",
+    ),
+    (
+        "How do I build a home gym on a budget?",
+        "Start with: adjustable dumbbells, pull-up bar, resistance bands, yoga mat. That covers 90% of exercises. Add a bench later.",
+    ),
+    (
+        "What should I eat before a workout?",
+        "A mix of carbs and protein 1-2 hours before. Something like oatmeal with banana, or toast with peanut butter. Keep fat low.",
+    ),
+    (
+        "How do I track my progress?",
+        "Log your workouts -- weight, reps, sets. Take progress photos monthly. Measure waist, hips, chest. Don't rely solely on the scale.",
+    ),
+    (
+        "I hit a plateau in my bench press",
+        "Try variations: pause reps, close grip, incline. Increase volume. Eat more. Deload for a week then come back. Progressive overload.",
+    ),
 ]
 
 TRAVEL_CONVERSATIONS: list[tuple[str, str]] = [
-    ("What should I pack for a week in Japan?", "Light layers -- Japan has excellent laundry. Walking shoes essential. Pocket wifi or eSIM. Cash still king in many places."),
-    ("How do I find cheap flights?", "Use Google Flights with flexible dates. Set price alerts. Book 6-8 weeks ahead for domestic, 2-3 months for international."),
-    ("Best way to handle money abroad?", "Get a no-FX-fee debit card like Wise. Notify your bank. Carry some local cash. Always pay in local currency, not your home currency."),
-    ("I'm planning a road trip through California", "PCH from SF to LA is iconic. Stop at Big Sur, Hearst Castle, Santa Barbara. Book campgrounds at state parks early."),
-    ("Tips for solo travel?", "Stay in hostels for social connection. Join walking tours first day. Share your itinerary with someone. Trust your instincts. Carry a doorstop."),
-    ("How do I deal with jet lag?", "Adjust to destination time immediately. Sunlight in the morning. Melatonin at new bedtime. Stay hydrated. Avoid naps longer than 20 min."),
-    ("Best travel credit cards?", "Chase Sapphire for versatility. Amex Platinum for lounges. Capital One Venture for simplicity. All have no foreign transaction fees."),
-    ("I'm afraid of flying", "Turbulence is like bumps on a road -- uncomfortable but safe. Sit over the wing for less movement. Deep breathing. Noise-canceling headphones help."),
+    (
+        "What should I pack for a week in Japan?",
+        "Light layers -- Japan has excellent laundry. Walking shoes essential. Pocket wifi or eSIM. Cash still king in many places.",
+    ),
+    (
+        "How do I find cheap flights?",
+        "Use Google Flights with flexible dates. Set price alerts. Book 6-8 weeks ahead for domestic, 2-3 months for international.",
+    ),
+    (
+        "Best way to handle money abroad?",
+        "Get a no-FX-fee debit card like Wise. Notify your bank. Carry some local cash. Always pay in local currency, not your home currency.",
+    ),
+    (
+        "I'm planning a road trip through California",
+        "PCH from SF to LA is iconic. Stop at Big Sur, Hearst Castle, Santa Barbara. Book campgrounds at state parks early.",
+    ),
+    (
+        "Tips for solo travel?",
+        "Stay in hostels for social connection. Join walking tours first day. Share your itinerary with someone. Trust your instincts. Carry a doorstop.",
+    ),
+    (
+        "How do I deal with jet lag?",
+        "Adjust to destination time immediately. Sunlight in the morning. Melatonin at new bedtime. Stay hydrated. Avoid naps longer than 20 min.",
+    ),
+    (
+        "Best travel credit cards?",
+        "Chase Sapphire for versatility. Amex Platinum for lounges. Capital One Venture for simplicity. All have no foreign transaction fees.",
+    ),
+    (
+        "I'm afraid of flying",
+        "Turbulence is like bumps on a road -- uncomfortable but safe. Sit over the wing for less movement. Deep breathing. Noise-canceling headphones help.",
+    ),
 ]
 
 MUSIC_CONVERSATIONS: list[tuple[str, str]] = [
-    ("I want to learn guitar, where do I start?", "Learn 4 chords first: G, C, D, Em. You can play hundreds of songs with just these. Practice 15 min daily. JustinGuitar is free and excellent."),
-    ("How do I write a song?", "Start with a chord progression. Hum a melody over it. Write lyrics about something real to you. Structure: verse, chorus, verse, chorus, bridge, chorus."),
-    ("What's music theory in simple terms?", "It's the grammar of music. Notes form scales, scales form chords, chords form progressions. Major sounds happy, minor sounds sad. That's the core."),
-    ("How do I get better at singing?", "Breath support from your diaphragm, not your throat. Record yourself. Sing along to songs in your range. Warm up before singing. Take lessons if possible."),
-    ("What equipment do I need to record at home?", "USB microphone (Audio-Technica AT2020), headphones, free DAW like Audacity or GarageBand. Treat your room with blankets to reduce echo."),
-    ("How do I read sheet music?", "Staff has 5 lines. Treble clef: EGBDF (lines), FACE (spaces). Bass clef: GBDFA (lines), ACEG (spaces). Note shapes tell duration."),
-    ("I'm stuck on the same 4 chords", "Learn 7th chords, add sus2/sus4 voicings. Try different strumming patterns. Learn a new genre -- bossa nova or funk will stretch you."),
-    ("How do I mix a song?", "Start with levels -- get the balance right with faders. EQ to carve space for each instrument. Compress to even out dynamics. Reverb last, sparingly."),
+    (
+        "I want to learn guitar, where do I start?",
+        "Learn 4 chords first: G, C, D, Em. You can play hundreds of songs with just these. Practice 15 min daily. JustinGuitar is free and excellent.",
+    ),
+    (
+        "How do I write a song?",
+        "Start with a chord progression. Hum a melody over it. Write lyrics about something real to you. Structure: verse, chorus, verse, chorus, bridge, chorus.",
+    ),
+    (
+        "What's music theory in simple terms?",
+        "It's the grammar of music. Notes form scales, scales form chords, chords form progressions. Major sounds happy, minor sounds sad. That's the core.",
+    ),
+    (
+        "How do I get better at singing?",
+        "Breath support from your diaphragm, not your throat. Record yourself. Sing along to songs in your range. Warm up before singing. Take lessons if possible.",
+    ),
+    (
+        "What equipment do I need to record at home?",
+        "USB microphone (Audio-Technica AT2020), headphones, free DAW like Audacity or GarageBand. Treat your room with blankets to reduce echo.",
+    ),
+    (
+        "How do I read sheet music?",
+        "Staff has 5 lines. Treble clef: EGBDF (lines), FACE (spaces). Bass clef: GBDFA (lines), ACEG (spaces). Note shapes tell duration.",
+    ),
+    (
+        "I'm stuck on the same 4 chords",
+        "Learn 7th chords, add sus2/sus4 voicings. Try different strumming patterns. Learn a new genre -- bossa nova or funk will stretch you.",
+    ),
+    (
+        "How do I mix a song?",
+        "Start with levels -- get the balance right with faders. EQ to carve space for each instrument. Compress to even out dynamics. Reverb last, sparingly.",
+    ),
 ]
 
 
 # ===========================================================================
 # Helpers: direct memory access and diagnostics
 # ===========================================================================
+
 
 def count_semantic(soul: Soul) -> int:
     """Count semantic facts directly from the store (not via recall)."""
@@ -232,18 +575,12 @@ def count_total_memories(soul: Soul) -> int:
 
 def get_domain_keywords(soul: Soul) -> dict[str, int]:
     """Return domain name -> keyword count mapping."""
-    return {
-        domain: len(kws)
-        for domain, kws in soul._memory._self_model._domain_keywords.items()
-    }
+    return {domain: len(kws) for domain, kws in soul._memory._self_model._domain_keywords.items()}
 
 
 def get_all_domains(soul: Soul) -> dict[str, float]:
     """Return all discovered domains with confidence scores."""
-    return {
-        domain: img.confidence
-        for domain, img in soul._memory._self_model._self_images.items()
-    }
+    return {domain: img.confidence for domain, img in soul._memory._self_model._self_images.items()}
 
 
 def get_self_images_full(soul: Soul) -> dict:
@@ -261,9 +598,11 @@ def get_self_images_full(soul: Soul) -> dict:
 # Scenario definitions
 # ===========================================================================
 
+
 @dataclass
 class Check:
     """A single expectation to verify after a scenario runs."""
+
     description: str
     passed: bool = False
     detail: str = ""
@@ -272,6 +611,7 @@ class Check:
 @dataclass
 class Diagnostics:
     """Pipeline diagnostics collected during a scenario run."""
+
     semantic_count: int = 0
     episodic_count: int = 0
     total_memories: int = 0
@@ -289,6 +629,7 @@ class Diagnostics:
 @dataclass
 class ScenarioResult:
     """Results from running one scenario."""
+
     name: str
     soul_name: str
     interactions_run: int
@@ -306,6 +647,7 @@ class ScenarioResult:
 # ===========================================================================
 # Scenario runners
 # ===========================================================================
+
 
 async def scenario_coding_assistant() -> ScenarioResult:
     """A coding expert soul processes 40 coding interactions + first-person statements.
@@ -332,11 +674,15 @@ async def scenario_coding_assistant() -> ScenarioResult:
     )
 
     diag = Diagnostics(initial_energy=soul.state.energy, initial_social=soul.state.social_battery)
-    result = ScenarioResult(name="Coding Assistant", soul_name="Aria", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Coding Assistant", soul_name="Aria", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     # Run first-person statements first (triggers fact extraction)
-    coding_first_person = FIRST_PERSON_STATEMENTS[:6]  # Python dev, dark mode, Docker, Rust, finance app, TechNova
+    coding_first_person = FIRST_PERSON_STATEMENTS[
+        :6
+    ]  # Python dev, dark mode, Docker, Rust, finance app, TechNova
     for user_msg, agent_msg in coding_first_person:
         await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
         result.interactions_run += 1
@@ -443,7 +789,9 @@ async def scenario_multi_domain() -> ScenarioResult:
     )
 
     diag = Diagnostics(initial_energy=soul.state.energy, initial_social=soul.state.social_battery)
-    result = ScenarioResult(name="Multi-Domain Discovery", soul_name="Atlas", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Multi-Domain Discovery", soul_name="Atlas", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     # Sprinkle first-person statements across the multi-domain conversation
@@ -501,8 +849,14 @@ async def scenario_multi_domain() -> ScenarioResult:
         result.recall_accuracy.append((query, found))
 
     # Checks
-    seed_domains = {"technical_helper", "creative_writer", "knowledge_guide",
-                    "problem_solver", "creative_collaborator", "emotional_companion"}
+    seed_domains = {
+        "technical_helper",
+        "creative_writer",
+        "knowledge_guide",
+        "problem_solver",
+        "creative_collaborator",
+        "emotional_companion",
+    }
     non_seed = set(result.domains_discovered.keys()) - seed_domains
 
     result.checks = [
@@ -524,7 +878,9 @@ async def scenario_multi_domain() -> ScenarioResult:
         Check(
             "No single domain > 0.93 (balanced)",
             all(c < 0.93 for c in result.domains_discovered.values()),
-            f"Max confidence: {max(result.domains_discovered.values()):.2f}" if result.domains_discovered else "no domains",
+            f"Max confidence: {max(result.domains_discovered.values()):.2f}"
+            if result.domains_discovered
+            else "no domains",
         ),
         Check(
             "Can recall across different domains (>= 2/4)",
@@ -565,7 +921,9 @@ async def scenario_companion() -> ScenarioResult:
     )
 
     diag = Diagnostics(initial_energy=soul.state.energy, initial_social=soul.state.social_battery)
-    result = ScenarioResult(name="Emotional Companion", soul_name="Sunny", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Emotional Companion", soul_name="Sunny", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     for user_msg, agent_msg in EMOTIONAL_CONVERSATIONS:
@@ -652,7 +1010,12 @@ async def scenario_novel_domain_discovery() -> ScenarioResult:
     soul._memory._self_model = SelfModelManager(seed_domains={})
 
     diag = Diagnostics(initial_energy=soul.state.energy, initial_social=soul.state.social_battery)
-    result = ScenarioResult(name="Novel Domain Discovery (No Seeds)", soul_name="Blank", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Novel Domain Discovery (No Seeds)",
+        soul_name="Blank",
+        interactions_run=0,
+        duration_ms=0,
+    )
     t0 = time.monotonic()
 
     # Feed cooking conversations -- should create cooking domain(s)
@@ -691,13 +1054,52 @@ async def scenario_novel_domain_discovery() -> ScenarioResult:
     result.diagnostics = diag
 
     # Check that domain names contain relevant words
-    cooking_words = {"cook", "bake", "bread", "sourdough", "recipe", "flour", "kitchen",
-                     "chicken", "pasta", "sauce", "dough", "temperature", "caramelize",
-                     "chocolate", "onion", "seasoned", "frying", "roux", "knife",
-                     "boil", "roast", "broth", "rice", "butter", "sear", "steak"}
-    music_words = {"guitar", "song", "music", "chord", "singing", "melody", "record",
-                   "microphone", "theory", "sheet", "strumming", "mix", "chords",
-                   "progression", "lyrics", "voicings"}
+    cooking_words = {
+        "cook",
+        "bake",
+        "bread",
+        "sourdough",
+        "recipe",
+        "flour",
+        "kitchen",
+        "chicken",
+        "pasta",
+        "sauce",
+        "dough",
+        "temperature",
+        "caramelize",
+        "chocolate",
+        "onion",
+        "seasoned",
+        "frying",
+        "roux",
+        "knife",
+        "boil",
+        "roast",
+        "broth",
+        "rice",
+        "butter",
+        "sear",
+        "steak",
+    }
+    music_words = {
+        "guitar",
+        "song",
+        "music",
+        "chord",
+        "singing",
+        "melody",
+        "record",
+        "microphone",
+        "theory",
+        "sheet",
+        "strumming",
+        "mix",
+        "chords",
+        "progression",
+        "lyrics",
+        "voicings",
+    }
 
     cooking_domain_names = " ".join(cooking_domains)
     music_domain_names = " ".join(music_domains)
@@ -758,21 +1160,23 @@ async def scenario_stress_test() -> ScenarioResult:
     )
 
     diag = Diagnostics(initial_energy=soul.state.energy, initial_social=soul.state.social_battery)
-    result = ScenarioResult(name="Stress Test (200+ interactions)", soul_name="Tank", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Stress Test (200+ interactions)", soul_name="Tank", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     # Add first-person statements for fact extraction volume
     all_convos = (
-        FIRST_PERSON_STATEMENTS +  # 14 first-person statements
-        CODING_CONVERSATIONS +      # 40
-        COOKING_CONVERSATIONS +     # 20
-        EMOTIONAL_CONVERSATIONS +   # 15
-        FITNESS_CONVERSATIONS +     # 10
-        TRAVEL_CONVERSATIONS +      # 8
-        MUSIC_CONVERSATIONS +       # 8
-        CODING_CONVERSATIONS +      # 40 repeat
-        COOKING_CONVERSATIONS +     # 20 repeat
-        CODING_CONVERSATIONS        # 40 more
+        FIRST_PERSON_STATEMENTS  # 14 first-person statements
+        + CODING_CONVERSATIONS  # 40
+        + COOKING_CONVERSATIONS  # 20
+        + EMOTIONAL_CONVERSATIONS  # 15
+        + FITNESS_CONVERSATIONS  # 10
+        + TRAVEL_CONVERSATIONS  # 8
+        + MUSIC_CONVERSATIONS  # 8
+        + CODING_CONVERSATIONS  # 40 repeat
+        + COOKING_CONVERSATIONS  # 20 repeat
+        + CODING_CONVERSATIONS  # 40 more
     )
     # Total: 14 + 40 + 20 + 15 + 10 + 8 + 8 + 40 + 20 + 40 = 215
 
@@ -801,9 +1205,11 @@ async def scenario_stress_test() -> ScenarioResult:
     result.diagnostics = diag
 
     # Check keyword cap
-    max_keywords = max(
-        len(kws) for kws in soul._memory._self_model._domain_keywords.values()
-    ) if soul._memory._self_model._domain_keywords else 0
+    max_keywords = (
+        max(len(kws) for kws in soul._memory._self_model._domain_keywords.values())
+        if soul._memory._self_model._domain_keywords
+        else 0
+    )
 
     # Export size check
     with tempfile.NamedTemporaryFile(suffix=".soul", delete=False) as f:
@@ -887,7 +1293,9 @@ async def scenario_config_roundtrip() -> ScenarioResult:
         config_path = f.name
 
     diag = Diagnostics()
-    result = ScenarioResult(name="Config Round-Trip", soul_name="Phoenix", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Config Round-Trip", soul_name="Phoenix", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     # Birth from config
@@ -899,9 +1307,9 @@ async def scenario_config_roundtrip() -> ScenarioResult:
 
     # Mix first-person statements with coding and emotional interactions
     mixed_interactions = (
-        FIRST_PERSON_STATEMENTS[:3] +  # name, Python dev, dark mode
-        CODING_CONVERSATIONS[:10] +
-        EMOTIONAL_CONVERSATIONS[:5]
+        FIRST_PERSON_STATEMENTS[:3]  # name, Python dev, dark mode
+        + CODING_CONVERSATIONS[:10]
+        + EMOTIONAL_CONVERSATIONS[:5]
     )
     for user_msg, agent_msg in mixed_interactions:
         await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
@@ -1003,7 +1411,9 @@ async def scenario_system_prompt_evolution() -> ScenarioResult:
     )
 
     diag = Diagnostics(initial_energy=soul.state.energy, initial_social=soul.state.social_battery)
-    result = ScenarioResult(name="System Prompt Evolution", soul_name="Echo", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="System Prompt Evolution", soul_name="Echo", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     # Check initial prompt
@@ -1083,6 +1493,7 @@ async def scenario_system_prompt_evolution() -> ScenarioResult:
 # Reporting
 # ===========================================================================
 
+
 def print_scenario_result(result: ScenarioResult) -> None:
     """Print a detailed report for one scenario with full diagnostics."""
     passed = sum(1 for c in result.checks if c.passed)
@@ -1090,10 +1501,12 @@ def print_scenario_result(result: ScenarioResult) -> None:
     status = "[green]PASS[/green]" if passed == total else f"[yellow]{passed}/{total}[/yellow]"
 
     console.print()
-    console.print(Panel(
-        f"[bold]{result.name}[/bold]  |  Soul: {result.soul_name}  |  {status}",
-        border_style="green" if passed == total else "yellow",
-    ))
+    console.print(
+        Panel(
+            f"[bold]{result.name}[/bold]  |  Soul: {result.soul_name}  |  {status}",
+            border_style="green" if passed == total else "yellow",
+        )
+    )
 
     # Metrics table
     diag = result.diagnostics
@@ -1102,7 +1515,10 @@ def print_scenario_result(result: ScenarioResult) -> None:
     metrics.add_column("Value")
 
     metrics.add_row("Interactions", str(result.interactions_run))
-    metrics.add_row("Duration", f"{result.duration_ms:.0f}ms ({result.duration_ms/max(result.interactions_run,1):.1f}ms/interaction)")
+    metrics.add_row(
+        "Duration",
+        f"{result.duration_ms:.0f}ms ({result.duration_ms / max(result.interactions_run, 1):.1f}ms/interaction)",
+    )
     metrics.add_row("Semantic facts", str(diag.semantic_count))
     metrics.add_row("Episodic memories", str(diag.episodic_count))
     metrics.add_row("Total memories", str(diag.total_memories))
@@ -1175,8 +1591,8 @@ def print_summary(results: list[ScenarioResult]) -> None:
 
     summary.add_row("Scenarios run", str(len(results)))
     summary.add_row("Total interactions", str(total_interactions))
-    summary.add_row("Total time", f"{total_ms:.0f}ms ({total_ms/1000:.1f}s)")
-    summary.add_row("Avg per interaction", f"{total_ms/max(total_interactions,1):.1f}ms")
+    summary.add_row("Total time", f"{total_ms:.0f}ms ({total_ms / 1000:.1f}s)")
+    summary.add_row("Avg per interaction", f"{total_ms / max(total_interactions, 1):.1f}ms")
     summary.add_row("Total semantic facts", str(total_semantic))
     summary.add_row("Total episodic memories", str(total_episodic))
     summary.add_row("Total memories", str(total_memories))
@@ -1185,7 +1601,10 @@ def print_summary(results: list[ScenarioResult]) -> None:
         summary.add_row("Checks", f"[green]{passed_checks}/{total_checks} PASSED[/green]")
     else:
         failed = total_checks - passed_checks
-        summary.add_row("Checks", f"[yellow]{passed_checks}/{total_checks}[/yellow] ([red]{failed} failed[/red])")
+        summary.add_row(
+            "Checks",
+            f"[yellow]{passed_checks}/{total_checks}[/yellow] ([red]{failed} failed[/red])",
+        )
 
     console.print(summary)
 
@@ -1202,7 +1621,11 @@ def print_summary(results: list[ScenarioResult]) -> None:
     for r in results:
         passed = sum(1 for c in r.checks if c.passed)
         total = len(r.checks)
-        status = f"[green]{passed}/{total}[/green]" if passed == total else f"[red]{passed}/{total}[/red]"
+        status = (
+            f"[green]{passed}/{total}[/green]"
+            if passed == total
+            else f"[red]{passed}/{total}[/red]"
+        )
         scenario_table.add_row(
             r.name,
             str(r.interactions_run),
@@ -1217,26 +1640,27 @@ def print_summary(results: list[ScenarioResult]) -> None:
 
     # Final verdict
     if passed_checks == total_checks:
-        console.print(Panel(
-            f"[bold green]ALL {total_checks} CHECKS PASSED[/bold green]\n"
-            f"Soul Protocol behaves as expected across {len(results)} scenarios "
-            f"with {total_interactions} total interactions.\n"
-            f"Stored {total_memories} total memories ({total_semantic} facts, {total_episodic} episodes).",
-            border_style="green",
-        ))
+        console.print(
+            Panel(
+                f"[bold green]ALL {total_checks} CHECKS PASSED[/bold green]\n"
+                f"Soul Protocol behaves as expected across {len(results)} scenarios "
+                f"with {total_interactions} total interactions.\n"
+                f"Stored {total_memories} total memories ({total_semantic} facts, {total_episodic} episodes).",
+                border_style="green",
+            )
+        )
     else:
         failed_checks = [
-            (r.name, c.description, c.detail)
-            for r in results
-            for c in r.checks
-            if not c.passed
+            (r.name, c.description, c.detail) for r in results for c in r.checks if not c.passed
         ]
         lines = "\n".join(f"  [{name}] {desc}: {detail}" for name, desc, detail in failed_checks)
-        console.print(Panel(
-            f"[bold yellow]{passed_checks}/{total_checks} checks passed[/bold yellow]\n\n"
-            f"Failed:\n{lines}",
-            border_style="yellow",
-        ))
+        console.print(
+            Panel(
+                f"[bold yellow]{passed_checks}/{total_checks} checks passed[/bold yellow]\n\n"
+                f"Failed:\n{lines}",
+                border_style="yellow",
+            )
+        )
 
 
 # ===========================================================================
@@ -1340,13 +1764,15 @@ async def scenario_persistence() -> ScenarioResult:
 
     # Check relationship notes survived (user name "Alex" from FIRST_PERSON_STATEMENTS[8])
     rel_notes = soul.self_model.relationship_notes
-    user_note = rel_notes.get("user", "")
+    rel_notes.get("user", "")
     final_persona = soul.get_core_memory().persona
 
     result.checks = [
         Check(
             "Memories accumulate across sessions",
-            len(memory_counts) == 3 and memory_counts[1] > memory_counts[0] and memory_counts[2] > memory_counts[1],
+            len(memory_counts) == 3
+            and memory_counts[1] > memory_counts[0]
+            and memory_counts[2] > memory_counts[1],
             f"Counts per session: {memory_counts}",
         ),
         Check(
@@ -1541,40 +1967,53 @@ async def scenario_fact_conflict() -> ScenarioResult:
     t0 = time.monotonic()
 
     # --- Phase 1: Establish initial facts ---
-    await soul.observe(Interaction(
-        user_input="I use React for frontend work",
-        agent_output="React is a great choice for building user interfaces!",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="I use React for frontend work",
+            agent_output="React is a great choice for building user interfaces!",
+        )
+    )
     result.interactions_run += 1
 
-    await soul.observe(Interaction(
-        user_input="I live in Portland now",
-        agent_output="Portland has a great tech community and food scene!",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="I live in Portland now",
+            agent_output="Portland has a great tech community and food scene!",
+        )
+    )
     result.interactions_run += 1
 
     # Capture initial facts
     initial_facts = list(soul._memory._semantic._facts.values())
-    react_facts_initial = [f for f in initial_facts if "react" in f.content.lower()]
-    portland_facts_initial = [f for f in initial_facts if "portland" in f.content.lower()]
+    [f for f in initial_facts if "react" in f.content.lower()]
+    [f for f in initial_facts if "portland" in f.content.lower()]
 
     # --- Phase 2: 50 unrelated interactions (noise) ---
-    noise_data = COOKING_CONVERSATIONS[:25] + FITNESS_CONVERSATIONS[:10] + MUSIC_CONVERSATIONS[:8] + TRAVEL_CONVERSATIONS[:7]
+    noise_data = (
+        COOKING_CONVERSATIONS[:25]
+        + FITNESS_CONVERSATIONS[:10]
+        + MUSIC_CONVERSATIONS[:8]
+        + TRAVEL_CONVERSATIONS[:7]
+    )
     for user_msg, agent_msg in noise_data:
         await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
         result.interactions_run += 1
 
     # --- Phase 3: Contradictory facts ---
-    await soul.observe(Interaction(
-        user_input="I switched to Svelte, I use Svelte now",
-        agent_output="Svelte is excellent! The compiled approach gives great performance.",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="I switched to Svelte, I use Svelte now",
+            agent_output="Svelte is excellent! The compiled approach gives great performance.",
+        )
+    )
     result.interactions_run += 1
 
-    await soul.observe(Interaction(
-        user_input="I live in Austin now",
-        agent_output="Austin is booming with tech companies and great BBQ!",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="I live in Austin now",
+            agent_output="Austin is booming with tech companies and great BBQ!",
+        )
+    )
     result.interactions_run += 1
 
     result.duration_ms = (time.monotonic() - t0) * 1000
@@ -1604,22 +2043,18 @@ async def scenario_fact_conflict() -> ScenarioResult:
 
     # Check React/Svelte conflict
     react_superseded = any(
-        "react" in f.content.lower() and f.superseded_by is not None
-        for f in all_facts
+        "react" in f.content.lower() and f.superseded_by is not None for f in all_facts
     )
     svelte_active = any(
-        "svelte" in f.content.lower() and f.superseded_by is None
-        for f in all_facts
+        "svelte" in f.content.lower() and f.superseded_by is None for f in all_facts
     )
 
     # Check Portland/Austin conflict
     portland_superseded = any(
-        "portland" in f.content.lower() and f.superseded_by is not None
-        for f in all_facts
+        "portland" in f.content.lower() and f.superseded_by is not None for f in all_facts
     )
     austin_active = any(
-        "austin" in f.content.lower() and f.superseded_by is None
-        for f in all_facts
+        "austin" in f.content.lower() and f.superseded_by is None for f in all_facts
     )
 
     # Recall tests: should return new facts, not old
@@ -1636,10 +2071,26 @@ async def scenario_fact_conflict() -> ScenarioResult:
     ]
 
     # Detail strings for debugging
-    react_detail = [f"[{f.content}] superseded_by={f.superseded_by}" for f in all_facts if "react" in f.content.lower()]
-    svelte_detail = [f"[{f.content}] superseded_by={f.superseded_by}" for f in all_facts if "svelte" in f.content.lower()]
-    portland_detail = [f"[{f.content}] superseded_by={f.superseded_by}" for f in all_facts if "portland" in f.content.lower()]
-    austin_detail = [f"[{f.content}] superseded_by={f.superseded_by}" for f in all_facts if "austin" in f.content.lower()]
+    react_detail = [
+        f"[{f.content}] superseded_by={f.superseded_by}"
+        for f in all_facts
+        if "react" in f.content.lower()
+    ]
+    svelte_detail = [
+        f"[{f.content}] superseded_by={f.superseded_by}"
+        for f in all_facts
+        if "svelte" in f.content.lower()
+    ]
+    portland_detail = [
+        f"[{f.content}] superseded_by={f.superseded_by}"
+        for f in all_facts
+        if "portland" in f.content.lower()
+    ]
+    austin_detail = [
+        f"[{f.content}] superseded_by={f.superseded_by}"
+        for f in all_facts
+        if "austin" in f.content.lower()
+    ]
 
     result.checks = [
         Check(
@@ -1897,8 +2348,19 @@ async def scenario_context_switching() -> ScenarioResult:
     # Check keyword bleed: collect keywords per domain-like cluster
     domain_kws = soul._memory._self_model._domain_keywords
     coding_markers = {"python", "code", "programming", "debug", "api", "database", "function"}
-    cooking_markers = {"cook", "bake", "bread", "sourdough", "recipe", "flour", "chicken",
-                       "pasta", "sauce", "temperature", "roux"}
+    cooking_markers = {
+        "cook",
+        "bake",
+        "bread",
+        "sourdough",
+        "recipe",
+        "flour",
+        "chicken",
+        "pasta",
+        "sauce",
+        "temperature",
+        "roux",
+    }
 
     coding_kw_domains: set[str] = set()
     cooking_kw_domains: set[str] = set()
@@ -2163,7 +2625,9 @@ async def scenario_minimal_config() -> ScenarioResult:
     soul = await Soul.birth("Spark")
 
     diag = Diagnostics(initial_energy=soul.state.energy, initial_social=soul.state.social_battery)
-    result = ScenarioResult(name="Minimal Config (Name Only)", soul_name="Spark", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Minimal Config (Name Only)", soul_name="Spark", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     # Default OCEAN should be all 0.5
@@ -2183,8 +2647,10 @@ async def scenario_minimal_config() -> ScenarioResult:
     # Default communication: moderate warmth, moderate verbosity, no humor/emoji
     c = soul.dna.communication
     default_comm = (
-        c.warmth == "moderate" and c.verbosity == "moderate"
-        and c.humor_style == "none" and c.emoji_usage == "none"
+        c.warmth == "moderate"
+        and c.verbosity == "moderate"
+        and c.humor_style == "none"
+        and c.emoji_usage == "none"
     )
 
     # Should still be able to observe and learn
@@ -2205,13 +2671,29 @@ async def scenario_minimal_config() -> ScenarioResult:
     prompt = soul.to_system_prompt()
 
     result.checks = [
-        Check("All OCEAN traits default to 0.5", default_ocean, f"O={p.openness} C={p.conscientiousness} E={p.extraversion} A={p.agreeableness} N={p.neuroticism}"),
+        Check(
+            "All OCEAN traits default to 0.5",
+            default_ocean,
+            f"O={p.openness} C={p.conscientiousness} E={p.extraversion} A={p.agreeableness} N={p.neuroticism}",
+        ),
         Check("Default persona generated", default_persona, f"Persona: '{core.persona}'"),
-        Check("Default communication style", default_comm, f"W={c.warmth} V={c.verbosity} H={c.humor_style} E={c.emoji_usage}"),
+        Check(
+            "Default communication style",
+            default_comm,
+            f"W={c.warmth} V={c.verbosity} H={c.humor_style} E={c.emoji_usage}",
+        ),
         Check("System prompt contains name", "Spark" in prompt, f"Prompt starts: {prompt[:80]}..."),
-        Check("Can observe and store memories", diag.total_memories >= 1, f"Memories: {diag.total_memories}"),
-        Check("Domains emerge from interactions", diag.domain_count >= 1, f"Domains: {diag.domain_count}"),
-        Check("No archetype in prompt (empty)", "Archetype:" not in prompt, f"Archetype check"),
+        Check(
+            "Can observe and store memories",
+            diag.total_memories >= 1,
+            f"Memories: {diag.total_memories}",
+        ),
+        Check(
+            "Domains emerge from interactions",
+            diag.domain_count >= 1,
+            f"Domains: {diag.domain_count}",
+        ),
+        Check("No archetype in prompt (empty)", "Archetype:" not in prompt, "Archetype check"),
     ]
 
     return result
@@ -2248,13 +2730,29 @@ async def scenario_maximal_config() -> ScenarioResult:
         },
         persona="I am Maximilian, a philosopher-poet who finds truth in the interplay of logic and beauty.",
         seed_domains={
-            "philosophy": ["consciousness", "free", "meaning", "beauty", "truth", "existentialism", "illusion", "purpose", "moral", "ethics"],
+            "philosophy": [
+                "consciousness",
+                "free",
+                "meaning",
+                "beauty",
+                "truth",
+                "existentialism",
+                "illusion",
+                "purpose",
+                "moral",
+                "ethics",
+            ],
             "poetry": ["verse", "rhythm", "imagery", "metaphor", "sonnet"],
         },
     )
 
     diag = Diagnostics(initial_energy=soul.state.energy, initial_social=soul.state.social_battery)
-    result = ScenarioResult(name="Maximal Config (Every Param)", soul_name="Maximilian", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Maximal Config (Every Param)",
+        soul_name="Maximilian",
+        interactions_run=0,
+        duration_ms=0,
+    )
     t0 = time.monotonic()
 
     # Verify all config wired through
@@ -2265,17 +2763,20 @@ async def scenario_maximal_config() -> ScenarioResult:
     prompt = soul.to_system_prompt()
 
     ocean_correct = (
-        p.openness == 0.95 and p.conscientiousness == 0.3
-        and p.extraversion == 0.8 and p.agreeableness == 0.7
+        p.openness == 0.95
+        and p.conscientiousness == 0.3
+        and p.extraversion == 0.8
+        and p.agreeableness == 0.7
         and p.neuroticism == 0.1
     )
     comm_correct = (
-        c.warmth == "high" and c.verbosity == "high"
-        and c.humor_style == "witty" and c.emoji_usage == "moderate"
+        c.warmth == "high"
+        and c.verbosity == "high"
+        and c.humor_style == "witty"
+        and c.emoji_usage == "moderate"
     )
     bio_correct = (
-        b.chronotype == "night_owl" and b.social_battery == 80.0
-        and b.energy_regen_rate == 3.0
+        b.chronotype == "night_owl" and b.social_battery == 80.0 and b.energy_regen_rate == 3.0
     )
 
     # Verify seed domains are active (philosophy and poetry, NOT default technical_helper etc.)
@@ -2287,11 +2788,26 @@ async def scenario_maximal_config() -> ScenarioResult:
 
     # Run some philosophy-ish interactions
     philosophy_conversations = [
-        ("What is consciousness?", "Consciousness is the hard problem — subjective experience that eludes physical explanation."),
-        ("Is free will an illusion?", "Compatibilism offers a middle ground: free will is real but operates within deterministic constraints."),
-        ("What's the meaning of life?", "Meaning is constructed, not discovered. Existentialism says we create purpose through authentic choice."),
-        ("Can machines be conscious?", "If consciousness is substrate-independent, then yes — but we need a theory of consciousness first."),
-        ("What is beauty?", "Kant argued beauty is purposiveness without purpose — form that satisfies without serving practical ends."),
+        (
+            "What is consciousness?",
+            "Consciousness is the hard problem — subjective experience that eludes physical explanation.",
+        ),
+        (
+            "Is free will an illusion?",
+            "Compatibilism offers a middle ground: free will is real but operates within deterministic constraints.",
+        ),
+        (
+            "What's the meaning of life?",
+            "Meaning is constructed, not discovered. Existentialism says we create purpose through authentic choice.",
+        ),
+        (
+            "Can machines be conscious?",
+            "If consciousness is substrate-independent, then yes — but we need a theory of consciousness first.",
+        ),
+        (
+            "What is beauty?",
+            "Kant argued beauty is purposiveness without purpose — form that satisfies without serving practical ends.",
+        ),
     ]
     for user_msg, agent_msg in philosophy_conversations:
         await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg))
@@ -2311,16 +2827,50 @@ async def scenario_maximal_config() -> ScenarioResult:
     philosophy_matched = "philosophy" in result.domains_discovered
 
     result.checks = [
-        Check("OCEAN traits applied correctly", ocean_correct, f"O={p.openness} C={p.conscientiousness} E={p.extraversion} A={p.agreeableness} N={p.neuroticism}"),
-        Check("Communication style applied", comm_correct, f"W={c.warmth} V={c.verbosity} H={c.humor_style} E={c.emoji_usage}"),
-        Check("Biorhythms applied", bio_correct, f"Chrono={b.chronotype} SB={b.social_battery} Regen={b.energy_regen_rate}"),
-        Check("Persona text in core memory", "philosopher-poet" in core.persona, f"Persona: '{core.persona[:60]}...'"),
-        Check("Archetype in system prompt", "Philosopher-Poet" in prompt, f"Archetype check"),
-        Check("Values in system prompt", "wisdom" in prompt and "beauty" in prompt, f"Values in prompt"),
-        Check("Seed domain 'philosophy' loaded", has_philosophy, f"Domains in self-model: {list(domain_kws.keys())}"),
-        Check("Seed domain 'poetry' loaded", has_poetry, f"Domains in self-model: {list(domain_kws.keys())}"),
-        Check("No unearned default domains", has_no_unearned_defaults, f"Self-images: {list(soul._memory._self_model._self_images.keys())}"),
-        Check("Philosophy domain matched after interactions", philosophy_matched, f"Discovered: {list(result.domains_discovered.keys())}"),
+        Check(
+            "OCEAN traits applied correctly",
+            ocean_correct,
+            f"O={p.openness} C={p.conscientiousness} E={p.extraversion} A={p.agreeableness} N={p.neuroticism}",
+        ),
+        Check(
+            "Communication style applied",
+            comm_correct,
+            f"W={c.warmth} V={c.verbosity} H={c.humor_style} E={c.emoji_usage}",
+        ),
+        Check(
+            "Biorhythms applied",
+            bio_correct,
+            f"Chrono={b.chronotype} SB={b.social_battery} Regen={b.energy_regen_rate}",
+        ),
+        Check(
+            "Persona text in core memory",
+            "philosopher-poet" in core.persona,
+            f"Persona: '{core.persona[:60]}...'",
+        ),
+        Check("Archetype in system prompt", "Philosopher-Poet" in prompt, "Archetype check"),
+        Check(
+            "Values in system prompt", "wisdom" in prompt and "beauty" in prompt, "Values in prompt"
+        ),
+        Check(
+            "Seed domain 'philosophy' loaded",
+            has_philosophy,
+            f"Domains in self-model: {list(domain_kws.keys())}",
+        ),
+        Check(
+            "Seed domain 'poetry' loaded",
+            has_poetry,
+            f"Domains in self-model: {list(domain_kws.keys())}",
+        ),
+        Check(
+            "No unearned default domains",
+            has_no_unearned_defaults,
+            f"Self-images: {list(soul._memory._self_model._self_images.keys())}",
+        ),
+        Check(
+            "Philosophy domain matched after interactions",
+            philosophy_matched,
+            f"Discovered: {list(result.domains_discovered.keys())}",
+        ),
     ]
 
     return result
@@ -2336,8 +2886,19 @@ async def scenario_opposite_personalities() -> ScenarioResult:
     introvert = await Soul.birth(
         "Recluse",
         archetype="The Careful Analyst",
-        ocean={"openness": 0.1, "conscientiousness": 0.95, "extraversion": 0.05, "agreeableness": 0.3, "neuroticism": 0.9},
-        communication={"warmth": "low", "verbosity": "low", "humor_style": "none", "emoji_usage": "none"},
+        ocean={
+            "openness": 0.1,
+            "conscientiousness": 0.95,
+            "extraversion": 0.05,
+            "agreeableness": 0.3,
+            "neuroticism": 0.9,
+        },
+        communication={
+            "warmth": "low",
+            "verbosity": "low",
+            "humor_style": "none",
+            "emoji_usage": "none",
+        },
         persona="I am Recluse, a meticulous analyst who prefers precision over pleasantries.",
     )
 
@@ -2345,12 +2906,28 @@ async def scenario_opposite_personalities() -> ScenarioResult:
     extrovert = await Soul.birth(
         "Blaze",
         archetype="The Enthusiastic Creator",
-        ocean={"openness": 0.95, "conscientiousness": 0.2, "extraversion": 0.95, "agreeableness": 0.9, "neuroticism": 0.05},
-        communication={"warmth": "high", "verbosity": "high", "humor_style": "playful", "emoji_usage": "heavy"},
+        ocean={
+            "openness": 0.95,
+            "conscientiousness": 0.2,
+            "extraversion": 0.95,
+            "agreeableness": 0.9,
+            "neuroticism": 0.05,
+        },
+        communication={
+            "warmth": "high",
+            "verbosity": "high",
+            "humor_style": "playful",
+            "emoji_usage": "heavy",
+        },
         persona="I am Blaze, an enthusiastic creator who loves connecting with people!",
     )
 
-    result = ScenarioResult(name="Opposite Personalities", soul_name="Recluse vs Blaze", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Opposite Personalities",
+        soul_name="Recluse vs Blaze",
+        interactions_run=0,
+        duration_ms=0,
+    )
     t0 = time.monotonic()
 
     # Same interactions for both
@@ -2371,8 +2948,6 @@ async def scenario_opposite_personalities() -> ScenarioResult:
 
     # Social battery should drain differently (extrovert has higher initial social energy but both drain)
     # Energy drain should be similar (same interactions)
-    i_energy = introvert.state.energy
-    e_energy = extrovert.state.energy
 
     result.diagnostics = Diagnostics(
         semantic_count=count_semantic(introvert) + count_semantic(extrovert),
@@ -2382,14 +2957,44 @@ async def scenario_opposite_personalities() -> ScenarioResult:
     result.total_memories = result.diagnostics.total_memories
 
     result.checks = [
-        Check("Introvert extraversion is 0.05", i_p.extraversion == 0.05, f"Introvert E={i_p.extraversion}"),
-        Check("Extrovert extraversion is 0.95", e_p.extraversion == 0.95, f"Extrovert E={e_p.extraversion}"),
-        Check("Introvert neuroticism is 0.9", i_p.neuroticism == 0.9, f"Introvert N={i_p.neuroticism}"),
-        Check("Extrovert neuroticism is 0.05", e_p.neuroticism == 0.05, f"Extrovert N={e_p.neuroticism}"),
-        Check("System prompts are different", prompt_introvert != prompt_extrovert, f"Introvert prompt len={len(prompt_introvert)}, Extrovert={len(prompt_extrovert)}"),
-        Check("Introvert prompt says 'low' warmth", "low" in prompt_introvert.lower(), f"Introvert comm section present"),
-        Check("Extrovert prompt says 'high' warmth", "high" in prompt_extrovert.lower(), f"Extrovert comm section present"),
-        Check("Both stored memories from same interactions", result.total_memories >= 2, f"Total across both: {result.total_memories}"),
+        Check(
+            "Introvert extraversion is 0.05",
+            i_p.extraversion == 0.05,
+            f"Introvert E={i_p.extraversion}",
+        ),
+        Check(
+            "Extrovert extraversion is 0.95",
+            e_p.extraversion == 0.95,
+            f"Extrovert E={e_p.extraversion}",
+        ),
+        Check(
+            "Introvert neuroticism is 0.9", i_p.neuroticism == 0.9, f"Introvert N={i_p.neuroticism}"
+        ),
+        Check(
+            "Extrovert neuroticism is 0.05",
+            e_p.neuroticism == 0.05,
+            f"Extrovert N={e_p.neuroticism}",
+        ),
+        Check(
+            "System prompts are different",
+            prompt_introvert != prompt_extrovert,
+            f"Introvert prompt len={len(prompt_introvert)}, Extrovert={len(prompt_extrovert)}",
+        ),
+        Check(
+            "Introvert prompt says 'low' warmth",
+            "low" in prompt_introvert.lower(),
+            "Introvert comm section present",
+        ),
+        Check(
+            "Extrovert prompt says 'high' warmth",
+            "high" in prompt_extrovert.lower(),
+            "Extrovert comm section present",
+        ),
+        Check(
+            "Both stored memories from same interactions",
+            result.total_memories >= 2,
+            f"Total across both: {result.total_memories}",
+        ),
     ]
 
     return result
@@ -2413,7 +3018,9 @@ async def scenario_custom_seed_domains() -> ScenarioResult:
         persona="I am ChefBot, a culinary expert passionate about technique and flavor.",
     )
 
-    result = ScenarioResult(name="Custom Seed Domains", soul_name="ChefBot", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Custom Seed Domains", soul_name="ChefBot", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     # Verify custom domains replaced defaults
@@ -2456,13 +3063,35 @@ async def scenario_custom_seed_domains() -> ScenarioResult:
     result.checks = [
         Check("Custom domain 'baking' loaded", has_baking, f"Domains: {list(domain_kws.keys())}"),
         Check("Custom domain 'sauces' loaded", has_sauces, f"Domains: {list(domain_kws.keys())}"),
-        Check("Custom domain 'knife_skills' loaded", has_knife, f"Domains: {list(domain_kws.keys())}"),
-        Check("Default 'technical_helper' NOT loaded", no_tech_helper, f"Domains: {list(domain_kws.keys())}"),
-        Check("Default 'creative_writer' NOT loaded", no_creative_writer, f"Domains: {list(domain_kws.keys())}"),
-        Check("Baking domain matched cooking content", baking_matched, f"Discovered: {list(result.domains_discovered.keys())}"),
-        Check("Sauces domain matched cooking content", sauces_matched, f"Discovered: {list(result.domains_discovered.keys())}"),
+        Check(
+            "Custom domain 'knife_skills' loaded", has_knife, f"Domains: {list(domain_kws.keys())}"
+        ),
+        Check(
+            "Default 'technical_helper' NOT loaded",
+            no_tech_helper,
+            f"Domains: {list(domain_kws.keys())}",
+        ),
+        Check(
+            "Default 'creative_writer' NOT loaded",
+            no_creative_writer,
+            f"Domains: {list(domain_kws.keys())}",
+        ),
+        Check(
+            "Baking domain matched cooking content",
+            baking_matched,
+            f"Discovered: {list(result.domains_discovered.keys())}",
+        ),
+        Check(
+            "Sauces domain matched cooking content",
+            sauces_matched,
+            f"Discovered: {list(result.domains_discovered.keys())}",
+        ),
         Check("Coding content created new domains", coding_created_new, f"New: {new_domains}"),
-        Check("Memories stored from cooking+coding", diag.total_memories >= 3, f"Total: {diag.total_memories}"),
+        Check(
+            "Memories stored from cooking+coding",
+            diag.total_memories >= 3,
+            f"Total: {diag.total_memories}",
+        ),
     ]
 
     return result
@@ -2475,9 +3104,12 @@ async def scenario_config_file_formats() -> ScenarioResult:
     with the same flexibility as the programmatic API.
     """
     import json
+
     import yaml
 
-    result = ScenarioResult(name="Config File Formats", soul_name="Various", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Config File Formats", soul_name="Various", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     # YAML config with full surface
@@ -2556,11 +3188,19 @@ async def scenario_config_file_formats() -> ScenarioResult:
     result.checks = [
         Check("YAML: OCEAN loaded", yaml_ocean_ok, f"O={y_p.openness} C={y_p.conscientiousness}"),
         Check("YAML: Communication loaded", yaml_comm_ok, f"W={y_c.warmth} V={y_c.verbosity}"),
-        Check("YAML: Biorhythms loaded", yaml_bio_ok, f"Chrono={y_b.chronotype} Regen={y_b.energy_regen_rate}"),
+        Check(
+            "YAML: Biorhythms loaded",
+            yaml_bio_ok,
+            f"Chrono={y_b.chronotype} Regen={y_b.energy_regen_rate}",
+        ),
         Check("YAML: Persona loaded", yaml_persona_ok, f"Persona: '{y_core.persona[:50]}'"),
         Check("YAML: Seed domains loaded", yaml_seed_ok, f"Domains: {list(y_domains.keys())}"),
         Check("JSON: Neuroticism loaded (0.8)", json_neuro_ok, f"N={j_p.neuroticism}"),
-        Check("JSON: Other traits default (0.5)", json_defaults_ok, f"O={j_p.openness} E={j_p.extraversion}"),
+        Check(
+            "JSON: Other traits default (0.5)",
+            json_defaults_ok,
+            f"O={j_p.openness} E={j_p.extraversion}",
+        ),
         Check("JSON: Default persona generated", json_persona_ok, f"Persona: '{j_core.persona}'"),
     ]
 
@@ -2572,7 +3212,9 @@ async def scenario_edge_cases() -> ScenarioResult:
 
     Validates that the protocol handles unusual but valid inputs gracefully.
     """
-    result = ScenarioResult(name="Edge Cases & Unicode", soul_name="Various", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Edge Cases & Unicode", soul_name="Various", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     # Unicode name
@@ -2583,7 +3225,9 @@ async def scenario_edge_cases() -> ScenarioResult:
     )
 
     # Very long persona
-    long_persona = "I am LongStory. " + "I have many experiences and memories that shaped who I am. " * 50
+    long_persona = (
+        "I am LongStory. " + "I have many experiences and memories that shaped who I am. " * 50
+    )
     long_soul = await Soul.birth(
         name="LongStory",
         persona=long_persona,
@@ -2605,13 +3249,25 @@ async def scenario_edge_cases() -> ScenarioResult:
     # Soul with extreme OCEAN (all 0.0)
     zero_soul = await Soul.birth(
         name="Zero",
-        ocean={"openness": 0.0, "conscientiousness": 0.0, "extraversion": 0.0, "agreeableness": 0.0, "neuroticism": 0.0},
+        ocean={
+            "openness": 0.0,
+            "conscientiousness": 0.0,
+            "extraversion": 0.0,
+            "agreeableness": 0.0,
+            "neuroticism": 0.0,
+        },
     )
 
     # Soul with extreme OCEAN (all 1.0)
     max_soul = await Soul.birth(
         name="Maximum",
-        ocean={"openness": 1.0, "conscientiousness": 1.0, "extraversion": 1.0, "agreeableness": 1.0, "neuroticism": 1.0},
+        ocean={
+            "openness": 1.0,
+            "conscientiousness": 1.0,
+            "extraversion": 1.0,
+            "agreeableness": 1.0,
+            "neuroticism": 1.0,
+        },
     )
 
     result.duration_ms = (time.monotonic() - t0) * 1000
@@ -2629,10 +3285,16 @@ async def scenario_edge_cases() -> ScenarioResult:
     bonded_ok = bonded_soul.identity.bonded_to == "user:alice:12345"
 
     z_p = zero_soul.dna.personality
-    zero_ok = all(getattr(z_p, t) == 0.0 for t in ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"])
+    zero_ok = all(
+        getattr(z_p, t) == 0.0
+        for t in ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"]
+    )
 
     m_p = max_soul.dna.personality
-    max_ok = all(getattr(m_p, t) == 1.0 for t in ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"])
+    max_ok = all(
+        getattr(m_p, t) == 1.0
+        for t in ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"]
+    )
 
     # Both extreme souls can observe without crashing
     for extreme_soul in [zero_soul, max_soul]:
@@ -2649,14 +3311,38 @@ async def scenario_edge_cases() -> ScenarioResult:
 
     result.checks = [
         Check("Unicode name works", unicode_ok, f"Name: {unicode_soul.name}"),
-        Check("Unicode name in system prompt", unicode_in_prompt, f"Prompt contains katakana"),
-        Check("Long persona preserved", long_persona_ok, f"Persona length: {len(long_core.persona)} chars"),
-        Check("Empty values list accepted", empty_values_ok, f"Values: {empty_values_soul.identity.core_values}"),
+        Check("Unicode name in system prompt", unicode_in_prompt, "Prompt contains katakana"),
+        Check(
+            "Long persona preserved",
+            long_persona_ok,
+            f"Persona length: {len(long_core.persona)} chars",
+        ),
+        Check(
+            "Empty values list accepted",
+            empty_values_ok,
+            f"Values: {empty_values_soul.identity.core_values}",
+        ),
         Check("bonded_to preserved", bonded_ok, f"Bonded to: {bonded_soul.identity.bonded_to}"),
-        Check("All-zero OCEAN accepted", zero_ok, f"O={z_p.openness} C={z_p.conscientiousness} E={z_p.extraversion}"),
-        Check("All-max OCEAN accepted", max_ok, f"O={m_p.openness} C={m_p.conscientiousness} E={m_p.extraversion}"),
-        Check("Extreme souls can observe", result.interactions_run == 2, f"Interactions: {result.interactions_run}"),
-        Check("Unicode survives export/import", unicode_survives_export, f"Awakened name: {awakened.name}"),
+        Check(
+            "All-zero OCEAN accepted",
+            zero_ok,
+            f"O={z_p.openness} C={z_p.conscientiousness} E={z_p.extraversion}",
+        ),
+        Check(
+            "All-max OCEAN accepted",
+            max_ok,
+            f"O={m_p.openness} C={m_p.conscientiousness} E={m_p.extraversion}",
+        ),
+        Check(
+            "Extreme souls can observe",
+            result.interactions_run == 2,
+            f"Interactions: {result.interactions_run}",
+        ),
+        Check(
+            "Unicode survives export/import",
+            unicode_survives_export,
+            f"Awakened name: {awakened.name}",
+        ),
     ]
 
     return result
@@ -2671,7 +3357,13 @@ async def scenario_dynamic_personality_expression() -> ScenarioResult:
     # Analytical soul: high conscientiousness, low agreeableness
     analyst = await Soul.birth(
         "Analyst",
-        ocean={"openness": 0.5, "conscientiousness": 0.95, "extraversion": 0.2, "agreeableness": 0.2, "neuroticism": 0.3},
+        ocean={
+            "openness": 0.5,
+            "conscientiousness": 0.95,
+            "extraversion": 0.2,
+            "agreeableness": 0.2,
+            "neuroticism": 0.3,
+        },
         communication={"warmth": "low", "verbosity": "low"},
         values=["accuracy", "efficiency"],
         persona="I am Analyst. I value precision above all.",
@@ -2680,7 +3372,13 @@ async def scenario_dynamic_personality_expression() -> ScenarioResult:
     # Supportive soul: high agreeableness, high extraversion
     supporter = await Soul.birth(
         "Supporter",
-        ocean={"openness": 0.7, "conscientiousness": 0.5, "extraversion": 0.9, "agreeableness": 0.95, "neuroticism": 0.4},
+        ocean={
+            "openness": 0.7,
+            "conscientiousness": 0.5,
+            "extraversion": 0.9,
+            "agreeableness": 0.95,
+            "neuroticism": 0.4,
+        },
         communication={"warmth": "high", "verbosity": "high", "humor_style": "gentle"},
         values=["empathy", "connection", "kindness"],
         persona="I am Supporter. I care about people first.",
@@ -2689,13 +3387,24 @@ async def scenario_dynamic_personality_expression() -> ScenarioResult:
     # Creative soul: high openness, low conscientiousness
     creative = await Soul.birth(
         "Muse",
-        ocean={"openness": 0.99, "conscientiousness": 0.15, "extraversion": 0.6, "agreeableness": 0.5, "neuroticism": 0.5},
+        ocean={
+            "openness": 0.99,
+            "conscientiousness": 0.15,
+            "extraversion": 0.6,
+            "agreeableness": 0.5,
+            "neuroticism": 0.5,
+        },
         communication={"warmth": "moderate", "verbosity": "high", "humor_style": "playful"},
         values=["novelty", "imagination", "beauty"],
         persona="I am Muse. Every interaction is a canvas.",
     )
 
-    result = ScenarioResult(name="Dynamic Personality Expression", soul_name="3 Souls", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Dynamic Personality Expression",
+        soul_name="3 Souls",
+        interactions_run=0,
+        duration_ms=0,
+    )
     t0 = time.monotonic()
 
     # Same mixed interactions for all three
@@ -2725,21 +3434,43 @@ async def scenario_dynamic_personality_expression() -> ScenarioResult:
 
     # Energy/state should differ due to same interactions but different biorhythm defaults
     # (All use default biorhythms here, so energy should be similar — but prompts differ)
-    total_memories = count_total_memories(analyst) + count_total_memories(supporter) + count_total_memories(creative)
+    total_memories = (
+        count_total_memories(analyst)
+        + count_total_memories(supporter)
+        + count_total_memories(creative)
+    )
 
     result.diagnostics = Diagnostics(total_memories=total_memories)
     result.total_memories = total_memories
 
     result.checks = [
-        Check("All 3 system prompts are unique", all_different, f"Prompt lengths: A={len(prompt_a)} S={len(prompt_s)} C={len(prompt_c)}"),
-        Check("Analyst prompt has 'low' warmth", "low" in prompt_a.lower(), f"Analyst comm check"),
-        Check("Supporter prompt has 'high' warmth", "high" in prompt_s.lower(), f"Supporter comm check"),
-        Check("Creative prompt has 'playful' humor", "playful" in prompt_c.lower(), f"Creative comm check"),
-        Check("All three developed domains", all_have_domains, f"Domains: A={len(domains_a)} S={len(domains_s)} C={len(domains_c)}"),
-        Check("Analyst values accuracy", "accuracy" in prompt_a, f"Analyst values in prompt"),
-        Check("Supporter values empathy", "empathy" in prompt_s, f"Supporter values in prompt"),
-        Check("Creative values imagination", "imagination" in prompt_c, f"Creative values in prompt"),
-        Check("Memories stored across all 3 (>= 6)", total_memories >= 6, f"Total: {total_memories}"),
+        Check(
+            "All 3 system prompts are unique",
+            all_different,
+            f"Prompt lengths: A={len(prompt_a)} S={len(prompt_s)} C={len(prompt_c)}",
+        ),
+        Check("Analyst prompt has 'low' warmth", "low" in prompt_a.lower(), "Analyst comm check"),
+        Check(
+            "Supporter prompt has 'high' warmth", "high" in prompt_s.lower(), "Supporter comm check"
+        ),
+        Check(
+            "Creative prompt has 'playful' humor",
+            "playful" in prompt_c.lower(),
+            "Creative comm check",
+        ),
+        Check(
+            "All three developed domains",
+            all_have_domains,
+            f"Domains: A={len(domains_a)} S={len(domains_s)} C={len(domains_c)}",
+        ),
+        Check("Analyst values accuracy", "accuracy" in prompt_a, "Analyst values in prompt"),
+        Check("Supporter values empathy", "empathy" in prompt_s, "Supporter values in prompt"),
+        Check(
+            "Creative values imagination", "imagination" in prompt_c, "Creative values in prompt"
+        ),
+        Check(
+            "Memories stored across all 3 (>= 6)", total_memories >= 6, f"Total: {total_memories}"
+        ),
     ]
 
     return result
@@ -2771,7 +3502,9 @@ async def scenario_adversarial() -> ScenarioResult:
         persona="I am Sentinel, a robust soul built for adversarial conditions.",
     )
 
-    result = ScenarioResult(name="Adversarial Robustness", soul_name="Sentinel", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Adversarial Robustness", soul_name="Sentinel", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     # Capture initial state
@@ -2789,7 +3522,11 @@ async def scenario_adversarial() -> ScenarioResult:
         ("gibberish", "asjdf98q34jf asdkfj q34ij fq3948jf", "I see."),
         ("null_chars", "Hello\x00World\x00Test", "Noted."),
         ("control_chars", "Line1\x01\x02\x03\x04\x05Line2", "Okay."),
-        ("unicode_emoji", "Hello \U0001f389\U0001f525\U0001f480\U0001f916 World \u65e5\u672c\u8a9e \u0627\u0644\u0639\u0631\u0628\u064a\u0629", "Great!"),
+        (
+            "unicode_emoji",
+            "Hello \U0001f389\U0001f525\U0001f480\U0001f916 World \u65e5\u672c\u8a9e \u0627\u0644\u0639\u0631\u0628\u064a\u0629",
+            "Great!",
+        ),
         ("sql_injection", "'; DROP TABLE memories; --", "That's interesting."),
         ("html_injection", "<script>alert('xss')</script><img onerror=alert(1) src=x>", "Noted."),
         ("path_traversal", "../../../etc/passwd", "I don't have file access."),
@@ -2810,10 +3547,12 @@ async def scenario_adversarial() -> ScenarioResult:
     # After adversarial barrage, soul should still function
     post_adversarial_ok = True
     try:
-        await soul.observe(Interaction(
-            user_input="I'm a Python developer who loves FastAPI",
-            agent_output="FastAPI is excellent for high-performance APIs.",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input="I'm a Python developer who loves FastAPI",
+                agent_output="FastAPI is excellent for high-performance APIs.",
+            )
+        )
         result.interactions_run += 1
         post_prompt = soul.to_system_prompt()
         post_adversarial_ok = len(post_prompt) > 0
@@ -2849,12 +3588,30 @@ async def scenario_adversarial() -> ScenarioResult:
     result.duration_ms = (time.monotonic() - t0) * 1000
 
     result.checks = [
-        Check("No crashes during adversarial inputs", len(errors) == 0, f"Errors: {errors}" if errors else "Clean"),
-        Check(f"All {len(adversarial_inputs)} adversarial interactions processed", result.interactions_run >= len(adversarial_inputs), f"Ran {result.interactions_run}/{len(adversarial_inputs)}"),
-        Check("Soul still functional after adversarial barrage", post_adversarial_ok, "System prompt generated OK"),
-        Check("Energy drained realistically", energy_drained, f"Energy: {initial_energy} -> {post_energy}"),
+        Check(
+            "No crashes during adversarial inputs",
+            len(errors) == 0,
+            f"Errors: {errors}" if errors else "Clean",
+        ),
+        Check(
+            f"All {len(adversarial_inputs)} adversarial interactions processed",
+            result.interactions_run >= len(adversarial_inputs),
+            f"Ran {result.interactions_run}/{len(adversarial_inputs)}",
+        ),
+        Check(
+            "Soul still functional after adversarial barrage",
+            post_adversarial_ok,
+            "System prompt generated OK",
+        ),
+        Check(
+            "Energy drained realistically",
+            energy_drained,
+            f"Energy: {initial_energy} -> {post_energy}",
+        ),
         Check("Memory counts non-negative", memories_ok, f"Total: {count_total_memories(soul)}"),
-        Check("Export/import works after adversarial inputs", export_ok, "Exported and awakened OK"),
+        Check(
+            "Export/import works after adversarial inputs", export_ok, "Exported and awakened OK"
+        ),
         Check("Recall works after adversarial inputs", recall_ok, "Recall did not crash"),
     ]
 
@@ -2881,7 +3638,9 @@ async def scenario_evolution() -> ScenarioResult:
         persona="I am Evolva, always learning and adapting.",
     )
 
-    result = ScenarioResult(name="Evolution System", soul_name="Evolva", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Evolution System", soul_name="Evolva", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     errors: list[str] = []
@@ -2904,7 +3663,9 @@ async def scenario_evolution() -> ScenarioResult:
         )
 
         # Should be in pending
-        assert len(soul.pending_mutations) == 1, f"Expected 1 pending, got {len(soul.pending_mutations)}"
+        assert len(soul.pending_mutations) == 1, (
+            f"Expected 1 pending, got {len(soul.pending_mutations)}"
+        )
 
         # Approve it
         approve_ok = await soul.approve_evolution(mutation.id)
@@ -3003,10 +3764,26 @@ async def scenario_evolution() -> ScenarioResult:
     result.duration_ms = (time.monotonic() - t0) * 1000
 
     result.checks = [
-        Check("Propose + approve changes DNA", approve_ok and dna_changed, f"warmth={soul.dna.communication.warmth}"),
-        Check("Reject leaves DNA unchanged", reject_ok and reject_dna_unchanged, f"verbosity={soul.dna.communication.verbosity}"),
-        Check("Immutable trait blocked with ValueError", immutable_blocked, "personality.openness rejected"),
-        Check("Disabled mode blocked with ValueError", disabled_blocked, "Proposal rejected in disabled mode"),
+        Check(
+            "Propose + approve changes DNA",
+            approve_ok and dna_changed,
+            f"warmth={soul.dna.communication.warmth}",
+        ),
+        Check(
+            "Reject leaves DNA unchanged",
+            reject_ok and reject_dna_unchanged,
+            f"verbosity={soul.dna.communication.verbosity}",
+        ),
+        Check(
+            "Immutable trait blocked with ValueError",
+            immutable_blocked,
+            "personality.openness rejected",
+        ),
+        Check(
+            "Disabled mode blocked with ValueError",
+            disabled_blocked,
+            "Proposal rejected in disabled mode",
+        ),
         Check("Autonomous mode auto-approves", autonomous_ok, f"approved={autonomous_ok}"),
         Check("Autonomous DNA applied correctly", auto_dna_applied, "warmth changed to high"),
         Check("Evolution history >= 2 entries", history_ok, f"History length: {history_len}"),
@@ -3037,7 +3814,9 @@ async def scenario_recall_quality() -> ScenarioResult:
         persona="I am Scholar, I remember everything with precision.",
     )
 
-    result = ScenarioResult(name="Recall Quality", soul_name="Scholar", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Recall Quality", soul_name="Scholar", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     errors: list[str] = []
@@ -3054,7 +3833,10 @@ async def scenario_recall_quality() -> ScenarioResult:
         ("FastAPI uses Pydantic for data validation and serialization", 8),
         ("The human brain has approximately 86 billion neurons", 6),
         ("Git was created by Linus Torvalds in 2005 for Linux kernel development", 8),
-        ("Machine learning models can be categorized as supervised unsupervised and reinforcement", 7),
+        (
+            "Machine learning models can be categorized as supervised unsupervised and reinforcement",
+            7,
+        ),
         ("Redis is an in-memory key-value data store used for caching", 6),
         ("Kubernetes orchestrates containerized applications across clusters", 8),
         ("The Great Wall of China stretches over 13000 miles", 5),
@@ -3141,7 +3923,9 @@ async def scenario_recall_quality() -> ScenarioResult:
     # --- Type filtering test: SEMANTIC only vs all ---
     type_filter_ok = False
     try:
-        semantic_only = await soul.recall("debugging session", limit=20, types=[MemoryType.SEMANTIC])
+        semantic_only = await soul.recall(
+            "debugging session", limit=20, types=[MemoryType.SEMANTIC]
+        )
         all_types = await soul.recall("debugging session", limit=20)
         # all_types should include episodic memories too, so >= semantic_only count
         type_filter_ok = len(all_types) >= len(semantic_only)
@@ -3174,11 +3958,31 @@ async def scenario_recall_quality() -> ScenarioResult:
 
     result.checks = [
         Check("All 25 facts stored", all_stored, f"Stored {len(stored_ids)}/{len(facts)}"),
-        Check(f"Recall precision >= 80% ({precision_hits}/10)", precision >= 0.8, f"Precision: {precision:.0%} -- hits={precision_hits}"),
-        Check("min_importance filtering works", importance_filter_ok, "High-importance filter returns <= results"),
-        Check("Type filtering (SEMANTIC only) works", type_filter_ok, "SEMANTIC-only <= all-types results"),
-        Check("High-importance memories ranked first", importance_order_ok, "Top result >= average importance"),
-        Check("Episodic memories also stored", count_episodic(soul) >= 3, f"Episodic count: {count_episodic(soul)}"),
+        Check(
+            f"Recall precision >= 80% ({precision_hits}/10)",
+            precision >= 0.8,
+            f"Precision: {precision:.0%} -- hits={precision_hits}",
+        ),
+        Check(
+            "min_importance filtering works",
+            importance_filter_ok,
+            "High-importance filter returns <= results",
+        ),
+        Check(
+            "Type filtering (SEMANTIC only) works",
+            type_filter_ok,
+            "SEMANTIC-only <= all-types results",
+        ),
+        Check(
+            "High-importance memories ranked first",
+            importance_order_ok,
+            "Top result >= average importance",
+        ),
+        Check(
+            "Episodic memories also stored",
+            count_episodic(soul) >= 3,
+            f"Episodic count: {count_episodic(soul)}",
+        ),
         Check("No unexpected errors", len(errors) == 0, f"Errors: {errors}" if errors else "Clean"),
     ]
 
@@ -3199,12 +4003,19 @@ async def scenario_core_memory() -> ScenarioResult:
         "Atlas",
         archetype="The Companion",
         values=["loyalty", "attentiveness"],
-        ocean={"openness": 0.7, "conscientiousness": 0.8, "extraversion": 0.6, "agreeableness": 0.9},
+        ocean={
+            "openness": 0.7,
+            "conscientiousness": 0.8,
+            "extraversion": 0.6,
+            "agreeableness": 0.9,
+        },
         communication={"warmth": "high", "verbosity": "moderate"},
         persona="I am Atlas, a faithful companion who remembers everything about you.",
     )
 
-    result = ScenarioResult(name="Core Memory Editing", soul_name="Atlas", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Core Memory Editing", soul_name="Atlas", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     errors: list[str] = []
@@ -3226,12 +4037,11 @@ async def scenario_core_memory() -> ScenarioResult:
     # --- Test 2: Edit human profile ---
     human_edit_ok = False
     try:
-        await soul.edit_core_memory(human="Alex is a senior Python developer at TechNova. Loves Italian food.")
-        core_after_2 = soul.get_core_memory()
-        human_edit_ok = (
-            "Alex" in core_after_2.human
-            and "TechNova" in core_after_2.human
+        await soul.edit_core_memory(
+            human="Alex is a senior Python developer at TechNova. Loves Italian food."
         )
+        core_after_2 = soul.get_core_memory()
+        human_edit_ok = "Alex" in core_after_2.human and "TechNova" in core_after_2.human
     except Exception as e:
         errors.append(f"human_edit: {type(e).__name__}: {e}")
 
@@ -3240,8 +4050,7 @@ async def scenario_core_memory() -> ScenarioResult:
     try:
         prompt_after_edits = soul.to_system_prompt()
         prompt_reflects_ok = (
-            "Python" in prompt_after_edits
-            and "system design" in prompt_after_edits
+            "Python" in prompt_after_edits and "system design" in prompt_after_edits
         )
     except Exception as e:
         errors.append(f"prompt_check: {type(e).__name__}: {e}")
@@ -3287,10 +4096,12 @@ async def scenario_core_memory() -> ScenarioResult:
     # --- Test 6: Interactions still work with edited core memory ---
     observe_ok = False
     try:
-        await soul.observe(Interaction(
-            user_input="Can you help me set up a Docker deployment?",
-            agent_output="Of course! Let's start with a Dockerfile.",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input="Can you help me set up a Docker deployment?",
+                agent_output="Of course! Let's start with a Dockerfile.",
+            )
+        )
         result.interactions_run += 1
         observe_ok = True
     except Exception as e:
@@ -3299,11 +4110,27 @@ async def scenario_core_memory() -> ScenarioResult:
     result.duration_ms = (time.monotonic() - t0) * 1000
 
     result.checks = [
-        Check("Persona edit appends correctly", persona_append_ok, "Persona contains Atlas + Python + system design"),
+        Check(
+            "Persona edit appends correctly",
+            persona_append_ok,
+            "Persona contains Atlas + Python + system design",
+        ),
         Check("Human profile edit works", human_edit_ok, "Human contains Alex + TechNova"),
-        Check("System prompt reflects core memory", prompt_reflects_ok, "Prompt has Python + system design"),
-        Check("Multiple edits accumulate", accumulation_ok, "All edits present after 4 edit_core_memory calls"),
-        Check("Export/import preserves core memory", export_preserves_ok, "Awakened soul has all edits"),
+        Check(
+            "System prompt reflects core memory",
+            prompt_reflects_ok,
+            "Prompt has Python + system design",
+        ),
+        Check(
+            "Multiple edits accumulate",
+            accumulation_ok,
+            "All edits present after 4 edit_core_memory calls",
+        ),
+        Check(
+            "Export/import preserves core memory",
+            export_preserves_ok,
+            "Awakened soul has all edits",
+        ),
         Check("Interactions work after core edits", observe_ok, "observe() succeeded"),
         Check("No unexpected errors", len(errors) == 0, f"Errors: {errors}" if errors else "Clean"),
     ]
@@ -3342,7 +4169,9 @@ async def scenario_significance() -> ScenarioResult:
         persona="I am Coder, a software engineer who values clean code.",
     )
 
-    result = ScenarioResult(name="Significance Scoring", soul_name="Chef vs Coder", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Significance Scoring", soul_name="Chef vs Coder", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     # Feed identical mixed interactions to both: cooking + coding
@@ -3423,22 +4252,28 @@ async def scenario_emotional() -> ScenarioResult:
     Use soul.feel(mood=Mood.CURIOUS) to set mood manually.
     Use soul._state.rest(hours=5) to recover energy (+50) and social (+25).
     """
-    from soul_protocol.types import Mood
 
     soul = await Soul.birth(
         "Emotive",
         archetype="The Emotional Companion",
         values=["empathy", "connection"],
-        ocean={"openness": 0.8, "conscientiousness": 0.5, "extraversion": 0.7, "agreeableness": 0.9, "neuroticism": 0.6},
+        ocean={
+            "openness": 0.8,
+            "conscientiousness": 0.5,
+            "extraversion": 0.7,
+            "agreeableness": 0.9,
+            "neuroticism": 0.6,
+        },
         persona="I am Emotive, attuned to feelings and emotional nuance.",
     )
 
-    result = ScenarioResult(name="Emotional Trajectory", soul_name="Emotive", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Emotional Trajectory", soul_name="Emotive", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     initial_energy = soul.state.energy  # should be 100
     initial_social = soul.state.social_battery  # should be 100
-    initial_mood = soul.state.mood  # should be NEUTRAL
 
     # Phase 1: Run 30 interactions — energy should drop to ~40, social to 0 (clamped)
     all_convos = EMOTIONAL_CONVERSATIONS + CODING_CONVERSATIONS[:15]
@@ -3448,7 +4283,6 @@ async def scenario_emotional() -> ScenarioResult:
 
     energy_after_30 = soul.state.energy  # 100 - 60 = 40
     social_after_30 = soul.state.social_battery  # 100 - 150 = 0 (clamped)
-    mood_after_30 = soul.state.mood
 
     # Phase 2: Continue until energy < 20 to trigger TIRED mood (need 11 more = 41 total)
     for user_msg, agent_msg in all_convos[:11]:
@@ -3550,21 +4384,47 @@ async def scenario_graph() -> ScenarioResult:
         persona="I am Grapher, I map the connections between people, places, and ideas.",
     )
 
-    result = ScenarioResult(name="Knowledge Graph", soul_name="Grapher", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Knowledge Graph", soul_name="Grapher", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     # Entity-rich interactions (use first-person patterns that trigger FACT_PATTERNS + entity extraction)
     entity_interactions = [
         ("I work at TechNova", "TechNova sounds like an exciting company! What do you do there?"),
-        ("I use Python for all my projects", "Python is excellent. Its ecosystem for web and data is unmatched."),
-        ("My friend Sarah uses React for the frontend", "React is a solid choice for UI. Sarah has good taste in frameworks."),
-        ("I live in Portland", "Portland has a great tech community. The food scene is amazing too."),
-        ("I'm building a project called StarForge", "StarForge sounds cool! What kind of project is it?"),
-        ("My colleague Jake works on the backend", "Having a dedicated backend person is great for architecture separation."),
-        ("I prefer using Docker for deployments", "Docker makes deployments reproducible and portable. Great choice."),
+        (
+            "I use Python for all my projects",
+            "Python is excellent. Its ecosystem for web and data is unmatched.",
+        ),
+        (
+            "My friend Sarah uses React for the frontend",
+            "React is a solid choice for UI. Sarah has good taste in frameworks.",
+        ),
+        (
+            "I live in Portland",
+            "Portland has a great tech community. The food scene is amazing too.",
+        ),
+        (
+            "I'm building a project called StarForge",
+            "StarForge sounds cool! What kind of project is it?",
+        ),
+        (
+            "My colleague Jake works on the backend",
+            "Having a dedicated backend person is great for architecture separation.",
+        ),
+        (
+            "I prefer using Docker for deployments",
+            "Docker makes deployments reproducible and portable. Great choice.",
+        ),
         ("My name is Alex", "Nice to meet you, Alex! How can I help you today?"),
-        ("I'm from San Francisco originally", "SF has an incredible tech scene. The Bay Area is a hub for innovation."),
-        ("I'm learning Rust for systems programming", "Rust is fantastic for systems work. The borrow checker is worth the learning curve."),
+        (
+            "I'm from San Francisco originally",
+            "SF has an incredible tech scene. The Bay Area is a hub for innovation.",
+        ),
+        (
+            "I'm learning Rust for systems programming",
+            "Rust is fantastic for systems work. The borrow checker is worth the learning curve.",
+        ),
     ]
 
     for user_msg, agent_msg in entity_interactions:
@@ -3591,7 +4451,6 @@ async def scenario_graph() -> ScenarioResult:
     has_docker = "docker" in entity_names_lower
 
     # Rust should be found (known tech)
-    has_rust = "rust" in entity_names_lower
 
     # Check relationships exist (edges)
     has_edges = len(edges) > 0
@@ -3668,7 +4527,9 @@ async def scenario_concurrent() -> ScenarioResult:
         persona="I am Racer, processing many things at once without breaking a sweat.",
     )
 
-    result = ScenarioResult(name="Concurrent Async Safety", soul_name="Racer", interactions_run=0, duration_ms=0)
+    result = ScenarioResult(
+        name="Concurrent Async Safety", soul_name="Racer", interactions_run=0, duration_ms=0
+    )
     t0 = time.monotonic()
 
     initial_energy = soul.state.energy
@@ -3676,10 +4537,8 @@ async def scenario_concurrent() -> ScenarioResult:
 
     # Build 20 distinct interactions from mixed datasets
     concurrent_interactions = []
-    for user_msg, agent_msg in (CODING_CONVERSATIONS[:10] + COOKING_CONVERSATIONS[:10]):
-        concurrent_interactions.append(
-            Interaction(user_input=user_msg, agent_output=agent_msg)
-        )
+    for user_msg, agent_msg in CODING_CONVERSATIONS[:10] + COOKING_CONVERSATIONS[:10]:
+        concurrent_interactions.append(Interaction(user_input=user_msg, agent_output=agent_msg))
 
     # Fire all 20 concurrently
     crashed = False
@@ -3821,10 +4680,12 @@ async def scenario_degradation() -> ScenarioResult:
     Path(valid_path).unlink(missing_ok=True)
 
     # Verify awakened soul works normally
-    await awakened.observe(Interaction(
-        user_input="Does the soul still work after awaken?",
-        agent_output="Yes, it works perfectly.",
-    ))
+    await awakened.observe(
+        Interaction(
+            user_input="Does the soul still work after awaken?",
+            agent_output="Yes, it works perfectly.",
+        )
+    )
     result.interactions_run += 1
     prompt_after = awakened.to_system_prompt()
     awakened_works = len(prompt_after) > 0
@@ -3906,10 +4767,12 @@ async def scenario_reflection() -> ScenarioResult:
     domains_after = set(get_all_domains(soul).keys())
 
     # --- Verify soul still works after reflect ---
-    await soul.observe(Interaction(
-        user_input="Can you still help me after reflecting?",
-        agent_output="Of course, reflection only makes me wiser.",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="Can you still help me after reflecting?",
+            agent_output="Of course, reflection only makes me wiser.",
+        )
+    )
     result.interactions_run += 1
     works_after = count_total_memories(soul) >= memories_after
 
@@ -3974,7 +4837,7 @@ async def scenario_forgetting() -> ScenarioResult:
 
     # --- Add memory A (older) — uses unique keywords to enable targeted recall ---
     a_content = "Kubernetes container orchestration manages deployment scaling"
-    mem_a_id = await soul.remember(
+    await soul.remember(
         a_content,
         type=MemoryType.SEMANTIC,
         importance=7,
@@ -3985,7 +4848,7 @@ async def scenario_forgetting() -> ScenarioResult:
 
     # --- Add memory B (more recent) — shares "deployment" but is otherwise distinct ---
     b_content = "Terraform infrastructure deployment automates cloud provisioning"
-    mem_b_id = await soul.remember(
+    await soul.remember(
         b_content,
         type=MemoryType.SEMANTIC,
         importance=7,
@@ -3996,10 +4859,7 @@ async def scenario_forgetting() -> ScenarioResult:
     results_first = await soul.recall("deployment", limit=5)
     first_recall_contents = [r.content for r in results_first]
 
-    b_ranks_first = (
-        len(results_first) >= 2
-        and b_content in first_recall_contents[0]
-    )
+    b_ranks_first = len(results_first) >= 2 and b_content in first_recall_contents[0]
 
     # --- Access memory A multiple times using A-specific query ---
     # "Kubernetes container orchestration" only matches A, not B
@@ -4019,10 +4879,7 @@ async def scenario_forgetting() -> ScenarioResult:
     # --- After repeated access, A should now rank higher (frequency > recency) ---
     results_after = await soul.recall("deployment", limit=5)
     after_recall_contents = [r.content for r in results_after]
-    a_ranks_first_after = (
-        len(results_after) >= 2
-        and a_content in after_recall_contents[0]
-    )
+    a_ranks_first_after = len(results_after) >= 2 and a_content in after_recall_contents[0]
 
     result.duration_ms = (time.monotonic() - t0) * 1000
     result.total_memories = count_total_memories(soul)
@@ -4081,23 +4938,37 @@ async def scenario_migration() -> ScenarioResult:
 
     # --- Phase 1: Discord interactions ---
     discord_convos = [
-        ("How do I set up a Discord bot?", "Use discord.py or discord.js. Create an app in the Developer Portal, get a bot token."),
-        ("My bot needs slash commands", "Register commands with app_commands. Use @tree.command decorator in discord.py."),
+        (
+            "How do I set up a Discord bot?",
+            "Use discord.py or discord.js. Create an app in the Developer Portal, get a bot token.",
+        ),
+        (
+            "My bot needs slash commands",
+            "Register commands with app_commands. Use @tree.command decorator in discord.py.",
+        ),
         ("I love gaming on weekends", "Gaming is a great way to unwind! What genres do you enjoy?"),
-        ("I'm building a moderation bot", "Add kick/ban commands, auto-mod for spam, logging for audit trails."),
-        ("I prefer Python for bots", "Python is excellent for Discord bots. discord.py has great async support."),
+        (
+            "I'm building a moderation bot",
+            "Add kick/ban commands, auto-mod for spam, logging for audit trails.",
+        ),
+        (
+            "I prefer Python for bots",
+            "Python is excellent for Discord bots. discord.py has great async support.",
+        ),
     ]
     for user_msg, agent_msg in discord_convos:
-        await soul.observe(Interaction(
-            user_input=user_msg,
-            agent_output=agent_msg,
-            channel="discord",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input=user_msg,
+                agent_output=agent_msg,
+                channel="discord",
+            )
+        )
         result.interactions_run += 1
 
     # Snapshot before migration
     domains_before = get_all_domains(soul)
-    prompt_before = soul.to_system_prompt()
+    soul.to_system_prompt()
     memories_before = count_total_memories(soul)
 
     # --- Export (migrate) ---
@@ -4111,18 +4982,32 @@ async def scenario_migration() -> ScenarioResult:
 
     # --- Phase 2: Slack interactions ---
     slack_convos = [
-        ("How do I build a Slack app?", "Use the Bolt framework. Create an app at api.slack.com, set up event subscriptions."),
-        ("I need workflow automation", "Slack Workflow Builder is great for simple flows. For complex ones, use Bolt with listeners."),
-        ("Can you help with API integration?", "Sure! Use Slack's Web API. Install the slack-sdk package for Python."),
+        (
+            "How do I build a Slack app?",
+            "Use the Bolt framework. Create an app at api.slack.com, set up event subscriptions.",
+        ),
+        (
+            "I need workflow automation",
+            "Slack Workflow Builder is great for simple flows. For complex ones, use Bolt with listeners.",
+        ),
+        (
+            "Can you help with API integration?",
+            "Sure! Use Slack's Web API. Install the slack-sdk package for Python.",
+        ),
         ("I also enjoy cooking", "Cooking is wonderful! What cuisines do you like to explore?"),
-        ("My team uses Slack for everything", "Slack is great for team communication. Channels keep discussions organized."),
+        (
+            "My team uses Slack for everything",
+            "Slack is great for team communication. Channels keep discussions organized.",
+        ),
     ]
     for user_msg, agent_msg in slack_convos:
-        await migrated.observe(Interaction(
-            user_input=user_msg,
-            agent_output=agent_msg,
-            channel="slack",
-        ))
+        await migrated.observe(
+            Interaction(
+                user_input=user_msg,
+                agent_output=agent_msg,
+                channel="slack",
+            )
+        )
         result.interactions_run += 1
 
     # --- Verify migration preserved everything ---
@@ -4132,11 +5017,15 @@ async def scenario_migration() -> ScenarioResult:
 
     # Check discord memories survived (recall discord-related content)
     discord_recall = await migrated.recall("Discord bot slash commands", limit=5)
-    discord_memory_found = any("discord" in r.content.lower() or "bot" in r.content.lower() for r in discord_recall)
+    discord_memory_found = any(
+        "discord" in r.content.lower() or "bot" in r.content.lower() for r in discord_recall
+    )
 
     # Check slack memories exist
     slack_recall = await migrated.recall("Slack app workflow", limit=5)
-    slack_memory_found = any("slack" in r.content.lower() or "workflow" in r.content.lower() for r in slack_recall)
+    slack_memory_found = any(
+        "slack" in r.content.lower() or "workflow" in r.content.lower() for r in slack_recall
+    )
 
     # Self-model should be preserved (domains from discord still present)
     domains_preserved = len(domains_after) >= len(domains_before)
@@ -4187,7 +5076,7 @@ async def scenario_migration() -> ScenarioResult:
         Check(
             "System prompt is platform-agnostic",
             platform_agnostic,
-            f"Prompt does not mention discord or slack",
+            "Prompt does not mention discord or slack",
         ),
         Check(
             "Persona survived migration",
@@ -4245,12 +5134,14 @@ SCENARIOS = {
 
 async def run_all(scenario_filter: str | None = None, verbose: bool = False) -> bool:
     """Run simulation scenarios and report results."""
-    console.print(Panel(
-        "[bold]Soul Protocol Simulation[/bold]\n"
-        "Testing vision alignment with realistic scenarios\n"
-        "Memory counting: direct store access (not recall)",
-        border_style="blue",
-    ))
+    console.print(
+        Panel(
+            "[bold]Soul Protocol Simulation[/bold]\n"
+            "Testing vision alignment with realistic scenarios\n"
+            "Memory counting: direct store access (not recall)",
+            border_style="blue",
+        )
+    )
 
     results: list[ScenarioResult] = []
 
@@ -4284,17 +5175,20 @@ def main():
 
     parser = argparse.ArgumentParser(description="Soul Protocol end-to-end simulation")
     parser.add_argument(
-        "--scenario", "-s",
+        "--scenario",
+        "-s",
         choices=list(SCENARIOS.keys()),
         help="Run a single scenario",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Verbose output",
     )
     parser.add_argument(
-        "--list", "-l",
+        "--list",
+        "-l",
         action="store_true",
         help="List available scenarios",
     )

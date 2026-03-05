@@ -9,7 +9,6 @@ from soul_protocol.memory.search import relevance_score, tokenize
 from soul_protocol.memory.sentiment import detect_sentiment
 from soul_protocol.types import Interaction, SignificanceScore
 
-
 # ---------------------------------------------------------------------------
 # Default threshold — interactions scoring below this skip episodic storage
 # ---------------------------------------------------------------------------
@@ -42,10 +41,7 @@ def compute_significance(
 
     # --- 1. Novelty: inverse of similarity to recent interactions ---
     if recent_contents:
-        similarities = [
-            relevance_score(combined_text, recent)
-            for recent in recent_contents
-        ]
+        similarities = [relevance_score(combined_text, recent) for recent in recent_contents]
         avg_similarity = sum(similarities) / len(similarities)
         novelty = 1.0 - avg_similarity
     else:
@@ -90,11 +86,7 @@ def overall_significance(score: SignificanceScore) -> float:
     Returns:
         A single float (0.0 to 1.0) representing overall significance.
     """
-    return (
-        0.4 * score.novelty
-        + 0.35 * score.emotional_intensity
-        + 0.25 * score.goal_relevance
-    )
+    return 0.4 * score.novelty + 0.35 * score.emotional_intensity + 0.25 * score.goal_relevance
 
 
 def is_significant(

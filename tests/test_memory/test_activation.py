@@ -8,8 +8,6 @@ from __future__ import annotations
 import math
 from datetime import datetime, timedelta
 
-import pytest
-
 from soul_protocol.memory.activation import (
     base_level_activation,
     compute_activation,
@@ -18,10 +16,10 @@ from soul_protocol.memory.activation import (
 )
 from soul_protocol.types import MemoryEntry, MemoryType, SomaticMarker
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _entry(
     content: str,
@@ -119,7 +117,7 @@ def test_base_level_activation_formula_correctness():
     ts = [NOW - timedelta(seconds=100)] * 2
 
     # Expected: ln(2 * 100^-0.5) = ln(2 / 10) = ln(0.2)
-    expected = math.log(2 * (100 ** -0.5))
+    expected = math.log(2 * (100**-0.5))
     result = base_level_activation(ts, now=NOW)
 
     assert abs(result - expected) < 1e-9
@@ -238,7 +236,7 @@ def test_compute_activation_with_access_timestamps_uses_actr():
     # Compute expected: W_BASE * base + W_SPREAD * spread + W_EMOTION * emo
     # Manually compute base_level_activation
     seconds_ago = (NOW - ts[0]).total_seconds()
-    expected_base = math.log(seconds_ago ** -0.5)
+    math.log(seconds_ago**-0.5)
 
     result = compute_activation(entry, query="memory access history", now=NOW, noise=False)
     # Must be a float and plausibly in a reasonable range — not NaN
@@ -247,7 +245,9 @@ def test_compute_activation_with_access_timestamps_uses_actr():
     # Base component alone should be W_BASE * expected_base
     # Verify it's higher than the importance fallback for the same entry
     entry_no_ts = _entry("memory with access history", importance=5)
-    fallback_result = compute_activation(entry_no_ts, query="memory access history", now=NOW, noise=False)
+    fallback_result = compute_activation(
+        entry_no_ts, query="memory access history", now=NOW, noise=False
+    )
     # These may differ — just check the ACT-R path ran without error
     assert result != fallback_result or True  # structural check; values may coincide
 
@@ -284,6 +284,8 @@ def test_compute_activation_with_somatic_marker_scores_higher():
     entry_emotional = _entry("exciting event", access_timestamps=ts, somatic=marker)
 
     plain_score = compute_activation(entry_plain, query="exciting event", now=NOW, noise=False)
-    emotional_score = compute_activation(entry_emotional, query="exciting event", now=NOW, noise=False)
+    emotional_score = compute_activation(
+        entry_emotional, query="exciting event", now=NOW, noise=False
+    )
 
     assert emotional_score > plain_score

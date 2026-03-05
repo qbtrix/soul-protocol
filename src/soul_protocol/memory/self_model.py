@@ -13,42 +13,188 @@ from __future__ import annotations
 from soul_protocol.memory.search import tokenize
 from soul_protocol.types import Interaction, MemoryEntry, SelfImage
 
-
 # ---------------------------------------------------------------------------
 # Stop words: common English words that don't contribute to domain identity.
 # tokenize() already strips words < 3 chars, so we only need 3+ letter words.
 # ---------------------------------------------------------------------------
 
-STOP_WORDS: frozenset[str] = frozenset({
-    # Articles & determiners
-    "the", "this", "that", "these", "those", "which", "what",
-    # Pronouns
-    "you", "your", "yours", "yourself", "she", "her", "hers", "him", "his",
-    "they", "them", "their", "theirs", "its", "who", "whom", "whose",
-    # Common verbs & auxiliaries
-    "are", "was", "were", "been", "being", "have", "has", "had", "having",
-    "does", "did", "doing", "will", "would", "shall", "should", "may",
-    "might", "must", "can", "could", "need",
-    # Prepositions & conjunctions
-    "for", "and", "nor", "but", "yet", "not", "with", "from", "into",
-    "about", "than", "then", "also", "just", "more", "most", "very",
-    "too", "some", "any", "all", "each", "every", "both", "few", "many",
-    "much", "own", "other", "another", "same", "such", "only",
-    "over", "under", "between", "through", "after", "before", "during",
-    "above", "below", "out", "off", "down", "once", "here", "there",
-    "when", "where", "why", "how", "while", "until",
-    # Conversational filler
-    "help", "please", "thanks", "thank", "sure", "okay", "yes", "yeah",
-    "hey", "hello", "well", "like", "really", "think", "know",
-    "want", "get", "got", "let", "see", "say", "said", "thing", "things",
-    "way", "make", "made", "use", "used", "try", "give", "take",
-    "come", "look", "going", "now", "new", "one", "two",
-    # Generic action/question words that don't identify a domain
-    "start", "first", "best", "good", "great", "better", "right",
-    "whats", "dont", "doesnt", "cant", "wont", "isnt", "arent",
-    "min", "per", "always", "never", "keep", "put", "set",
-    "asked", "user", "read", "tell", "keep", "show", "run",
-})
+STOP_WORDS: frozenset[str] = frozenset(
+    {
+        # Articles & determiners
+        "the",
+        "this",
+        "that",
+        "these",
+        "those",
+        "which",
+        "what",
+        # Pronouns
+        "you",
+        "your",
+        "yours",
+        "yourself",
+        "she",
+        "her",
+        "hers",
+        "him",
+        "his",
+        "they",
+        "them",
+        "their",
+        "theirs",
+        "its",
+        "who",
+        "whom",
+        "whose",
+        # Common verbs & auxiliaries
+        "are",
+        "was",
+        "were",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "having",
+        "does",
+        "did",
+        "doing",
+        "will",
+        "would",
+        "shall",
+        "should",
+        "may",
+        "might",
+        "must",
+        "can",
+        "could",
+        "need",
+        # Prepositions & conjunctions
+        "for",
+        "and",
+        "nor",
+        "but",
+        "yet",
+        "not",
+        "with",
+        "from",
+        "into",
+        "about",
+        "than",
+        "then",
+        "also",
+        "just",
+        "more",
+        "most",
+        "very",
+        "too",
+        "some",
+        "any",
+        "all",
+        "each",
+        "every",
+        "both",
+        "few",
+        "many",
+        "much",
+        "own",
+        "other",
+        "another",
+        "same",
+        "such",
+        "only",
+        "over",
+        "under",
+        "between",
+        "through",
+        "after",
+        "before",
+        "during",
+        "above",
+        "below",
+        "out",
+        "off",
+        "down",
+        "once",
+        "here",
+        "there",
+        "when",
+        "where",
+        "why",
+        "how",
+        "while",
+        "until",
+        # Conversational filler
+        "help",
+        "please",
+        "thanks",
+        "thank",
+        "sure",
+        "okay",
+        "yes",
+        "yeah",
+        "hey",
+        "hello",
+        "well",
+        "like",
+        "really",
+        "think",
+        "know",
+        "want",
+        "get",
+        "got",
+        "let",
+        "see",
+        "say",
+        "said",
+        "thing",
+        "things",
+        "way",
+        "make",
+        "made",
+        "use",
+        "used",
+        "try",
+        "give",
+        "take",
+        "come",
+        "look",
+        "going",
+        "now",
+        "new",
+        "one",
+        "two",
+        # Generic action/question words that don't identify a domain
+        "start",
+        "first",
+        "best",
+        "good",
+        "great",
+        "better",
+        "right",
+        "whats",
+        "dont",
+        "doesnt",
+        "cant",
+        "wont",
+        "isnt",
+        "arent",
+        "min",
+        "per",
+        "always",
+        "never",
+        "keep",
+        "put",
+        "set",
+        "asked",
+        "user",
+        "read",
+        "tell",
+        "keep",
+        "show",
+        "run",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -60,35 +206,109 @@ STOP_WORDS: frozenset[str] = frozenset({
 
 DEFAULT_SEED_DOMAINS: dict[str, list[str]] = {
     "technical_helper": [
-        "python", "javascript", "code", "programming", "debug", "error",
-        "api", "database", "server", "deploy", "git", "docker",
-        "algorithm", "function", "class", "variable", "testing",
-        "fastapi", "django", "react", "typescript", "rust",
+        "python",
+        "javascript",
+        "code",
+        "programming",
+        "debug",
+        "error",
+        "api",
+        "database",
+        "server",
+        "deploy",
+        "git",
+        "docker",
+        "algorithm",
+        "function",
+        "class",
+        "variable",
+        "testing",
+        "fastapi",
+        "django",
+        "react",
+        "typescript",
+        "rust",
     ],
     "creative_writer": [
-        "write", "story", "poem", "creative", "fiction", "narrative",
-        "character", "plot", "blog", "essay", "article", "content",
-        "copywriting", "draft", "edit", "prose",
+        "write",
+        "story",
+        "poem",
+        "creative",
+        "fiction",
+        "narrative",
+        "character",
+        "plot",
+        "blog",
+        "essay",
+        "article",
+        "content",
+        "copywriting",
+        "draft",
+        "edit",
+        "prose",
     ],
     "knowledge_guide": [
-        "explain", "teach", "learn", "understand", "concept", "theory",
-        "research", "study", "science", "history", "philosophy",
-        "education", "tutorial", "guide", "documentation",
+        "explain",
+        "teach",
+        "learn",
+        "understand",
+        "concept",
+        "theory",
+        "research",
+        "study",
+        "science",
+        "history",
+        "philosophy",
+        "education",
+        "tutorial",
+        "guide",
+        "documentation",
     ],
     "problem_solver": [
-        "solve", "fix", "issue", "problem", "solution",
-        "troubleshoot", "diagnose", "analyze", "investigate",
-        "debug", "resolve", "broken",
+        "solve",
+        "fix",
+        "issue",
+        "problem",
+        "solution",
+        "troubleshoot",
+        "diagnose",
+        "analyze",
+        "investigate",
+        "debug",
+        "resolve",
+        "broken",
     ],
     "creative_collaborator": [
-        "brainstorm", "idea", "design", "prototype", "sketch",
-        "innovation", "experiment", "iterate", "collaborate",
-        "vision", "concept", "create",
+        "brainstorm",
+        "idea",
+        "design",
+        "prototype",
+        "sketch",
+        "innovation",
+        "experiment",
+        "iterate",
+        "collaborate",
+        "vision",
+        "concept",
+        "create",
     ],
     "emotional_companion": [
-        "feel", "emotion", "support", "listen", "care", "empathy",
-        "comfort", "friend", "companion", "talk", "vent", "advice",
-        "stress", "anxious", "happy", "sad",
+        "feel",
+        "emotion",
+        "support",
+        "listen",
+        "care",
+        "empathy",
+        "comfort",
+        "friend",
+        "companion",
+        "talk",
+        "vent",
+        "advice",
+        "stress",
+        "anxious",
+        "happy",
+        "sad",
     ],
 }
 
@@ -195,7 +415,9 @@ class SelfModelManager:
                 existing = self._relationship_notes.get("user", "")
                 if "Works at" not in existing:
                     self._relationship_notes["user"] = (
-                        f"{existing}; Works at: {workplace}" if existing else f"Works at: {workplace}"
+                        f"{existing}; Works at: {workplace}"
+                        if existing
+                        else f"Works at: {workplace}"
                     )
 
     @staticmethod
@@ -263,14 +485,10 @@ class SelfModelManager:
             Dict with self_images, relationship_notes, and domain_keywords.
         """
         return {
-            "self_images": {
-                domain: img.model_dump()
-                for domain, img in self._self_images.items()
-            },
+            "self_images": {domain: img.model_dump() for domain, img in self._self_images.items()},
             "relationship_notes": dict(self._relationship_notes),
             "domain_keywords": {
-                domain: sorted(keywords)
-                for domain, keywords in self._domain_keywords.items()
+                domain: sorted(keywords) for domain, keywords in self._domain_keywords.items()
             },
         }
 
@@ -313,8 +531,10 @@ class SelfModelManager:
         lines = ["## Self-Understanding", ""]
         for img in active:
             confidence_label = (
-                "high" if img.confidence >= 0.7
-                else "growing" if img.confidence >= 0.4
+                "high"
+                if img.confidence >= 0.7
+                else "growing"
+                if img.confidence >= 0.4
                 else "emerging"
             )
             domain_display = img.domain.replace("_", " ")

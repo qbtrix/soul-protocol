@@ -5,22 +5,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 
 from soul_protocol.memory.manager import MemoryManager
 from soul_protocol.soul import Soul
 from soul_protocol.types import (
     CoreMemory,
-    GeneralEvent,
     Interaction,
     MemoryEntry,
     MemorySettings,
     MemoryType,
     ReflectionResult,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -54,10 +50,12 @@ def _make_reflection(
 
 class TestConsolidateSummaries:
     async def test_summaries_become_semantic_memories(self, manager):
-        result = _make_reflection(summaries=[
-            {"summary": "User is learning Rust programming", "importance": 7},
-            {"summary": "User prefers typed languages", "importance": 6},
-        ])
+        result = _make_reflection(
+            summaries=[
+                {"summary": "User is learning Rust programming", "importance": 7},
+                {"summary": "User prefers typed languages", "importance": 6},
+            ]
+        )
         applied = await manager.consolidate(result)
         assert applied["summaries"] == 2
 
@@ -72,10 +70,12 @@ class TestConsolidateSummaries:
         assert applied["summaries"] == 0
 
     async def test_importance_clamped(self, manager):
-        result = _make_reflection(summaries=[
-            {"summary": "High importance fact", "importance": 999},
-            {"summary": "Low importance fact", "importance": -5},
-        ])
+        result = _make_reflection(
+            summaries=[
+                {"summary": "High importance fact", "importance": 999},
+                {"summary": "Low importance fact", "importance": -5},
+            ]
+        )
         await manager.consolidate(result)
         facts = manager._semantic.facts()
         importances = {f.content: f.importance for f in facts}
@@ -114,10 +114,12 @@ class TestConsolidateGeneralEvents:
 
     async def test_episodes_linked_to_matching_theme(self, manager):
         # Add an episodic memory about python
-        await manager.add_episodic(Interaction(
-            user_input="I love writing Python scripts for automation",
-            agent_output="Python is great for automation!",
-        ))
+        await manager.add_episodic(
+            Interaction(
+                user_input="I love writing Python scripts for automation",
+                agent_output="Python is great for automation!",
+            )
+        )
 
         result = _make_reflection(themes=["python automation"])
         await manager.consolidate(result)
@@ -126,10 +128,12 @@ class TestConsolidateGeneralEvents:
         assert len(event.episode_ids) >= 1
 
     async def test_no_link_without_match(self, manager):
-        await manager.add_episodic(Interaction(
-            user_input="The weather is nice today",
-            agent_output="Indeed it is!",
-        ))
+        await manager.add_episodic(
+            Interaction(
+                user_input="The weather is nice today",
+                agent_output="Indeed it is!",
+            )
+        )
 
         result = _make_reflection(themes=["quantum computing research"])
         await manager.consolidate(result)
@@ -138,20 +142,19 @@ class TestConsolidateGeneralEvents:
         assert len(event.episode_ids) == 0
 
     async def test_general_event_id_set_on_episode(self, manager):
-        await manager.add_episodic(Interaction(
-            user_input="Help me debug this Python error in my FastAPI app",
-            agent_output="Let me look at the traceback.",
-        ))
+        await manager.add_episodic(
+            Interaction(
+                user_input="Help me debug this Python error in my FastAPI app",
+                agent_output="Let me look at the traceback.",
+            )
+        )
 
         result = _make_reflection(themes=["python debugging"])
         await manager.consolidate(result)
 
         event = list(manager._general_events.values())[0]
         if event.episode_ids:
-            episode = next(
-                e for e in manager._episodic.entries()
-                if e.id == event.episode_ids[0]
-            )
+            episode = next(e for e in manager._episodic.entries() if e.id == event.episode_ids[0])
             assert episode.general_event_id == event.id
 
     async def test_empty_theme_skipped(self, manager):
@@ -259,7 +262,9 @@ class TestFactConflicts:
         await manager.add(old)
 
         # Simulate an observe that extracts "User lives in SF"
-        new_facts = [MemoryEntry(type=MemoryType.SEMANTIC, content="User lives in SF", importance=7)]
+        new_facts = [
+            MemoryEntry(type=MemoryType.SEMANTIC, content="User lives in SF", importance=7)
+        ]
         await manager._resolve_fact_conflicts(new_facts)
 
         # Old fact should be marked superseded
@@ -334,26 +339,36 @@ class TestFactConflicts:
     async def test_conflict_via_observe(self, manager):
         """Full pipeline: observe() detects and resolves conflicts."""
         # First interaction sets a fact
-        await manager.observe(Interaction(
-            user_input="I live in New York",
-            agent_output="New York is a great city!",
-        ))
+        await manager.observe(
+            Interaction(
+                user_input="I live in New York",
+                agent_output="New York is a great city!",
+            )
+        )
 
         facts_before = manager._semantic.facts()
-        ny_facts = [f for f in facts_before if "New York" in f.content or "new york" in f.content.lower()]
+        ny_facts = [
+            f for f in facts_before if "New York" in f.content or "new york" in f.content.lower()
+        ]
 
         # Second interaction updates the fact
-        await manager.observe(Interaction(
-            user_input="I live in San Francisco now",
-            agent_output="SF is wonderful!",
-        ))
+        await manager.observe(
+            Interaction(
+                user_input="I live in San Francisco now",
+                agent_output="SF is wonderful!",
+            )
+        )
 
         active_facts = manager._semantic.facts()
         all_facts = manager._semantic.facts(include_superseded=True)
 
         # Should have more total facts than active (some superseded)
         # At minimum, the new location fact should be active
-        sf_active = [f for f in active_facts if "San Francisco" in f.content or "san francisco" in f.content.lower()]
+        sf_active = [
+            f
+            for f in active_facts
+            if "San Francisco" in f.content or "san francisco" in f.content.lower()
+        ]
         if ny_facts and sf_active:
             # If both were extracted, old should be superseded
             assert len(all_facts) > len(active_facts)
@@ -453,10 +468,12 @@ class TestGeneralEventPersistence:
         soul = await Soul.birth("Aria")
 
         # Build up some episodes
-        await soul.observe(Interaction(
-            user_input="I love Python programming and building tools",
-            agent_output="Python is wonderful for tool building!",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input="I love Python programming and building tools",
+                agent_output="Python is wonderful for tool building!",
+            )
+        )
 
         # Consolidate to create general events
         result = _make_reflection(themes=["python tools"])

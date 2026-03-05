@@ -8,15 +8,12 @@
 
 from __future__ import annotations
 
-import pytest
-
 from soul_protocol.memory.search import (
-    _expand_synonyms,
     _SYNONYM_MAP,
+    _expand_synonyms,
     relevance_score,
     tokenize,
 )
-
 
 # ===========================================================================
 # Bug #11 — Tokenizer should split on /, _, -, .
@@ -172,8 +169,7 @@ class TestSynonymExpansion:
             for peer in group:
                 assert peer in _SYNONYM_MAP, f"Peer '{peer}' missing from map"
                 assert _SYNONYM_MAP[peer] == group, (
-                    f"Asymmetric synonym groups: "
-                    f"_SYNONYM_MAP['{term}'] != _SYNONYM_MAP['{peer}']"
+                    f"Asymmetric synonym groups: _SYNONYM_MAP['{term}'] != _SYNONYM_MAP['{peer}']"
                 )
 
 
@@ -202,8 +198,7 @@ class TestRelevanceScoreWithImprovements:
             "Project uses FastAPI framework with PostgreSQL backend",
         )
         assert score > 0.0, (
-            "Expected 'database' to partially match content with 'PostgreSQL' "
-            "via synonym expansion"
+            "Expected 'database' to partially match content with 'PostgreSQL' via synonym expansion"
         )
 
     def test_synonym_db_matches_database(self):

@@ -24,16 +24,16 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich import box
 
 # Ensure the package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from soul_protocol.soul import Soul
-from soul_protocol.types import Interaction, MemoryType, Mood
+from soul_protocol.types import Interaction, Mood
 
 console = Console()
 
@@ -44,6 +44,7 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 # Shared check result types
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CheckResult:
@@ -78,50 +79,91 @@ class ScenarioResult:
 # Conversation generators (realistic, varied interactions)
 # ---------------------------------------------------------------------------
 
+
 def _coding_questions(n: int) -> list[tuple[str, str]]:
     """Generate n realistic developer Q&A interactions."""
     questions = [
-        ("How do I use list comprehensions in Python?",
-         "List comprehensions follow the pattern: [expr for item in iterable]. "
-         "For example: [x**2 for x in range(10)]."),
-        ("What's the difference between a tuple and a list?",
-         "Tuples are immutable, lists are mutable. Tuples use () and lists use []."),
-        ("I keep getting a KeyError in my dictionary lookup",
-         "Use dict.get(key, default) to avoid KeyError, or check with 'in' first."),
-        ("How do I handle exceptions properly in Python?",
-         "Use try/except blocks. Catch specific exceptions, not bare 'except:'."),
-        ("Can you explain async/await to me?",
-         "async defines a coroutine, await suspends it until the result is ready."),
-        ("I'm trying to parse JSON from an API response",
-         "Use response.json() with httpx/requests, or json.loads() for raw strings."),
-        ("What's the best way to manage Python dependencies?",
-         "Use uv or pip with a pyproject.toml. Pin versions for reproducibility."),
-        ("How do I write unit tests with pytest?",
-         "Create test_*.py files with test_ functions. Use fixtures for setup."),
-        ("I'm getting import errors in my package",
-         "Check your __init__.py, sys.path, and that the package is installed."),
-        ("How do I profile slow Python code?",
-         "Use cProfile, line_profiler, or py-spy for CPU profiling."),
-        ("What's the decorator pattern in Python?",
-         "Decorators wrap functions with @syntax. They modify behavior without changing code."),
-        ("I need help with regular expressions",
-         "Use re.compile() for patterns. re.findall() finds all matches."),
-        ("How do I make HTTP requests in Python?",
-         "Use httpx for async or requests for sync. httpx.AsyncClient for connection pooling."),
-        ("What are dataclasses and when should I use them?",
-         "Dataclasses auto-generate __init__, __repr__, etc. Use for data containers."),
-        ("I'm struggling with type hints",
-         "Start with basic types: str, int, list[str]. Use Optional for nullable."),
-        ("How do I read and write files in Python?",
-         "Use 'with open(path) as f:' for automatic cleanup. Use pathlib.Path for paths."),
-        ("What's the GIL and how does it affect my code?",
-         "The GIL prevents true parallelism in CPU-bound threads. Use multiprocessing instead."),
-        ("I want to build a REST API",
-         "FastAPI is excellent for modern APIs. It has auto-docs and async support."),
-        ("How do I use environment variables?",
-         "Use os.environ or python-dotenv. For pydantic, use BaseSettings with env prefix."),
-        ("I'm learning about design patterns",
-         "Start with Factory, Singleton, and Observer. They solve common OOP problems."),
+        (
+            "How do I use list comprehensions in Python?",
+            "List comprehensions follow the pattern: [expr for item in iterable]. "
+            "For example: [x**2 for x in range(10)].",
+        ),
+        (
+            "What's the difference between a tuple and a list?",
+            "Tuples are immutable, lists are mutable. Tuples use () and lists use [].",
+        ),
+        (
+            "I keep getting a KeyError in my dictionary lookup",
+            "Use dict.get(key, default) to avoid KeyError, or check with 'in' first.",
+        ),
+        (
+            "How do I handle exceptions properly in Python?",
+            "Use try/except blocks. Catch specific exceptions, not bare 'except:'.",
+        ),
+        (
+            "Can you explain async/await to me?",
+            "async defines a coroutine, await suspends it until the result is ready.",
+        ),
+        (
+            "I'm trying to parse JSON from an API response",
+            "Use response.json() with httpx/requests, or json.loads() for raw strings.",
+        ),
+        (
+            "What's the best way to manage Python dependencies?",
+            "Use uv or pip with a pyproject.toml. Pin versions for reproducibility.",
+        ),
+        (
+            "How do I write unit tests with pytest?",
+            "Create test_*.py files with test_ functions. Use fixtures for setup.",
+        ),
+        (
+            "I'm getting import errors in my package",
+            "Check your __init__.py, sys.path, and that the package is installed.",
+        ),
+        (
+            "How do I profile slow Python code?",
+            "Use cProfile, line_profiler, or py-spy for CPU profiling.",
+        ),
+        (
+            "What's the decorator pattern in Python?",
+            "Decorators wrap functions with @syntax. They modify behavior without changing code.",
+        ),
+        (
+            "I need help with regular expressions",
+            "Use re.compile() for patterns. re.findall() finds all matches.",
+        ),
+        (
+            "How do I make HTTP requests in Python?",
+            "Use httpx for async or requests for sync. httpx.AsyncClient for connection pooling.",
+        ),
+        (
+            "What are dataclasses and when should I use them?",
+            "Dataclasses auto-generate __init__, __repr__, etc. Use for data containers.",
+        ),
+        (
+            "I'm struggling with type hints",
+            "Start with basic types: str, int, list[str]. Use Optional for nullable.",
+        ),
+        (
+            "How do I read and write files in Python?",
+            "Use 'with open(path) as f:' for automatic cleanup. Use pathlib.Path for paths.",
+        ),
+        (
+            "What's the GIL and how does it affect my code?",
+            "The GIL prevents true parallelism in CPU-bound threads. Use multiprocessing instead.",
+        ),
+        (
+            "I want to build a REST API",
+            "FastAPI is excellent for modern APIs. It has auto-docs and async support.",
+        ),
+        (
+            "How do I use environment variables?",
+            "Use os.environ or python-dotenv. For pydantic, use BaseSettings with env prefix.",
+        ),
+        (
+            "I'm learning about design patterns",
+            "Start with Factory, Singleton, and Observer. They solve common OOP problems.",
+        ),
     ]
     return questions[:n]
 
@@ -129,14 +171,29 @@ def _coding_questions(n: int) -> list[tuple[str, str]]:
 def _general_questions(n: int) -> list[tuple[str, str]]:
     """Generate varied general-purpose interactions."""
     pool = [
-        ("What's the weather like?", "I don't have real-time weather data, but I can help with coding!"),
+        (
+            "What's the weather like?",
+            "I don't have real-time weather data, but I can help with coding!",
+        ),
         ("Tell me a joke", "Why do programmers prefer dark mode? Because light attracts bugs!"),
-        ("I'm feeling frustrated with this project", "That's understandable. Let's break the problem into smaller pieces."),
-        ("I prefer tabs over spaces", "Both work! The important thing is consistency within a project."),
+        (
+            "I'm feeling frustrated with this project",
+            "That's understandable. Let's break the problem into smaller pieces.",
+        ),
+        (
+            "I prefer tabs over spaces",
+            "Both work! The important thing is consistency within a project.",
+        ),
         ("My name is Jordan", "Nice to meet you, Jordan! How can I help you today?"),
-        ("I use VS Code as my editor", "VS Code is very popular. The Python extension is excellent."),
+        (
+            "I use VS Code as my editor",
+            "VS Code is very popular. The Python extension is excellent.",
+        ),
         ("I work at a startup", "Startup life! What kind of product are you building?"),
-        ("I'm building a machine learning pipeline", "ML pipelines need good data handling. scikit-learn is a solid starting point."),
+        (
+            "I'm building a machine learning pipeline",
+            "ML pipelines need good data handling. scikit-learn is a solid starting point.",
+        ),
     ]
     return (pool * ((n // len(pool)) + 1))[:n]
 
@@ -144,6 +201,7 @@ def _general_questions(n: int) -> list[tuple[str, str]]:
 # ---------------------------------------------------------------------------
 # Scenario 1: Developer Onboarding
 # ---------------------------------------------------------------------------
+
 
 async def scenario_developer_onboarding() -> ScenarioResult:
     """New developer births a soul, asks coding questions over 20 interactions,
@@ -161,25 +219,37 @@ async def scenario_developer_onboarding() -> ScenarioResult:
 
         interactions = _coding_questions(20)
         for user_msg, agent_msg in interactions:
-            await soul.observe(Interaction(
-                user_input=user_msg, agent_output=agent_msg, channel="dev",
-            ))
+            await soul.observe(
+                Interaction(
+                    user_input=user_msg,
+                    agent_output=agent_msg,
+                    channel="dev",
+                )
+            )
 
         # Check: soul has memories
         mem_count = soul.memory_count
-        result.checks.append(CheckResult(
-            "has_memories", mem_count >= 5,
-            f"memory_count={mem_count}",
-        ))
+        result.checks.append(
+            CheckResult(
+                "has_memories",
+                mem_count >= 5,
+                f"memory_count={mem_count}",
+            )
+        )
 
         # Check: can recall coding topics
         recall_python = await soul.recall("Python list comprehension")
-        found_python = any("list" in r.content.lower() or "comprehension" in r.content.lower()
-                           for r in recall_python)
-        result.checks.append(CheckResult(
-            "recalls_python_topic", found_python,
-            f"found={len(recall_python)} results",
-        ))
+        found_python = any(
+            "list" in r.content.lower() or "comprehension" in r.content.lower()
+            for r in recall_python
+        )
+        result.checks.append(
+            CheckResult(
+                "recalls_python_topic",
+                found_python,
+                f"found={len(recall_python)} results",
+            )
+        )
 
         # Check: self-model has emerged with relevant domains
         # Domain names are emergent — may be "technical_helper" from seed
@@ -187,29 +257,42 @@ async def scenario_developer_onboarding() -> ScenarioResult:
         images = soul.self_model.get_active_self_images(limit=10)
         domains = [img.domain for img in images]
         has_any_domain = len(domains) >= 1
-        result.checks.append(CheckResult(
-            "self_model_emerged", has_any_domain,
-            f"domains={domains}",
-        ))
+        result.checks.append(
+            CheckResult(
+                "self_model_emerged",
+                has_any_domain,
+                f"domains={domains}",
+            )
+        )
 
         # Check: self-model confidence grew
         if images:
             max_confidence = max(img.confidence for img in images)
-            result.checks.append(CheckResult(
-                "self_model_confidence", max_confidence > 0.1,
-                f"max_confidence={max_confidence:.3f}",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "self_model_confidence",
+                    max_confidence > 0.1,
+                    f"max_confidence={max_confidence:.3f}",
+                )
+            )
         else:
-            result.checks.append(CheckResult(
-                "self_model_confidence", False, "no self-images found",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "self_model_confidence",
+                    False,
+                    "no self-images found",
+                )
+            )
 
         # Check: system prompt is substantive
         prompt = soul.to_system_prompt()
-        result.checks.append(CheckResult(
-            "system_prompt_quality", len(prompt) > 100 and "DevHelper" in prompt,
-            f"prompt_length={len(prompt)}",
-        ))
+        result.checks.append(
+            CheckResult(
+                "system_prompt_quality",
+                len(prompt) > 100 and "DevHelper" in prompt,
+                f"prompt_length={len(prompt)}",
+            )
+        )
 
     except Exception as e:
         result.error = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
@@ -222,6 +305,7 @@ async def scenario_developer_onboarding() -> ScenarioResult:
 # ---------------------------------------------------------------------------
 # Scenario 2: Long-running Assistant
 # ---------------------------------------------------------------------------
+
 
 async def scenario_long_running_assistant() -> ScenarioResult:
     """Soul with 100+ interactions, tests memory recall accuracy."""
@@ -241,46 +325,65 @@ async def scenario_long_running_assistant() -> ScenarioResult:
         all_interactions = coding + general
 
         for user_msg, agent_msg in all_interactions:
-            await soul.observe(Interaction(
-                user_input=user_msg, agent_output=agent_msg, channel="long",
-            ))
+            await soul.observe(
+                Interaction(
+                    user_input=user_msg,
+                    agent_output=agent_msg,
+                    channel="long",
+                )
+            )
 
         # Check: memories accumulated
         mem_count = soul.memory_count
-        result.checks.append(CheckResult(
-            "memory_accumulation", mem_count >= 10,
-            f"memory_count={mem_count} after 100 interactions",
-        ))
+        result.checks.append(
+            CheckResult(
+                "memory_accumulation",
+                mem_count >= 10,
+                f"memory_count={mem_count} after 100 interactions",
+            )
+        )
 
         # Check: recall accuracy for specific topics
         results = await soul.recall("async await Python", limit=5)
-        found = any("async" in r.content.lower() or "await" in r.content.lower()
-                     for r in results)
-        result.checks.append(CheckResult(
-            "recall_async_await", found,
-            f"found={len(results)} results",
-        ))
+        found = any("async" in r.content.lower() or "await" in r.content.lower() for r in results)
+        result.checks.append(
+            CheckResult(
+                "recall_async_await",
+                found,
+                f"found={len(results)} results",
+            )
+        )
 
         # Check: user preference recall
         results = await soul.recall("editor VS Code", limit=5)
-        found = any("vs code" in r.content.lower() or "vscode" in r.content.lower()
-                     for r in results)
-        result.checks.append(CheckResult(
-            "recall_preference", found,
-            f"found={len(results)} results",
-        ))
+        found = any(
+            "vs code" in r.content.lower() or "vscode" in r.content.lower() for r in results
+        )
+        result.checks.append(
+            CheckResult(
+                "recall_preference",
+                found,
+                f"found={len(results)} results",
+            )
+        )
 
         # Check: energy has drained significantly
-        result.checks.append(CheckResult(
-            "energy_drained", soul.state.energy < 80.0,
-            f"energy={soul.state.energy:.1f}",
-        ))
+        result.checks.append(
+            CheckResult(
+                "energy_drained",
+                soul.state.energy < 80.0,
+                f"energy={soul.state.energy:.1f}",
+            )
+        )
 
         # Check: social battery drained
-        result.checks.append(CheckResult(
-            "social_battery_drained", soul.state.social_battery < 80.0,
-            f"social_battery={soul.state.social_battery:.1f}",
-        ))
+        result.checks.append(
+            CheckResult(
+                "social_battery_drained",
+                soul.state.social_battery < 80.0,
+                f"social_battery={soul.state.social_battery:.1f}",
+            )
+        )
 
     except Exception as e:
         result.error = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
@@ -293,6 +396,7 @@ async def scenario_long_running_assistant() -> ScenarioResult:
 # ---------------------------------------------------------------------------
 # Scenario 3: Export-Import Roundtrip
 # ---------------------------------------------------------------------------
+
 
 async def scenario_export_import_roundtrip() -> ScenarioResult:
     """Birth -> interact -> export to .soul -> awaken -> verify all memory intact
@@ -317,90 +421,118 @@ async def scenario_export_import_roundtrip() -> ScenarioResult:
 
         # Observe interactions
         interactions = [
-            ("I'm building a data pipeline with Apache Airflow",
-             "Airflow is great for orchestrating complex data workflows."),
-            ("My team uses Terraform for infrastructure",
-             "Infrastructure as code with Terraform keeps environments consistent."),
+            (
+                "I'm building a data pipeline with Apache Airflow",
+                "Airflow is great for orchestrating complex data workflows.",
+            ),
+            (
+                "My team uses Terraform for infrastructure",
+                "Infrastructure as code with Terraform keeps environments consistent.",
+            ),
         ]
         for user_msg, agent_msg in interactions:
-            await soul.observe(Interaction(
-                user_input=user_msg, agent_output=agent_msg,
-            ))
+            await soul.observe(
+                Interaction(
+                    user_input=user_msg,
+                    agent_output=agent_msg,
+                )
+            )
 
         # Edit core memory
         await soul.edit_core_memory(human="User is a data engineer named Sam.")
 
         original_count = soul.memory_count
-        original_core = soul.get_core_memory()
+        soul.get_core_memory()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Export to .soul file
             soul_path = Path(tmpdir) / "roundtrip.soul"
             await soul.export(str(soul_path))
 
-            result.checks.append(CheckResult(
-                "export_created", soul_path.exists(),
-                f"size={soul_path.stat().st_size} bytes",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "export_created",
+                    soul_path.exists(),
+                    f"size={soul_path.stat().st_size} bytes",
+                )
+            )
 
             # Awaken from .soul file
             restored = await Soul.awaken(str(soul_path))
 
             # Identity preserved
-            result.checks.append(CheckResult(
-                "identity_preserved",
-                restored.name == soul.name and restored.did == soul.did,
-                f"name={restored.name}, did_match={restored.did == soul.did}",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "identity_preserved",
+                    restored.name == soul.name and restored.did == soul.did,
+                    f"name={restored.name}, did_match={restored.did == soul.did}",
+                )
+            )
 
             # Memory count preserved
             restored_count = restored.memory_count
-            result.checks.append(CheckResult(
-                "memory_count_match",
-                restored_count >= 1,
-                f"original={original_count}, restored={restored_count}",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "memory_count_match",
+                    restored_count >= 1,
+                    f"original={original_count}, restored={restored_count}",
+                )
+            )
 
             # Core memory preserved
             restored_core = restored.get_core_memory()
-            result.checks.append(CheckResult(
-                "core_memory_preserved",
-                "Sam" in restored_core.human and "Roundtrip" in restored_core.persona,
-                f"persona='{restored_core.persona[:50]}...', human='{restored_core.human[:50]}'",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "core_memory_preserved",
+                    "Sam" in restored_core.human and "Roundtrip" in restored_core.persona,
+                    f"persona='{restored_core.persona[:50]}...', human='{restored_core.human[:50]}'",
+                )
+            )
 
             # Recall specific memories
             color_results = await restored.recall("favorite color blue")
             found_color = any("blue" in r.content.lower() for r in color_results)
-            result.checks.append(CheckResult(
-                "recall_color_preference", found_color,
-                f"found={len(color_results)} results",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "recall_color_preference",
+                    found_color,
+                    f"found={len(color_results)} results",
+                )
+            )
 
             portland_results = await restored.recall("Portland Oregon")
             found_portland = any("portland" in r.content.lower() for r in portland_results)
-            result.checks.append(CheckResult(
-                "recall_location", found_portland,
-                f"found={len(portland_results)} results",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "recall_location",
+                    found_portland,
+                    f"found={len(portland_results)} results",
+                )
+            )
 
             # Export to JSON (serialize config)
             json_path = Path(tmpdir) / "roundtrip.json"
             config = restored.serialize()
             json_path.write_text(config.model_dump_json(indent=2))
-            result.checks.append(CheckResult(
-                "json_export", json_path.exists(),
-                f"size={json_path.stat().st_size} bytes",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "json_export",
+                    json_path.exists(),
+                    f"size={json_path.stat().st_size} bytes",
+                )
+            )
 
             # Verify JSON roundtrip
             from soul_protocol.types import SoulConfig
+
             restored_config = SoulConfig.model_validate_json(json_path.read_text())
-            result.checks.append(CheckResult(
-                "json_config_valid",
-                restored_config.identity.name == "Roundtrip",
-                f"name={restored_config.identity.name}",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "json_config_valid",
+                    restored_config.identity.name == "Roundtrip",
+                    f"name={restored_config.identity.name}",
+                )
+            )
 
             # Second export-import cycle to verify stability
             soul_path2 = Path(tmpdir) / "roundtrip_v2.soul"
@@ -408,10 +540,13 @@ async def scenario_export_import_roundtrip() -> ScenarioResult:
             restored2 = await Soul.awaken(str(soul_path2))
             color2 = await restored2.recall("favorite color blue")
             found2 = any("blue" in r.content.lower() for r in color2)
-            result.checks.append(CheckResult(
-                "double_roundtrip", found2,
-                f"memories survive two export/import cycles",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "double_roundtrip",
+                    found2,
+                    "memories survive two export/import cycles",
+                )
+            )
 
     except Exception as e:
         result.error = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
@@ -424,6 +559,7 @@ async def scenario_export_import_roundtrip() -> ScenarioResult:
 # ---------------------------------------------------------------------------
 # Scenario 4: Multi-format Support
 # ---------------------------------------------------------------------------
+
 
 async def scenario_multi_format_support() -> ScenarioResult:
     """Test YAML config birth, JSON config birth, .soul file, .soul/ directory."""
@@ -449,11 +585,13 @@ persona: I am YamlSoul, born from YAML configuration.
 """
             yaml_path.write_text(yaml_content)
             yaml_soul = await Soul.birth_from_config(yaml_path)
-            result.checks.append(CheckResult(
-                "yaml_birth",
-                yaml_soul.name == "YamlSoul" and "order" in yaml_soul.identity.core_values,
-                f"name={yaml_soul.name}, values={yaml_soul.identity.core_values}",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "yaml_birth",
+                    yaml_soul.name == "YamlSoul" and "order" in yaml_soul.identity.core_values,
+                    f"name={yaml_soul.name}, values={yaml_soul.identity.core_values}",
+                )
+            )
 
             # -- JSON config birth --
             json_path = tmpdir / "soul_config.json"
@@ -466,11 +604,13 @@ persona: I am YamlSoul, born from YAML configuration.
             }
             json_path.write_text(json.dumps(json_content))
             json_soul = await Soul.birth_from_config(json_path)
-            result.checks.append(CheckResult(
-                "json_birth",
-                json_soul.name == "JsonSoul",
-                f"name={json_soul.name}, values={json_soul.identity.core_values}",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "json_birth",
+                    json_soul.name == "JsonSoul",
+                    f"name={json_soul.name}, values={json_soul.identity.core_values}",
+                )
+            )
 
             # -- .soul file format --
             soul_file_path = tmpdir / "test.soul"
@@ -478,11 +618,13 @@ persona: I am YamlSoul, born from YAML configuration.
             await programmatic_soul.remember("Test fact for file format", importance=7)
             await programmatic_soul.export(str(soul_file_path))
             awakened_file = await Soul.awaken(str(soul_file_path))
-            result.checks.append(CheckResult(
-                "soul_file_format",
-                awakened_file.name == "FileSoul",
-                f"name={awakened_file.name}",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "soul_file_format",
+                    awakened_file.name == "FileSoul",
+                    f"name={awakened_file.name}",
+                )
+            )
 
             # -- .soul/ directory format --
             soul_dir = tmpdir / "dir_soul"
@@ -490,28 +632,35 @@ persona: I am YamlSoul, born from YAML configuration.
             await dir_soul.remember("Directory format test fact", importance=8)
             await dir_soul.save_local(soul_dir)
             awakened_dir = await Soul.awaken(str(soul_dir))
-            result.checks.append(CheckResult(
-                "soul_dir_format",
-                awakened_dir.name == "DirSoul",
-                f"name={awakened_dir.name}",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "soul_dir_format",
+                    awakened_dir.name == "DirSoul",
+                    f"name={awakened_dir.name}",
+                )
+            )
 
             # Verify directory contains expected files
             has_soul_json = (soul_dir / "soul.json").exists()
             has_memory_dir = (soul_dir / "memory").exists()
-            result.checks.append(CheckResult(
-                "dir_structure",
-                has_soul_json and has_memory_dir,
-                f"soul.json={has_soul_json}, memory/={has_memory_dir}",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "dir_structure",
+                    has_soul_json and has_memory_dir,
+                    f"soul.json={has_soul_json}, memory/={has_memory_dir}",
+                )
+            )
 
             # -- Verify cross-format memory --
             dir_recall = await awakened_dir.recall("directory format test")
             found_dir = any("directory" in r.content.lower() for r in dir_recall)
-            result.checks.append(CheckResult(
-                "dir_memory_recall", found_dir,
-                f"found={len(dir_recall)} results",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "dir_memory_recall",
+                    found_dir,
+                    f"found={len(dir_recall)} results",
+                )
+            )
 
     except Exception as e:
         result.error = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
@@ -524,6 +673,7 @@ persona: I am YamlSoul, born from YAML configuration.
 # ---------------------------------------------------------------------------
 # Scenario 5: Personality Expression Divergence
 # ---------------------------------------------------------------------------
+
 
 async def scenario_personality_expression() -> ScenarioResult:
     """Birth souls with different OCEAN profiles, observe same interactions,
@@ -548,67 +698,94 @@ async def scenario_personality_expression() -> ScenarioResult:
 
         # Feed identical interactions to both
         interactions = [
-            ("Help me brainstorm ideas for a new app",
-             "Let's explore some creative possibilities!"),
-            ("I need to organize my project structure",
-             "Good structure is essential for maintainability."),
-            ("What do you think about using microservices?",
-             "Microservices offer flexibility but add complexity."),
-            ("I'm learning Rust for systems programming",
-             "Rust is great for performance-critical applications."),
-            ("How should I design my database schema?",
-             "Start with your data relationships and normalize appropriately."),
+            (
+                "Help me brainstorm ideas for a new app",
+                "Let's explore some creative possibilities!",
+            ),
+            (
+                "I need to organize my project structure",
+                "Good structure is essential for maintainability.",
+            ),
+            (
+                "What do you think about using microservices?",
+                "Microservices offer flexibility but add complexity.",
+            ),
+            (
+                "I'm learning Rust for systems programming",
+                "Rust is great for performance-critical applications.",
+            ),
+            (
+                "How should I design my database schema?",
+                "Start with your data relationships and normalize appropriately.",
+            ),
         ]
 
         for user_msg, agent_msg in interactions:
-            await creative_soul.observe(Interaction(
-                user_input=user_msg, agent_output=agent_msg,
-            ))
-            await methodical_soul.observe(Interaction(
-                user_input=user_msg, agent_output=agent_msg,
-            ))
+            await creative_soul.observe(
+                Interaction(
+                    user_input=user_msg,
+                    agent_output=agent_msg,
+                )
+            )
+            await methodical_soul.observe(
+                Interaction(
+                    user_input=user_msg,
+                    agent_output=agent_msg,
+                )
+            )
 
         # Check: both have different personality DNA
         creative_personality = creative_soul.dna.personality
         methodical_personality = methodical_soul.dna.personality
-        result.checks.append(CheckResult(
-            "different_openness",
-            creative_personality.openness > methodical_personality.openness,
-            f"creative={creative_personality.openness}, methodical={methodical_personality.openness}",
-        ))
-        result.checks.append(CheckResult(
-            "different_conscientiousness",
-            methodical_personality.conscientiousness > creative_personality.conscientiousness,
-            f"creative={creative_personality.conscientiousness}, "
-            f"methodical={methodical_personality.conscientiousness}",
-        ))
+        result.checks.append(
+            CheckResult(
+                "different_openness",
+                creative_personality.openness > methodical_personality.openness,
+                f"creative={creative_personality.openness}, methodical={methodical_personality.openness}",
+            )
+        )
+        result.checks.append(
+            CheckResult(
+                "different_conscientiousness",
+                methodical_personality.conscientiousness > creative_personality.conscientiousness,
+                f"creative={creative_personality.conscientiousness}, "
+                f"methodical={methodical_personality.conscientiousness}",
+            )
+        )
 
         # Check: system prompts differ
         creative_prompt = creative_soul.to_system_prompt()
         methodical_prompt = methodical_soul.to_system_prompt()
-        result.checks.append(CheckResult(
-            "prompts_differ",
-            creative_prompt != methodical_prompt,
-            f"creative_len={len(creative_prompt)}, methodical_len={len(methodical_prompt)}",
-        ))
+        result.checks.append(
+            CheckResult(
+                "prompts_differ",
+                creative_prompt != methodical_prompt,
+                f"creative_len={len(creative_prompt)}, methodical_len={len(methodical_prompt)}",
+            )
+        )
 
         # Check: self-models may diverge (same inputs can lead to different domains)
         creative_images = creative_soul.self_model.get_active_self_images(limit=10)
         methodical_images = methodical_soul.self_model.get_active_self_images(limit=10)
         creative_domains = set(img.domain for img in creative_images)
         methodical_domains = set(img.domain for img in methodical_images)
-        result.checks.append(CheckResult(
-            "self_model_exists",
-            len(creative_images) >= 1 or len(methodical_images) >= 1,
-            f"creative_domains={creative_domains}, methodical_domains={methodical_domains}",
-        ))
+        result.checks.append(
+            CheckResult(
+                "self_model_exists",
+                len(creative_images) >= 1 or len(methodical_images) >= 1,
+                f"creative_domains={creative_domains}, methodical_domains={methodical_domains}",
+            )
+        )
 
         # Check: DNA values are preserved through the process
-        result.checks.append(CheckResult(
-            "dna_preserved",
-            creative_personality.openness == 0.95 and methodical_personality.conscientiousness == 0.95,
-            "OCEAN traits unchanged after interactions",
-        ))
+        result.checks.append(
+            CheckResult(
+                "dna_preserved",
+                creative_personality.openness == 0.95
+                and methodical_personality.conscientiousness == 0.95,
+                "OCEAN traits unchanged after interactions",
+            )
+        )
 
     except Exception as e:
         result.error = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
@@ -621,6 +798,7 @@ async def scenario_personality_expression() -> ScenarioResult:
 # ---------------------------------------------------------------------------
 # Scenario 6: Recovery and Resilience
 # ---------------------------------------------------------------------------
+
 
 async def scenario_recovery_resilience() -> ScenarioResult:
     """Corrupt file handling, missing fields in config, backward compat."""
@@ -638,35 +816,60 @@ async def scenario_recovery_resilience() -> ScenarioResult:
             corrupt_path.write_bytes(b"this is not a zip file")
             try:
                 await Soul.awaken(str(corrupt_path))
-                result.checks.append(CheckResult(
-                    "corrupt_file_raises", False, "Should have raised an exception",
-                ))
+                result.checks.append(
+                    CheckResult(
+                        "corrupt_file_raises",
+                        False,
+                        "Should have raised an exception",
+                    )
+                )
             except SoulCorruptError:
-                result.checks.append(CheckResult(
-                    "corrupt_file_raises", True, "SoulCorruptError raised correctly",
-                ))
+                result.checks.append(
+                    CheckResult(
+                        "corrupt_file_raises",
+                        True,
+                        "SoulCorruptError raised correctly",
+                    )
+                )
             except Exception as e:
-                result.checks.append(CheckResult(
-                    "corrupt_file_raises", False, f"Wrong exception: {type(e).__name__}: {e}",
-                ))
+                result.checks.append(
+                    CheckResult(
+                        "corrupt_file_raises",
+                        False,
+                        f"Wrong exception: {type(e).__name__}: {e}",
+                    )
+                )
 
             # -- Non-existent file --
             try:
                 await Soul.awaken(str(tmpdir / "nonexistent.soul"))
-                result.checks.append(CheckResult(
-                    "missing_file_raises", False, "Should have raised an exception",
-                ))
+                result.checks.append(
+                    CheckResult(
+                        "missing_file_raises",
+                        False,
+                        "Should have raised an exception",
+                    )
+                )
             except SoulFileNotFoundError:
-                result.checks.append(CheckResult(
-                    "missing_file_raises", True, "SoulFileNotFoundError raised correctly",
-                ))
+                result.checks.append(
+                    CheckResult(
+                        "missing_file_raises",
+                        True,
+                        "SoulFileNotFoundError raised correctly",
+                    )
+                )
             except Exception as e:
-                result.checks.append(CheckResult(
-                    "missing_file_raises", False, f"Wrong exception: {type(e).__name__}: {e}",
-                ))
+                result.checks.append(
+                    CheckResult(
+                        "missing_file_raises",
+                        False,
+                        f"Wrong exception: {type(e).__name__}: {e}",
+                    )
+                )
 
             # -- Empty zip (valid zip but no soul.json) --
             import io
+
             empty_zip_path = tmpdir / "empty.soul"
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w") as zf:
@@ -674,25 +877,36 @@ async def scenario_recovery_resilience() -> ScenarioResult:
             empty_zip_path.write_bytes(buf.getvalue())
             try:
                 await Soul.awaken(str(empty_zip_path))
-                result.checks.append(CheckResult(
-                    "empty_zip_raises", False, "Should have raised an exception",
-                ))
+                result.checks.append(
+                    CheckResult(
+                        "empty_zip_raises",
+                        False,
+                        "Should have raised an exception",
+                    )
+                )
             except (SoulCorruptError, KeyError, Exception):
-                result.checks.append(CheckResult(
-                    "empty_zip_raises", True, "Exception raised for missing soul.json",
-                ))
+                result.checks.append(
+                    CheckResult(
+                        "empty_zip_raises",
+                        True,
+                        "Exception raised for missing soul.json",
+                    )
+                )
 
             # -- Minimal config (just a name) --
             minimal_soul = await Soul.birth("MinimalSoul")
-            result.checks.append(CheckResult(
-                "minimal_config_works",
-                minimal_soul.name == "MinimalSoul",
-                f"name={minimal_soul.name}, has defaults",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "minimal_config_works",
+                    minimal_soul.name == "MinimalSoul",
+                    f"name={minimal_soul.name}, has defaults",
+                )
+            )
 
             # -- Config with extra unknown fields --
             # Pydantic should handle extra fields gracefully via SoulConfig
-            from soul_protocol.types import SoulConfig, Identity
+            from soul_protocol.types import SoulConfig
+
             config_data = {
                 "identity": {"name": "ExtraFields", "unknown_field": "should be ignored"},
                 "dna": {},
@@ -701,17 +915,22 @@ async def scenario_recovery_resilience() -> ScenarioResult:
             try:
                 config = SoulConfig.model_validate(config_data)
                 extra_soul = Soul(config)
-                result.checks.append(CheckResult(
-                    "extra_fields_handled",
-                    extra_soul.name == "ExtraFields",
-                    "Extra fields ignored gracefully",
-                ))
+                result.checks.append(
+                    CheckResult(
+                        "extra_fields_handled",
+                        extra_soul.name == "ExtraFields",
+                        "Extra fields ignored gracefully",
+                    )
+                )
             except Exception as e:
                 # If strict validation rejects extra fields, that's also acceptable
-                result.checks.append(CheckResult(
-                    "extra_fields_handled", True,
-                    f"Strict validation: {type(e).__name__}",
-                ))
+                result.checks.append(
+                    CheckResult(
+                        "extra_fields_handled",
+                        True,
+                        f"Strict validation: {type(e).__name__}",
+                    )
+                )
 
             # -- Export then re-import preserves state after modifications --
             soul = await Soul.birth("Resilient", values=["durability"])
@@ -725,10 +944,13 @@ async def scenario_recovery_resilience() -> ScenarioResult:
 
             recall_results = await restored.recall("critical fact survive")
             found = any("critical" in r.content.lower() for r in recall_results)
-            result.checks.append(CheckResult(
-                "state_survives_roundtrip", found,
-                f"found critical fact: {found}",
-            ))
+            result.checks.append(
+                CheckResult(
+                    "state_survives_roundtrip",
+                    found,
+                    f"found critical fact: {found}",
+                )
+            )
 
     except Exception as e:
         result.error = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
@@ -742,6 +964,7 @@ async def scenario_recovery_resilience() -> ScenarioResult:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _write_scenario_results(sr: ScenarioResult) -> None:
     """Write individual scenario results to .results/simulation_<name>.json."""
     output = {
@@ -751,10 +974,7 @@ def _write_scenario_results(sr: ScenarioResult) -> None:
         "fail_count": sr.fail_count,
         "elapsed_ms": round(sr.elapsed_ms, 1),
         "error": sr.error,
-        "checks": [
-            {"name": c.name, "passed": c.passed, "detail": c.detail}
-            for c in sr.checks
-        ],
+        "checks": [{"name": c.name, "passed": c.passed, "detail": c.detail} for c in sr.checks],
     }
     path = RESULTS_DIR / f"simulation_{sr.name}.json"
     path.write_text(json.dumps(output, indent=2))
@@ -796,11 +1016,13 @@ async def main():
             return 1
         scenarios_to_run = {args.scenario: ALL_SCENARIOS[args.scenario]}
 
-    console.print(Panel(
-        "[bold]Soul Protocol — Real User Simulations[/bold]\n"
-        "Testing realistic usage scenarios against the full API.",
-        box=box.DOUBLE,
-    ))
+    console.print(
+        Panel(
+            "[bold]Soul Protocol — Real User Simulations[/bold]\n"
+            "Testing realistic usage scenarios against the full API.",
+            box=box.DOUBLE,
+        )
+    )
 
     all_results: list[ScenarioResult] = []
     for name, scenario_fn in scenarios_to_run.items():
@@ -809,7 +1031,9 @@ async def main():
         all_results.append(sr)
 
         status = "[bold green]PASS[/bold green]" if sr.passed else "[bold red]FAIL[/bold red]"
-        console.print(f"  {status} ({sr.pass_count}/{len(sr.checks)} checks, {sr.elapsed_ms:.0f}ms)")
+        console.print(
+            f"  {status} ({sr.pass_count}/{len(sr.checks)} checks, {sr.elapsed_ms:.0f}ms)"
+        )
         if sr.error:
             console.print(f"  [red]Error: {sr.error[:200]}[/red]")
         for check in sr.checks:

@@ -25,11 +25,9 @@ from soul_protocol.types import (
     MemoryEntry,
     MemoryType,
     ReflectionResult,
-    SelfImage,
     SignificanceScore,
     SomaticMarker,
 )
-
 
 # ---------------------------------------------------------------------------
 # Mock LLM engine for testing
@@ -169,21 +167,21 @@ class TestParseJson:
         assert result == {"key": "value"}
 
     def test_json_array(self) -> None:
-        result = _parse_json('[1, 2, 3]')
+        result = _parse_json("[1, 2, 3]")
         assert result == [1, 2, 3]
 
     def test_markdown_fenced_json(self) -> None:
-        text = "Here is the result:\n```json\n{\"valence\": 0.5}\n```"
+        text = 'Here is the result:\n```json\n{"valence": 0.5}\n```'
         result = _parse_json(text)
         assert result == {"valence": 0.5}
 
     def test_markdown_fenced_no_language(self) -> None:
-        text = "Result:\n```\n{\"key\": 42}\n```"
+        text = 'Result:\n```\n{"key": 42}\n```'
         result = _parse_json(text)
         assert result == {"key": 42}
 
     def test_preamble_text_before_json(self) -> None:
-        text = "I analyzed the text and here is my response:\n\n{\"valence\": -0.3}"
+        text = 'I analyzed the text and here is my response:\n\n{"valence": -0.3}'
         result = _parse_json(text)
         assert result == {"valence": -0.3}
 
@@ -228,9 +226,11 @@ class TestHelpers:
 class TestCognitiveProcessorLLM:
     @pytest.mark.asyncio
     async def test_detect_sentiment_llm(self) -> None:
-        engine = MockLLMEngine(responses={
-            "sentiment": {"valence": 0.8, "arousal": 0.6, "label": "joy"},
-        })
+        engine = MockLLMEngine(
+            responses={
+                "sentiment": {"valence": 0.8, "arousal": 0.6, "label": "joy"},
+            }
+        )
         processor = CognitiveProcessor(engine)
         result = await processor.detect_sentiment("I love this!")
         assert isinstance(result, SomaticMarker)
@@ -242,31 +242,33 @@ class TestCognitiveProcessorLLM:
 
     @pytest.mark.asyncio
     async def test_assess_significance_llm(self) -> None:
-        engine = MockLLMEngine(responses={
-            "significance": {
-                "novelty": 0.9,
-                "emotional_intensity": 0.7,
-                "goal_relevance": 0.5,
-                "reasoning": "test",
-            },
-        })
+        engine = MockLLMEngine(
+            responses={
+                "significance": {
+                    "novelty": 0.9,
+                    "emotional_intensity": 0.7,
+                    "goal_relevance": 0.5,
+                    "reasoning": "test",
+                },
+            }
+        )
         processor = CognitiveProcessor(engine)
         interaction = Interaction(user_input="test", agent_output="reply")
-        result = await processor.assess_significance(
-            interaction, ["helpfulness"], ["recent chat"]
-        )
+        result = await processor.assess_significance(interaction, ["helpfulness"], ["recent chat"])
         assert isinstance(result, SignificanceScore)
         assert result.novelty == 0.9
         assert result.emotional_intensity == 0.7
 
     @pytest.mark.asyncio
     async def test_extract_facts_llm(self) -> None:
-        engine = MockLLMEngine(responses={
-            "extract_facts": [
-                {"content": "User's name is Bob", "importance": 9},
-                {"content": "User likes Python", "importance": 7},
-            ],
-        })
+        engine = MockLLMEngine(
+            responses={
+                "extract_facts": [
+                    {"content": "User's name is Bob", "importance": 9},
+                    {"content": "User likes Python", "importance": 7},
+                ],
+            }
+        )
         processor = CognitiveProcessor(engine)
         interaction = Interaction(
             user_input="My name is Bob and I like Python",
@@ -281,11 +283,13 @@ class TestCognitiveProcessorLLM:
 
     @pytest.mark.asyncio
     async def test_extract_entities_llm(self) -> None:
-        engine = MockLLMEngine(responses={
-            "extract_entities": [
-                {"name": "Python", "type": "technology", "relation": "uses"},
-            ],
-        })
+        engine = MockLLMEngine(
+            responses={
+                "extract_entities": [
+                    {"name": "Python", "type": "technology", "relation": "uses"},
+                ],
+            }
+        )
         processor = CognitiveProcessor(engine)
         interaction = Interaction(
             user_input="I use Python daily",
@@ -298,15 +302,19 @@ class TestCognitiveProcessorLLM:
 
     @pytest.mark.asyncio
     async def test_reflect_llm(self) -> None:
-        engine = MockLLMEngine(responses={
-            "reflect": {
-                "themes": ["coding", "debugging"],
-                "summaries": [{"theme": "coding", "summary": "lots of Python", "importance": 8}],
-                "promote": [],
-                "emotional_patterns": "generally positive",
-                "self_insight": "I help with code a lot",
-            },
-        })
+        engine = MockLLMEngine(
+            responses={
+                "reflect": {
+                    "themes": ["coding", "debugging"],
+                    "summaries": [
+                        {"theme": "coding", "summary": "lots of Python", "importance": 8}
+                    ],
+                    "promote": [],
+                    "emotional_patterns": "generally positive",
+                    "self_insight": "I help with code a lot",
+                },
+            }
+        )
         processor = CognitiveProcessor(engine)
         result = await processor.reflect(
             recent_episodes=[],
@@ -445,20 +453,24 @@ class TestHeuristicOnlyMode:
 class TestSoulIntegration:
     @pytest.mark.asyncio
     async def test_birth_with_engine(self) -> None:
-        engine = MockLLMEngine(responses={
-            "sentiment": {"valence": 0.5, "arousal": 0.3, "label": "joy"},
-            "significance": {
-                "novelty": 0.8, "emotional_intensity": 0.5,
-                "goal_relevance": 0.4, "reasoning": "test",
-            },
-            "extract_facts": [],
-            "extract_entities": [],
-            "self_reflection": {
-                "self_images": [],
-                "insights": "",
-                "relationship_notes": {},
-            },
-        })
+        engine = MockLLMEngine(
+            responses={
+                "sentiment": {"valence": 0.5, "arousal": 0.3, "label": "joy"},
+                "significance": {
+                    "novelty": 0.8,
+                    "emotional_intensity": 0.5,
+                    "goal_relevance": 0.4,
+                    "reasoning": "test",
+                },
+                "extract_facts": [],
+                "extract_entities": [],
+                "self_reflection": {
+                    "self_images": [],
+                    "insights": "",
+                    "relationship_notes": {},
+                },
+            }
+        )
         soul = await Soul.birth("TestSoul", engine=engine)
         assert soul.name == "TestSoul"
 
@@ -483,15 +495,17 @@ class TestSoulIntegration:
 
     @pytest.mark.asyncio
     async def test_reflect_with_engine(self) -> None:
-        engine = MockLLMEngine(responses={
-            "reflect": {
-                "themes": ["testing"],
-                "summaries": [],
-                "promote": [],
-                "emotional_patterns": "neutral",
-                "self_insight": "I help with tests",
-            },
-        })
+        engine = MockLLMEngine(
+            responses={
+                "reflect": {
+                    "themes": ["testing"],
+                    "summaries": [],
+                    "promote": [],
+                    "emotional_patterns": "neutral",
+                    "self_insight": "I help with tests",
+                },
+            }
+        )
         soul = await Soul.birth("TestSoul", engine=engine)
         result = await soul.reflect()
         assert isinstance(result, ReflectionResult)
@@ -506,24 +520,28 @@ class TestSoulIntegration:
     @pytest.mark.asyncio
     async def test_full_observe_pipeline_with_llm(self) -> None:
         """Verify all observe steps use the LLM engine."""
-        engine = MockLLMEngine(responses={
-            "sentiment": {"valence": 0.9, "arousal": 0.7, "label": "excitement"},
-            "significance": {
-                "novelty": 0.9, "emotional_intensity": 0.8,
-                "goal_relevance": 0.7, "reasoning": "very relevant",
-            },
-            "extract_facts": [
-                {"content": "User is a developer", "importance": 7},
-            ],
-            "extract_entities": [
-                {"name": "Python", "type": "technology", "relation": "uses"},
-            ],
-            "self_reflection": {
-                "self_images": [{"domain": "technical_helper", "confidence": 0.8}],
-                "insights": "helping with code",
-                "relationship_notes": {"user": "developer"},
-            },
-        })
+        engine = MockLLMEngine(
+            responses={
+                "sentiment": {"valence": 0.9, "arousal": 0.7, "label": "excitement"},
+                "significance": {
+                    "novelty": 0.9,
+                    "emotional_intensity": 0.8,
+                    "goal_relevance": 0.7,
+                    "reasoning": "very relevant",
+                },
+                "extract_facts": [
+                    {"content": "User is a developer", "importance": 7},
+                ],
+                "extract_entities": [
+                    {"name": "Python", "type": "technology", "relation": "uses"},
+                ],
+                "self_reflection": {
+                    "self_images": [{"domain": "technical_helper", "confidence": 0.8}],
+                    "insights": "helping with code",
+                    "relationship_notes": {"user": "developer"},
+                },
+            }
+        )
         soul = await Soul.birth(
             "TestSoul",
             values=["helpfulness"],
@@ -598,9 +616,7 @@ class TestHeuristicOnlyRegression:
             ("My favorite language is Python", "It has a great ecosystem"),
         ]
         for user_input, agent_output in topics:
-            await soul.observe(
-                Interaction(user_input=user_input, agent_output=agent_output)
-            )
+            await soul.observe(Interaction(user_input=user_input, agent_output=agent_output))
 
         # With the bug: 0 domains. With the fix: ≥1 domain discovered.
         domains = soul.self_model.get_active_self_images()
