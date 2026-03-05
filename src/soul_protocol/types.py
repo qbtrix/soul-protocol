@@ -8,10 +8,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
-
 
 # ============ Identity ============
 
@@ -77,7 +76,7 @@ class SomaticMarker(BaseModel):
     """
 
     valence: float = Field(default=0.0, ge=-1.0, le=1.0)  # negative to positive
-    arousal: float = Field(default=0.0, ge=0.0, le=1.0)    # calm to intense
+    arousal: float = Field(default=0.0, ge=0.0, le=1.0)  # calm to intense
     label: str = "neutral"  # joy, frustration, curiosity, etc.
 
 
@@ -122,15 +121,15 @@ class SelfImage(BaseModel):
     by observing what it does.
     """
 
-    domain: str = ""          # e.g. "technical_helper", "creative_writer"
+    domain: str = ""  # e.g. "technical_helper", "creative_writer"
     confidence: float = Field(default=0.1, ge=0.0, le=1.0)
-    evidence_count: int = 0   # interactions supporting this self-image
+    evidence_count: int = 0  # interactions supporting this self-image
 
 
 # ============ Memory ============
 
 
-class MemoryType(str, Enum):
+class MemoryType(StrEnum):
     CORE = "core"
     EPISODIC = "episodic"
     SEMANTIC = "semantic"
@@ -186,7 +185,7 @@ class MemorySettings(BaseModel):
 # ============ State / Feelings ============
 
 
-class Mood(str, Enum):
+class Mood(StrEnum):
     NEUTRAL = "neutral"
     CURIOUS = "curious"
     FOCUSED = "focused"
@@ -210,7 +209,7 @@ class SoulState(BaseModel):
 # ============ Evolution ============
 
 
-class EvolutionMode(str, Enum):
+class EvolutionMode(StrEnum):
     DISABLED = "disabled"
     SUPERVISED = "supervised"
     AUTONOMOUS = "autonomous"
@@ -235,19 +234,15 @@ class EvolutionConfig(BaseModel):
     mode: EvolutionMode = EvolutionMode.SUPERVISED
     mutation_rate: float = 0.01
     require_approval: bool = True
-    mutable_traits: list[str] = Field(
-        default_factory=lambda: ["communication", "biorhythms"]
-    )
-    immutable_traits: list[str] = Field(
-        default_factory=lambda: ["personality", "core_values"]
-    )
+    mutable_traits: list[str] = Field(default_factory=lambda: ["communication", "biorhythms"])
+    immutable_traits: list[str] = Field(default_factory=lambda: ["personality", "core_values"])
     history: list[Mutation] = Field(default_factory=list)
 
 
 # ============ Lifecycle ============
 
 
-class LifecycleState(str, Enum):
+class LifecycleState(StrEnum):
     BORN = "born"
     ACTIVE = "active"
     DORMANT = "dormant"

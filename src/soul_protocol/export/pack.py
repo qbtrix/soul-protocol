@@ -68,7 +68,14 @@ async def pack_soul(
 
         # Additional memory tiers (only if memory_data provided)
         if memory_data:
-            for tier_name in ["episodic", "semantic", "procedural", "graph", "self_model", "general_events"]:
+            for tier_name in [
+                "episodic",
+                "semantic",
+                "procedural",
+                "graph",
+                "self_model",
+                "general_events",
+            ]:
                 default = {} if tier_name in ("graph", "self_model") else []
                 tier_data = memory_data.get(tier_name, default)
                 zf.writestr(

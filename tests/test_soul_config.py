@@ -13,7 +13,6 @@ import yaml
 from soul_protocol.soul import Soul
 from soul_protocol.types import LifecycleState, Mood
 
-
 # ============ Soul.birth() with custom OCEAN ============
 
 
@@ -421,6 +420,7 @@ async def test_config_from_file_survives_roundtrip(tmp_path):
 def test_cli_birth_with_config_option(tmp_path):
     """CLI birth --config reads YAML and creates a soul file."""
     from click.testing import CliRunner
+
     from soul_protocol.cli.main import cli
 
     config = {
@@ -448,6 +448,7 @@ def test_cli_birth_with_config_option(tmp_path):
 def test_cli_birth_with_ocean_flags(tmp_path):
     """CLI birth with OCEAN flags creates a soul with custom personality."""
     from click.testing import CliRunner
+
     from soul_protocol.cli.main import cli
 
     output_path = tmp_path / "ocean-soul.soul"
@@ -456,11 +457,16 @@ def test_cli_birth_with_ocean_flags(tmp_path):
     result = runner.invoke(
         cli,
         [
-            "birth", "OceanTest",
-            "--openness", "0.9",
-            "--conscientiousness", "0.8",
-            "--neuroticism", "0.1",
-            "--output", str(output_path),
+            "birth",
+            "OceanTest",
+            "--openness",
+            "0.9",
+            "--conscientiousness",
+            "0.8",
+            "--neuroticism",
+            "0.1",
+            "--output",
+            str(output_path),
         ],
     )
 
@@ -474,6 +480,7 @@ def test_cli_birth_with_ocean_flags(tmp_path):
 def test_cli_birth_without_config_backward_compatible(tmp_path):
     """CLI birth without --config still works as before."""
     from click.testing import CliRunner
+
     from soul_protocol.cli.main import cli
 
     output_path = tmp_path / "basic.soul"
@@ -493,6 +500,7 @@ def test_cli_birth_without_config_backward_compatible(tmp_path):
 def test_cli_birth_config_json(tmp_path):
     """CLI birth --config works with JSON files too."""
     from click.testing import CliRunner
+
     from soul_protocol.cli.main import cli
 
     config = {

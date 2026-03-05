@@ -88,10 +88,7 @@ class KnowledgeGraph:
         """
         return {
             "entities": dict(self._entities),
-            "edges": [
-                {"source": s, "target": t, "relation": r}
-                for s, t, r in self._edges
-            ],
+            "edges": [{"source": s, "target": t, "relation": r} for s, t, r in self._edges],
         }
 
     @classmethod

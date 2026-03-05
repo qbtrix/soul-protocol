@@ -18,15 +18,11 @@ class InMemoryStorage:
     def __init__(self) -> None:
         self._store: dict[str, SoulConfig] = {}
 
-    async def save(
-        self, soul_id: str, config: SoulConfig, path: Path | None = None
-    ) -> None:
+    async def save(self, soul_id: str, config: SoulConfig, path: Path | None = None) -> None:
         """Store a soul config in memory."""
         self._store[soul_id] = config
 
-    async def load(
-        self, soul_id: str, path: Path | None = None
-    ) -> SoulConfig | None:
+    async def load(self, soul_id: str, path: Path | None = None) -> SoulConfig | None:
         """Retrieve a soul config from memory, or ``None`` if not found."""
         return self._store.get(soul_id)
 

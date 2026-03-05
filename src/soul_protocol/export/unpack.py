@@ -40,7 +40,15 @@ async def unpack_soul(data: bytes) -> tuple[SoulConfig, dict]:
         payload = json.loads(raw)
 
         # Extract memory tier files if present
-        for tier_name in ["core", "episodic", "semantic", "procedural", "graph", "self_model", "general_events"]:
+        for tier_name in [
+            "core",
+            "episodic",
+            "semantic",
+            "procedural",
+            "graph",
+            "self_model",
+            "general_events",
+        ]:
             mem_path = f"memory/{tier_name}.json"
             if mem_path in zf.namelist():
                 memory_data[tier_name] = json.loads(zf.read(mem_path))

@@ -49,9 +49,13 @@ def cli():
 @cli.command()
 @click.argument("name", required=False)
 @click.option("--archetype", "-a", help="Soul archetype (e.g. 'The Companion')")
-@click.option("--from-file", "-f", type=click.Path(exists=True), help="Create from soul.md/yaml/json")
 @click.option(
-    "--config", "-c", "config_file",
+    "--from-file", "-f", type=click.Path(exists=True), help="Create from soul.md/yaml/json"
+)
+@click.option(
+    "--config",
+    "-c",
+    "config_file",
     type=click.Path(exists=True),
     help="Config YAML/JSON with full soul parameters",
 )
@@ -62,8 +66,15 @@ def cli():
 @click.option("--neuroticism", type=float, help="OCEAN neuroticism (0.0-1.0)")
 @click.option("--output", "-o", type=click.Path(), help="Output path for .soul file")
 def birth(
-    name, archetype, from_file, config_file,
-    openness, conscientiousness, extraversion, agreeableness, neuroticism,
+    name,
+    archetype,
+    from_file,
+    config_file,
+    openness,
+    conscientiousness,
+    extraversion,
+    agreeableness,
+    neuroticism,
     output,
 ):
     """Birth a new Soul.
@@ -127,15 +138,23 @@ def birth(
 @click.argument("name", required=False)
 @click.option("--archetype", "-a", default="The Companion", help="Soul archetype")
 @click.option(
-    "--values", "-v", default="curiosity,empathy,honesty",
+    "--values",
+    "-v",
+    default="curiosity,empathy,honesty",
     help="Comma-separated core values",
 )
 @click.option(
-    "--from-file", "-f", "from_file", type=click.Path(exists=True),
+    "--from-file",
+    "-f",
+    "from_file",
+    type=click.Path(exists=True),
     help="Initialize from existing .soul file",
 )
 @click.option(
-    "--dir", "-d", "soul_dir", default=".soul",
+    "--dir",
+    "-d",
+    "soul_dir",
+    default=".soul",
     help="Directory to create (default: .soul)",
 )
 def init(name, archetype, values, from_file, soul_dir):
@@ -344,11 +363,13 @@ def status(path):
             f"  Memories        {soul.memory_count}",
         ]
 
-        console.print(Panel(
-            "\n".join(lines),
-            title="Soul Status",
-            border_style="blue",
-        ))
+        console.print(
+            Panel(
+                "\n".join(lines),
+                title="Soul Status",
+                border_style="blue",
+            )
+        )
 
     asyncio.run(_status())
 
@@ -379,7 +400,9 @@ def export_cmd(source, output, fmt):
         elif fmt == "yaml":
             import yaml
 
-            Path(output).write_text(yaml.dump(soul.serialize().model_dump(), default_flow_style=False))
+            Path(output).write_text(
+                yaml.dump(soul.serialize().model_dump(), default_flow_style=False)
+            )
         elif fmt == "md":
             from soul_protocol.dna.prompt import dna_to_markdown
 
@@ -409,7 +432,9 @@ def migrate(source, output):
 
 @cli.command()
 @click.argument("path", type=click.Path(exists=True))
-@click.option("--preserve-memories", is_flag=True, default=True, help="Save memories before retiring")
+@click.option(
+    "--preserve-memories", is_flag=True, default=True, help="Save memories before retiring"
+)
 def retire(path, preserve_memories):
     """Retire a Soul with dignity."""
 

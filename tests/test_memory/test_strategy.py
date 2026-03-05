@@ -8,18 +8,15 @@ import pytest
 
 from soul_protocol.memory.activation import compute_activation, spreading_activation
 from soul_protocol.memory.manager import MemoryManager
-from soul_protocol.memory.recall import RecallEngine
 from soul_protocol.memory.search import relevance_score
 from soul_protocol.memory.strategy import SearchStrategy, TokenOverlapStrategy
 from soul_protocol.soul import Soul
 from soul_protocol.types import (
     CoreMemory,
-    Interaction,
     MemoryEntry,
     MemorySettings,
     MemoryType,
 )
-
 
 # ---------------------------------------------------------------------------
 # Custom strategy for testing

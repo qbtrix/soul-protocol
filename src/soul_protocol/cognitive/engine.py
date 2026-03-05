@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING, Any, Callable, Protocol, runtime_checkable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from soul_protocol.cognitive.prompts import (
     ENTITY_EXTRACTION_PROMPT,
@@ -104,13 +105,15 @@ class HeuristicEngine:
         elif task == "self_reflection":
             return self._self_reflection(prompt)
         elif task == "reflect":
-            return json.dumps({
-                "themes": [],
-                "summaries": [],
-                "promote": [],
-                "emotional_patterns": "insufficient data for reflection",
-                "self_insight": "",
-            })
+            return json.dumps(
+                {
+                    "themes": [],
+                    "summaries": [],
+                    "promote": [],
+                    "emotional_patterns": "insufficient data for reflection",
+                    "self_insight": "",
+                }
+            )
 
         return json.dumps({"error": f"unknown task: {task}"})
 
@@ -118,23 +121,27 @@ class HeuristicEngine:
         """Extract text from sentiment prompt and run heuristic."""
         text = _extract_field(prompt, "Text:")
         marker = _heuristic_sentiment(text)
-        return json.dumps({
-            "valence": marker.valence,
-            "arousal": marker.arousal,
-            "label": marker.label,
-        })
+        return json.dumps(
+            {
+                "valence": marker.valence,
+                "arousal": marker.arousal,
+                "label": marker.label,
+            }
+        )
 
     def _significance(self, prompt: str) -> str:
         """Run simplified significance heuristic from prompt text."""
         user_input = _extract_field(prompt, "User:")
         somatic = _heuristic_sentiment(user_input)
         emotional = min(1.0, somatic.arousal + abs(somatic.valence) * 0.3)
-        return json.dumps({
-            "novelty": 0.5,
-            "emotional_intensity": round(emotional, 3),
-            "goal_relevance": 0.3,
-            "reasoning": "heuristic estimate",
-        })
+        return json.dumps(
+            {
+                "novelty": 0.5,
+                "emotional_intensity": round(emotional, 3),
+                "goal_relevance": 0.3,
+                "reasoning": "heuristic estimate",
+            }
+        )
 
     def _extract_facts(self, prompt: str) -> str:
         """Run simplified fact extraction from prompt text."""
@@ -142,10 +149,12 @@ class HeuristicEngine:
         facts: list[dict] = []
         name_match = re.search(r"my name is (\w+)", user_input, re.IGNORECASE)
         if name_match:
-            facts.append({
-                "content": f"User's name is {name_match.group(1)}",
-                "importance": 9,
-            })
+            facts.append(
+                {
+                    "content": f"User's name is {name_match.group(1)}",
+                    "importance": 9,
+                }
+            )
         return json.dumps(facts)
 
     def _extract_entities(self, prompt: str) -> str:
@@ -154,11 +163,13 @@ class HeuristicEngine:
 
     def _self_reflection(self, prompt: str) -> str:
         """Return minimal self-reflection."""
-        return json.dumps({
-            "self_images": [],
-            "insights": "heuristic mode — limited self-reflection",
-            "relationship_notes": {},
-        })
+        return json.dumps(
+            {
+                "self_images": [],
+                "insights": "heuristic mode — limited self-reflection",
+                "relationship_notes": {},
+            }
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -289,10 +300,7 @@ class CognitiveProcessor:
 
         prompt = SIGNIFICANCE_PROMPT.format(
             values=", ".join(core_values) if core_values else "none specified",
-            recent_summaries=(
-                "\n".join(f"- {r[:100]}" for r in recent_contents[-5:])
-                or "none"
-            ),
+            recent_summaries=("\n".join(f"- {r[:100]}" for r in recent_contents[-5:]) or "none"),
             user_input=interaction.user_input,
             agent_output=interaction.agent_output,
         )
@@ -306,9 +314,7 @@ class CognitiveProcessor:
             )
         except Exception:
             if self._fallback:
-                return _heuristic_significance(
-                    interaction, core_values, recent_contents
-                )
+                return _heuristic_significance(interaction, core_values, recent_contents)
             return SignificanceScore()
 
     async def extract_facts(
@@ -364,11 +370,13 @@ class CognitiveProcessor:
 
             entities: list[dict] = []
             for item in data:
-                entities.append({
-                    "name": item["name"],
-                    "type": item.get("type", "unknown"),
-                    "relation": item.get("relation"),
-                })
+                entities.append(
+                    {
+                        "name": item["name"],
+                        "type": item.get("type", "unknown"),
+                        "relation": item.get("relation"),
+                    }
+                )
             return entities
         except Exception:
             if self._entity_extractor:
@@ -390,17 +398,13 @@ class CognitiveProcessor:
         current_images = self_model.get_active_self_images()
         images_text = (
             "\n".join(
-                f"- {img.domain}: confidence={img.confidence:.2f}, "
-                f"evidence={img.evidence_count}"
+                f"- {img.domain}: confidence={img.confidence:.2f}, evidence={img.evidence_count}"
                 for img in current_images
             )
             or "none yet"
         )
 
-        recent_text = (
-            f"User: {interaction.user_input}\n"
-            f"Agent: {interaction.agent_output}"
-        )
+        recent_text = f"User: {interaction.user_input}\nAgent: {interaction.agent_output}"
 
         prompt = SELF_REFLECTION_PROMPT.format(
             soul_name="soul",

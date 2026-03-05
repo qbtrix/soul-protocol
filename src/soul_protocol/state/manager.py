@@ -12,10 +12,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from soul_protocol.types import Interaction, Mood, SomaticMarker, SoulState
-
 
 # Default recovery rate per hour of rest (energy points)
 _DEFAULT_ENERGY_REGEN_RATE: float = 10.0

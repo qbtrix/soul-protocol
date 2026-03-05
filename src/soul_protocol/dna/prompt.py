@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from soul_protocol.types import CoreMemory, DNA, Identity, SoulState
+from soul_protocol.types import DNA, CoreMemory, Identity, SoulState
 
 
 def dna_to_system_prompt(
@@ -127,8 +127,8 @@ def dna_to_markdown(identity: Identity, dna: DNA) -> str:
     # Personality
     lines.append("## Personality (OCEAN)")
     lines.append("")
-    lines.append(f"| Trait | Score |")
-    lines.append(f"|-------|-------|")
+    lines.append("| Trait | Score |")
+    lines.append("|-------|-------|")
     lines.append(f"| Openness | {p.openness:.2f} |")
     lines.append(f"| Conscientiousness | {p.conscientiousness:.2f} |")
     lines.append(f"| Extraversion | {p.extraversion:.2f} |")

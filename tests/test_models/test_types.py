@@ -88,8 +88,14 @@ def test_memory_entry_defaults():
 def test_mood_enum_values():
     """Mood enum contains all expected values."""
     expected = {
-        "neutral", "curious", "focused", "tired",
-        "excited", "contemplative", "satisfied", "concerned",
+        "neutral",
+        "curious",
+        "focused",
+        "tired",
+        "excited",
+        "contemplative",
+        "satisfied",
+        "concerned",
     }
     actual = {m.value for m in Mood}
     assert actual == expected

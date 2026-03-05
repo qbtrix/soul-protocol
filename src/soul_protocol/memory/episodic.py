@@ -165,11 +165,7 @@ class EpisodicStore:
 
         # Score each entry: lower = more likely to evict
         def eviction_score(entry: MemoryEntry) -> float:
-            return (
-                entry.significance * 2.0
-                + entry.importance * 0.1
-                + entry.access_count * 0.5
-            )
+            return entry.significance * 2.0 + entry.importance * 0.1 + entry.access_count * 0.5
 
         victim_id = min(
             self._memories,

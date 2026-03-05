@@ -8,8 +8,8 @@ import base64
 import os
 
 from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 # PBKDF2 iteration count — balance between security and speed
 _ITERATIONS = 480_000
@@ -18,9 +18,7 @@ _ITERATIONS = 480_000
 _SALT_LENGTH = 16
 
 
-def derive_key(
-    passphrase: str, salt: bytes | None = None
-) -> tuple[bytes, bytes]:
+def derive_key(passphrase: str, salt: bytes | None = None) -> tuple[bytes, bytes]:
     """Derive a Fernet-compatible key from a passphrase using PBKDF2-HMAC-SHA256.
 
     Args:

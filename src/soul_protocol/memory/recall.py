@@ -91,8 +91,8 @@ class RecallEngine:
         # Score by ACT-R activation (deterministic — no noise in recall ranking)
         # Uses pluggable strategy for spreading activation if provided (v0.2.2)
         results.sort(
-            key=lambda e: -compute_activation(
-                e, query, now=now, noise=False, strategy=self._strategy
+            key=lambda e: (
+                -compute_activation(e, query, now=now, noise=False, strategy=self._strategy)
             ),
         )
 

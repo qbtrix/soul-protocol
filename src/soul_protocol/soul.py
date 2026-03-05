@@ -27,34 +27,31 @@ from pathlib import Path
 from typing import Any
 
 from .cognitive.engine import CognitiveEngine
+from .dna.prompt import dna_to_system_prompt
+from .evolution.manager import EvolutionManager
+from .export.pack import pack_soul
+from .export.unpack import unpack_soul
+from .identity.did import generate_did
+from .memory.manager import MemoryManager
 from .memory.strategy import SearchStrategy
+from .state.manager import StateManager
 from .types import (
+    DNA,
     Biorhythms,
     CommunicationStyle,
     CoreMemory,
-    DNA,
-    EvolutionConfig,
     GeneralEvent,
     Identity,
     Interaction,
     LifecycleState,
     MemoryEntry,
-    MemorySettings,
     MemoryType,
-    Mood,
     Mutation,
     Personality,
     ReflectionResult,
     SoulConfig,
     SoulState,
 )
-from .identity.did import generate_did
-from .dna.prompt import dna_to_system_prompt
-from .memory.manager import MemoryManager
-from .state.manager import StateManager
-from .evolution.manager import EvolutionManager
-from .export.pack import pack_soul
-from .export.unpack import unpack_soul
 
 
 class Soul:
@@ -224,14 +221,11 @@ class Soul:
             data = json.loads(path.read_text())
         else:
             raise ValueError(
-                f"Unsupported config format: {path.suffix}. "
-                "Use .yaml, .yml, or .json."
+                f"Unsupported config format: {path.suffix}. Use .yaml, .yml, or .json."
             )
 
         if not isinstance(data, dict):
-            raise ValueError(
-                f"Config file is empty or not a valid mapping: {path}"
-            )
+            raise ValueError(f"Config file is empty or not a valid mapping: {path}")
 
         return await cls.birth(
             engine=engine,
@@ -440,14 +434,10 @@ class Soul:
             )
 
         if include_memories and user_input.strip():
-            memories = await self._memory.recall(
-                query=user_input, limit=max_memories
-            )
+            memories = await self._memory.recall(query=user_input, limit=max_memories)
             if memories:
                 lines = [f"- {m.content}" for m in memories]
-                parts.append(
-                    "[Relevant memories:\n" + "\n".join(lines) + "]"
-                )
+                parts.append("[Relevant memories:\n" + "\n".join(lines) + "]")
 
         if include_self_model:
             fragment = self._memory.self_model.to_prompt_fragment()
@@ -530,9 +520,7 @@ class Soul:
                 }
                 relation = ent.get("relation")
                 if relation:
-                    graph_ent["relationships"].append(
-                        {"target": "user", "relation": relation}
-                    )
+                    graph_ent["relationships"].append({"target": "user", "relation": relation})
                 graph_entities.append(graph_ent)
 
             await self._memory.update_graph(graph_entities)
@@ -551,9 +539,7 @@ class Soul:
         """Get the always-loaded core memory."""
         return self._memory.get_core()
 
-    async def edit_core_memory(
-        self, *, persona: str | None = None, human: str | None = None
-    ):
+    async def edit_core_memory(self, *, persona: str | None = None, human: str | None = None):
         """Edit core memory."""
         await self._memory.edit_core(persona=persona, human=human)
 
@@ -594,9 +580,7 @@ class Soul:
 
     # ============ Evolution ============
 
-    async def propose_evolution(
-        self, trait: str, new_value: str, reason: str
-    ) -> Mutation:
+    async def propose_evolution(self, trait: str, new_value: str, reason: str) -> Mutation:
         """Propose a trait mutation."""
         return await self._evolution.propose(
             dna=self._dna,
@@ -657,13 +641,11 @@ class Soul:
             data = await pack_soul(self.serialize(), memory_data=memory_data)
             Path(path).write_bytes(data)
         except PermissionError as e:
-            raise SoulExportError(str(path), f"permission denied") from e
+            raise SoulExportError(str(path), "permission denied") from e
         except OSError as e:
             raise SoulExportError(str(path), str(e)) from e
 
-    async def retire(
-        self, *, farewell: bool = False, preserve_memories: bool = True
-    ) -> None:
+    async def retire(self, *, farewell: bool = False, preserve_memories: bool = True) -> None:
         """Retire this soul with dignity.
 
         If preserve_memories is True (default), saves all memories before

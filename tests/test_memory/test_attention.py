@@ -14,7 +14,6 @@ from soul_protocol.memory.attention import (
 )
 from soul_protocol.types import Interaction, SignificanceScore
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -252,9 +251,7 @@ def test_mundane_greeting_below_threshold_with_prior_context():
 
 def test_meaningful_interaction_passes_gate(meaningful_interaction, core_values):
     """A substantive, emotionally relevant, on-topic interaction must be significant."""
-    score = compute_significance(
-        meaningful_interaction, core_values, recent_contents=[]
-    )
+    score = compute_significance(meaningful_interaction, core_values, recent_contents=[])
     assert is_significant(score) is True
 
 

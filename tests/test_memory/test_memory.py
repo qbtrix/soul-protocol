@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.memory.manager import MemoryManager
 from soul_protocol.memory.graph import KnowledgeGraph
+from soul_protocol.memory.manager import MemoryManager
 from soul_protocol.types import (
     CoreMemory,
     Interaction,
@@ -80,9 +80,7 @@ async def test_semantic_add_and_search(manager: MemoryManager):
     mem_id = await manager.add(entry)
     assert mem_id
 
-    results = await manager.recall(
-        "Python", types=[MemoryType.SEMANTIC]
-    )
+    results = await manager.recall("Python", types=[MemoryType.SEMANTIC])
     assert len(results) >= 1
     assert any("Python" in r.content for r in results)
 
@@ -97,9 +95,7 @@ async def test_procedural_add_and_search(manager: MemoryManager):
     mem_id = await manager.add(entry)
     assert mem_id
 
-    results = await manager.recall(
-        "deploy", types=[MemoryType.PROCEDURAL]
-    )
+    results = await manager.recall("deploy", types=[MemoryType.PROCEDURAL])
     assert len(results) >= 1
     assert any("deploy" in r.content.lower() for r in results)
 
@@ -195,9 +191,7 @@ async def test_memory_manager_clear(manager: MemoryManager):
             importance=5,
         )
     )
-    await manager.add_episodic(
-        Interaction(user_input="hello", agent_output="hi")
-    )
+    await manager.add_episodic(Interaction(user_input="hello", agent_output="hi"))
 
     await manager.clear()
 

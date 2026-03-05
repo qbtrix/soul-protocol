@@ -20,10 +20,10 @@ import pytest
 from pydantic import BaseModel
 
 from soul_protocol.types import (
+    DNA,
     Biorhythms,
     CommunicationStyle,
     CoreMemory,
-    DNA,
     EvolutionConfig,
     GeneralEvent,
     Identity,

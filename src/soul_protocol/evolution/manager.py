@@ -79,9 +79,7 @@ class EvolutionManager:
         """Return all mutations that have been resolved (approved or rejected)."""
         return list(self._config.history)
 
-    async def propose(
-        self, dna: DNA, trait: str, new_value: str, reason: str
-    ) -> Mutation:
+    async def propose(self, dna: DNA, trait: str, new_value: str, reason: str) -> Mutation:
         """Propose a mutation to a DNA trait.
 
         Args:
@@ -102,9 +100,7 @@ class EvolutionManager:
         # Check immutability: the top-level trait category must not be immutable
         top_level_trait = trait.split(".")[0]
         if top_level_trait in self._config.immutable_traits:
-            raise ValueError(
-                f"Trait '{trait}' falls under immutable category '{top_level_trait}'."
-            )
+            raise ValueError(f"Trait '{trait}' falls under immutable category '{top_level_trait}'.")
 
         old_value = _get_nested_attr(dna, trait)
 

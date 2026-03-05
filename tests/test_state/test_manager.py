@@ -5,11 +5,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
-from soul_protocol.state.manager import StateManager, _EMA_ALPHA, _LABEL_TO_MOOD, _MOOD_THRESHOLD
+from soul_protocol.state.manager import _LABEL_TO_MOOD, StateManager
 from soul_protocol.types import Interaction, Mood, SomaticMarker, SoulState
 
 
@@ -21,7 +21,7 @@ def _make_interaction() -> Interaction:
     return Interaction(
         user_input="test",
         agent_output="ok",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 

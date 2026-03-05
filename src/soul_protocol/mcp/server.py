@@ -40,14 +40,16 @@ async def _lifespan(server: FastMCP):
             _soul = await Soul.awaken(path)
         except (FileNotFoundError, ValueError, SoulProtocolError) as e:
             import sys
+
             print(
                 f"soul-mcp: failed to load SOUL_PATH={path!r}: {e}",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
             print(
-                "soul-mcp: starting without a soul."
-                " Call soul_birth to create one.",
-                file=sys.stderr, flush=True,
+                "soul-mcp: starting without a soul. Call soul_birth to create one.",
+                file=sys.stderr,
+                flush=True,
             )
             _soul = None
             _soul_path = None
@@ -69,10 +71,7 @@ mcp = FastMCP(
 async def _get_soul() -> Soul:
     """Get the active soul, raising if none loaded."""
     if _soul is None:
-        raise RuntimeError(
-            "No soul loaded. Call soul_birth first"
-            " or set SOUL_PATH env var."
-        )
+        raise RuntimeError("No soul loaded. Call soul_birth first or set SOUL_PATH env var.")
     return _soul
 
 
@@ -89,10 +88,7 @@ def _validate_memory_type(memory_type: str) -> MemoryType:
     try:
         return MemoryType(memory_type)
     except ValueError:
-        raise ValueError(
-            f"Invalid memory_type '{memory_type}'."
-            f" Valid types: {', '.join(valid)}"
-        )
+        raise ValueError(f"Invalid memory_type '{memory_type}'. Valid types: {', '.join(valid)}")
 
 
 def _validate_mood(mood: str) -> Mood:
@@ -101,9 +97,7 @@ def _validate_mood(mood: str) -> Mood:
         return Mood(mood)
     except ValueError:
         valid = ", ".join(m.value for m in Mood)
-        raise ValueError(
-            f"Invalid mood '{mood}'. Valid: {valid}"
-        )
+        raise ValueError(f"Invalid mood '{mood}'. Valid: {valid}")
 
 
 # --- Tools (10) ---
@@ -125,18 +119,19 @@ async def soul_birth(
     global _soul, _soul_path
     replaced = _soul is not None
     soul = await Soul.birth(
-        name, archetype=archetype, values=values or [],
+        name,
+        archetype=archetype,
+        values=values or [],
     )
     _soul = soul
     _soul_path = None  # new soul has no file path yet
     result: dict[str, Any] = {
-        "name": soul.name, "did": soul.did, "status": "born",
+        "name": soul.name,
+        "did": soul.did,
+        "status": "born",
     }
     if replaced:
-        result["warning"] = (
-            "An existing soul was replaced."
-            " Call soul_save first to preserve it."
-        )
+        result["warning"] = "An existing soul was replaced. Call soul_save first to preserve it."
     return json.dumps(result)
 
 
@@ -155,17 +150,21 @@ async def soul_observe(
         channel: Source channel identifier
     """
     soul = await _get_soul()
-    await soul.observe(Interaction(
-        user_input=user_input,
-        agent_output=agent_output,
-        channel=channel,
-    ))
+    await soul.observe(
+        Interaction(
+            user_input=user_input,
+            agent_output=agent_output,
+            channel=channel,
+        )
+    )
     state = soul.state
-    return json.dumps({
-        "status": "observed",
-        "mood": state.mood.value,
-        "energy": round(state.energy, 1),
-    })
+    return json.dumps(
+        {
+            "status": "observed",
+            "mood": state.mood.value,
+            "energy": round(state.energy, 1),
+        }
+    )
 
 
 @mcp.tool
@@ -187,13 +186,18 @@ async def soul_remember(
     mt = _validate_memory_type(memory_type)
     importance = max(1, min(10, importance))
     memory_id = await soul.remember(
-        content, type=mt, importance=importance, emotion=emotion,
+        content,
+        type=mt,
+        importance=importance,
+        emotion=emotion,
     )
-    return json.dumps({
-        "memory_id": memory_id,
-        "type": memory_type,
-        "importance": importance,
-    })
+    return json.dumps(
+        {
+            "memory_id": memory_id,
+            "type": memory_type,
+            "importance": importance,
+        }
+    )
 
 
 @mcp.tool
@@ -228,16 +232,20 @@ async def soul_reflect() -> str:
     soul = await _get_soul()
     result = await soul.reflect()
     if result is None:
-        return json.dumps({
-            "status": "skipped",
-            "reason": "No CognitiveEngine available for reflection",
-        })
-    return json.dumps({
-        "status": "reflected",
-        "themes": result.themes,
-        "emotional_patterns": result.emotional_patterns,
-        "self_insight": result.self_insight,
-    })
+        return json.dumps(
+            {
+                "status": "skipped",
+                "reason": "No CognitiveEngine available for reflection",
+            }
+        )
+    return json.dumps(
+        {
+            "status": "reflected",
+            "themes": result.themes,
+            "emotional_patterns": result.emotional_patterns,
+            "self_insight": result.self_insight,
+        }
+    )
 
 
 @mcp.tool
@@ -245,13 +253,15 @@ async def soul_state() -> str:
     """Get the soul's current mood, energy, focus, and social battery."""
     soul = await _get_soul()
     s = soul.state
-    return json.dumps({
-        "mood": s.mood.value,
-        "energy": round(s.energy, 1),
-        "focus": s.focus,
-        "social_battery": round(s.social_battery, 1),
-        "lifecycle": soul.lifecycle.value,
-    })
+    return json.dumps(
+        {
+            "mood": s.mood.value,
+            "energy": round(s.energy, 1),
+            "focus": s.focus,
+            "social_battery": round(s.social_battery, 1),
+            "lifecycle": soul.lifecycle.value,
+        }
+    )
 
 
 @mcp.tool
@@ -277,10 +287,12 @@ async def soul_feel(
     # feel() is synchronous in the Soul API
     soul.feel(**kwargs)
     s = soul.state
-    return json.dumps({
-        "mood": s.mood.value,
-        "energy": round(s.energy, 1),
-    })
+    return json.dumps(
+        {
+            "mood": s.mood.value,
+            "energy": round(s.energy, 1),
+        }
+    )
 
 
 @mcp.tool
@@ -305,11 +317,13 @@ async def soul_save(path: str | None = None) -> str:
     save_path = path or _soul_path
     await soul.save(save_path)
     default_path = str(Path.home() / ".soul" / soul.did)
-    return json.dumps({
-        "status": "saved",
-        "path": save_path or default_path,
-        "name": soul.name,
-    })
+    return json.dumps(
+        {
+            "status": "saved",
+            "path": save_path or default_path,
+            "name": soul.name,
+        }
+    )
 
 
 @mcp.tool
@@ -323,19 +337,17 @@ async def soul_export(path: str) -> str:
     soul = await _get_soul()
     resolved = Path(path).resolve()
     if resolved.suffix != ".soul":
-        raise ValueError(
-            f"Export path must end in .soul, got: {path!r}"
-        )
+        raise ValueError(f"Export path must end in .soul, got: {path!r}")
     if not resolved.parent.exists():
-        raise ValueError(
-            f"Parent directory does not exist: {resolved.parent}"
-        )
+        raise ValueError(f"Parent directory does not exist: {resolved.parent}")
     await soul.export(resolved)
-    return json.dumps({
-        "status": "exported",
-        "path": str(resolved),
-        "name": soul.name,
-    })
+    return json.dumps(
+        {
+            "status": "exported",
+            "path": str(resolved),
+            "name": soul.name,
+        }
+    )
 
 
 # --- Resources (3) ---
@@ -346,15 +358,17 @@ async def soul_identity_resource() -> str:
     """Full identity JSON (DID, name, archetype, values, origin)."""
     soul = await _get_soul()
     identity = soul.identity
-    return json.dumps({
-        "did": identity.did,
-        "name": identity.name,
-        "archetype": identity.archetype,
-        "born": identity.born.isoformat(),
-        "bonded_to": identity.bonded_to,
-        "core_values": identity.core_values,
-        "origin_story": identity.origin_story,
-    })
+    return json.dumps(
+        {
+            "did": identity.did,
+            "name": identity.name,
+            "archetype": identity.archetype,
+            "born": identity.born.isoformat(),
+            "bonded_to": identity.bonded_to,
+            "core_values": identity.core_values,
+            "origin_story": identity.origin_story,
+        }
+    )
 
 
 @mcp.resource("soul://memory/core")
@@ -362,10 +376,12 @@ async def soul_core_memory_resource() -> str:
     """Core memory: persona definition and human knowledge."""
     soul = await _get_soul()
     core = soul.get_core_memory()
-    return json.dumps({
-        "persona": core.persona,
-        "human": core.human,
-    })
+    return json.dumps(
+        {
+            "persona": core.persona,
+            "human": core.human,
+        }
+    )
 
 
 @mcp.resource("soul://state")
@@ -373,13 +389,15 @@ async def soul_state_resource() -> str:
     """Current soul state: mood, energy, focus, social battery."""
     soul = await _get_soul()
     s = soul.state
-    return json.dumps({
-        "mood": s.mood.value,
-        "energy": round(s.energy, 1),
-        "focus": s.focus,
-        "social_battery": round(s.social_battery, 1),
-        "lifecycle": soul.lifecycle.value,
-    })
+    return json.dumps(
+        {
+            "mood": s.mood.value,
+            "energy": round(s.energy, 1),
+            "focus": s.focus,
+            "social_battery": round(s.social_battery, 1),
+            "lifecycle": soul.lifecycle.value,
+        }
+    )
 
 
 # --- Prompts (2) ---

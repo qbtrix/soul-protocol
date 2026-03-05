@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.types import Identity, SoulConfig
 from soul_protocol.soul import Soul
+from soul_protocol.types import Identity, SoulConfig
 
 
 @pytest.fixture

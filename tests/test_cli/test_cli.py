@@ -18,6 +18,7 @@ def test_version():
 
     assert result.exit_code == 0
     from soul_protocol import __version__
+
     assert __version__ in result.output
 
 

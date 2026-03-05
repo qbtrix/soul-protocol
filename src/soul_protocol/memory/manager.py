@@ -78,9 +78,7 @@ FACT_PATTERNS: list[tuple[re.Pattern[str], int, str]] = [
         "User uses {0}",
     ),
     (
-        re.compile(
-            r"i(?:'m| am) (?:building|creating|making) (\w[\w\s]{2,30})", re.IGNORECASE
-        ),
+        re.compile(r"i(?:'m| am) (?:building|creating|making) (\w[\w\s]{2,30})", re.IGNORECASE),
         7,
         "User is building {0}",
     ),
@@ -161,9 +159,7 @@ FACT_PATTERNS: list[tuple[re.Pattern[str], int, str]] = [
     ),
     # User attempts: "I'm trying to X"
     (
-        re.compile(
-            r"i(?:'m| am) trying to ([^.!?\n]{3,30})", re.IGNORECASE
-        ),
+        re.compile(r"i(?:'m| am) trying to ([^.!?\n]{3,30})", re.IGNORECASE),
         6,
         "User is trying to {0}",
     ),
@@ -183,14 +179,53 @@ FACT_PATTERNS: list[tuple[re.Pattern[str], int, str]] = [
 # ---------------------------------------------------------------------------
 
 KNOWN_TECH: set[str] = {
-    "python", "javascript", "typescript", "rust", "go", "java", "ruby", "swift",
-    "react", "vue", "angular", "django", "flask", "fastapi", "express", "nextjs",
-    "docker", "kubernetes", "aws", "gcp", "azure", "firebase", "supabase",
-    "postgres", "mysql", "mongodb", "redis", "sqlite",
-    "git", "github", "gitlab", "vscode", "neovim", "vim",
-    "linux", "macos", "windows", "ubuntu",
-    "openai", "anthropic", "claude", "gpt", "gemini", "ollama", "langchain",
-    "pocketpaw", "soul-protocol",
+    "python",
+    "javascript",
+    "typescript",
+    "rust",
+    "go",
+    "java",
+    "ruby",
+    "swift",
+    "react",
+    "vue",
+    "angular",
+    "django",
+    "flask",
+    "fastapi",
+    "express",
+    "nextjs",
+    "docker",
+    "kubernetes",
+    "aws",
+    "gcp",
+    "azure",
+    "firebase",
+    "supabase",
+    "postgres",
+    "mysql",
+    "mongodb",
+    "redis",
+    "sqlite",
+    "git",
+    "github",
+    "gitlab",
+    "vscode",
+    "neovim",
+    "vim",
+    "linux",
+    "macos",
+    "windows",
+    "ubuntu",
+    "openai",
+    "anthropic",
+    "claude",
+    "gpt",
+    "gemini",
+    "ollama",
+    "langchain",
+    "pocketpaw",
+    "soul-protocol",
 }
 
 # Regex-to-relation mapping for entity relationship inference.
@@ -206,23 +241,78 @@ ENTITY_RELATIONS: list[tuple[re.Pattern[str], str]] = [
 # Words that should never be treated as proper-noun entities even when
 # capitalised (common sentence starters, pronouns, filler words).
 _STOP_WORDS: set[str] = {
-    "i", "the", "a", "an", "is", "are", "was", "were", "be", "been",
-    "it", "its", "my", "we", "our", "you", "your", "he", "she", "they",
-    "this", "that", "these", "those", "what", "which", "who", "how",
-    "can", "could", "will", "would", "should", "do", "does", "did",
-    "but", "and", "or", "not", "no", "yes", "so", "if", "then",
-    "also", "just", "very", "really", "well", "here", "there",
-    "user", "agent", "let", "me", "hi", "hello", "hey", "thanks",
-    "thank", "please", "sure", "okay", "ok",
+    "i",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "it",
+    "its",
+    "my",
+    "we",
+    "our",
+    "you",
+    "your",
+    "he",
+    "she",
+    "they",
+    "this",
+    "that",
+    "these",
+    "those",
+    "what",
+    "which",
+    "who",
+    "how",
+    "can",
+    "could",
+    "will",
+    "would",
+    "should",
+    "do",
+    "does",
+    "did",
+    "but",
+    "and",
+    "or",
+    "not",
+    "no",
+    "yes",
+    "so",
+    "if",
+    "then",
+    "also",
+    "just",
+    "very",
+    "really",
+    "well",
+    "here",
+    "there",
+    "user",
+    "agent",
+    "let",
+    "me",
+    "hi",
+    "hello",
+    "hey",
+    "thanks",
+    "thank",
+    "please",
+    "sure",
+    "okay",
+    "ok",
 }
 
 
 # v0.2.2 — Precompute fact prefixes for conflict detection.
 # Each FACT_PATTERN template like "User lives in {0}" becomes prefix "User lives in".
 _FACT_PREFIXES: list[str] = [
-    template.split("{")[0].strip()
-    for _, _, template in FACT_PATTERNS
-    if "{" in template
+    template.split("{")[0].strip() for _, _, template in FACT_PATTERNS if "{" in template
 ]
 
 
@@ -322,9 +412,7 @@ class MemoryManager:
         """Replace core memory fields."""
         self._core_manager.set(persona=persona, human=human)
 
-    async def edit_core(
-        self, persona: str | None = None, human: str | None = None
-    ) -> None:
+    async def edit_core(self, persona: str | None = None, human: str | None = None) -> None:
         """Append to core memory fields (incremental update)."""
         self._core_manager.edit(persona=persona, human=human)
 
@@ -402,9 +490,7 @@ class MemoryManager:
 
         # --- 2. Compute significance (via CognitiveProcessor) ---
         recent = self._episodic.recent_contents(n=10)
-        sig_score = await self._cognitive.assess_significance(
-            interaction, values, recent
-        )
+        sig_score = await self._cognitive.assess_significance(interaction, values, recent)
         sig_value = overall_significance(sig_score)
         significant = is_significant(sig_score)
 
@@ -418,9 +504,7 @@ class MemoryManager:
             )
 
         # --- 4. Extract and store semantic facts (via CognitiveProcessor) ---
-        facts = await self._cognitive.extract_facts(
-            interaction, self._semantic.facts()
-        )
+        facts = await self._cognitive.extract_facts(interaction, self._semantic.facts())
         # v0.2.2 — Resolve fact conflicts before storing
         await self._resolve_fact_conflicts(facts)
         for fact in facts:
@@ -442,9 +526,7 @@ class MemoryManager:
         entities = await self._cognitive.extract_entities(interaction)
 
         # --- 6. Update self-model (via CognitiveProcessor) ---
-        await self._cognitive.update_self_model(
-            interaction, facts, self._self_model
-        )
+        await self._cognitive.update_self_model(interaction, facts, self._self_model)
 
         return {
             "somatic": somatic,
@@ -535,8 +617,7 @@ class MemoryManager:
 
                 # Skip if a sufficiently similar fact already exists
                 is_duplicate = any(
-                    _token_overlap_score(content, existing) > 0.7
-                    for existing in existing_facts
+                    _token_overlap_score(content, existing) > 0.7 for existing in existing_facts
                 )
                 if is_duplicate:
                     continue
@@ -678,9 +759,7 @@ class MemoryManager:
 
     # ---- Consolidation (v0.2.2) ----
 
-    async def consolidate(
-        self, result: ReflectionResult, soul_name: str = "soul"
-    ) -> dict:
+    async def consolidate(self, result: ReflectionResult, soul_name: str = "soul") -> dict:
         """Apply a ReflectionResult to memory: summaries, themes, self-insight, emotions.
 
         Called by Soul.reflect(apply=True) to actually consolidate the LLM's
@@ -812,9 +891,7 @@ class MemoryManager:
                         return fact
         return None
 
-    async def _resolve_fact_conflicts(
-        self, new_facts: list[MemoryEntry]
-    ) -> list[MemoryEntry]:
+    async def _resolve_fact_conflicts(self, new_facts: list[MemoryEntry]) -> list[MemoryEntry]:
         """Detect and resolve conflicting facts before storage.
 
         Marks old conflicting facts as superseded by the new fact.
@@ -882,23 +959,15 @@ class MemoryManager:
         """
         return {
             "core": self._core_manager.get().model_dump(),
-            "episodic": [
-                entry.model_dump(mode="json") for entry in self._episodic.entries()
-            ],
+            "episodic": [entry.model_dump(mode="json") for entry in self._episodic.entries()],
             "semantic": [
                 fact.model_dump(mode="json")
                 for fact in self._semantic.facts(include_superseded=True)
             ],
-            "procedural": [
-                proc.model_dump(mode="json")
-                for proc in self._procedural.entries()
-            ],
+            "procedural": [proc.model_dump(mode="json") for proc in self._procedural.entries()],
             "graph": self._graph.to_dict(),
             "self_model": self._self_model.to_dict(),
-            "general_events": [
-                ge.model_dump(mode="json")
-                for ge in self._general_events.values()
-            ],
+            "general_events": [ge.model_dump(mode="json") for ge in self._general_events.values()],
         }
 
     @classmethod

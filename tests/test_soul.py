@@ -171,10 +171,12 @@ async def test_export_awaken_preserves_memories(tmp_path):
 
     # Add memories across tiers
     await soul.remember("User likes dark mode", type=MemoryType.SEMANTIC, importance=7)
-    await soul.observe(Interaction(
-        user_input="My name is Prakash",
-        agent_output="Nice to meet you, Prakash!",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="My name is Prakash",
+            agent_output="Nice to meet you, Prakash!",
+        )
+    )
 
     soul_path = tmp_path / "aria.soul"
     await soul.export(str(soul_path))
@@ -196,10 +198,12 @@ async def test_save_load_full_roundtrip(tmp_path):
 
     soul = await Soul.birth("Aria")
     await soul.remember("User prefers Python", type=MemoryType.SEMANTIC, importance=8)
-    await soul.observe(Interaction(
-        user_input="I use FastAPI for my projects",
-        agent_output="FastAPI is great for building APIs!",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="I use FastAPI for my projects",
+            agent_output="FastAPI is great for building APIs!",
+        )
+    )
 
     await soul.save(tmp_path)
 
@@ -260,7 +264,7 @@ async def test_observe_psychology_pipeline():
         await soul.observe(interaction)
 
     # --- Attention gate: mundane "Hi there!" should NOT be in episodic ---
-    hi_results = await soul.recall("Hi there")
+    await soul.recall("Hi there")
     # The greeting may or may not match, but emotional/meaningful ones should rank higher
     meaningful_results = await soul.recall("Python bug crashing")
     assert len(meaningful_results) >= 1  # Emotional content stored
@@ -275,7 +279,7 @@ async def test_observe_psychology_pipeline():
         if has_somatic:
             somatic_entry = next(r for r in frustration_results if r.somatic)
             assert somatic_entry.somatic.valence < 0  # Frustration is negative
-            assert somatic_entry.somatic.arousal > 0   # Frustration has arousal
+            assert somatic_entry.somatic.arousal > 0  # Frustration has arousal
 
     # --- Self-model: should have accumulated self-images ---
     self_model = soul.self_model
@@ -301,16 +305,20 @@ async def test_attention_gate_filters_mundane():
 
     # Observe several mundane greetings
     for _ in range(3):
-        await soul.observe(Interaction(
-            user_input="hello",
-            agent_output="hi",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input="hello",
+                agent_output="hi",
+            )
+        )
 
     # Observe one meaningful interaction
-    await soul.observe(Interaction(
-        user_input="I'm extremely excited about learning Rust programming!",
-        agent_output="Rust is a great language for systems programming!",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="I'm extremely excited about learning Rust programming!",
+            agent_output="Rust is a great language for systems programming!",
+        )
+    )
 
     # Recall should find the meaningful one
     results = await soul.recall("Rust programming")
@@ -326,10 +334,12 @@ async def test_self_model_property():
     assert len(soul.self_model.get_active_self_images()) == 0
 
     # After technical interactions, self-images emerge
-    await soul.observe(Interaction(
-        user_input="Help me debug this Python code, it has an error",
-        agent_output="Let me look at the code and find the bug.",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="Help me debug this Python code, it has an error",
+            agent_output="Let me look at the code and find the bug.",
+        )
+    )
 
     images = soul.self_model.get_active_self_images()
     assert len(images) >= 1
@@ -340,14 +350,18 @@ async def test_self_model_persists_through_export(tmp_path):
     soul = await Soul.birth("Aria", values=["helping"])
 
     # Build up self-model
-    await soul.observe(Interaction(
-        user_input="I need help with Python programming and debugging",
-        agent_output="I can help you with that!",
-    ))
-    await soul.observe(Interaction(
-        user_input="Can you help me write a function to sort data?",
-        agent_output="Sure, here's a sorting function in Python...",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="I need help with Python programming and debugging",
+            agent_output="I can help you with that!",
+        )
+    )
+    await soul.observe(
+        Interaction(
+            user_input="Can you help me write a function to sort data?",
+            agent_output="Sure, here's a sorting function in Python...",
+        )
+    )
 
     # Verify self-model exists
     original_images = soul.self_model.get_active_self_images()
@@ -370,10 +384,12 @@ async def test_save_load_preserves_self_model(tmp_path):
     from soul_protocol.storage.file import load_soul_full
 
     soul = await Soul.birth("Aria")
-    await soul.observe(Interaction(
-        user_input="Help me write a Python script for data analysis",
-        agent_output="I can create a data analysis script for you.",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="Help me write a Python script for data analysis",
+            agent_output="I can create a data analysis script for you.",
+        )
+    )
 
     await soul.save(tmp_path)
 
@@ -390,10 +406,12 @@ async def test_episodic_entries_have_access_timestamps():
     """v0.2.0 MemoryEntry includes access_timestamps for ACT-R decay."""
     soul = await Soul.birth("Aria")
 
-    await soul.observe(Interaction(
-        user_input="I love working with databases and SQL queries",
-        agent_output="Databases are fundamental to software development!",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="I love working with databases and SQL queries",
+            agent_output="Databases are fundamental to software development!",
+        )
+    )
 
     results = await soul.recall("databases SQL")
     if results:
@@ -406,7 +424,8 @@ async def test_episodic_entries_have_access_timestamps():
 
 async def test_backward_compatible_memory_entry():
     """v0.1.0 MemoryEntry (without psychology fields) still works."""
-    from soul_protocol.types import MemoryEntry as ME, MemoryType as MT
+    from soul_protocol.types import MemoryEntry as ME
+    from soul_protocol.types import MemoryType as MT
 
     # Create an entry without any v0.2.0 fields (simulates v0.1.0 data)
     entry = ME(

@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 
 from soul_protocol.memory.search import relevance_score
 from soul_protocol.types import MemoryEntry, MemoryType
