@@ -1,5 +1,5 @@
 # CI — lint and test on every PR and push to main.
-# Updated: 2026-03-05 — Fix: install all extras so MCP tests can import fastmcp.
+# Updated: 2026-03-05 — Lint errors fixed, lint job now blocks PRs.
 name: CI
 
 on:
@@ -14,8 +14,6 @@ permissions:
 jobs:
   lint:
     runs-on: ubuntu-latest
-    # TODO: remove continue-on-error once pre-existing lint errors are fixed
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
