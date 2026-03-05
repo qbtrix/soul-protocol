@@ -1,5 +1,5 @@
 # CI — lint and test on every PR and push to main.
-# Added: 2026-03-05 — Initial CI pipeline for soul-protocol.
+# Updated: 2026-03-05 — Fix: use --extra dev (optional-dependencies, not dependency-groups).
 name: CI
 
 on:
@@ -24,7 +24,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --extra dev
 
       - name: Ruff check
         run: uv run ruff check .
@@ -47,7 +47,7 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --extra dev
 
       - name: Run tests
         run: uv run pytest tests/ -v
