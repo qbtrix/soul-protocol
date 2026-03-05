@@ -1,0 +1,18 @@
+# CODEOWNERS — require maintainer review for security-critical paths.
+# Added: 2026-03-05 — Initial CODEOWNERS for soul-protocol.
+
+# CI/CD workflows
+.github/ @qbtrix/core
+
+# Cryptography and signing
+src/soul_protocol/crypto/ @qbtrix/core
+
+# Dependencies
+pyproject.toml @qbtrix/core
+uv.lock @qbtrix/core
+
+# Soul file format (security-sensitive — handles identity data)
+src/soul_protocol/soul_file/ @qbtrix/core
+
+# CLI entry points
+src/soul_protocol/cli/ @qbtrix/core
