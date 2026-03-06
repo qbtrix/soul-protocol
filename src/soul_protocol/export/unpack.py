@@ -1,7 +1,6 @@
 # export/unpack.py — Load a SoulConfig from a .soul zip archive.
-# Updated: 2026-02-22 — Changed return type to tuple[SoulConfig, dict] to
-# return full memory data alongside the config. Reads episodic.json,
-# semantic.json, procedural.json, graph.json from memory/ if present.
+# Updated: 2026-03-06 — Reads dna.md from archive if present and includes
+# it in the returned memory_data dict under the "dna_md" key.
 
 from __future__ import annotations
 
@@ -44,6 +43,10 @@ async def unpack_soul(data: bytes) -> tuple[SoulConfig, dict]:
             mem_path = f"memory/{tier_name}.json"
             if mem_path in zf.namelist():
                 memory_data[tier_name] = json.loads(zf.read(mem_path))
+
+        # Read dna.md if present (human-readable personality snapshot)
+        if "dna.md" in zf.namelist():
+            memory_data["dna_md"] = zf.read("dna.md").decode("utf-8")
 
     config = SoulConfig.model_validate(payload)
     return config, memory_data

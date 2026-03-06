@@ -1,8 +1,10 @@
 # __init__.py — Public API for the soul-protocol package
-# Created: 2026-02-22 — Exports Soul class and core types
+# Updated: 2026-03-06 — Added Bond, Skill, SkillRegistry exports
 
 from __future__ import annotations
 
+from .bond import Bond
+from .skills import Skill, SkillRegistry
 from .soul import Soul
 from .types import (
     Biorhythms,
@@ -26,6 +28,9 @@ from .types import (
 )
 
 __all__ = [
+    "Bond",
+    "Skill",
+    "SkillRegistry",
     "Soul",
     "Biorhythms",
     "CommunicationStyle",

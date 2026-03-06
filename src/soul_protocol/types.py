@@ -1,5 +1,6 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
 # Created: 2026-02-22 — Complete type system from DSP-IMPLEMENTATION-SPEC
+# Updated: 2026-03-06 — Added Bond, incarnation, previous_lives to Identity
 
 from __future__ import annotations
 
@@ -7,6 +8,8 @@ from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
+
+from soul_protocol.bond import Bond
 
 
 # ============ Identity ============
@@ -23,6 +26,9 @@ class Identity(BaseModel):
     origin_story: str = ""
     prime_directive: str = ""
     core_values: list[str] = Field(default_factory=list)
+    bond: Bond = Field(default_factory=Bond)
+    incarnation: int = 1
+    previous_lives: list[str] = Field(default_factory=list)
 
 
 # ============ DNA / Personality ============
