@@ -1,7 +1,10 @@
 # memory/core.py — CoreMemoryManager for the always-loaded ~2KB core memory.
 # Created: 2026-02-22
+# Updated: 2026-03-06 — Fixed Bug #15: edit() now replaces values instead of
+#   appending. The old append behavior was moved to append() for callers that
+#   explicitly want incremental updates.
 # Manages the persona description and human profile that are always available
-# in context. Supports get/set/edit operations on the CoreMemory model.
+# in context. Supports get/set/edit/append operations on the CoreMemory model.
 
 from __future__ import annotations
 
@@ -35,6 +38,17 @@ class CoreMemoryManager:
             self._core.human = human
 
     def edit(self, persona: str | None = None, human: str | None = None) -> None:
+        """Replace core memory fields with new values.
+
+        Only provided fields are updated; None fields are left unchanged.
+        This is equivalent to set() — it replaces the value entirely.
+        """
+        if persona is not None:
+            self._core.persona = persona
+        if human is not None:
+            self._core.human = human
+
+    def append(self, persona: str | None = None, human: str | None = None) -> None:
         """Append to existing core memory fields.
 
         Appends the given text to the existing persona/human strings,

@@ -1,6 +1,8 @@
 # test_memory.py — Tests for the memory subsystem (MemoryManager facade).
 # Created: 2026-02-22 — Covers core memory, episodic/semantic/procedural stores,
 # cross-store recall, memory removal, knowledge graph, and clear operations.
+# Updated: 2026-03-06 — Updated test_core_memory_edit to expect replace behavior
+#   per Bug #15 fix (edit_core now replaces instead of appending).
 
 from __future__ import annotations
 
@@ -41,18 +43,18 @@ async def test_core_memory_set_and_get(manager: MemoryManager):
 
 
 async def test_core_memory_edit(manager: MemoryManager):
-    """edit_core appends text to existing core memory fields."""
+    """edit_core replaces core memory fields (Bug #15 fix)."""
     manager.set_core(persona="I am Aria.", human="User is kind.")
 
     await manager.edit_core(persona="I love helping.")
     core = manager.get_core()
-    assert "I am Aria." in core.persona
-    assert "I love helping." in core.persona
+    assert core.persona == "I love helping."
+    assert core.human == "User is kind."
 
     await manager.edit_core(human="Prefers dark mode.")
     core = manager.get_core()
-    assert "User is kind." in core.human
-    assert "Prefers dark mode." in core.human
+    assert core.persona == "I love helping."
+    assert core.human == "Prefers dark mode."
 
 
 async def test_episodic_add_and_search(manager: MemoryManager):
