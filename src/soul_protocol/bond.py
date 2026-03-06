@@ -1,3 +1,4 @@
+# Engine-level module — opinionated bond mechanics. Not part of the core protocol.
 # bond.py — Human-Soul Bond model for tracking relationship strength
 # Created: 2026-03-06 — Implements Bond model with strengthen/weaken mechanics
 

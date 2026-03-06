@@ -1,3 +1,4 @@
+# Engine-level module — opinionated XP/leveling system. Not part of the core protocol.
 # skills.py — Skills/XP progression system for souls
 # Created: 2026-03-06 — Implements Skill and SkillRegistry with XP/leveling
 
