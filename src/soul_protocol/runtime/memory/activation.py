@@ -1,5 +1,7 @@
 # memory/activation.py — ACT-R activation-based memory scoring.
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
+# Updated: v0.3.3 — Added personality parameter to compute_activation().
+#   Personality-modulated boost from OCEAN traits influences recall ranking.
+#   Backwards compatible: personality=None produces identical scores to before.
 # Updated: v0.2.2 — Accept optional SearchStrategy for pluggable spreading activation.
 #   Created: v0.2.0 — Implements Anderson's ACT-R power-law decay,
 #   spreading activation via token overlap, emotional boost from
@@ -12,8 +14,9 @@ import random
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from soul_protocol.runtime.memory.personality_modulation import compute_personality_boost
 from soul_protocol.runtime.memory.search import relevance_score
-from soul_protocol.runtime.types import MemoryEntry, SomaticMarker
+from soul_protocol.runtime.types import MemoryEntry, Personality, SomaticMarker
 
 if TYPE_CHECKING:
     from soul_protocol.runtime.memory.strategy import SearchStrategy
@@ -124,6 +127,7 @@ def compute_activation(
     now: datetime | None = None,
     noise: bool = True,
     strategy: SearchStrategy | None = None,
+    personality: Personality | None = None,
 ) -> float:
     """Compute total activation for a memory entry.
 
@@ -131,7 +135,8 @@ def compute_activation(
     1. Base-level activation (ACT-R recency + frequency decay)
     2. Spreading activation (query relevance)
     3. Emotional boost (somatic markers)
-    4. Stochastic noise (natural variability)
+    4. Personality modulation (OCEAN trait-based boost) (v0.3.3)
+    5. Stochastic noise (natural variability)
 
     Graceful degradation: entries with no access_timestamps fall back to
     importance-weighted token-overlap scoring.
@@ -142,6 +147,8 @@ def compute_activation(
         now: Current time (defaults to datetime.now()).
         noise: Whether to add stochastic noise (disable for deterministic tests).
         strategy: Optional pluggable scoring strategy for spreading activation (v0.2.2).
+        personality: Optional OCEAN personality for trait-modulated recall (v0.3.3).
+            When None or all-0.5, no modulation is applied.
 
     Returns:
         Total activation score (higher = more likely to be recalled).
@@ -162,8 +169,11 @@ def compute_activation(
     # Emotional boost
     emo = emotional_boost(entry.somatic)
 
+    # Personality modulation (v0.3.3)
+    personality_boost = compute_personality_boost(entry, personality)
+
     # Combine with weights
-    activation = (W_BASE * base) + (W_SPREAD * spread) + (W_EMOTION * emo)
+    activation = (W_BASE * base) + (W_SPREAD * spread) + (W_EMOTION * emo) + personality_boost
 
     # Add stochastic noise for natural variability
     if noise:

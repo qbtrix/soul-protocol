@@ -83,6 +83,7 @@ class Soul:
             engine=engine,
             search_strategy=search_strategy,
             seed_domains=seed_domains,
+            personality=config.dna.personality,
         )
         self._state = StateManager(config.state)
         self._evolution = EvolutionManager(config.evolution)
@@ -295,6 +296,7 @@ class Soul:
                 memory_data,
                 config.memory,
                 core_values=config.identity.core_values,
+                personality=config.dna.personality,
             )
 
         return soul
@@ -373,6 +375,7 @@ class Soul:
                 core_values=config.identity.core_values,
                 engine=engine,
                 search_strategy=search_strategy,
+                personality=config.dna.personality,
             )
 
         return soul
