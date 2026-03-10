@@ -1,16 +1,13 @@
 # memory/recall.py — RecallEngine for cross-store memory retrieval.
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
-# Updated: v0.2.2 — Accept optional SearchStrategy for pluggable spreading activation.
-#   v0.2.0 — Replaced flat relevance scoring with ACT-R activation-based
-#   ranking. Memories are now scored by base-level activation (recency + frequency),
-#   spreading activation (query relevance), and emotional boost (somatic markers).
-#   Access timestamps are updated on retrieval (strengthens future recall).
-#   Timestamps capped at MAX_ACCESS_TIMESTAMPS to bound memory growth.
+# Updated: Added structured logging for recall queries and empty results.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from soul_protocol.runtime.memory.activation import compute_activation
 from soul_protocol.runtime.memory.episodic import EpisodicStore
@@ -106,4 +103,6 @@ class RecallEngine:
             if len(entry.access_timestamps) > MAX_ACCESS_TIMESTAMPS:
                 entry.access_timestamps = entry.access_timestamps[-MAX_ACCESS_TIMESTAMPS:]
 
+        if not results:
+            logger.debug("Recall found no matches: query=%r", query)
         return results[:limit]

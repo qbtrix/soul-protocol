@@ -1,15 +1,14 @@
 # export/unpack.py — Load a SoulConfig from a .soul zip archive.
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
-# Updated: Added dna.md reading from archive into memory_data["dna_md"].
-#   v0.2.2 — Added general_events.json to memory tier extraction.
-#   v0.2.0 — Added self_model.json to memory tier extraction.
-#   Returns full memory data including self_model alongside the config.
+# Updated: Added structured logging for archive extraction.
 
 from __future__ import annotations
 
 import io
 import json
+import logging
 import zipfile
+
+logger = logging.getLogger(__name__)
 
 from soul_protocol.runtime.types import SoulConfig
 
@@ -60,4 +59,9 @@ async def unpack_soul(data: bytes) -> tuple[SoulConfig, dict]:
             memory_data["dna_md"] = zf.read("dna.md").decode("utf-8")
 
     config = SoulConfig.model_validate(payload)
+    logger.debug(
+        "Soul unpacked: name=%s, memory_tiers=%s",
+        config.identity.name,
+        list(memory_data.keys()),
+    )
     return config, memory_data

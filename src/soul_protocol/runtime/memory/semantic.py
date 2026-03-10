@@ -1,13 +1,12 @@
 # memory/semantic.py — SemanticStore for fact-based memories with confidence.
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
-# Updated: v0.2.2 — Filter superseded facts from search() and facts().
-#   Added include_superseded parameter to facts() for history access.
-#   2026-02-22 — Replaced substring search with token-overlap relevance
-#   scoring via search.py. Results now sorted by relevance, importance, recency.
+# Updated: Added structured logging for fact eviction events.
 
 from __future__ import annotations
 
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from soul_protocol.runtime.memory.search import relevance_score
 from soul_protocol.runtime.types import MemoryEntry, MemoryType
@@ -103,4 +102,5 @@ class SemanticStore:
                 self._facts[mid].created_at.timestamp(),
             ),
         )
+        logger.debug("Semantic fact evicted: id=%s", least_id)
         del self._facts[least_id]

@@ -1,31 +1,12 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
-# Updated: Wired Bond.strengthen() and SkillRegistry into observe() pipeline.
-# Updated: Added reincarnate() classmethod for lifecycle rebirth.
-#   Preserves memories, personality, and tracks incarnation lineage.
-# Updated: v0.3.2 — Added proper error handling for awaken(), export(), retire().
-#   Custom exceptions: SoulFileNotFoundError, SoulCorruptError, SoulExportError,
-#   SoulRetireError. retire() now fails before lifecycle change if save fails.
-# Updated: v0.3.1 — Wired seed_domains through Soul.__init__() → MemoryManager
-#   → SelfModelManager. Custom seed domains now replace default bootstrapping.
-# Updated: v0.3.0 — Expanded birth() with ocean, communication, biorhythms,
-#   persona, and seed_domains parameters for flexible soul configuration at
-#   creation time. Added birth_from_config() classmethod. awaken() supports
-#   directory paths (.soul/ folders). Added save_local().
-#   v0.2.3 — Added system_prompt property alias and memory_count property
-#   for paw integration convenience.
-#   v0.2.2 — Accept optional SearchStrategy for pluggable retrieval.
-#   reflect(apply=True) auto-applies consolidation. Added general_events property.
-#   v0.2.1 — Accept optional CognitiveEngine for LLM-enhanced cognition.
-#   Added reflect() method for LLM-driven memory consolidation.
-#   birth() and awaken() pass engine to MemoryManager.
-#   v0.2.0 — Psychology-informed observe() pipeline. Added self_model
-#   property for API access. to_system_prompt() includes self-model insights.
-#   MemoryManager.observe() now handles sentiment, significance gating,
-#   and self-model updates internally. Soul.observe() delegates to it and
-#   handles entity graph + state updates.
+# Updated: Added structured logging (stdlib) for lifecycle events (birth,
+#   awaken, reincarnate, export, retire), observe pipeline completion,
+#   persistence operations, and evolution. INFO for lifecycle, DEBUG for
+#   pipeline internals, WARNING for degraded paths, ERROR for failures.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +38,8 @@ from .types import (
     SoulConfig,
     SoulState,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class Soul:
@@ -189,6 +172,7 @@ class Soul:
             human="",
         )
 
+        logger.info("Soul born: name=%s, did=%s", name, identity.did)
         return soul
 
     @classmethod
@@ -233,6 +217,7 @@ class Soul:
         if not isinstance(data, dict):
             raise ValueError(f"Config file is empty or not a valid mapping: {path}")
 
+        logger.info("Birthing soul from config: %s", path)
         return await cls.birth(
             engine=engine,
             **data,
@@ -297,6 +282,13 @@ class Soul:
                 core_values=config.identity.core_values,
             )
 
+        logger.info(
+            "Soul reincarnated: name=%s, incarnation=%d, old_did=%s, new_did=%s",
+            new_name,
+            identity.incarnation,
+            old_soul.did,
+            identity.did,
+        )
         return soul
 
     @classmethod
@@ -322,6 +314,7 @@ class Soul:
             try:
                 config, memory_data = await unpack_soul(source)
             except Exception as e:
+                logger.error("Failed to awaken soul from bytes: %s", e)
                 raise SoulCorruptError("<bytes>", str(e)) from e
         else:
             path = Path(source)
@@ -339,6 +332,9 @@ class Soul:
                     try:
                         config, memory_data = await unpack_soul(path.read_bytes())
                     except Exception as e:
+                        logger.error(
+                            "Corrupt .soul archive: path=%s, error=%s", path, e
+                        )
                         raise SoulCorruptError(str(path), str(e)) from e
                 elif path.suffix == ".json":
                     config = SoulConfig.model_validate_json(path.read_text())
@@ -375,6 +371,12 @@ class Soul:
                 search_strategy=search_strategy,
             )
 
+        logger.info(
+            "Soul awakened: name=%s, did=%s, memories=%d",
+            soul.name,
+            soul.did,
+            soul.memory_count,
+        )
         return soul
 
     @classmethod
@@ -547,12 +549,15 @@ class Soul:
         min_importance: int = 0,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories."""
-        return await self._memory.recall(
+        results = await self._memory.recall(
             query=query,
             limit=limit,
             types=types,
             min_importance=min_importance,
         )
+        if not results:
+            logger.debug("Recall returned no results: query=%r", query)
+        return results
 
     async def observe(self, interaction: Interaction) -> None:
         """Soul observes an interaction and learns from it.
@@ -572,6 +577,8 @@ class Soul:
           8. Update soul state (energy/social_battery drain)
           9. Check evolution triggers
         """
+        logger.debug("observe() started: user_input=%r", interaction.user_input[:80])
+
         # Delegate to psychology-informed memory pipeline
         result = await self._memory.observe(interaction)
 
@@ -587,7 +594,9 @@ class Soul:
                 }
                 relation = ent.get("relation")
                 if relation:
-                    graph_ent["relationships"].append({"target": "user", "relation": relation})
+                    graph_ent["relationships"].append(
+                        {"target": "user", "relation": relation}
+                    )
                 graph_entities.append(graph_ent)
 
             await self._memory.update_graph(graph_entities)
@@ -610,12 +619,20 @@ class Soul:
                 skill.add_xp(10)
             else:
                 from .skills import Skill
+
                 new_skill = Skill(id=entity_name, name=entity["name"])
                 new_skill.add_xp(10)
                 self._skills.add(new_skill)
 
         # Check for evolution triggers
         await self._evolution.check_triggers(self._dna, interaction)
+
+        logger.debug(
+            "observe() complete: significant=%s, facts=%d, entities=%d",
+            result.get("is_significant"),
+            len(result.get("facts", [])),
+            len(raw_entities),
+        )
 
     async def forget(self, memory_id: str) -> bool:
         """Soul forgets a specific memory."""
@@ -625,7 +642,9 @@ class Soul:
         """Get the always-loaded core memory."""
         return self._memory.get_core()
 
-    async def edit_core_memory(self, *, persona: str | None = None, human: str | None = None):
+    async def edit_core_memory(
+        self, *, persona: str | None = None, human: str | None = None
+    ):
         """Edit core memory."""
         await self._memory.edit_core(persona=persona, human=human)
 
@@ -678,7 +697,9 @@ class Soul:
 
     # ============ Evolution ============
 
-    async def propose_evolution(self, trait: str, new_value: str, reason: str) -> Mutation:
+    async def propose_evolution(
+        self, trait: str, new_value: str, reason: str
+    ) -> Mutation:
         """Propose a trait mutation."""
         return await self._evolution.propose(
             dna=self._dna,
@@ -692,6 +713,9 @@ class Soul:
         result = await self._evolution.approve(mutation_id)
         if result:
             self._dna = self._evolution.apply(self._dna, mutation_id)
+            logger.info(
+                "Evolution approved and applied: mutation_id=%s", mutation_id
+            )
         return result
 
     async def reject_evolution(self, mutation_id: str) -> bool:
@@ -715,6 +739,7 @@ class Soul:
         save_path = Path(path) if path else None
         memory_data = self._memory.to_dict()
         await save_soul_full(self.serialize(), memory_data, path=save_path)
+        logger.info("Soul saved: name=%s, path=%s", self.name, save_path)
 
     async def save_local(self, path: str | Path = ".soul") -> None:
         """Save to a local directory (flat, no soul_id nesting).
@@ -729,6 +754,7 @@ class Soul:
         config = self.serialize()
         memory_data = self._memory.to_dict()
         await save_soul_flat(config, memory_data, Path(path))
+        logger.info("Soul saved locally: name=%s, path=%s", self.name, path)
 
     async def export(self, path: str | Path) -> None:
         """Export soul as a portable .soul file with full memory data."""
@@ -738,12 +764,22 @@ class Soul:
             memory_data = self._memory.to_dict()
             data = await pack_soul(self.serialize(), memory_data=memory_data)
             Path(path).write_bytes(data)
+            logger.info(
+                "Soul exported: name=%s, path=%s, size=%d bytes",
+                self.name,
+                path,
+                len(data),
+            )
         except PermissionError as e:
+            logger.error("Export failed (permission denied): path=%s", path)
             raise SoulExportError(str(path), "permission denied") from e
         except OSError as e:
+            logger.error("Export failed: path=%s, error=%s", path, e)
             raise SoulExportError(str(path), str(e)) from e
 
-    async def retire(self, *, farewell: bool = False, preserve_memories: bool = True) -> None:
+    async def retire(
+        self, *, farewell: bool = False, preserve_memories: bool = True
+    ) -> None:
         """Retire this soul with dignity.
 
         If preserve_memories is True (default), saves all memories before
@@ -756,11 +792,17 @@ class Soul:
             try:
                 await self.save()
             except Exception as e:
+                logger.error(
+                    "Retire failed (save error): name=%s, error=%s",
+                    self.name,
+                    e,
+                )
                 raise SoulRetireError(str(e)) from e
 
         self._lifecycle = LifecycleState.RETIRED
         await self._memory.clear()
         self._state.reset()
+        logger.info("Soul retired: name=%s, did=%s", self.name, self.did)
 
     # ============ Serialization ============
 
