@@ -1,4 +1,5 @@
 # memory/recall.py — RecallEngine for cross-store memory retrieval.
+# Updated: 2026-03-10 — Accept optional personality param (passed by MemoryManager, reserved for future use).
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Updated: v0.2.2 — Accept optional SearchStrategy for pluggable spreading activation.
 #   v0.2.0 — Replaced flat relevance scoring with ACT-R activation-based
@@ -40,11 +41,13 @@ class RecallEngine:
         semantic: SemanticStore,
         procedural: ProceduralStore,
         strategy: SearchStrategy | None = None,
+        personality: object | None = None,
     ) -> None:
         self._episodic = episodic
         self._semantic = semantic
         self._procedural = procedural
         self._strategy = strategy
+        self._personality = personality
 
     async def recall(
         self,
