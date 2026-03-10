@@ -327,5 +327,6 @@ class SoulManifest(BaseModel):
     soul_id: str = ""
     soul_name: str = ""
     checksum: str = ""
+    encrypted: bool = False
     stats: dict = Field(default_factory=dict)
     eternal: EternalLinks = Field(default_factory=EternalLinks)

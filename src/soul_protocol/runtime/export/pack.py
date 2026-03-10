@@ -1,5 +1,6 @@
 # export/pack.py — Create .soul zip archives from a SoulConfig.
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
+# Updated: feat/soul-encryption — Added optional password parameter for AES-256-GCM
+#   encryption at rest. Encrypted files use .enc extension, manifest stays readable.
 # Updated: v0.2.2 — Added general_events.json to memory/ directory in archives.
 #   v0.2.0 — Added self_model.json to memory/ directory in archives.
 #   Includes episodic, semantic, procedural, graph, self_model, and general_events tiers.
@@ -18,54 +19,64 @@ from soul_protocol.runtime.types import SoulConfig, SoulManifest
 async def pack_soul(
     config: SoulConfig,
     memory_data: dict | None = None,
+    *,
+    password: str | None = None,
 ) -> bytes:
     """Create a ``.soul`` zip archive from a ``SoulConfig``.
 
     The archive always contains:
 
-    - ``manifest.json`` — archive metadata (``SoulManifest``)
+    - ``manifest.json`` — archive metadata (``SoulManifest``), always unencrypted
     - ``soul.json`` — the complete ``SoulConfig``
     - ``dna.md`` — human-readable DNA markdown
     - ``state.json`` — current ``SoulState`` snapshot
     - ``memory/core.json`` — ``CoreMemory`` (persona + human)
 
-    If ``memory_data`` is provided (dict from ``MemoryManager.to_dict()``),
-    the archive additionally includes:
-
-    - ``memory/episodic.json``
-    - ``memory/semantic.json``
-    - ``memory/procedural.json``
-    - ``memory/graph.json``
+    When ``password`` is provided, all files except ``manifest.json`` are
+    encrypted with AES-256-GCM. Encrypted files get a ``.enc`` extension.
 
     Args:
         config: The SoulConfig to archive.
-        memory_data: Optional full memory state dict. If None, only core
-            memory from the config is included (backward compatible).
+        memory_data: Optional full memory state dict.
+        password: Optional password for encryption. If None, no encryption.
 
     Returns:
         The zip archive as raw bytes.
     """
+    encrypting = password is not None
+
+    encrypt_fn = None
+    if encrypting:
+        from soul_protocol.runtime.export.crypto import encrypt_blob
+
+        encrypt_fn = encrypt_blob
+
+    def _write(zf: zipfile.ZipFile, name: str, content: str | bytes) -> None:
+        """Write a file into the ZIP, encrypting if a password was given."""
+        raw = content.encode("utf-8") if isinstance(content, str) else content
+        if encrypting and encrypt_fn is not None:
+            zf.writestr(f"{name}.enc", encrypt_fn(raw, password))  # type: ignore[arg-type]
+        else:
+            zf.writestr(name, raw)
+
     buf = io.BytesIO()
 
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         # soul.json — full config
-        soul_json = config.model_dump_json(indent=2)
-        zf.writestr("soul.json", soul_json)
+        _write(zf, "soul.json", config.model_dump_json(indent=2))
 
         # dna.md — human-readable personality blueprint
-        dna_md = dna_to_markdown(config.identity, config.dna)
-        zf.writestr("dna.md", dna_md)
+        _write(zf, "dna.md", dna_to_markdown(config.identity, config.dna))
 
         # state.json — current state
-        state_json = config.state.model_dump_json(indent=2)
-        zf.writestr("state.json", state_json)
+        _write(zf, "state.json", config.state.model_dump_json(indent=2))
 
         # memory/core.json — always-loaded core memory
         if memory_data and "core" in memory_data:
             core_json = json.dumps(memory_data["core"], indent=2, default=str)
         else:
             core_json = config.core_memory.model_dump_json(indent=2)
-        zf.writestr("memory/core.json", core_json)
+        _write(zf, "memory/core.json", core_json)
 
         # Additional memory tiers (only if memory_data provided)
         if memory_data:
@@ -79,12 +90,13 @@ async def pack_soul(
             ]:
                 default = {} if tier_name in ("graph", "self_model") else []
                 tier_data = memory_data.get(tier_name, default)
-                zf.writestr(
+                _write(
+                    zf,
                     f"memory/{tier_name}.json",
                     json.dumps(tier_data, indent=2, default=str),
                 )
 
-        # manifest.json — archive metadata (written last so we know contents)
+        # manifest.json — archive metadata (always unencrypted, written last)
         manifest = SoulManifest(
             format_version="1.0.0",
             created=config.identity.born,
@@ -92,6 +104,7 @@ async def pack_soul(
             soul_id=config.identity.did,
             soul_name=config.identity.name,
             checksum="",  # MVP: no checksum yet
+            encrypted=encrypting,
             stats={
                 "version": config.version,
                 "lifecycle": config.lifecycle.value,

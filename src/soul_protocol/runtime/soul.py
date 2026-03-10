@@ -1,4 +1,6 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: feat/soul-encryption — Added password parameter to awaken() and export()
+#   for encrypted .soul file support.
 # Updated: Wired Bond.strengthen() and SkillRegistry into observe() pipeline.
 # Updated: Added reincarnate() classmethod for lifecycle rebirth.
 #   Preserves memories, personality, and tracks incarnation lineage.
@@ -305,6 +307,7 @@ class Soul:
         source: str | Path | bytes,
         engine: CognitiveEngine | None = None,
         search_strategy: SearchStrategy | None = None,
+        password: str | None = None,
     ) -> Soul:
         """Awaken a Soul from a .soul file, directory, soul.json, soul.yaml, or soul.md.
 
@@ -313,14 +316,17 @@ class Soul:
                     Directories must contain a ``soul.json`` file.
             engine: Optional CognitiveEngine for LLM-enhanced cognition.
             search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
+            password: Optional password for decrypting encrypted .soul archives.
         """
-        from .exceptions import SoulCorruptError, SoulFileNotFoundError
+        from .exceptions import SoulCorruptError, SoulEncryptedError, SoulFileNotFoundError
 
         memory_data: dict = {}
 
         if isinstance(source, bytes):
             try:
-                config, memory_data = await unpack_soul(source)
+                config, memory_data = await unpack_soul(source, password=password)
+            except SoulEncryptedError:
+                raise
             except Exception as e:
                 raise SoulCorruptError("<bytes>", str(e)) from e
         else:
@@ -337,7 +343,11 @@ class Soul:
                         raise SoulFileNotFoundError(str(path))
                 elif path.suffix == ".soul":
                     try:
-                        config, memory_data = await unpack_soul(path.read_bytes())
+                        config, memory_data = await unpack_soul(
+                            path.read_bytes(), password=password
+                        )
+                    except SoulEncryptedError:
+                        raise
                     except Exception as e:
                         raise SoulCorruptError(str(path), str(e)) from e
                 elif path.suffix == ".json":
@@ -357,7 +367,7 @@ class Soul:
                     )
                 else:
                     raise ValueError(f"Unknown soul format: {path.suffix}")
-            except (SoulFileNotFoundError, SoulCorruptError):
+            except (SoulFileNotFoundError, SoulCorruptError, SoulEncryptedError):
                 raise
             except PermissionError as e:
                 raise SoulFileNotFoundError(str(path)) from e
@@ -730,13 +740,21 @@ class Soul:
         memory_data = self._memory.to_dict()
         await save_soul_flat(config, memory_data, Path(path))
 
-    async def export(self, path: str | Path) -> None:
-        """Export soul as a portable .soul file with full memory data."""
+    async def export(self, path: str | Path, *, password: str | None = None) -> None:
+        """Export soul as a portable .soul file with full memory data.
+
+        Args:
+            path: File path for the exported .soul archive.
+            password: Optional password for AES-256-GCM encryption at rest.
+                When provided, all content except the manifest is encrypted.
+        """
         from .exceptions import SoulExportError
 
         try:
             memory_data = self._memory.to_dict()
-            data = await pack_soul(self.serialize(), memory_data=memory_data)
+            data = await pack_soul(
+                self.serialize(), memory_data=memory_data, password=password
+            )
             Path(path).write_bytes(data)
         except PermissionError as e:
             raise SoulExportError(str(path), "permission denied") from e
