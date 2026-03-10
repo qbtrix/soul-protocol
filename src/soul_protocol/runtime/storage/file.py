@@ -1,20 +1,16 @@
 # storage/file.py — FileStorage backend persisting souls to the local filesystem.
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
-# Updated: v0.3.0 — Added save_soul_flat() for .soul/ project folder support.
-#   Flat save writes directly to target dir without soul_id nesting.
-#   v0.2.2 — Added general_events.json persistence alongside memory tiers.
-#   v0.2.0 — Added self_model.json persistence alongside memory tiers.
-#   save_soul_full/load_soul_full for full memory persistence.
-#   Atomic writes via temp directory + shutil.move.
-#   Path traversal guard on soul_id.
+# Updated: Added structured logging for save/load operations.
 
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import tempfile
 import warnings
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from soul_protocol.runtime.dna.prompt import dna_to_markdown
 from soul_protocol.runtime.types import SoulConfig
@@ -195,6 +191,8 @@ async def save_soul_full(
             shutil.rmtree(soul_dir)
         shutil.move(str(tmp_dir), str(soul_dir))
 
+    logger.debug("Soul saved (full): path=%s", soul_dir)
+
 
 async def load_soul_full(path: Path) -> tuple[SoulConfig | None, dict]:
     """Load soul config + full memory data from disk.
@@ -228,6 +226,7 @@ async def load_soul_full(path: Path) -> tuple[SoulConfig | None, dict]:
             if f.exists():
                 memory_data[name] = json.loads(f.read_text(encoding="utf-8"))
 
+    logger.debug("Soul loaded (full): path=%s", path)
     return config, memory_data
 
 

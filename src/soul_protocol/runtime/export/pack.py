@@ -4,13 +4,17 @@
 # Updated: v0.2.2 — Added general_events.json to memory/ directory in archives.
 #   v0.2.0 — Added self_model.json to memory/ directory in archives.
 #   Includes episodic, semantic, procedural, graph, self_model, and general_events tiers.
+# Updated: Added structured logging for archive creation.
 
 from __future__ import annotations
 
 import io
 import json
+import logging
 import zipfile
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from soul_protocol.runtime.dna.prompt import dna_to_markdown
 from soul_protocol.runtime.types import SoulConfig, SoulManifest
@@ -113,4 +117,10 @@ async def pack_soul(
         manifest_json = manifest.model_dump_json(indent=2)
         zf.writestr("manifest.json", manifest_json)
 
-    return buf.getvalue()
+    data = buf.getvalue()
+    logger.debug(
+        "Soul packed: name=%s, size=%d bytes",
+        config.identity.name,
+        len(data),
+    )
+    return data

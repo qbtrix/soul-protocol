@@ -1,13 +1,13 @@
 # memory/episodic.py — EpisodicStore for timestamped interaction memories.
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
-# Updated: v0.2.0 — Store somatic markers and significance scores on entries.
-#   Eviction now considers activation (significance + access) not just age.
-#   Added store_with_psychology() for the enriched observe pipeline.
+# Updated: Added structured logging for memory eviction events.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from soul_protocol.runtime.memory.search import relevance_score
 from soul_protocol.runtime.types import Interaction, MemoryEntry, MemoryType, SomaticMarker
@@ -172,6 +172,7 @@ class EpisodicStore:
             self._memories,
             key=lambda mid: eviction_score(self._memories[mid]),
         )
+        logger.debug("Episodic memory evicted: id=%s", victim_id)
         del self._memories[victim_id]
 
     # Legacy alias

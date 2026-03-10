@@ -1,18 +1,14 @@
 # memory/self_model.py — Klein's self-concept model for digital souls.
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
-# Updated: 2026-02-25 — Capped per-interaction keyword expansion to 10 tokens,
-#   preferring longer (more specific) words. Prevents early domains from bloating
-#   and absorbing unrelated topics (e.g., a cooking domain swallowing music content).
-# Updated: 2026-02-23 — Emergent domain discovery replaces hardcoded domain matching.
-#   Domains now grow organically from interaction content instead of being limited
-#   to 6 predefined categories. DEFAULT_SEED_DOMAINS provides backward-compatible
-#   bootstrapping. Domain keywords expand over time as the soul encounters new content.
-#   Added STOP_WORDS filtering, dynamic domain creation, and seed_domains constructor param.
+# Updated: Added structured logging for domain discovery and self-image updates.
 
 from __future__ import annotations
 
+import logging
+
 from soul_protocol.runtime.memory.search import tokenize
 from soul_protocol.runtime.types import Interaction, MemoryEntry, SelfImage
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Stop words: common English words that don't contribute to domain identity.
@@ -404,6 +400,7 @@ class SelfModelManager:
             domain_name = self._generate_domain_name(meaningful)
             self._domain_keywords[domain_name] = set(meaningful)
             self._update_domain(domain_name, len(meaningful))
+            logger.debug("New self-model domain discovered: %s", domain_name)
 
         # Extract relationship notes from facts
         for fact in extracted_facts:
