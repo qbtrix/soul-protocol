@@ -1,4 +1,6 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: 2026-03-10 — Added forget(), forget_entity(), forget_before() for
+#   GDPR-compliant memory deletion. Renamed old forget(memory_id) to forget_by_id().
 # Updated: Wired Bond.strengthen() and SkillRegistry into observe() pipeline.
 # Updated: Added reincarnate() classmethod for lifecycle rebirth.
 #   Preserves memories, personality, and tracks incarnation lineage.
@@ -26,6 +28,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -610,6 +613,7 @@ class Soul:
                 skill.add_xp(10)
             else:
                 from .skills import Skill
+
                 new_skill = Skill(id=entity_name, name=entity["name"])
                 new_skill.add_xp(10)
                 self._skills.add(new_skill)
@@ -617,9 +621,71 @@ class Soul:
         # Check for evolution triggers
         await self._evolution.check_triggers(self._dna, interaction)
 
-    async def forget(self, memory_id: str) -> bool:
-        """Soul forgets a specific memory."""
+    async def forget_by_id(self, memory_id: str) -> bool:
+        """Soul forgets a specific memory by ID.
+
+        For targeted deletion, prefer forget(), forget_entity(), or
+        forget_before() which provide GDPR-compliant bulk deletion
+        with audit trails.
+        """
         return await self._memory.remove(memory_id)
+
+    async def forget(self, query: str) -> dict:
+        """Forget memories matching a query across all tiers.
+
+        Searches episodic, semantic, and procedural memory stores for
+        content matching the query, and deletes all matches. Records
+        a deletion audit entry (without storing deleted content).
+
+        Args:
+            query: Search query to match against memory content.
+
+        Returns:
+            Dict with deletion results per tier and total count.
+        """
+        return await self._memory.forget(query)
+
+    async def forget_entity(self, entity: str) -> dict:
+        """Forget an entity and all related memories.
+
+        Removes the entity from the knowledge graph (node + edges)
+        and deletes any memories mentioning the entity across all tiers.
+
+        Args:
+            entity: The entity name to forget.
+
+        Returns:
+            Dict with deletion results including graph edges removed.
+        """
+        return await self._memory.forget_entity(entity)
+
+    async def forget_before(self, timestamp: datetime) -> dict:
+        """Forget all memories created before a timestamp.
+
+        Bulk deletes memories from all tiers that are older than
+        the given cutoff.
+
+        Args:
+            timestamp: Cutoff datetime. Memories older than this are deleted.
+
+        Returns:
+            Dict with deletion results per tier and total count.
+        """
+        return await self._memory.forget_before(timestamp)
+
+    @property
+    def deletion_audit(self) -> list[dict]:
+        """Access the deletion audit trail.
+
+        Returns a list of audit records. Each record contains:
+          - deleted_at: ISO timestamp
+          - count: number of items deleted
+          - reason: description of the operation
+          - tiers: per-tier breakdown
+
+        No deleted content is stored in the audit trail.
+        """
+        return self._memory.deletion_audit
 
     def get_core_memory(self) -> CoreMemory:
         """Get the always-loaded core memory."""

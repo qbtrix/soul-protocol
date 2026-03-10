@@ -1,4 +1,6 @@
 # memory/episodic.py — EpisodicStore for timestamped interaction memories.
+# Updated: 2026-03-10 — Added search_and_delete() and delete_before() for
+#   GDPR-compliant targeted and time-based memory deletion.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Updated: v0.2.0 — Store somatic markers and significance scores on entries.
 #   Eviction now considers activation (significance + access) not just age.
@@ -154,6 +156,39 @@ class EpisodicStore:
         """
         recent = self.entries()[:n]
         return [e.content for e in recent]
+
+    async def search_and_delete(self, query: str) -> list[str]:
+        """Search for memories matching a query and delete them.
+
+        Uses the same token-overlap scoring as search(). All matches
+        with a relevance score > 0.0 are removed.
+
+        Args:
+            query: The search query to match against memory content.
+
+        Returns:
+            List of deleted memory IDs.
+        """
+        matches = await self.search(query, limit=len(self._memories))
+        deleted_ids = [entry.id for entry in matches]
+        for mid in deleted_ids:
+            del self._memories[mid]
+        return deleted_ids
+
+    async def delete_before(self, timestamp: datetime) -> list[str]:
+        """Delete all memories created before a given timestamp.
+
+        Args:
+            timestamp: The cutoff datetime. Memories older than this
+                       are deleted.
+
+        Returns:
+            List of deleted memory IDs.
+        """
+        to_delete = [mid for mid, entry in self._memories.items() if entry.created_at < timestamp]
+        for mid in to_delete:
+            del self._memories[mid]
+        return to_delete
 
     def _evict_least_significant(self) -> None:
         """Remove the least significant entry to make room.

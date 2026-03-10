@@ -1,4 +1,6 @@
 # memory/procedural.py — ProceduralStore for how-to memories.
+# Updated: 2026-03-10 — Added search_and_delete() and delete_before() for
+#   GDPR-compliant targeted and time-based memory deletion.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Updated: 2026-02-22 — Added entries() method for listing all procedures;
 # replaced substring search with token-overlap relevance scoring via search.py.
@@ -6,6 +8,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from soul_protocol.runtime.memory.search import relevance_score
 from soul_protocol.runtime.types import MemoryEntry, MemoryType
@@ -58,6 +61,39 @@ class ProceduralStore:
             del self._procedures[memory_id]
             return True
         return False
+
+    async def search_and_delete(self, query: str) -> list[str]:
+        """Search for procedures matching a query and delete them.
+
+        Uses the same token-overlap scoring as search(). All matches
+        with a relevance score > 0.0 are removed.
+
+        Args:
+            query: The search query to match against procedure content.
+
+        Returns:
+            List of deleted procedure IDs.
+        """
+        matches = await self.search(query, limit=len(self._procedures))
+        deleted_ids = [entry.id for entry in matches]
+        for mid in deleted_ids:
+            del self._procedures[mid]
+        return deleted_ids
+
+    async def delete_before(self, timestamp: datetime) -> list[str]:
+        """Delete all procedures created before a given timestamp.
+
+        Args:
+            timestamp: The cutoff datetime. Procedures older than this
+                       are deleted.
+
+        Returns:
+            List of deleted procedure IDs.
+        """
+        to_delete = [mid for mid, entry in self._procedures.items() if entry.created_at < timestamp]
+        for mid in to_delete:
+            del self._procedures[mid]
+        return to_delete
 
     def entries(self) -> list[MemoryEntry]:
         """Return all procedural memories, sorted by importance desc then recency desc."""
