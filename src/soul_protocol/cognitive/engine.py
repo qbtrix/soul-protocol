@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -36,6 +37,8 @@ from soul_protocol.types import (
 
 if TYPE_CHECKING:
     from soul_protocol.memory.self_model import SelfModelManager
+
+_log = logging.getLogger(__name__)
 
 
 def _heuristic_sentiment(text: str) -> SomaticMarker:
@@ -282,7 +285,8 @@ class CognitiveProcessor:
                 arousal=_clamp(data["arousal"], 0.0, 1.0),
                 label=data.get("label", "neutral"),
             )
-        except Exception:
+        except Exception as exc:
+            _log.warning("detect_sentiment failed (%s); falling back to heuristic", exc)
             if self._fallback:
                 return _heuristic_sentiment(text)
             return SomaticMarker()
@@ -312,7 +316,8 @@ class CognitiveProcessor:
                 emotional_intensity=_clamp(data["emotional_intensity"], 0.0, 1.0),
                 goal_relevance=_clamp(data["goal_relevance"], 0.0, 1.0),
             )
-        except Exception:
+        except Exception as exc:
+            _log.warning("assess_significance failed (%s); falling back to heuristic", exc)
             if self._fallback:
                 return _heuristic_significance(interaction, core_values, recent_contents)
             return SignificanceScore()
@@ -347,7 +352,8 @@ class CognitiveProcessor:
                     )
                 )
             return entries
-        except Exception:
+        except Exception as exc:
+            _log.warning("extract_facts failed (%s); falling back to heuristic", exc)
             if self._fact_extractor:
                 return self._fact_extractor(interaction)
             return []
@@ -370,15 +376,19 @@ class CognitiveProcessor:
 
             entities: list[dict] = []
             for item in data:
+                name = item.get("name", "")
+                if not name:
+                    continue
                 entities.append(
                     {
-                        "name": item["name"],
+                        "name": name,
                         "type": item.get("type", "unknown"),
                         "relation": item.get("relation"),
                     }
                 )
             return entities
-        except Exception:
+        except Exception as exc:
+            _log.warning("extract_entities failed (%s); falling back to heuristic", exc)
             if self._entity_extractor:
                 return self._entity_extractor(interaction)
             return []
@@ -431,8 +441,8 @@ class CognitiveProcessor:
                 if entity and note:
                     self_model._relationship_notes[entity] = note
 
-        except Exception:
-            # Fallback to heuristic
+        except Exception as exc:
+            _log.warning("update_self_model failed (%s); falling back to heuristic", exc)
             self_model.update_from_interaction(interaction, facts)
 
     async def reflect(
@@ -475,5 +485,6 @@ class CognitiveProcessor:
                 emotional_patterns=data.get("emotional_patterns", ""),
                 self_insight=data.get("self_insight", ""),
             )
-        except Exception:
+        except Exception as exc:
+            _log.warning("reflect failed (%s); returning None", exc)
             return None
