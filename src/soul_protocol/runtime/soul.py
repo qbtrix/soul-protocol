@@ -1,4 +1,7 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: feat/dspy-integration — Added use_dspy and dspy_model parameters to
+#   birth() for optional DSPy-optimized cognitive processing. DSPy processor
+#   stored as _dspy_processor when enabled, used alongside standard pipeline.
 # Updated: Wired Bond.strengthen() and SkillRegistry into observe() pipeline.
 # Updated: Added reincarnate() classmethod for lifecycle rebirth.
 #   Preserves memories, personality, and tracks incarnation lineage.
@@ -68,6 +71,9 @@ class Soul:
         engine: CognitiveEngine | None = None,
         search_strategy: SearchStrategy | None = None,
         seed_domains: dict[str, list[str]] | None = None,
+        use_dspy: bool = False,
+        dspy_model: str | None = None,
+        dspy_optimized_path: str | None = None,
     ) -> None:
         self._config = config
         self._identity = config.identity
@@ -88,6 +94,21 @@ class Soul:
         self._evolution = EvolutionManager(config.evolution)
         self._skills = SkillRegistry()
 
+        # Optional DSPy-optimized cognitive processor
+        self._dspy_processor = None
+        if use_dspy:
+            try:
+                from soul_protocol.runtime.cognitive.dspy_adapter import DSPyCognitiveProcessor
+
+                model = dspy_model or "anthropic/claude-haiku-4-5-20251001"
+                self._dspy_processor = DSPyCognitiveProcessor(
+                    lm_model=model,
+                    optimized_path=dspy_optimized_path,
+                )
+            except ImportError:
+                # dspy not installed — silently fall back to heuristic
+                pass
+
     # ============ Lifecycle ============
 
     @classmethod
@@ -107,6 +128,10 @@ class Soul:
         biorhythms: dict[str, Any] | None = None,
         persona: str | None = None,
         seed_domains: dict[str, list[str]] | None = None,
+        # DSPy integration — optional optimized cognitive processing
+        use_dspy: bool = False,
+        dspy_model: str | None = None,
+        dspy_optimized_path: str | None = None,
         **kwargs,
     ) -> Soul:
         """Birth a new Soul.
@@ -131,6 +156,11 @@ class Soul:
             seed_domains: Custom seed domains for the self-model, e.g.
                           {"cooking": ["recipe", "bake", ...]}. Replaces
                           the default 6 bootstrapping domains.
+            use_dspy: If True, use DSPy-optimized cognitive processing.
+                Requires the dspy package to be installed (pip install soul-protocol[dspy]).
+                Falls back silently to heuristic if dspy is not available.
+            dspy_model: DSPy-compatible LM model string (default: claude-haiku-4-5).
+            dspy_optimized_path: Path to pre-optimized DSPy module weights.
             **kwargs: Additional arguments (reserved for future use).
         """
         identity = Identity(
@@ -181,6 +211,9 @@ class Soul:
             engine=engine,
             search_strategy=search_strategy,
             seed_domains=seed_domains,
+            use_dspy=use_dspy,
+            dspy_model=dspy_model,
+            dspy_optimized_path=dspy_optimized_path,
         )
 
         # Initialize core memory
