@@ -1,10 +1,13 @@
 # test_e2e_new_primitives.py — End-to-end lifecycle test for new soul primitives
+# Updated: phase1-ablation-fixes — Updated bond assertions for logarithmic growth curve.
 # Created: 2026-03-06 — Full lifecycle: birth, bond, skills, retire, reincarnate
 
 from __future__ import annotations
 
 import io
 import zipfile
+
+import pytest
 
 from soul_protocol.runtime.export.pack import pack_soul
 from soul_protocol.runtime.export.unpack import unpack_soul
@@ -33,7 +36,8 @@ async def test_full_lifecycle():
     soul.identity.bond.bonded_to = "did:key:prakash-001"
     soul.identity.bond.strengthen(10.0)
     soul.identity.bond.strengthen(5.0)
-    assert soul.identity.bond.bond_strength == 65.0
+    # Logarithmic: 50 + 10*(50/100) = 55, then 55 + 5*(45/100) = 57.25
+    assert soul.identity.bond.bond_strength == pytest.approx(57.25)
     assert soul.identity.bond.interaction_count == 2
 
     # === Phase 3: Interact and remember ===

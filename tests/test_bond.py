@@ -1,4 +1,5 @@
 # test_bond.py — Tests for the Human-Soul Bond model
+# Updated: phase1-ablation-fixes — Updated strengthen tests for logarithmic growth curve.
 # Created: 2026-03-06 — Bond creation, strengthen, weaken, bounds checking
 
 from __future__ import annotations
@@ -35,15 +36,17 @@ class TestStrengthen:
     """Tests for Bond.strengthen()."""
 
     def test_strengthen_default(self):
+        """Logarithmic: at bond=50, gain = 1.0 * (50/100) = 0.5."""
         bond = Bond(bond_strength=50.0)
         bond.strengthen()
-        assert bond.bond_strength == 51.0
+        assert bond.bond_strength == 50.5
         assert bond.interaction_count == 1
 
     def test_strengthen_custom_amount(self):
+        """At bond=50, gain = 10 * (50/100) = 5.0."""
         bond = Bond(bond_strength=50.0)
         bond.strengthen(10.0)
-        assert bond.bond_strength == 60.0
+        assert bond.bond_strength == 55.0
         assert bond.interaction_count == 1
 
     def test_strengthen_increments_interaction_count(self):
@@ -56,7 +59,8 @@ class TestStrengthen:
     def test_strengthen_caps_at_100(self):
         bond = Bond(bond_strength=99.5)
         bond.strengthen(5.0)
-        assert bond.bond_strength == 100.0
+        # gain = 5.0 * (0.5 / 100) = 0.025 → 99.525
+        assert bond.bond_strength == pytest.approx(99.525)
 
 
 class TestWeaken:

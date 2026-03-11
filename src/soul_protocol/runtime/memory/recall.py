@@ -1,4 +1,6 @@
 # memory/recall.py — RecallEngine for cross-store memory retrieval.
+# Updated: phase1-ablation-fixes — Default to BM25SearchStrategy instead of
+#   TokenOverlapStrategy when no strategy is provided.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Updated: v0.2.2 — Accept optional SearchStrategy for pluggable spreading activation.
 #   v0.2.0 — Replaced flat relevance scoring with ACT-R activation-based
@@ -16,6 +18,7 @@ from soul_protocol.runtime.memory.activation import compute_activation
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.procedural import ProceduralStore
 from soul_protocol.runtime.memory.semantic import SemanticStore
+from soul_protocol.runtime.memory.strategy import BM25SearchStrategy
 from soul_protocol.runtime.types import MemoryEntry, MemoryType
 
 if TYPE_CHECKING:
@@ -44,7 +47,7 @@ class RecallEngine:
         self._episodic = episodic
         self._semantic = semantic
         self._procedural = procedural
-        self._strategy = strategy
+        self._strategy = strategy if strategy is not None else BM25SearchStrategy()
 
     async def recall(
         self,

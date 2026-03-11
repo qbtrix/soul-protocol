@@ -99,6 +99,7 @@ class SignificanceScore(BaseModel):
     novelty: float = Field(default=0.0, ge=0.0, le=1.0)
     emotional_intensity: float = Field(default=0.0, ge=0.0, le=1.0)
     goal_relevance: float = Field(default=0.0, ge=0.0, le=1.0)
+    content_richness: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 # ============ Psychology — General Events (Conway) ============

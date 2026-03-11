@@ -1,4 +1,6 @@
 # test_soul.py — Tests for the main Soul class API surface.
+# Updated: phase1-ablation-fixes — Updated test interactions to pass raised
+#   significance threshold (0.5) and short-message penalty.
 # Updated: v0.2.0 — Added psychology pipeline integration tests:
 #   attention gate, somatic markers, self-model, activation-based recall,
 #   and self-model persistence across export/awaken.
@@ -198,10 +200,12 @@ async def test_save_load_full_roundtrip(tmp_path):
 
     soul = await Soul.birth("Aria")
     await soul.remember("User prefers Python", type=MemoryType.SEMANTIC, importance=8)
+    # Use a substantive interaction that passes the raised significance threshold.
+    # Needs enough tokens (>=20 after tokenize) and some emotional/novelty signal.
     await soul.observe(
         Interaction(
-            user_input="I use FastAPI for my projects",
-            agent_output="FastAPI is great for building APIs!",
+            user_input="I have been working with FastAPI and Python for several years now and I absolutely love building performant REST APIs with async support",
+            agent_output="That is really impressive! FastAPI's async capabilities combined with Python's ecosystem make it an excellent choice for modern backend development.",
         )
     )
 
