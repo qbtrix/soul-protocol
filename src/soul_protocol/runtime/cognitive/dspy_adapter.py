@@ -1,4 +1,6 @@
 # dspy_adapter.py — Bridge between DSPy modules and Soul Protocol's CognitiveProcessor.
+# Updated: feat/dspy-integration — Fixed asyncio.get_event_loop() -> get_running_loop()
+#   to prevent potential event loop issues in Python 3.10+.
 # Created: feat/dspy-integration — DSPyCognitiveProcessor is a drop-in replacement
 #   for CognitiveProcessor that routes significance assessment, query expansion,
 #   and fact extraction through DSPy modules instead of hand-written prompts.
@@ -59,7 +61,14 @@ class DSPyCognitiveProcessor:
         import dspy
 
         self._lm = dspy.LM(lm_model)
-        dspy.configure(lm=self._lm)
+        # Use dspy.configure only if no LM is currently set.
+        # In async contexts where dspy was already configured (e.g. after
+        # optimization), calling configure() again raises RuntimeError.
+        try:
+            dspy.configure(lm=self._lm)
+        except RuntimeError:
+            # Already configured in this async context — safe to continue
+            pass
 
         from soul_protocol.runtime.cognitive.dspy_modules import (
             FactExtractor,
@@ -92,18 +101,25 @@ class DSPyCognitiveProcessor:
         Returns:
             SignificanceScore compatible with the existing pipeline.
         """
-        recent_context = "\n".join(f"- {c[:100]}" for c in recent_contents[-5:])
+        import dspy as _dspy
 
-        loop = asyncio.get_event_loop()
-        try:
-            result = await loop.run_in_executor(
-                None,
-                lambda: self._significance_gate.forward(
+        recent_context = "\n".join(f"- {c[:100]}" for c in recent_contents[-5:])
+        lm = self._lm
+
+        def _run():
+            with _dspy.context(lm=lm):
+                return self._significance_gate.forward(
                     user_input=interaction.user_input,
                     agent_output=interaction.agent_output,
                     core_values=core_values,
                     recent_context=recent_context,
-                ),
+                )
+
+        loop = asyncio.get_running_loop()
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, _run),
+                timeout=30.0,  # 30s timeout per API call
             )
 
             # Parse DSPy prediction into SignificanceScore
@@ -111,14 +127,23 @@ class DSPyCognitiveProcessor:
             emotional = _safe_float(getattr(result, "emotional_intensity", 0.3))
             factual = _safe_float(getattr(result, "factual_importance", 0.3))
 
+            # Compute content_richness from heuristic (DSPy doesn't return this,
+            # but overall_significance weights it at 30%). Without it, DSPy scores
+            # get diluted and factual interactions can miss the threshold.
+            from soul_protocol.runtime.memory.attention import _content_richness
+
+            combined = f"{interaction.user_input} {interaction.agent_output}"
+            richness = _content_richness(combined)
+
             # Map factual_importance to goal_relevance for compatibility
             return SignificanceScore(
                 novelty=_clamp(novelty, 0.0, 1.0),
                 emotional_intensity=_clamp(emotional, 0.0, 1.0),
                 goal_relevance=_clamp(factual, 0.0, 1.0),
+                content_richness=_clamp(richness, 0.0, 1.0),
             )
         except Exception:
-            # Fall back to heuristic on any failure
+            # Fall back to heuristic on any failure (including timeout)
             from soul_protocol.runtime.memory.attention import compute_significance
 
             return compute_significance(interaction, core_values, recent_contents)
@@ -137,14 +162,22 @@ class DSPyCognitiveProcessor:
         Returns:
             List of expanded queries (always includes the original).
         """
-        loop = asyncio.get_event_loop()
-        try:
-            expanded = await loop.run_in_executor(
-                None,
-                lambda: self._query_expander.forward(
+        import dspy as _dspy
+
+        lm = self._lm
+
+        def _run():
+            with _dspy.context(lm=lm):
+                return self._query_expander.forward(
                     query=query,
                     personality_summary=personality_summary,
-                ),
+                )
+
+        loop = asyncio.get_running_loop()
+        try:
+            expanded = await asyncio.wait_for(
+                loop.run_in_executor(None, _run),
+                timeout=30.0,
             )
             # Always include the original query
             if query not in expanded:
@@ -167,19 +200,26 @@ class DSPyCognitiveProcessor:
         Returns:
             List of MemoryEntry objects of type SEMANTIC.
         """
+        import dspy as _dspy
+
         existing_str = ", ".join(
             f.content for f in (existing_facts or []) if not f.superseded_by
         )
+        lm = self._lm
 
-        loop = asyncio.get_event_loop()
-        try:
-            result = await loop.run_in_executor(
-                None,
-                lambda: self._fact_extractor.forward(
+        def _run():
+            with _dspy.context(lm=lm):
+                return self._fact_extractor.forward(
                     user_input=interaction.user_input,
                     agent_output=interaction.agent_output,
                     existing_facts=existing_str,
-                ),
+                )
+
+        loop = asyncio.get_running_loop()
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, _run),
+                timeout=30.0,
             )
 
             facts_list = getattr(result, "facts", [])

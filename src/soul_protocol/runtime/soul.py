@@ -1,7 +1,8 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
-# Updated: feat/dspy-integration — Added use_dspy and dspy_model parameters to
-#   birth() for optional DSPy-optimized cognitive processing. DSPy processor
-#   stored as _dspy_processor when enabled, used alongside standard pipeline.
+# Updated: feat/dspy-integration — Wired DSPy processor into observe() pipeline.
+#   _dspy_processor is now initialized BEFORE MemoryManager and passed to it,
+#   so MemoryManager.observe() uses DSPy significance gate when available.
+#   Previously, _dspy_processor was stored on Soul but never used during observe.
 # Updated: Wired Bond.strengthen() and SkillRegistry into observe() pipeline.
 # Updated: Added reincarnate() classmethod for lifecycle rebirth.
 #   Preserves memories, personality, and tracks incarnation lineage.
@@ -82,18 +83,6 @@ class Soul:
         self._engine = engine
         self._search_strategy = search_strategy
 
-        self._memory = MemoryManager(
-            core=config.core_memory,
-            settings=config.memory,
-            core_values=config.identity.core_values,
-            engine=engine,
-            search_strategy=search_strategy,
-            seed_domains=seed_domains,
-        )
-        self._state = StateManager(config.state)
-        self._evolution = EvolutionManager(config.evolution)
-        self._skills = SkillRegistry()
-
         # Optional DSPy-optimized cognitive processor
         self._dspy_processor = None
         if use_dspy:
@@ -108,6 +97,19 @@ class Soul:
             except ImportError:
                 # dspy not installed — silently fall back to heuristic
                 pass
+
+        self._memory = MemoryManager(
+            core=config.core_memory,
+            settings=config.memory,
+            core_values=config.identity.core_values,
+            engine=engine,
+            search_strategy=search_strategy,
+            seed_domains=seed_domains,
+            dspy_processor=self._dspy_processor,
+        )
+        self._state = StateManager(config.state)
+        self._evolution = EvolutionManager(config.evolution)
+        self._skills = SkillRegistry()
 
     # ============ Lifecycle ============
 

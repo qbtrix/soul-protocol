@@ -1,4 +1,7 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: feat/dspy-integration — Accept optional dspy_processor param. When set,
+#   observe() routes significance assessment through DSPy instead of heuristic gate.
+#   This enables the optimized DSPy SignificanceGate to catch facts the heuristic misses.
 # Updated: phase1-ablation-fixes — Pass token_count to significance gate, weaken
 #   promotion rule so trivial interactions with facts don't bypass the gate.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
@@ -361,11 +364,13 @@ class MemoryManager:
         engine: CognitiveEngine | None = None,
         search_strategy: SearchStrategy | None = None,
         seed_domains: dict[str, list[str]] | None = None,
+        dspy_processor: object | None = None,
     ) -> None:
         self._settings = settings
         self._core_values = core_values or []
         self._engine = engine
         self._search_strategy = search_strategy
+        self._dspy_processor = dspy_processor
 
         # Initialize subsystems
         self._core_manager = CoreMemoryManager(core)
@@ -492,9 +497,16 @@ class MemoryManager:
         # --- 1. Detect sentiment (via CognitiveProcessor) ---
         somatic = await self._cognitive.detect_sentiment(interaction.user_input)
 
-        # --- 2. Compute significance (via CognitiveProcessor) ---
+        # --- 2. Compute significance ---
+        # Use DSPy significance gate if available (LLM-powered, optimizable),
+        # otherwise fall back to heuristic via CognitiveProcessor.
         recent = self._episodic.recent_contents(n=10)
-        sig_score = await self._cognitive.assess_significance(interaction, values, recent)
+        if self._dspy_processor is not None:
+            sig_score = await self._dspy_processor.assess_significance(
+                interaction, values, recent
+            )
+        else:
+            sig_score = await self._cognitive.assess_significance(interaction, values, recent)
         combined_text = f"{interaction.user_input} {interaction.agent_output}"
         token_count = len(tokenize(combined_text))
         sig_value = overall_significance(sig_score, token_count=token_count)
