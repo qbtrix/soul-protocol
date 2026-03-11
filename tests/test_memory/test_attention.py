@@ -1,4 +1,6 @@
 # test_attention.py — Tests for LIDA-inspired significance gate.
+# Updated: phase1-ablation-fixes — Adjusted tests for raised threshold (0.5),
+#   updated emotional_intensity formula, and short-message penalty.
 # Created: v0.2.0 — Covers compute_significance, overall_significance, and
 #   is_significant with novelty, emotional, goal-relevance, and threshold cases.
 
@@ -80,10 +82,15 @@ def test_first_interaction_score_is_signifance_score_type(neutral_interaction):
     assert isinstance(score, SignificanceScore)
 
 
-def test_first_interaction_has_high_overall_significance(neutral_interaction):
-    """A first interaction with neutral tone should still clear the default threshold."""
+def test_first_interaction_neutral_below_raised_threshold(neutral_interaction):
+    """A first interaction with neutral tone is below the raised 0.5 threshold.
+
+    With threshold raised to 0.5, a neutral-emotion first interaction
+    (novelty=1.0 → 0.4 contribution) falls short. This is by design:
+    mundane first messages shouldn't pass the gate.
+    """
     score = compute_significance(neutral_interaction, [], recent_contents=[])
-    assert overall_significance(score) >= DEFAULT_SIGNIFICANCE_THRESHOLD
+    assert overall_significance(score) < DEFAULT_SIGNIFICANCE_THRESHOLD
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +151,7 @@ def test_neutral_input_has_low_emotional_intensity():
         agent_output="",
     )
     score = compute_significance(interaction, [], recent_contents=[])
+    # With scaled-down arousal (arousal*0.5), neutral text stays low
     assert score.emotional_intensity < 0.3
 
 
@@ -214,16 +222,16 @@ def test_overall_significance_all_one():
 
 
 def test_is_significant_above_default_threshold():
-    """A high-novelty score must pass the default 0.3 threshold."""
-    score = SignificanceScore(novelty=1.0, emotional_intensity=0.0, goal_relevance=0.0)
-    # overall = 0.4 * 1.0 = 0.4 >= 0.3 → True
+    """A high-novelty + emotional score must pass the default 0.5 threshold."""
+    score = SignificanceScore(novelty=1.0, emotional_intensity=0.5, goal_relevance=0.0)
+    # overall = 0.4 * 1.0 + 0.35 * 0.5 = 0.575 >= 0.5 → True
     assert is_significant(score) is True
 
 
 def test_is_significant_below_default_threshold():
-    """A near-zero score must fail the default 0.3 threshold."""
+    """A near-zero score must fail the default 0.5 threshold."""
     score = SignificanceScore(novelty=0.05, emotional_intensity=0.0, goal_relevance=0.0)
-    # overall = 0.4 * 0.05 = 0.02 < 0.3 → False
+    # overall = 0.4 * 0.05 = 0.02 < 0.5 → False
     assert is_significant(score) is False
 
 

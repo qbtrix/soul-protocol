@@ -1,4 +1,7 @@
-# memory/search.py — Token-overlap relevance scoring for memory search.
+# memory/search.py — Token-overlap and BM25 relevance scoring for memory search.
+# Updated: phase1-ablation-fixes — Added BM25Index class for term-frequency-saturated,
+#   length-normalized retrieval scoring. BM25 uses IDF weighting, k1=1.2, b=0.75.
+#   Token-overlap relevance_score() kept as fallback.
 # Updated: 2026-03-02 — Fixed tokenizer to split on /, _, -, . in addition to
 #   whitespace so file paths and identifiers are searchable by component (issue #11).
 #   Added synonym/alias expansion layer for improved recall on common programming
@@ -11,7 +14,9 @@
 
 from __future__ import annotations
 
+import math
 import re
+from collections import Counter
 
 # Keep only alphabetic characters — strips digits, punctuation, code artifacts
 _ALPHA_RE = re.compile(r"[^a-z]+")
@@ -125,3 +130,148 @@ def relevance_score(query: str, content: str) -> float:
     expanded_content = _expand_synonyms(content_tokens)
     overlap = query_tokens & expanded_content
     return len(overlap) / len(query_tokens)
+
+
+# ---------------------------------------------------------------------------
+# BM25 Index — term-frequency-saturated, length-normalized scoring
+# ---------------------------------------------------------------------------
+
+# BM25 parameters (Okapi defaults)
+_BM25_K1: float = 1.2
+_BM25_B: float = 0.75
+
+
+class BM25Index:
+    """Pure-Python BM25 index for memory retrieval.
+
+    Provides term-frequency saturation and document-length normalization
+    that raw token overlap lacks.  Synonym expansion is applied before
+    indexing and querying so the existing synonym layer is preserved.
+
+    Usage::
+
+        idx = BM25Index()
+        idx.add("doc1", "Python is a great language")
+        idx.add("doc2", "Java is also popular")
+        results = idx.search("python programming", limit=5)
+    """
+
+    def __init__(self) -> None:
+        # doc_id -> {term: frequency}
+        self._doc_tf: dict[str, Counter[str]] = {}
+        # doc_id -> document length (number of tokens)
+        self._doc_len: dict[str, int] = {}
+        # term -> set of doc_ids containing it
+        self._inverted: dict[str, set[str]] = {}
+        # Running average document length
+        self._total_tokens: int = 0
+
+    @property
+    def corpus_size(self) -> int:
+        """Number of indexed documents."""
+        return len(self._doc_tf)
+
+    @property
+    def avg_doc_len(self) -> float:
+        """Average document length across the corpus."""
+        if not self._doc_tf:
+            return 0.0
+        return self._total_tokens / len(self._doc_tf)
+
+    def add(self, doc_id: str, content: str) -> None:
+        """Index a document (overwrites if doc_id already exists).
+
+        Args:
+            doc_id: Unique document identifier.
+            content: Raw text content to index.
+        """
+        tokens = tokenize(content)
+        expanded = _expand_synonyms(tokens)
+        token_list = list(expanded)
+        tf = Counter(token_list)
+
+        # Remove old stats if overwriting
+        if doc_id in self._doc_tf:
+            self._remove(doc_id)
+
+        self._doc_tf[doc_id] = tf
+        self._doc_len[doc_id] = len(token_list)
+        self._total_tokens += len(token_list)
+
+        for term in tf:
+            if term not in self._inverted:
+                self._inverted[term] = set()
+            self._inverted[term].add(doc_id)
+
+    def _remove(self, doc_id: str) -> None:
+        """Remove a document from the index (internal)."""
+        old_tf = self._doc_tf.pop(doc_id, None)
+        old_len = self._doc_len.pop(doc_id, 0)
+        self._total_tokens -= old_len
+        if old_tf:
+            for term in old_tf:
+                inv = self._inverted.get(term)
+                if inv:
+                    inv.discard(doc_id)
+                    if not inv:
+                        del self._inverted[term]
+
+    def remove(self, doc_id: str) -> None:
+        """Remove a document from the index.
+
+        Args:
+            doc_id: The document to remove.
+        """
+        self._remove(doc_id)
+
+    def score(self, query: str, doc_id: str) -> float:
+        """Compute BM25 score for a query against a specific document.
+
+        Args:
+            query: The search query.
+            doc_id: The document to score against.
+
+        Returns:
+            BM25 score (higher = more relevant). Returns 0.0 if doc not found.
+        """
+        if doc_id not in self._doc_tf:
+            return 0.0
+
+        query_tokens = _expand_synonyms(tokenize(query))
+        tf = self._doc_tf[doc_id]
+        dl = self._doc_len[doc_id]
+        avgdl = self.avg_doc_len or 1.0
+        n_docs = self.corpus_size
+
+        total = 0.0
+        for term in query_tokens:
+            if term not in tf:
+                continue
+            f = tf[term]
+            n_containing = len(self._inverted.get(term, set()))
+            # IDF with smoothing
+            idf = math.log((n_docs - n_containing + 0.5) / (n_containing + 0.5) + 1.0)
+            # BM25 term score
+            numerator = f * (_BM25_K1 + 1.0)
+            denominator = f + _BM25_K1 * (1.0 - _BM25_B + _BM25_B * dl / avgdl)
+            total += idf * numerator / denominator
+
+        return total
+
+    def search(self, query: str, limit: int = 10) -> list[tuple[str, float]]:
+        """Search the corpus and return ranked results.
+
+        Args:
+            query: The search query.
+            limit: Maximum number of results.
+
+        Returns:
+            List of (doc_id, score) tuples sorted by descending score.
+        """
+        scores: list[tuple[str, float]] = []
+        for doc_id in self._doc_tf:
+            s = self.score(query, doc_id)
+            if s > 0:
+                scores.append((doc_id, s))
+        scores.sort(key=lambda x: -x[1])
+        return scores[:limit]

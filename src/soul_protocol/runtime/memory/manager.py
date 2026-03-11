@@ -1,4 +1,6 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: phase1-ablation-fixes — Pass token_count to significance gate, weaken
+#   promotion rule so trivial interactions with facts don't bypass the gate.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Updated: 2026-03-06 — Fixed edit_core docstring: edit() replaces values, not appends.
 #   v0.3.1 — Accept seed_domains param, forward to SelfModelManager.
@@ -33,7 +35,7 @@ from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
 from soul_protocol.runtime.memory.procedural import ProceduralStore
 from soul_protocol.runtime.memory.recall import RecallEngine
-from soul_protocol.runtime.memory.search import relevance_score
+from soul_protocol.runtime.memory.search import relevance_score, tokenize
 from soul_protocol.runtime.memory.self_model import SelfModelManager
 from soul_protocol.runtime.memory.semantic import SemanticStore
 from soul_protocol.runtime.types import (
@@ -493,8 +495,10 @@ class MemoryManager:
         # --- 2. Compute significance (via CognitiveProcessor) ---
         recent = self._episodic.recent_contents(n=10)
         sig_score = await self._cognitive.assess_significance(interaction, values, recent)
-        sig_value = overall_significance(sig_score)
-        significant = is_significant(sig_score)
+        combined_text = f"{interaction.user_input} {interaction.agent_output}"
+        token_count = len(tokenize(combined_text))
+        sig_value = overall_significance(sig_score, token_count=token_count)
+        significant = is_significant(sig_score, token_count=token_count)
 
         # --- 3. Conditional episodic storage (first pass) ---
         episodic_id: str | None = None
@@ -512,12 +516,12 @@ class MemoryManager:
         for fact in facts:
             await self.add(fact)
 
-        # --- 4b. v0.2.3 — Promote to episodic if facts were extracted ---
-        # Any interaction that produces extracted facts is worth remembering,
-        # even if it didn't pass the initial significance gate.
-        if not significant and facts:
+        # --- 4b. v0.2.3 — Conditionally promote if facts were extracted ---
+        # Only promote to episodic when significance is at least half the
+        # threshold (0.25) AND facts were extracted.  This prevents trivial
+        # interactions from being promoted just because a fact was found.
+        if not significant and facts and sig_value >= 0.3:
             significant = True
-            sig_value = max(sig_value, 0.3)
             episodic_id = await self._episodic.add_with_psychology(
                 interaction,
                 somatic=somatic,

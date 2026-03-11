@@ -1,4 +1,6 @@
 # memory/activation.py — ACT-R activation-based memory scoring.
+# Updated: phase1-ablation-fixes — Added importance/significance boost (0.3 * sig),
+#   increased spreading weight from 1.5 to 2.0 for better BM25 integration.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Updated: v0.2.2 — Accept optional SearchStrategy for pluggable spreading activation.
 #   Created: v0.2.0 — Implements Anderson's ACT-R power-law decay,
@@ -28,7 +30,7 @@ DECAY_RATE: float = 0.5
 
 # Weight for each component in the final activation score
 W_BASE: float = 1.0  # base-level activation (recency + frequency)
-W_SPREAD: float = 1.5  # spreading activation (query relevance)
+W_SPREAD: float = 2.0  # spreading activation (query relevance) — raised for BM25
 W_EMOTION: float = 0.5  # emotional boost
 NOISE_SCALE: float = 0.1  # stochastic noise magnitude
 
@@ -162,8 +164,11 @@ def compute_activation(
     # Emotional boost
     emo = emotional_boost(entry.somatic)
 
+    # Importance boost: memories that passed a high significance bar get recall priority
+    sig_boost = 0.3 * entry.significance if entry.significance else 0.0
+
     # Combine with weights
-    activation = (W_BASE * base) + (W_SPREAD * spread) + (W_EMOTION * emo)
+    activation = (W_BASE * base) + (W_SPREAD * spread) + (W_EMOTION * emo) + sig_boost
 
     # Add stochastic noise for natural variability
     if noise:

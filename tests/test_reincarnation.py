@@ -1,4 +1,5 @@
 # test_reincarnation.py — Tests for Soul.reincarnate() lifecycle
+# Updated: phase1-ablation-fixes — Updated bond assertion for logarithmic growth.
 # Created: 2026-03-06 — Reincarnation, memory preservation, incarnation counter
 
 from __future__ import annotations
@@ -109,4 +110,5 @@ async def test_bond_preserved():
 
     reborn = await Soul.reincarnate(original)
     assert reborn.identity.bond.bonded_to == "did:key:user-123"
-    assert reborn.identity.bond.bond_strength == 70.0
+    # Logarithmic: 50 + 20*(50/100) = 60.0
+    assert reborn.identity.bond.bond_strength == pytest.approx(60.0)
