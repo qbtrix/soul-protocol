@@ -1,10 +1,15 @@
 # runner.py — Long-horizon ablation runner.
+# Updated: 2026-03-11 — Added use_dspy_significance option. When enabled, the
+#   full_soul condition creates Soul with use_dspy=True, routing significance
+#   assessment through the DSPy-optimized gate instead of heuristics.
+# Updated: 2026-03-11 — Added DSPy query expansion support for enhanced recall.
 # Created: 2026-03-11
 # Runs long-horizon scenarios (100+ turns) through 4 ablation conditions
 # and collects infrastructure metrics: recall precision, memory efficiency,
 # bond strength, memory count per tier.
 #
-# Works WITHOUT an LLM — uses HeuristicEngine by default (no API key needed).
+# Works WITHOUT an LLM by default (no API key needed).
+# Optionally uses DSPy QueryExpander for enhanced recall (needs API key).
 # The runner measures infrastructure metrics (memory count, recall hit rate, bond),
 # not response quality (which needs LLM judges and is a separate concern).
 
@@ -137,9 +142,30 @@ class LongHorizonRunner:
         self,
         conditions: list[str] | None = None,
         seed: int = 42,
+        use_dspy_recall: bool = False,
+        use_dspy_significance: bool = False,
+        dspy_model: str = "anthropic/claude-haiku-4-5-20251001",
+        optimized_modules_path: str | None = None,
     ) -> None:
         self.conditions = conditions or ALL_CONDITIONS
         self.seed = seed
+        self.use_dspy_recall = use_dspy_recall
+        self.use_dspy_significance = use_dspy_significance
+        self.dspy_model = dspy_model
+        self.optimized_modules_path = optimized_modules_path
+        self._dspy_processor = None
+
+        if use_dspy_recall:
+            try:
+                from soul_protocol.runtime.cognitive.dspy_adapter import DSPyCognitiveProcessor
+                self._dspy_processor = DSPyCognitiveProcessor(
+                    lm_model=dspy_model,
+                    optimized_path=optimized_modules_path,
+                )
+                logger.info("DSPy query expansion enabled for recall")
+            except Exception as e:
+                logger.warning("DSPy init failed, falling back to heuristic: %s", e)
+                self.use_dspy_recall = False
 
     async def run_scenario(
         self,
@@ -203,6 +229,8 @@ class LongHorizonRunner:
 
             if condition == ConditionType.FULL_SOUL:
                 await soul.observe(interaction)
+                if turn_idx % 50 == 0:
+                    logger.info("  turn %d/%d processed", turn_idx, scenario.turn_count)
             elif condition == ConditionType.RAG_ONLY:
                 # Store everything directly, bypass psychology pipeline
                 content = f"User: {user_input}\nAgent: {agent_output}"
@@ -250,8 +278,29 @@ class LongHorizonRunner:
                 })
                 continue
 
-            recalled = await soul.recall(tp.query, limit=10)
-            recalled_contents = [m.content.lower() for m in recalled]
+            # Use DSPy query expansion if available
+            queries = [tp.query]
+            if self.use_dspy_recall and self._dspy_processor:
+                try:
+                    queries = await self._dspy_processor.expand_query(tp.query)
+                except Exception:
+                    pass  # fall back to original query
+
+            # Try all query variations
+            all_recalled = []
+            for q in queries:
+                recalled = await soul.recall(q, limit=10)
+                all_recalled.extend(recalled)
+
+            # Deduplicate by content
+            seen = set()
+            unique_recalled = []
+            for m in all_recalled:
+                if m.content not in seen:
+                    seen.add(m.content)
+                    unique_recalled.append(m)
+
+            recalled_contents = [m.content.lower() for m in unique_recalled]
             expected_lower = tp.expected_content.lower()
 
             hit = any(expected_lower in content for content in recalled_contents)
@@ -263,10 +312,11 @@ class LongHorizonRunner:
 
             result.recall_results.append({
                 "query": tp.query,
+                "queries_used": queries,
                 "expected": tp.expected_content,
                 "hit": hit,
                 "description": tp.description,
-                "recalled": [m.content for m in recalled[:3]],
+                "recalled": [m.content for m in unique_recalled[:3]],
             })
 
         result.duration_seconds = time.monotonic() - t_start
@@ -301,8 +351,20 @@ class LongHorizonRunner:
                 values=[],
                 persona="I am an assistant.",
             )
+        elif condition == ConditionType.FULL_SOUL and self.use_dspy_significance:
+            # Full soul with DSPy-optimized significance gate
+            soul = await Soul.birth(
+                name="LongHorizonAgent",
+                archetype="The Empathetic Companion",
+                values=["empathy", "curiosity", "reliability"],
+                ocean=ocean,
+                persona="I am a supportive companion who remembers and cares.",
+                use_dspy=True,
+                dspy_model=self.dspy_model,
+                dspy_optimized_path=self.optimized_modules_path,
+            )
         else:
-            # Full soul or RAG-only: both get OCEAN personality
+            # Full soul (heuristic) or RAG-only: both get OCEAN personality
             soul = await Soul.birth(
                 name="LongHorizonAgent",
                 archetype="The Empathetic Companion",
