@@ -62,13 +62,13 @@ class TestSignificanceGateShortMessages:
         raw = overall_significance(score)
         penalized = overall_significance(score, token_count=5)
         assert penalized < raw
-        assert penalized == pytest.approx(max(0.0, raw - 0.3))
+        assert penalized == pytest.approx(max(0.0, raw - 0.15))
 
     def test_long_message_no_penalty(self):
-        """Messages with >=20 tokens should not receive a penalty."""
+        """Messages with >=12 tokens should not receive a penalty."""
         score = SignificanceScore(novelty=1.0, emotional_intensity=0.0, goal_relevance=0.0)
         raw = overall_significance(score)
-        no_penalty = overall_significance(score, token_count=25)
+        no_penalty = overall_significance(score, token_count=15)
         assert no_penalty == raw
 
 
