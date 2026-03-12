@@ -59,7 +59,8 @@ async def pack_soul(
         """Write a file into the ZIP, encrypting if a password was given."""
         raw = content.encode("utf-8") if isinstance(content, str) else content
         if encrypting and encrypt_fn is not None:
-            zf.writestr(f"{name}.enc", encrypt_fn(raw, password))  # type: ignore[arg-type]
+            assert password is not None  # encrypting == True guarantees this
+            zf.writestr(f"{name}.enc", encrypt_fn(raw, password))
         else:
             zf.writestr(name, raw)
 

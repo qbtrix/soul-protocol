@@ -78,7 +78,8 @@ async def unpack_soul(
                 from soul_protocol.runtime.export.crypto import decrypt_blob
 
                 try:
-                    return decrypt_blob(zf.read(enc_name), password)  # type: ignore[arg-type]
+                    assert password is not None  # is_encrypted == True requires password
+                    return decrypt_blob(zf.read(enc_name), password)
                 except ValueError as e:
                     raise SoulDecryptionError(str(e)) from e
             else:

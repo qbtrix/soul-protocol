@@ -1,11 +1,12 @@
 # __init__.py — Public API for the soul-protocol package
 # Updated: feat/soul-encryption — Added SoulEncryptedError and SoulDecryptionError
 #   to public imports and __all__ for encrypted .soul file support.
-# Updated: v0.5.0 — Two-layer architecture (spec/ + runtime/).
+# Updated: v0.2.3 — Version bump for first public release.
+# Updated: Two-layer architecture (spec/ + runtime/).
 #   spec/ contains protocol primitives (Identity, MemoryStore, SoulContainer, etc.)
 #   runtime/ contains the opinionated engine (Soul, Bond, MemoryManager, etc.)
 #   All existing public exports preserved for backward compatibility.
-#   v0.4.0 — Bond, Skill, SkillRegistry, Eternal storage exports.
+#   Bond, Skill, SkillRegistry, Eternal storage exports.
 #   Core primitive imports (CoreIdentity, CoreMemoryEntry, CoreManifest, DictMemoryStore, MemoryStore).
 #   v0.3.2 — Added exception classes to public exports.
 #   v0.2.2 — Added SearchStrategy, TokenOverlapStrategy exports. Bumped version.
@@ -120,4 +121,4 @@ __all__ = [
     "MemoryStore",
 ]
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"

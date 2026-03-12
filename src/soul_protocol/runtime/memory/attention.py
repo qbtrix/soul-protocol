@@ -1,13 +1,16 @@
 # memory/attention.py — LIDA-inspired significance gate for episodic storage.
+# Updated: v0.2.3 — Moved `import re` to top-level imports (PEP 8), fixed stale
+#   docstring (said "default 0.5" but constant is 0.35).
 # Updated: phase1-tuning — Rebalanced gate for heuristic engine. Added content_richness
 #   dimension (proper nouns, numbers, specificity) so factual statements pass even without
 #   emotion words. Threshold 0.5 -> 0.4. Reweighted: novelty 0.3, emotion 0.2,
 #   goal 0.2, richness 0.3. Short penalty -0.3 -> -0.2.
 # Updated: phase1-ablation-fixes — emotional_intensity formula, select_top_k batch filter.
-#   Fix: is_significant docstring said "default 0.5" but constant is 0.35.
 # Created: v0.2.0 — Filters which interactions become episodic memories.
 
 from __future__ import annotations
+
+import re
 
 from soul_protocol.runtime.memory.search import relevance_score, tokenize
 from soul_protocol.runtime.memory.sentiment import detect_sentiment
@@ -24,7 +27,6 @@ SHORT_MESSAGE_TOKEN_LIMIT: int = 12
 SHORT_MESSAGE_PENALTY: float = 0.15
 
 # Content richness indicators — proper nouns, numbers, specificity signals
-import re
 
 _PROPER_NOUN_PATTERN = re.compile(r'\b[A-Z][a-z]{2,}\b')
 _NUMBER_PATTERN = re.compile(r'\b\d+\b')
@@ -173,7 +175,6 @@ def is_significant(
     Args:
         score: The significance score to evaluate.
         threshold: Minimum overall significance (default 0.35).
-        threshold: Minimum overall significance (default 0.5).
         token_count: Token count for short-message penalty (forwarded to
             overall_significance).
 

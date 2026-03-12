@@ -1,11 +1,10 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: v0.2.3 — Removed duplicate header comment entry.
 # Updated: phase1-ablation-fixes — Pass token_count to significance gate, weaken
 #   promotion rule so trivial interactions with facts don't bypass the gate.
 # Updated: feat/dspy-integration — Accept optional dspy_processor param. When set,
 #   observe() routes significance assessment through DSPy instead of heuristic gate.
 #   This enables the optimized DSPy SignificanceGate to catch facts the heuristic misses.
-# Updated: phase1-ablation-fixes — Pass token_count to significance gate, weaken
-#   promotion rule so trivial interactions with facts don't bypass the gate.
 # Updated: 2026-03-12 — Use UTC timestamps in deletion audit entries; document
 #   audit trail persistence gap (TODO #51).
 # Updated: 2026-03-10 — Added forget(), forget_entity(), forget_before() for
@@ -455,7 +454,6 @@ class MemoryManager:
         # Only promote to episodic when significance is at least half the
         # threshold (0.25) AND facts were extracted.  This prevents trivial
         # interactions from being promoted just because a fact was found.
-        if not significant and facts and sig_value >= 0.3:
         # --- 4b. Promote to episodic if facts were extracted ---
         if not significant and facts:
             significant = True
