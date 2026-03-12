@@ -4,6 +4,7 @@
 #   emotion words. Threshold 0.5 -> 0.4. Reweighted: novelty 0.3, emotion 0.2,
 #   goal 0.2, richness 0.3. Short penalty -0.3 -> -0.2.
 # Updated: phase1-ablation-fixes — emotional_intensity formula, select_top_k batch filter.
+#   Fix: is_significant docstring said "default 0.5" but constant is 0.35.
 # Created: v0.2.0 — Filters which interactions become episodic memories.
 
 from __future__ import annotations
@@ -171,7 +172,7 @@ def is_significant(
 
     Args:
         score: The significance score to evaluate.
-        threshold: Minimum overall significance (default 0.5).
+        threshold: Minimum overall significance (default 0.35).
         token_count: Token count for short-message penalty (forwarded to
             overall_significance).
 

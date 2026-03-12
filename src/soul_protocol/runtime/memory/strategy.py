@@ -1,6 +1,7 @@
 # memory/strategy.py — SearchStrategy protocol for pluggable retrieval scoring.
 # Updated: phase1-ablation-fixes — Added BM25SearchStrategy using BM25Index for
 #   term-frequency-saturated scoring with IDF weighting.  Now the default strategy.
+#   Fix: moved inline `import math` to top-level imports.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Created: v0.2.2 — Pluggable retrieval following CognitiveEngine pattern.
 #   SearchStrategy: single-method protocol consumers implement for custom scoring.
@@ -8,6 +9,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Protocol, runtime_checkable
 
 from soul_protocol.runtime.memory.search import BM25Index, relevance_score
@@ -98,6 +100,4 @@ class BM25SearchStrategy:
 
         # Normalize raw BM25 score to 0-1 range using tanh
         # tanh(raw / 3) gives a smooth mapping where score ~3 maps to ~0.75
-        import math
-
         return math.tanh(raw / 3.0)
