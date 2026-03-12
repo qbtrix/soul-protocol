@@ -1,4 +1,6 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-03-12 — Use UTC timestamps in deletion audit entries; document
+#   audit trail persistence gap (TODO #51).
 # Updated: 2026-03-10 — Added forget(), forget_entity(), forget_before() for
 #   GDPR-compliant memory deletion with cascade logic and audit trail.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
@@ -23,7 +25,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from soul_protocol.runtime.memory.attention import (
@@ -387,6 +389,7 @@ class MemoryManager:
         self._general_events: dict[str, GeneralEvent] = {}
 
         # v0.3.0 — GDPR deletion audit trail
+        # TODO(#51): Persist audit trail through .soul pack/unpack cycle for GDPR compliance
         self._deletion_audit: list[dict] = []
 
         # v0.2.1 — Cognitive processor (LLM or heuristic)
@@ -613,7 +616,7 @@ class MemoryManager:
         if total > 0:
             self._deletion_audit.append(
                 {
-                    "deleted_at": datetime.now().isoformat(),
+                    "deleted_at": datetime.now(timezone.utc).isoformat(),
                     "count": total,
                     "reason": f"forget(query='{query}')",
                     "tiers": {
@@ -663,7 +666,7 @@ class MemoryManager:
         if total > 0:
             self._deletion_audit.append(
                 {
-                    "deleted_at": datetime.now().isoformat(),
+                    "deleted_at": datetime.now(timezone.utc).isoformat(),
                     "count": total,
                     "reason": f"forget_entity(entity='{entity}')",
                     "tiers": {
@@ -710,7 +713,7 @@ class MemoryManager:
         if total > 0:
             self._deletion_audit.append(
                 {
-                    "deleted_at": datetime.now().isoformat(),
+                    "deleted_at": datetime.now(timezone.utc).isoformat(),
                     "count": total,
                     "reason": f"forget_before(timestamp='{timestamp.isoformat()}')",
                     "tiers": {
