@@ -1,4 +1,6 @@
 # test_dspy_modules.py — Tests for the DSPy integration layer.
+# Updated: Fixed assertion `assert negatives >= 0` → `assert negatives > 0`
+#   to actually verify negative examples exist in the dataset.
 # Created: feat/dspy-integration — Verifies DSPy modules, adapter, optimizer,
 #   training data generator, and graceful fallback when dspy is not installed.
 #   All DSPy LM calls are mocked — no real API calls in tests.
@@ -340,7 +342,7 @@ class TestTrainingDataGenerator:
         negatives = sum(1 for e in data if not e["should_store"])
         # We expect both labels to be present
         assert positives > 0, "No positive examples in dataset"
-        assert negatives >= 0, "Dataset should contain some negative examples"
+        assert negatives > 0, "Dataset should contain some negative examples"
 
 
 # ---------------------------------------------------------------------------
