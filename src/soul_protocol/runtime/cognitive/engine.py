@@ -1,6 +1,6 @@
 # cognitive/engine.py — CognitiveEngine protocol, HeuristicEngine, CognitiveProcessor.
-# Updated: Added structured logging for LLM/heuristic routing, fallback
-#   events, and parse failures in the cognitive pipeline.
+# Updated: Fixed import ordering — moved logger assignment after all imports
+#   (stdlib, then project imports, then logger).
 
 from __future__ import annotations
 
@@ -9,8 +9,6 @@ import logging
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
-
-logger = logging.getLogger(__name__)
 
 from soul_protocol.runtime.cognitive.prompts import (
     ENTITY_EXTRACTION_PROMPT,
@@ -32,6 +30,8 @@ from soul_protocol.runtime.types import (
 
 if TYPE_CHECKING:
     from soul_protocol.runtime.memory.self_model import SelfModelManager
+
+logger = logging.getLogger(__name__)
 
 
 def _heuristic_sentiment(text: str) -> SomaticMarker:

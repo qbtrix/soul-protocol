@@ -1,7 +1,6 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
-# Updated: Added structured logging for observe pipeline steps (sentiment,
-#   significance, episodic storage, fact extraction, entity extraction,
-#   self-model update), recall results, and memory lifecycle operations.
+# Updated: Removed PII from debug logs — recall logs query length instead of
+#   raw query text, fact conflict resolution logs word count instead of content.
 
 from __future__ import annotations
 
@@ -445,7 +444,7 @@ class MemoryManager:
             types=types,
             min_importance=min_importance,
         )
-        logger.debug("Recall query=%r returned %d results", query, len(results))
+        logger.debug("Recall query_len=%d returned %d results", len(query), len(results))
         return results
 
     async def remove(self, memory_id: str) -> bool:
@@ -680,9 +679,9 @@ class MemoryManager:
             if conflict:
                 conflict.superseded_by = fact.id or "new"
                 logger.debug(
-                    "Fact conflict resolved: old=%r superseded by new=%r",
-                    conflict.content,
-                    fact.content,
+                    "Fact conflict resolved: old_len=%d superseded by new_len=%d",
+                    len(conflict.content),
+                    len(fact.content),
                 )
         return new_facts
 

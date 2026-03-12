@@ -8,6 +8,8 @@
 #   Access timestamps are updated on retrieval (strengthens future recall).
 #   Timestamps capped at MAX_ACCESS_TIMESTAMPS to bound memory growth.
 # Updated: Added structured logging for recall queries and empty results.
+# Updated: Removed PII from debug logs — logs query length instead of raw
+#   query text. Fixed import ordering (logger after all imports).
 
 from __future__ import annotations
 
@@ -114,5 +116,5 @@ class RecallEngine:
                 entry.access_timestamps = entry.access_timestamps[-MAX_ACCESS_TIMESTAMPS:]
 
         if not results:
-            logger.debug("Recall found no matches: query=%r", query)
+            logger.debug("Recall found no matches: query_len=%d", len(query))
         return results[:limit]

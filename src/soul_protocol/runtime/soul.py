@@ -31,6 +31,8 @@
 #   awaken, reincarnate, export, retire), observe pipeline completion,
 #   persistence operations, and evolution. INFO for lifecycle, DEBUG for
 #   pipeline internals, WARNING for degraded paths, ERROR for failures.
+# Updated: Removed PII from debug logs — observe() now logs input length
+#   instead of raw user input. Recall logs query length, not query text.
 
 from __future__ import annotations
 
@@ -592,7 +594,7 @@ class Soul:
             min_importance=min_importance,
         )
         if not results:
-            logger.debug("Recall returned no results: query=%r", query)
+            logger.debug("Recall returned no results: query_len=%d", len(query))
         return results
 
     async def observe(self, interaction: Interaction) -> None:
@@ -613,7 +615,7 @@ class Soul:
           8. Update soul state (energy/social_battery drain)
           9. Check evolution triggers
         """
-        logger.debug("observe() started: user_input=%r", interaction.user_input[:80])
+        logger.debug("observe() started: input_len=%d", len(interaction.user_input))
 
         # Delegate to psychology-informed memory pipeline
         result = await self._memory.observe(interaction)
