@@ -1,4 +1,6 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: feat/soul-encryption — Re-raise SoulDecryptionError without wrapping
+#   alongside SoulEncryptedError in awaken() exception handling.
 # Updated: feat/soul-encryption — Added password parameter to awaken() and export()
 #   for encrypted .soul file support.
 # Updated: Wired Bond.strengthen() and SkillRegistry into observe() pipeline.
@@ -318,14 +320,14 @@ class Soul:
             search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
             password: Optional password for decrypting encrypted .soul archives.
         """
-        from .exceptions import SoulCorruptError, SoulEncryptedError, SoulFileNotFoundError
+        from .exceptions import SoulCorruptError, SoulDecryptionError, SoulEncryptedError, SoulFileNotFoundError
 
         memory_data: dict = {}
 
         if isinstance(source, bytes):
             try:
                 config, memory_data = await unpack_soul(source, password=password)
-            except SoulEncryptedError:
+            except (SoulEncryptedError, SoulDecryptionError):
                 raise
             except Exception as e:
                 raise SoulCorruptError("<bytes>", str(e)) from e
@@ -346,7 +348,7 @@ class Soul:
                         config, memory_data = await unpack_soul(
                             path.read_bytes(), password=password
                         )
-                    except SoulEncryptedError:
+                    except (SoulEncryptedError, SoulDecryptionError):
                         raise
                     except Exception as e:
                         raise SoulCorruptError(str(path), str(e)) from e
@@ -367,7 +369,7 @@ class Soul:
                     )
                 else:
                     raise ValueError(f"Unknown soul format: {path.suffix}")
-            except (SoulFileNotFoundError, SoulCorruptError, SoulEncryptedError):
+            except (SoulFileNotFoundError, SoulCorruptError, SoulEncryptedError, SoulDecryptionError):
                 raise
             except PermissionError as e:
                 raise SoulFileNotFoundError(str(path)) from e

@@ -1,4 +1,6 @@
 # crypto.py — AES-256-GCM encryption for .soul file contents.
+# Updated: feat/soul-encryption — Catch cryptography.exceptions.InvalidTag specifically
+#   instead of bare Exception in decrypt_blob().
 # Created: feat/soul-encryption — Password-based encryption at rest for soul files.
 #   Uses scrypt for key derivation (memory-hard, resistant to GPU attacks).
 #   Encrypts individual file contents inside the ZIP, leaving manifest readable.
@@ -8,6 +10,7 @@ from __future__ import annotations
 
 import os
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
@@ -92,7 +95,7 @@ def decrypt_blob(encrypted: bytes, password: str) -> bytes:
 
     try:
         return aesgcm.decrypt(nonce, ciphertext, None)
-    except Exception as exc:
+    except InvalidTag as exc:
         raise ValueError(
             "Decryption failed — wrong password or corrupted data"
         ) from exc

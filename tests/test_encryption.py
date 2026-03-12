@@ -1,4 +1,6 @@
 # test_encryption.py — Tests for .soul file encryption at rest.
+# Updated: feat/soul-encryption — Use precise SoulDecryptionError instead of
+#   (SoulDecryptionError, Exception) in test_awaken_encrypted_wrong_password.
 # Created: feat/soul-encryption — Covers encrypt/decrypt round-trip, wrong password,
 #   no password on encrypted file, backward compat, manifest readability, and
 #   the Soul.export()/Soul.awaken() integration with passwords.
@@ -279,7 +281,7 @@ class TestSoulEncryptionIntegration:
         soul_path = tmp_path / "kairos.soul"
         await soul.export(soul_path, password="correct")
 
-        with pytest.raises((SoulDecryptionError, Exception)):
+        with pytest.raises(SoulDecryptionError):
             await Soul.awaken(soul_path, password="incorrect")
 
     async def test_awaken_encrypted_bytes(self):
