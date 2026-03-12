@@ -1,4 +1,5 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: 2026-03-10 — Added `soul remember` and `soul recall` commands (issue #14).
 # Updated: 2026-03-02 — Removed dashboard/open commands (replaced by rich TUI in inspect/status).
 #   Enhanced `soul inspect` with OCEAN bars, memory stats, core memory, self-model panels.
 #   Enhanced `soul status` with progress bars for energy/social battery.
@@ -671,6 +672,140 @@ def eternal_status(path):
             )
 
     asyncio.run(_eternal_status())
+
+
+@cli.command("remember")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("text")
+@click.option(
+    "--importance",
+    "-i",
+    type=click.IntRange(1, 10),
+    default=5,
+    help="Importance score 1-10 (default: 5)",
+)
+@click.option("--emotion", "-e", type=str, default=None, help="Emotion tag (e.g. happy, sad)")
+def remember_cmd(path, text, importance, emotion):
+    """Store a memory in a Soul.
+
+    \b
+    Examples:
+      soul remember aria.soul "User prefers dark mode"
+      soul remember aria.soul "Likes Python" --importance 7
+      soul remember aria.soul "Had a great day" --emotion happy
+    """
+
+    async def _remember():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        memory_id = await soul.remember(
+            text,
+            importance=importance,
+            emotion=emotion,
+        )
+        await soul.export(path)
+
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] will remember:\n\n"
+                f"  [cyan]{text}[/cyan]\n\n"
+                f"  Importance  [yellow]{importance}/10[/yellow]\n"
+                f"  Emotion     {emotion or '[dim]none[/dim]'}\n"
+                f"  ID          [dim]{memory_id}[/dim]",
+                title="Memory Stored",
+                border_style="green",
+            )
+        )
+
+    asyncio.run(_remember())
+
+
+@cli.command("recall")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("query", required=False, default=None)
+@click.option(
+    "--recent",
+    "-r",
+    type=int,
+    default=None,
+    help="Show N most recent memories instead of searching",
+)
+@click.option(
+    "--limit",
+    "-n",
+    type=int,
+    default=10,
+    help="Max number of results (default: 10)",
+)
+@click.option(
+    "--min-importance",
+    "-m",
+    type=click.IntRange(0, 10),
+    default=0,
+    help="Minimum importance threshold (0 = no filter)",
+)
+def recall_cmd(path, query, recent, limit, min_importance):
+    """Query a Soul's memories.
+
+    \b
+    Examples:
+      soul recall aria.soul "user preferences"
+      soul recall aria.soul --recent 10
+      soul recall aria.soul "python" --min-importance 5
+    """
+
+    async def _recall():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+
+        if recent is not None:
+            # Show N most recent episodic memories
+            entries = soul._memory._episodic.entries()[:recent]
+            title = f"Recent Memories — {soul.name} (last {recent})"
+        elif query:
+            entries = await soul.recall(
+                query,
+                limit=limit,
+                min_importance=min_importance,
+            )
+            title = f'Recall — {soul.name} — "{query}"'
+        else:
+            console.print("[red]Provide a search query or use --recent N[/red]")
+            raise SystemExit(1)
+
+        if not entries:
+            console.print(f"[dim]No memories found for {soul.name}.[/dim]")
+            return
+
+        table = Table(title=title, border_style="blue")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Type", style="cyan", width=10)
+        table.add_column("Content")
+        table.add_column("Imp", justify="center", width=3)
+        table.add_column("Emotion", style="yellow", width=10)
+        table.add_column("Created", style="dim", width=16)
+
+        for idx, entry in enumerate(entries, 1):
+            content = entry.content
+            if len(content) > 80:
+                content = content[:77] + "..."
+            table.add_row(
+                str(idx),
+                entry.type.value,
+                content,
+                str(entry.importance),
+                entry.emotion or "",
+                entry.created_at.strftime("%Y-%m-%d %H:%M"),
+            )
+
+        console.print(table)
+        console.print(
+            f"[dim]{len(entries)} memor{'y' if len(entries) == 1 else 'ies'} found[/dim]"
+        )
+
+    asyncio.run(_recall())
 
 
 if __name__ == "__main__":

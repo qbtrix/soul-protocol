@@ -1,18 +1,11 @@
 # cognitive/engine.py — CognitiveEngine protocol, HeuristicEngine, CognitiveProcessor.
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
-# Created: v0.2.1 — LLM as first-class citizen for soul cognition.
-#   CognitiveEngine: single-method protocol consumers implement.
-#   HeuristicEngine: zero-dependency fallback wrapping v0.2.0 heuristic modules.
-#   CognitiveProcessor: internal orchestrator delegating psychology tasks to engine.
-# Updated: 2026-03-04 — Fix: _is_heuristic_only now checks isinstance(engine, HeuristicEngine)
-#   only, dropping the "and fallback is None" condition. Previously, passing
-#   engine=HeuristicEngine() alongside any fallback set _is_heuristic_only=False,
-#   routing update_self_model() through the LLM path where _self_reflection()
-#   returned empty self_images — causing zero domain discovery.
+# Updated: Fixed import ordering — moved logger assignment after all imports
+#   (stdlib, then project imports, then logger).
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -37,6 +30,8 @@ from soul_protocol.runtime.types import (
 
 if TYPE_CHECKING:
     from soul_protocol.runtime.memory.self_model import SelfModelManager
+
+logger = logging.getLogger(__name__)
 
 
 def _heuristic_sentiment(text: str) -> SomaticMarker:
@@ -284,6 +279,7 @@ class CognitiveProcessor:
                 label=data.get("label", "neutral"),
             )
         except Exception:
+            logger.warning("LLM sentiment detection failed, falling back to heuristic")
             if self._fallback:
                 return _heuristic_sentiment(text)
             return SomaticMarker()
@@ -314,6 +310,9 @@ class CognitiveProcessor:
                 goal_relevance=_clamp(data["goal_relevance"], 0.0, 1.0),
             )
         except Exception:
+            logger.warning(
+                "LLM significance assessment failed, falling back to heuristic"
+            )
             if self._fallback:
                 return _heuristic_significance(interaction, core_values, recent_contents)
             return SignificanceScore()
@@ -349,6 +348,9 @@ class CognitiveProcessor:
                 )
             return entries
         except Exception:
+            logger.warning(
+                "LLM fact extraction failed, falling back to heuristic"
+            )
             if self._fact_extractor:
                 return self._fact_extractor(interaction)
             return []
@@ -380,6 +382,9 @@ class CognitiveProcessor:
                 )
             return entities
         except Exception:
+            logger.warning(
+                "LLM entity extraction failed, falling back to heuristic"
+            )
             if self._entity_extractor:
                 return self._entity_extractor(interaction)
             return []
@@ -433,7 +438,9 @@ class CognitiveProcessor:
                     self_model._relationship_notes[entity] = note
 
         except Exception:
-            # Fallback to heuristic
+            logger.warning(
+                "LLM self-model update failed, falling back to heuristic"
+            )
             self_model.update_from_interaction(interaction, facts)
 
     async def reflect(
@@ -477,4 +484,5 @@ class CognitiveProcessor:
                 self_insight=data.get("self_insight", ""),
             )
         except Exception:
+            logger.warning("LLM reflection failed, returning None")
             return None

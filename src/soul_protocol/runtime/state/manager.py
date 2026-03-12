@@ -1,19 +1,13 @@
 # state/manager.py — StateManager for tracking and mutating a soul's runtime state.
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
-# Created: 2026-02-22 — Manages mood, energy, social_battery, focus, and
-# interaction-driven state changes with delta-based updates and clamping.
-# Updated: 2026-03-04 — Two fixes to sentiment-driven mood:
-#   1. Mood inertia via EMA: valence is smoothed with exponential moving average
-#      (alpha=0.4) before the threshold check, so a single mild message can't
-#      flip mood — accumulated signal is required.
-#   2. Label-based mood mapping: _somatic_to_mood() now uses the label field
-#      from SomaticMarker as primary lookup (_LABEL_TO_MOOD dict), with
-#      valence/arousal quadrant logic as fallback for unlabeled markers.
-#      Removes duplicate quadrant math that already existed in sentiment.py.
+# Updated: Added structured logging for mood transitions and low-energy warnings.
 
 from __future__ import annotations
 
+import logging
+
 from soul_protocol.runtime.types import Interaction, Mood, SomaticMarker, SoulState
+
+logger = logging.getLogger(__name__)
 
 # Default recovery rate per hour of rest (energy points)
 _DEFAULT_ENERGY_REGEN_RATE: float = 10.0
@@ -153,10 +147,20 @@ class StateManager:
             )
             new_mood = _somatic_to_mood(smoothed)
             if new_mood is not None:
+                old_mood = self._state.mood
                 self._state.mood = new_mood
+                if old_mood != new_mood:
+                    logger.debug(
+                        "Mood shifted: %s -> %s", old_mood.value, new_mood.value
+                    )
 
         # Low energy overrides everything
         if self._state.energy < 20:
+            if self._state.mood != Mood.TIRED:
+                logger.debug(
+                    "Low energy override: energy=%.0f, mood -> tired",
+                    self._state.energy,
+                )
             self._state.mood = Mood.TIRED
 
     def rest(self, hours: float = 1.0) -> None:
