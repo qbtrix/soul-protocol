@@ -1,13 +1,20 @@
 # memory/semantic.py — SemanticStore for fact-based memories with confidence.
+# Updated: 2026-03-10 — Added search_and_delete() and delete_before() for
+#   GDPR-compliant targeted and time-based memory deletion.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Updated: v0.2.2 — Filter superseded facts from search() and facts().
 #   Added include_superseded parameter to facts() for history access.
 #   2026-02-22 — Replaced substring search with token-overlap relevance
 #   scoring via search.py. Results now sorted by relevance, importance, recency.
+# Updated: Added structured logging for fact eviction events.
 
 from __future__ import annotations
 
+import logging
 import uuid
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from soul_protocol.runtime.memory.search import relevance_score
 from soul_protocol.runtime.types import MemoryEntry, MemoryType
@@ -92,6 +99,39 @@ class SemanticStore:
             key=lambda e: (-e.importance, -e.created_at.timestamp()),
         )
 
+    async def search_and_delete(self, query: str) -> list[str]:
+        """Search for facts matching a query and delete them.
+
+        Uses the same token-overlap scoring as search(). All matches
+        with a relevance score > 0.0 are removed.
+
+        Args:
+            query: The search query to match against fact content.
+
+        Returns:
+            List of deleted fact IDs.
+        """
+        matches = await self.search(query, limit=len(self._facts))
+        deleted_ids = [entry.id for entry in matches]
+        for mid in deleted_ids:
+            del self._facts[mid]
+        return deleted_ids
+
+    async def delete_before(self, timestamp: datetime) -> list[str]:
+        """Delete all facts created before a given timestamp.
+
+        Args:
+            timestamp: The cutoff datetime. Facts older than this
+                       are deleted.
+
+        Returns:
+            List of deleted fact IDs.
+        """
+        to_delete = [mid for mid, entry in self._facts.items() if entry.created_at < timestamp]
+        for mid in to_delete:
+            del self._facts[mid]
+        return to_delete
+
     def _evict_least_important(self) -> None:
         """Remove the least important fact to make room."""
         if not self._facts:
@@ -103,4 +143,5 @@ class SemanticStore:
                 self._facts[mid].created_at.timestamp(),
             ),
         )
+        logger.debug("Semantic fact evicted: id=%s", least_id)
         del self._facts[least_id]
