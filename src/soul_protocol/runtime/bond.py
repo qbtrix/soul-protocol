@@ -1,12 +1,14 @@
-# Engine-level module — opinionated bond mechanics. Not part of the core protocol.
 # bond.py — Human-Soul Bond model for tracking relationship strength
-# Created: 2026-03-06 — Implements Bond model with strengthen/weaken mechanics
+# Updated: Added structured logging for bond strength changes.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class Bond(BaseModel):
@@ -21,6 +23,11 @@ class Bond(BaseModel):
         """Strengthen the bond (called after positive interactions)."""
         self.bond_strength = min(100.0, self.bond_strength + amount)
         self.interaction_count += 1
+        logger.debug(
+            "Bond strengthened: strength=%.1f, interactions=%d",
+            self.bond_strength,
+            self.interaction_count,
+        )
 
     def weaken(self, amount: float = 0.5) -> None:
         """Weaken bond (time decay or negative interactions)."""

@@ -1,6 +1,10 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
 # Updated: 2026-03-10 — Added forget(), forget_entity(), forget_before() for
 #   GDPR-compliant memory deletion. Renamed old forget(memory_id) to forget_by_id().
+# Updated: feat/soul-encryption — Re-raise SoulDecryptionError without wrapping
+#   alongside SoulEncryptedError in awaken() exception handling.
+# Updated: feat/soul-encryption — Added password parameter to awaken() and export()
+#   for encrypted .soul file support.
 # Updated: Wired Bond.strengthen() and SkillRegistry into observe() pipeline.
 # Updated: Added reincarnate() classmethod for lifecycle rebirth.
 #   Preserves memories, personality, and tracks incarnation lineage.
@@ -25,10 +29,17 @@
 #   MemoryManager.observe() now handles sentiment, significance gating,
 #   and self-model updates internally. Soul.observe() delegates to it and
 #   handles entity graph + state updates.
+# Updated: Added structured logging (stdlib) for lifecycle events (birth,
+#   awaken, reincarnate, export, retire), observe pipeline completion,
+#   persistence operations, and evolution. INFO for lifecycle, DEBUG for
+#   pipeline internals, WARNING for degraded paths, ERROR for failures.
+# Updated: Removed PII from debug logs — observe() now logs input length
+#   instead of raw user input. Recall logs query length, not query text.
 
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +71,8 @@ from .types import (
     SoulConfig,
     SoulState,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class Soul:
@@ -192,6 +205,7 @@ class Soul:
             human="",
         )
 
+        logger.info("Soul born: name=%s, did=%s", name, identity.did)
         return soul
 
     @classmethod
@@ -236,6 +250,7 @@ class Soul:
         if not isinstance(data, dict):
             raise ValueError(f"Config file is empty or not a valid mapping: {path}")
 
+        logger.info("Birthing soul from config: %s", path)
         return await cls.birth(
             engine=engine,
             **data,
@@ -300,6 +315,13 @@ class Soul:
                 core_values=config.identity.core_values,
             )
 
+        logger.info(
+            "Soul reincarnated: name=%s, incarnation=%d, old_did=%s, new_did=%s",
+            new_name,
+            identity.incarnation,
+            old_soul.did,
+            identity.did,
+        )
         return soul
 
     @classmethod
@@ -308,6 +330,7 @@ class Soul:
         source: str | Path | bytes,
         engine: CognitiveEngine | None = None,
         search_strategy: SearchStrategy | None = None,
+        password: str | None = None,
     ) -> Soul:
         """Awaken a Soul from a .soul file, directory, soul.json, soul.yaml, or soul.md.
 
@@ -316,15 +339,19 @@ class Soul:
                     Directories must contain a ``soul.json`` file.
             engine: Optional CognitiveEngine for LLM-enhanced cognition.
             search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
+            password: Optional password for decrypting encrypted .soul archives.
         """
-        from .exceptions import SoulCorruptError, SoulFileNotFoundError
+        from .exceptions import SoulCorruptError, SoulDecryptionError, SoulEncryptedError, SoulFileNotFoundError
 
         memory_data: dict = {}
 
         if isinstance(source, bytes):
             try:
-                config, memory_data = await unpack_soul(source)
+                config, memory_data = await unpack_soul(source, password=password)
+            except (SoulEncryptedError, SoulDecryptionError):
+                raise
             except Exception as e:
+                logger.error("Failed to awaken soul from bytes: %s", e)
                 raise SoulCorruptError("<bytes>", str(e)) from e
         else:
             path = Path(source)
@@ -340,8 +367,15 @@ class Soul:
                         raise SoulFileNotFoundError(str(path))
                 elif path.suffix == ".soul":
                     try:
-                        config, memory_data = await unpack_soul(path.read_bytes())
+                        config, memory_data = await unpack_soul(
+                            path.read_bytes(), password=password
+                        )
+                    except (SoulEncryptedError, SoulDecryptionError):
+                        raise
                     except Exception as e:
+                        logger.error(
+                            "Corrupt .soul archive: path=%s, error=%s", path, e
+                        )
                         raise SoulCorruptError(str(path), str(e)) from e
                 elif path.suffix == ".json":
                     config = SoulConfig.model_validate_json(path.read_text())
@@ -360,7 +394,7 @@ class Soul:
                     )
                 else:
                     raise ValueError(f"Unknown soul format: {path.suffix}")
-            except (SoulFileNotFoundError, SoulCorruptError):
+            except (SoulFileNotFoundError, SoulCorruptError, SoulEncryptedError, SoulDecryptionError):
                 raise
             except PermissionError as e:
                 raise SoulFileNotFoundError(str(path)) from e
@@ -378,6 +412,12 @@ class Soul:
                 search_strategy=search_strategy,
             )
 
+        logger.info(
+            "Soul awakened: name=%s, did=%s, memories=%d",
+            soul.name,
+            soul.did,
+            soul.memory_count,
+        )
         return soul
 
     @classmethod
@@ -550,12 +590,15 @@ class Soul:
         min_importance: int = 0,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories."""
-        return await self._memory.recall(
+        results = await self._memory.recall(
             query=query,
             limit=limit,
             types=types,
             min_importance=min_importance,
         )
+        if not results:
+            logger.debug("Recall returned no results: query_len=%d", len(query))
+        return results
 
     async def observe(self, interaction: Interaction) -> None:
         """Soul observes an interaction and learns from it.
@@ -575,6 +618,8 @@ class Soul:
           8. Update soul state (energy/social_battery drain)
           9. Check evolution triggers
         """
+        logger.debug("observe() started: input_len=%d", len(interaction.user_input))
+
         # Delegate to psychology-informed memory pipeline
         result = await self._memory.observe(interaction)
 
@@ -590,7 +635,9 @@ class Soul:
                 }
                 relation = ent.get("relation")
                 if relation:
-                    graph_ent["relationships"].append({"target": "user", "relation": relation})
+                    graph_ent["relationships"].append(
+                        {"target": "user", "relation": relation}
+                    )
                 graph_entities.append(graph_ent)
 
             await self._memory.update_graph(graph_entities)
@@ -628,6 +675,15 @@ class Soul:
         forget_before() which provide GDPR-compliant bulk deletion
         with audit trails.
         """
+        logger.debug(
+            "observe() complete: significant=%s, facts=%d, entities=%d",
+            result.get("is_significant"),
+            len(result.get("facts", [])),
+            len(raw_entities),
+        )
+
+    async def forget(self, memory_id: str) -> bool:
+        """Soul forgets a specific memory."""
         return await self._memory.remove(memory_id)
 
     async def forget(self, query: str) -> dict:
@@ -691,7 +747,9 @@ class Soul:
         """Get the always-loaded core memory."""
         return self._memory.get_core()
 
-    async def edit_core_memory(self, *, persona: str | None = None, human: str | None = None):
+    async def edit_core_memory(
+        self, *, persona: str | None = None, human: str | None = None
+    ):
         """Edit core memory."""
         await self._memory.edit_core(persona=persona, human=human)
 
@@ -744,7 +802,9 @@ class Soul:
 
     # ============ Evolution ============
 
-    async def propose_evolution(self, trait: str, new_value: str, reason: str) -> Mutation:
+    async def propose_evolution(
+        self, trait: str, new_value: str, reason: str
+    ) -> Mutation:
         """Propose a trait mutation."""
         return await self._evolution.propose(
             dna=self._dna,
@@ -758,6 +818,9 @@ class Soul:
         result = await self._evolution.approve(mutation_id)
         if result:
             self._dna = self._evolution.apply(self._dna, mutation_id)
+            logger.info(
+                "Evolution approved and applied: mutation_id=%s", mutation_id
+            )
         return result
 
     async def reject_evolution(self, mutation_id: str) -> bool:
@@ -781,6 +844,7 @@ class Soul:
         save_path = Path(path) if path else None
         memory_data = self._memory.to_dict()
         await save_soul_full(self.serialize(), memory_data, path=save_path)
+        logger.info("Soul saved: name=%s, path=%s", self.name, save_path)
 
     async def save_local(self, path: str | Path = ".soul") -> None:
         """Save to a local directory (flat, no soul_id nesting).
@@ -795,21 +859,40 @@ class Soul:
         config = self.serialize()
         memory_data = self._memory.to_dict()
         await save_soul_flat(config, memory_data, Path(path))
+        logger.info("Soul saved locally: name=%s, path=%s", self.name, path)
 
-    async def export(self, path: str | Path) -> None:
-        """Export soul as a portable .soul file with full memory data."""
+    async def export(self, path: str | Path, *, password: str | None = None) -> None:
+        """Export soul as a portable .soul file with full memory data.
+
+        Args:
+            path: File path for the exported .soul archive.
+            password: Optional password for AES-256-GCM encryption at rest.
+                When provided, all content except the manifest is encrypted.
+        """
         from .exceptions import SoulExportError
 
         try:
             memory_data = self._memory.to_dict()
-            data = await pack_soul(self.serialize(), memory_data=memory_data)
+            data = await pack_soul(
+                self.serialize(), memory_data=memory_data, password=password
+            )
             Path(path).write_bytes(data)
+            logger.info(
+                "Soul exported: name=%s, path=%s, size=%d bytes",
+                self.name,
+                path,
+                len(data),
+            )
         except PermissionError as e:
+            logger.error("Export failed (permission denied): path=%s", path)
             raise SoulExportError(str(path), "permission denied") from e
         except OSError as e:
+            logger.error("Export failed: path=%s, error=%s", path, e)
             raise SoulExportError(str(path), str(e)) from e
 
-    async def retire(self, *, farewell: bool = False, preserve_memories: bool = True) -> None:
+    async def retire(
+        self, *, farewell: bool = False, preserve_memories: bool = True
+    ) -> None:
         """Retire this soul with dignity.
 
         If preserve_memories is True (default), saves all memories before
@@ -822,11 +905,17 @@ class Soul:
             try:
                 await self.save()
             except Exception as e:
+                logger.error(
+                    "Retire failed (save error): name=%s, error=%s",
+                    self.name,
+                    e,
+                )
                 raise SoulRetireError(str(e)) from e
 
         self._lifecycle = LifecycleState.RETIRED
         await self._memory.clear()
         self._state.reset()
+        logger.info("Soul retired: name=%s, did=%s", self.name, self.did)
 
     # ============ Serialization ============
 

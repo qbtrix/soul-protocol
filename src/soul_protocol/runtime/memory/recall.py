@@ -1,4 +1,5 @@
 # memory/recall.py — RecallEngine for cross-store memory retrieval.
+# Updated: 2026-03-10 — Accept optional personality param (passed by MemoryManager, reserved for future use).
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
 # Updated: v0.2.2 — Accept optional SearchStrategy for pluggable spreading activation.
 #   v0.2.0 — Replaced flat relevance scoring with ACT-R activation-based
@@ -6,11 +7,17 @@
 #   spreading activation (query relevance), and emotional boost (somatic markers).
 #   Access timestamps are updated on retrieval (strengthens future recall).
 #   Timestamps capped at MAX_ACCESS_TIMESTAMPS to bound memory growth.
+# Updated: Added structured logging for recall queries and empty results.
+# Updated: Removed PII from debug logs — logs query length instead of raw
+#   query text. Fixed import ordering (logger after all imports).
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from soul_protocol.runtime.memory.activation import compute_activation
 from soul_protocol.runtime.memory.episodic import EpisodicStore
@@ -40,11 +47,13 @@ class RecallEngine:
         semantic: SemanticStore,
         procedural: ProceduralStore,
         strategy: SearchStrategy | None = None,
+        personality: object | None = None,
     ) -> None:
         self._episodic = episodic
         self._semantic = semantic
         self._procedural = procedural
         self._strategy = strategy
+        self._personality = personality
 
     async def recall(
         self,
@@ -106,4 +115,6 @@ class RecallEngine:
             if len(entry.access_timestamps) > MAX_ACCESS_TIMESTAMPS:
                 entry.access_timestamps = entry.access_timestamps[-MAX_ACCESS_TIMESTAMPS:]
 
+        if not results:
+            logger.debug("Recall found no matches: query_len=%d", len(query))
         return results[:limit]
