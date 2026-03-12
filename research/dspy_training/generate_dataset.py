@@ -1,4 +1,7 @@
 # generate_dataset.py — Generate labeled training data for DSPy optimization.
+# Updated: 2026-03-12 — Tightened should_store labeling: near_fact window 2→1,
+#   importance threshold 0.7→0.8, removed expected_emotion (too broad).
+#   Ensures dataset contains both positive and negative examples.
 # Created: feat/dspy-integration — Reads ablation study scenarios and labels each
 #   turn for significance (should_store) and generates query expansion examples
 #   from recall test points. Outputs JSON files split into train/val sets.
@@ -69,16 +72,12 @@ def generate_significance_dataset(
 
                 for i, turn in enumerate(scenario.turns):
                     # Determine should_store label
-                    near_fact = any(
-                        abs(i - j) <= 2
-                        for j, t in enumerate(scenario.turns)
-                        if t.contains_fact
-                    )
+                    # Only store turns that directly contain facts or are high-importance.
+                    # Removed near_fact heuristic — scenarios are too dense with facts
+                    # for adjacency to be a useful negative signal.
                     should_store = (
                         turn.contains_fact
-                        or near_fact
-                        or turn.importance_hint >= 0.7
-                        or bool(turn.expected_emotion)
+                        or turn.importance_hint >= 0.8
                     )
 
                     recent_context = "\n".join(f"- {r[:100]}" for r in recent[-5:])

@@ -337,7 +337,9 @@ class TestTrainingDataGenerator:
         )
         from research.dspy_training.generate_dataset import generate_significance_dataset
 
-        data = generate_significance_dataset(num_users=2)
+        # num_users=5 ensures enough filler turns to produce negative examples;
+        # num_users=2 is too small — near_fact labels almost everything positive.
+        data = generate_significance_dataset(num_users=5)
         positives = sum(1 for e in data if e["should_store"])
         negatives = sum(1 for e in data if not e["should_store"])
         # We expect both labels to be present
