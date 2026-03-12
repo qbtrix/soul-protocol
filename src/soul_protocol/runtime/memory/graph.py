@@ -1,5 +1,7 @@
 # memory/graph.py — KnowledgeGraph for entity relationships.
 # Created: 2026-02-22
+# Updated: 2026-03-10 — Added remove_entity() for GDPR-compliant entity deletion.
+#   Removes entity and all connected edges (incoming + outgoing).
 # Updated: 2026-03-06 — Added temporal fields (valid_from, valid_to) to edges.
 #   New methods: as_of_date(), relationship_evolution(), expire_relationship().
 #   Backward-compatible: edges without temporal fields default to always-valid.
@@ -270,6 +272,27 @@ class KnowledgeGraph:
                 )
         results.sort(key=lambda r: r["valid_from"])
         return results
+
+    def remove_entity(self, entity: str) -> int:
+        """Remove an entity and all its connected edges.
+
+        Deletes the entity from the entity registry and removes all edges
+        where the entity appears as source or target.
+
+        Args:
+            entity: The entity name to remove.
+
+        Returns:
+            The number of edges removed.
+        """
+        if entity in self._entities:
+            del self._entities[entity]
+        # Remove all edges connected to this entity
+        original_len = len(self._edges)
+        self._edges = [
+            edge for edge in self._edges if edge.source != entity and edge.target != entity
+        ]
+        return original_len - len(self._edges)
 
     def to_dict(self) -> dict:
         """Serialize the graph to a plain dict for persistence.

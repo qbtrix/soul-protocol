@@ -43,3 +43,23 @@ class SoulRetireError(SoulProtocolError):
     def __init__(self, reason: str = "") -> None:
         self.reason = reason
         super().__init__(f"Cannot retire soul: failed to save memories — {reason}")
+
+
+class SoulEncryptedError(SoulProtocolError):
+    """Raised when loading an encrypted .soul file without providing a password."""
+
+    def __init__(self, soul_name: str = "") -> None:
+        self.soul_name = soul_name
+        hint = f" ({soul_name})" if soul_name else ""
+        super().__init__(
+            f"This .soul file{hint} is encrypted. "
+            "Provide a password to decrypt it: Soul.awaken(path, password='...')"
+        )
+
+
+class SoulDecryptionError(SoulProtocolError):
+    """Raised when decryption fails (wrong password or corrupted data)."""
+
+    def __init__(self, reason: str = "wrong password or corrupted data") -> None:
+        self.reason = reason
+        super().__init__(f"Failed to decrypt .soul file — {reason}")

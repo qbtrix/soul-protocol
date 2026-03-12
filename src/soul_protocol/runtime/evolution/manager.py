@@ -1,14 +1,16 @@
 # evolution/manager.py — EvolutionManager for proposing, approving, and applying DNA mutations.
-# Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
-# Created: 2026-02-22 — Implements supervised/autonomous/disabled evolution modes
-# with immutable-trait guards and nested trait-path application (e.g. "communication.warmth").
+# Updated: Added structured logging for mutation proposals, approvals,
+#   rejections, and applications.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 
 from soul_protocol.runtime.types import DNA, EvolutionConfig, EvolutionMode, Interaction, Mutation
+
+logger = logging.getLogger(__name__)
 
 
 def _get_nested_attr(obj: object, path: str) -> str:
@@ -118,9 +120,22 @@ class EvolutionManager:
             mutation.approved = True
             mutation.approved_at = datetime.now()
             self._config.history.append(mutation)
+            logger.info(
+                "Mutation auto-approved (autonomous): trait=%s, %s -> %s",
+                trait,
+                old_value,
+                new_value,
+            )
         else:
             # supervised — stays pending
             self._pending.append(mutation)
+            logger.info(
+                "Mutation proposed (supervised): id=%s, trait=%s, %s -> %s",
+                mutation.id,
+                trait,
+                old_value,
+                new_value,
+            )
 
         return mutation
 
@@ -136,6 +151,9 @@ class EvolutionManager:
                 mutation.approved_at = datetime.now()
                 self._pending.remove(mutation)
                 self._config.history.append(mutation)
+                logger.info(
+                    "Mutation approved: id=%s, trait=%s", mutation_id, mutation.trait
+                )
                 return True
         return False
 
@@ -150,6 +168,11 @@ class EvolutionManager:
                 mutation.approved = False
                 self._pending.remove(mutation)
                 self._config.history.append(mutation)
+                logger.info(
+                    "Mutation rejected: id=%s, trait=%s",
+                    mutation_id,
+                    mutation.trait,
+                )
                 return True
         return False
 

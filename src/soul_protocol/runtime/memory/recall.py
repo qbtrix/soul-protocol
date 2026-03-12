@@ -2,22 +2,32 @@
 # Updated: v0.3.3 — Accept optional Personality for OCEAN trait-modulated recall.
 #   Personality influences which memories surface: high-Neuroticism boosts emotional
 #   memories, high-Openness boosts knowledge, etc. Backwards compatible.
+# Updated: phase1-ablation-fixes — Default to BM25SearchStrategy instead of
+#   TokenOverlapStrategy when no strategy is provided.
+# Updated: 2026-03-10 — Accept optional personality param (passed by MemoryManager, reserved for future use).
 # Updated: v0.2.2 — Accept optional SearchStrategy for pluggable spreading activation.
 #   v0.2.0 — Replaced flat relevance scoring with ACT-R activation-based
 #   ranking. Memories are now scored by base-level activation (recency + frequency),
 #   spreading activation (query relevance), and emotional boost (somatic markers).
 #   Access timestamps are updated on retrieval (strengthens future recall).
 #   Timestamps capped at MAX_ACCESS_TIMESTAMPS to bound memory growth.
+# Updated: Added structured logging for recall queries and empty results.
+# Updated: Removed PII from debug logs — logs query length instead of raw
+#   query text. Fixed import ordering (logger after all imports).
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from soul_protocol.runtime.memory.activation import compute_activation
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.procedural import ProceduralStore
 from soul_protocol.runtime.memory.semantic import SemanticStore
+from soul_protocol.runtime.memory.strategy import BM25SearchStrategy
 from soul_protocol.runtime.types import MemoryEntry, MemoryType, Personality
 
 if TYPE_CHECKING:
@@ -47,7 +57,7 @@ class RecallEngine:
         self._episodic = episodic
         self._semantic = semantic
         self._procedural = procedural
-        self._strategy = strategy
+        self._strategy = strategy if strategy is not None else BM25SearchStrategy()
         self._personality = personality
 
     async def recall(
@@ -114,4 +124,6 @@ class RecallEngine:
             if len(entry.access_timestamps) > MAX_ACCESS_TIMESTAMPS:
                 entry.access_timestamps = entry.access_timestamps[-MAX_ACCESS_TIMESTAMPS:]
 
+        if not results:
+            logger.debug("Recall found no matches: query_len=%d", len(query))
         return results[:limit]

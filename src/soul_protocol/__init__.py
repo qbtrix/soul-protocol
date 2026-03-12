@@ -1,4 +1,6 @@
 # __init__.py — Public API for the soul-protocol package
+# Updated: feat/soul-encryption — Added SoulEncryptedError and SoulDecryptionError
+#   to public imports and __all__ for encrypted .soul file support.
 # Updated: v0.5.0 — Two-layer architecture (spec/ + runtime/).
 #   spec/ contains protocol primitives (Identity, MemoryStore, SoulContainer, etc.)
 #   runtime/ contains the opinionated engine (Soul, Bond, MemoryManager, etc.)
@@ -17,6 +19,8 @@ from .runtime.bond import Bond
 from .runtime.cognitive.engine import CognitiveEngine, HeuristicEngine
 from .runtime.exceptions import (
     SoulCorruptError,
+    SoulDecryptionError,
+    SoulEncryptedError,
     SoulExportError,
     SoulFileNotFoundError,
     SoulProtocolError,
@@ -72,6 +76,9 @@ __all__ = [
     "SoulCorruptError",
     "SoulExportError",
     "SoulRetireError",
+    # feat/soul-encryption exceptions
+    "SoulEncryptedError",
+    "SoulDecryptionError",
     # v0.2.2 pluggable retrieval
     "SearchStrategy",
     "TokenOverlapStrategy",

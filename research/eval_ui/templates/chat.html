@@ -1,6 +1,12 @@
 <!-- chat.html — Chat + survey interface for the Soul Protocol human evaluation study.
      Handles both Agent A and Agent B chat phases, inline Likert surveys,
      and the final preference question. All state managed via API calls.
+
+     Changes (2026-03-11 — feat/eval-ui-polish):
+       - Added reverse-coded survey item q6 ("responses felt generic and repetitive")
+       - Added open-ended free_text_feedback textarea on preference screen
+       - Friendly retry on transient LLM errors (no raw 500s shown)
+       - Survey validation covers all 6 questions
      Created: 2026-03-07 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -236,6 +242,32 @@
             background: #0071e3;
             color: white;
         }
+        .feedback-section {
+            margin-top: 28px;
+            text-align: left;
+        }
+        .feedback-section label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #6e6e73;
+            margin-bottom: 8px;
+        }
+        .feedback-section textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 12px 16px;
+            border: 1px solid #d2d2d7;
+            border-radius: 10px;
+            font-family: inherit;
+            font-size: 14px;
+            resize: vertical;
+            outline: none;
+        }
+        .feedback-section textarea:focus {
+            border-color: #0071e3;
+            box-shadow: 0 0 0 3px rgba(0,113,227,0.15);
+        }
         .pref-confirm {
             margin-top: 24px;
             display: none;
@@ -292,6 +324,22 @@
             border-bottom: 1px solid #e5e5e7;
             margin: 16px 0;
             background: #fafafa;
+        }
+
+        /* Error toast */
+        .error-toast {
+            display: none;
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #ff3b30;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 14px;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
     </style>
 </head>
@@ -378,6 +426,17 @@
             </div>
         </div>
 
+        <div class="survey-question">
+            <p>6. The agent's responses felt generic and repetitive.</p>
+            <div class="likert">
+                <label><input type="radio" name="q6" value="1">1<br>Strongly<br>Disagree</label>
+                <label><input type="radio" name="q6" value="2">2<br>Disagree</label>
+                <label><input type="radio" name="q6" value="3">3<br>Neutral</label>
+                <label><input type="radio" name="q6" value="4">4<br>Agree</label>
+                <label><input type="radio" name="q6" value="5">5<br>Strongly<br>Agree</label>
+            </div>
+        </div>
+
         <button class="survey-submit" id="survey-submit" onclick="submitSurvey()">Submit Ratings</button>
     </div>
 
@@ -389,6 +448,10 @@
             <button class="pref-btn" data-pref="A" onclick="selectPreference('A')">Agent A</button>
             <button class="pref-btn" data-pref="B" onclick="selectPreference('B')">Agent B</button>
         </div>
+        <div class="feedback-section">
+            <label for="free-text">Anything else you noticed? What made you prefer one agent over the other? (optional)</label>
+            <textarea id="free-text" placeholder="Any thoughts or observations..."></textarea>
+        </div>
         <button class="pref-confirm" id="pref-confirm" onclick="submitPreference()">Confirm Choice</button>
     </div>
 
@@ -397,6 +460,9 @@
         <h3>Thank You!</h3>
         <p>Your evaluation has been recorded. You can close this window now.</p>
     </div>
+
+    <!-- Error toast -->
+    <div class="error-toast" id="error-toast"></div>
 
     <script>
         const SESSION_ID = "{{ session_id }}";
@@ -419,11 +485,22 @@
         const surveyTitle = document.getElementById('survey-title');
         const preferencePanel = document.getElementById('preference-panel');
         const donePanel = document.getElementById('done-panel');
+        const errorToast = document.getElementById('error-toast');
+
+        function showError(msg) {
+            errorToast.textContent = msg;
+            errorToast.style.display = 'block';
+            setTimeout(() => { errorToast.style.display = 'none'; }, 4000);
+        }
 
         // Initialize — fetch session state
         async function init() {
             try {
                 const res = await fetch(`/api/session/${SESSION_ID}`);
+                if (!res.ok) {
+                    showError('Could not load session. Please go back and try again.');
+                    return;
+                }
                 const data = await res.json();
                 currentAgent = data.current_agent.toLowerCase();
                 currentTurn = data.turn;
@@ -444,6 +521,7 @@
                 }
             } catch (err) {
                 console.error('Failed to init session:', err);
+                showError('Could not connect to the server. Please refresh the page.');
             }
         }
 
@@ -495,7 +573,7 @@
 
                 if (!res.ok) {
                     const err = await res.json();
-                    throw new Error(err.detail || 'Failed to send message');
+                    throw new Error(err.detail || 'Something went wrong');
                 }
 
                 const data = await res.json();
@@ -515,7 +593,8 @@
                 }
             } catch (err) {
                 typingIndicator.style.display = 'none';
-                addMessageBubble('assistant', `Error: ${err.message}. Please try again.`);
+                // Show friendly error instead of raw stack trace
+                showError('The agent had trouble responding. Please try sending your message again.');
                 sendBtn.disabled = false;
                 msgInput.disabled = false;
             }
@@ -535,9 +614,9 @@
 
         // Submit survey
         async function submitSurvey() {
-            // Validate all questions answered
+            // Validate all 6 questions answered
             const answers = {};
-            for (let i = 1; i <= 5; i++) {
+            for (let i = 1; i <= 6; i++) {
                 const selected = document.querySelector(`input[name="q${i}"]:checked`);
                 if (!selected) {
                     alert(`Please answer question ${i} before submitting.`);
@@ -585,7 +664,7 @@
                     showPreference();
                 }
             } catch (err) {
-                alert(`Error submitting survey: ${err.message}`);
+                showError('Could not submit survey. Please try again.');
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Submit Ratings';
@@ -616,6 +695,8 @@
             confirmBtn.disabled = true;
             confirmBtn.textContent = 'Saving...';
 
+            const freeText = document.getElementById('free-text').value.trim();
+
             try {
                 await fetch('/api/survey', {
                     method: 'POST',
@@ -623,13 +704,14 @@
                     body: JSON.stringify({
                         session_id: SESSION_ID,
                         agent: 'final',
-                        q1: 0, q2: 0, q3: 0, q4: 0, q5: 0,
+                        q1: 0, q2: 0, q3: 0, q4: 0, q5: 0, q6: 0,
                         preference: selectedPreference,
+                        free_text_feedback: freeText || null,
                     }),
                 });
                 showDone();
             } catch (err) {
-                alert(`Error: ${err.message}`);
+                showError('Could not save your choice. Please try again.');
                 confirmBtn.disabled = false;
                 confirmBtn.textContent = 'Confirm Choice';
             }
