@@ -1,4 +1,6 @@
 # test_scenarios.py — Tests for long-horizon scenario generation.
+# Updated: 2026-03-12 — Fixed vacuous assertion in test_recall_tests_cover_all_facts;
+#   now each planted fact is checked against recall test points.
 # Created: 2026-03-11
 # Validates turn counts, test point existence, planted fact structure,
 # and determinism of scenario generators.
@@ -193,14 +195,12 @@ class TestAdversarialBurialScenario:
         ]
         # Each fact should be testable by at least one test point
         for fact in fact_contents:
-            # Check if any test point's expected content relates to this fact
             key_words = set(fact.split())
             matched = any(
                 any(word in expected for word in key_words)
                 for expected in test_expecteds
             )
-            # Relaxed check: at least the fact's topic should appear somewhere
-            assert len(test_expecteds) >= 5, "Should have at least 5 recall tests"
+            assert matched, f"No recall test covers fact: {fact}"
 
     def test_deterministic_generation(self):
         s1 = generate_adversarial_burial(seed=42)

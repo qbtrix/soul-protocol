@@ -1,4 +1,6 @@
 # runner.py — Long-horizon ablation runner.
+# Updated: 2026-03-12 — Added comment documenting private attribute access for
+#   episodic/semantic counts (matches pattern in conditions.py).
 # Updated: 2026-03-11 — Added use_dspy_significance option. When enabled, the
 #   full_soul condition creates Soul with use_dspy=True, routing significance
 #   assessment through the DSPy-optimized gate instead of heuristics.
@@ -255,6 +257,7 @@ class LongHorizonRunner:
         if condition not in (ConditionType.PERSONALITY_ONLY, ConditionType.BARE_BASELINE):
             result.total_memories = soul.memory_count
             # Count per tier
+            # NOTE: Accessing internal store state for metrics — matches pattern in conditions.py
             result.episodic_count = len(soul._memory._episodic._memories)
             result.semantic_count = len(soul._memory._semantic._facts)
 
