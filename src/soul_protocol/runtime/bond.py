@@ -1,15 +1,18 @@
-# Engine-level module — opinionated bond mechanics. Not part of the core protocol.
 # bond.py — Human-Soul Bond model for tracking relationship strength
 # Updated: phase1-ablation-fixes — Changed strengthen() to logarithmic growth curve.
 #   At bond=50 effective gain is 0.5 per interaction; at bond=90 gain is 0.1.
 #   Reaching 99 from 50 takes ~460 interactions. Weaken stays linear (sharp).
 # Created: 2026-03-06 — Implements Bond model with strengthen/weaken mechanics
+# Updated: Added structured logging for bond strength changes.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class Bond(BaseModel):
@@ -31,6 +34,11 @@ class Bond(BaseModel):
         effective = amount * (remaining / 100.0)
         self.bond_strength = min(100.0, self.bond_strength + effective)
         self.interaction_count += 1
+        logger.debug(
+            "Bond strengthened: strength=%.1f, interactions=%d",
+            self.bond_strength,
+            self.interaction_count,
+        )
 
     def weaken(self, amount: float = 0.5) -> None:
         """Weaken bond (time decay or negative interactions)."""

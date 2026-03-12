@@ -17,10 +17,10 @@ uv pip install fastapi jinja2 uvicorn
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-3. (Optional) Set a custom admin token for viewing results:
+3. Set an admin token for viewing results:
 
 ```bash
-export EVAL_ADMIN_TOKEN="your-secret-token"
+export EVAL_ADMIN_TOKEN="your-secret-token-here"
 ```
 
 ## Running
@@ -45,10 +45,10 @@ Each student session:
 
 ## Viewing Results
 
-Visit the admin endpoint (default token: `soul-eval-admin-2026`):
+Visit the admin endpoint with your configured token:
 
 ```
-http://localhost:8080/api/results?token=soul-eval-admin-2026
+http://localhost:8080/api/results?token=your-secret-token-here
 ```
 
 ## File Structure
