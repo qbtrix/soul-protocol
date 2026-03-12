@@ -1,5 +1,9 @@
 <!-- index.html — Landing page for the Soul Protocol human evaluation study.
      Students enter their name/ID to begin a blinded A/B chat evaluation.
+
+     Changes (2026-03-11 — feat/eval-ui-polish):
+       - Error message now shows friendly text on Soul.birth() failures
+       - Button shows "Setting up..." while waiting for session creation
      Created: 2026-03-07 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -36,24 +40,6 @@
             font-size: 15px;
             line-height: 1.5;
             margin-bottom: 32px;
-        }
-        .instructions {
-            background: #f5f5f7;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 32px;
-            font-size: 14px;
-            line-height: 1.6;
-        }
-        .instructions h3 {
-            font-size: 15px;
-            margin-bottom: 8px;
-        }
-        .instructions ol {
-            padding-left: 20px;
-        }
-        .instructions li {
-            margin-bottom: 6px;
         }
         label {
             display: block;
@@ -108,20 +94,6 @@
             Your responses are anonymous and used for research purposes only.
         </p>
 
-        <div class="instructions">
-            <h3>How it works</h3>
-            <ol>
-                <li>Chat with <strong>Agent A</strong> for 5 turns</li>
-                <li>Answer 5 quick questions about Agent A</li>
-                <li>Chat with <strong>Agent B</strong> for 5 turns</li>
-                <li>Answer the same 5 questions about Agent B</li>
-                <li>Tell us which agent you preferred</li>
-            </ol>
-            <p style="margin-top: 10px; color: #6e6e73;">
-                Takes about 10-15 minutes. Just chat naturally — there are no wrong answers.
-            </p>
-        </div>
-
         <form id="start-form">
             <label for="student-name">Your name or student ID</label>
             <input type="text" id="student-name" placeholder="e.g., Alice or STU-042" required>
@@ -154,7 +126,7 @@
 
                 if (!res.ok) {
                     const err = await res.json();
-                    throw new Error(err.detail || 'Failed to start session');
+                    throw new Error(err.detail || 'Something went wrong. Please try again.');
                 }
 
                 const data = await res.json();

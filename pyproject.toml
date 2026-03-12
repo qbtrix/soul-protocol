@@ -1,5 +1,6 @@
 # soul-protocol — Portable AI identity and memory
-# Updated: v0.4.0 — Two-layer architecture: core (pydantic only) + engine (yaml/click/rich/crypto).
+# Updated: Added [dspy] optional extra (dspy>=2.5) and included it in [all].
+#   v0.4.0 — Two-layer architecture: core (pydantic only) + engine (yaml/click/rich/crypto).
 #   Moved pyyaml, click, rich, cryptography from core deps to [engine] extra.
 #   Added [all] composite extra. Dev extra now depends on engine.
 #   v0.2.2 — Added MCP server (fastmcp), soul-mcp entry point, mcp optional dep
@@ -35,6 +36,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "dspy>=3.1.3",
     "pydantic>=2.0",
 ]
 
@@ -49,6 +51,7 @@ mcp = [
     "fastmcp>=2.0",
     "soul-protocol[engine]",
 ]
+dspy = ["dspy>=2.5"]
 graph = ["networkx>=3.0"]
 vector = ["numpy>=1.24"]
 dev = [
@@ -58,7 +61,7 @@ dev = [
     "mypy>=1.8",
     "soul-protocol[engine]",
 ]
-all = ["soul-protocol[engine,mcp,graph,vector]"]
+all = ["soul-protocol[engine,mcp,graph,vector,dspy]"]
 
 [project.scripts]
 soul = "soul_protocol.cli.main:cli"
