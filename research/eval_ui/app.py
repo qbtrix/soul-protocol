@@ -1,5 +1,8 @@
 # app.py — FastAPI application for the Soul Protocol human evaluation study.
 #
+# Changes (2026-03-12 — fix/require-admin-token):
+#   - EVAL_ADMIN_TOKEN now required (no hardcoded default) — raises RuntimeError at startup
+#
 # Changes (2026-03-11 — feat/eval-ui-polish):
 #   - Session TTL (30 min) with background cleanup every 5 min
 #   - ANTHROPIC_API_KEY validation at startup (fail fast)
@@ -53,7 +56,7 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
-ADMIN_TOKEN = os.environ.get("EVAL_ADMIN_TOKEN", "soul-eval-admin-2026")
+ADMIN_TOKEN = os.environ.get("EVAL_ADMIN_TOKEN", "")
 
 MAX_TURNS = 5
 
@@ -156,6 +159,15 @@ async def startup_event():
             "  export ANTHROPIC_API_KEY='sk-ant-...'"
         )
     logger.info("ANTHROPIC_API_KEY validated (set and non-empty)")
+
+    # Fail fast if EVAL_ADMIN_TOKEN is missing
+    if not ADMIN_TOKEN:
+        raise RuntimeError(
+            "EVAL_ADMIN_TOKEN environment variable is not set. "
+            "Set it before starting the eval UI:\n"
+            "  export EVAL_ADMIN_TOKEN='your-secret-token-here'"
+        )
+    logger.info("EVAL_ADMIN_TOKEN validated (set and non-empty)")
 
     # Start background session cleanup
     asyncio.create_task(_session_cleanup_loop())
