@@ -905,8 +905,17 @@ def recall_cmd(path, query, recent, limit, min_importance):
         soul = await Soul.awaken(path)
 
         if recent is not None:
-            # Show N most recent episodic memories
-            entries = soul._memory._episodic.entries()[:recent]
+            # Show N most recent memories across all stores
+            all_memories = (
+                soul._memory._episodic.entries()
+                + soul._memory._semantic.facts()
+                + soul._memory._procedural.entries()
+            )
+            all_memories.sort(
+                key=lambda m: m.created_at or "",
+                reverse=True,
+            )
+            entries = all_memories[:recent]
             title = f"Recent Memories — {soul.name} (last {recent})"
         elif query:
             entries = await soul.recall(
