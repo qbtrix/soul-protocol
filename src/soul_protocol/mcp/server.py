@@ -1,4 +1,5 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
+# 12 tools, 3 resources, 2 prompts for AI agent integration
 # Updated: 2026-03-13 — Multi-soul support via SoulRegistry + SOUL_DIR scanning.
 #
 # Usage:
@@ -108,7 +109,7 @@ class SoulRegistry:
         return [
             (self._souls[n], self._paths[n], self._formats[n])
             for n in self._modified
-            if n in self._souls
+            if n in self._souls and self._paths.get(n)
         ]
 
     def clear(self) -> None:

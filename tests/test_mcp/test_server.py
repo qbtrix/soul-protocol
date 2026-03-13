@@ -434,6 +434,18 @@ async def test_soul_dir_loads_mixed_formats(tmp_path):
             assert formats["ZipSoul"] == "zip"
 
 
+async def test_newborn_soul_no_path_autosave():
+    """Newborn soul (no save path) should not crash auto-save on shutdown."""
+    async with Client(mcp) as client:
+        await _birth(client, "Ephemeral")
+        # Modify the soul so it's marked as modified
+        await client.call_tool(
+            "soul_remember",
+            {"content": "ephemeral memory", "importance": 5},
+        )
+    # If we get here without error, auto-save handled empty path gracefully
+
+
 # --- Error Tests ---
 
 
