@@ -1,4 +1,5 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: 2026-03-13 — Added --claude flag to `soul init` for Claude Code auto-setup.
 # Updated: 2026-03-13 — Added `soul unpack` command, made export --output optional.
 # Updated: 2026-03-13 — Added --traits/-t compact OCEAN shorthand to `soul birth`.
 # Updated: 2026-03-10 — Added `soul remember` and `soul recall` commands (issue #14).
@@ -32,6 +33,92 @@ console = Console()
 def _safe_name(name: str) -> str:
     """Sanitize a soul name for use in file paths (no traversal)."""
     return Path(name.lower().replace(" ", "-")).name or "soul"
+
+
+_CLAUDE_SOUL_INSTRUCTIONS = """\
+
+## Soul (Persistent Memory)
+
+This project uses [Soul Protocol](https://github.com/qbtrix/soul-protocol) \
+for persistent AI memory via MCP.
+
+**On session start:**
+1. Call `soul_recall` with the current task context to load relevant memories
+2. Call `soul_state` to check current mood and energy
+
+**During work:**
+- `soul_observe` after key decisions, completed tasks, or important conversations
+- `soul_remember` for facts that should persist across sessions
+
+**On session end:**
+- The soul auto-saves on shutdown — no manual save needed
+"""
+
+
+def _setup_claude_code(soul_path: Path, soul_name: str) -> None:
+    """Configure Claude Code to use the soul MCP server."""
+    cwd = Path.cwd()
+
+    # 1. Create/update .mcp.json
+    mcp_file = cwd / ".mcp.json"
+    mcp_config: dict = {}
+    if mcp_file.exists():
+        try:
+            mcp_config = json.loads(mcp_file.read_text())
+        except json.JSONDecodeError:
+            pass
+
+    mcp_config.setdefault("mcpServers", {})
+    mcp_config["mcpServers"]["soul"] = {
+        "command": "uv",
+        "args": ["run", "soul-mcp"],
+        "env": {"SOUL_PATH": str(soul_path.resolve())},
+    }
+    mcp_file.write_text(json.dumps(mcp_config, indent=2) + "\n")
+    console.print(f"  [green]✓[/green] Updated [bold].mcp.json[/bold] (soul MCP server)")
+
+    # 2. Create/update .claude/CLAUDE.md
+    claude_dir = cwd / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+    claude_md = claude_dir / "CLAUDE.md"
+
+    marker = "## Soul (Persistent Memory)"
+    if claude_md.exists():
+        existing = claude_md.read_text()
+        if marker in existing:
+            console.print(
+                "  [dim]⊘[/dim] [bold]CLAUDE.md[/bold] already has soul instructions"
+            )
+        else:
+            claude_md.write_text(existing.rstrip() + "\n" + _CLAUDE_SOUL_INSTRUCTIONS)
+            console.print(
+                "  [green]✓[/green] Appended soul instructions to [bold]CLAUDE.md[/bold]"
+            )
+    else:
+        claude_md.write_text(
+            f"# {soul_name}\n" + _CLAUDE_SOUL_INSTRUCTIONS
+        )
+        console.print(
+            "  [green]✓[/green] Created [bold].claude/CLAUDE.md[/bold] with soul instructions"
+        )
+
+    # 3. Add .soul/ to .gitignore if not already there
+    gitignore = cwd / ".gitignore"
+    soul_pattern = ".soul/"
+    if gitignore.exists():
+        content = gitignore.read_text()
+        if soul_pattern not in content:
+            gitignore.write_text(content.rstrip() + f"\n\n# Soul state (local)\n{soul_pattern}\n")
+            console.print("  [green]✓[/green] Added .soul/ to [bold].gitignore[/bold]")
+        else:
+            console.print("  [dim]⊘[/dim] [bold].gitignore[/bold] already excludes .soul/")
+    else:
+        gitignore.write_text(f"# Soul state (local)\n{soul_pattern}\n")
+        console.print("  [green]✓[/green] Created [bold].gitignore[/bold] with .soul/")
+
+    console.print()
+    console.print("[green]Claude Code integration ready![/green]")
+    console.print("[dim]Restart Claude Code to activate the soul MCP server.[/dim]")
 
 
 def _ocean_bar(label: str, value: float) -> Text:
@@ -201,7 +288,13 @@ def birth(
     default=".soul",
     help="Directory to create (default: .soul)",
 )
-def init(name, archetype, values, from_file, soul_dir):
+@click.option(
+    "--claude",
+    is_flag=True,
+    default=False,
+    help="Auto-configure Claude Code integration (.mcp.json + CLAUDE.md)",
+)
+def init(name, archetype, values, from_file, soul_dir, claude):
     """Initialize a .soul/ folder in the current directory."""
 
     async def _init():
@@ -237,12 +330,21 @@ def init(name, archetype, values, from_file, soul_dir):
         console.print(f"  Archetype: {soul.archetype or '(none)'}")
         console.print(f"  DID:       [dim]{soul.did}[/dim]")
         console.print(f"  Values:    {', '.join(soul.identity.core_values)}")
-        console.print()
-        console.print("[dim]Next steps:[/dim]")
-        console.print(f"  [cyan]soul inspect {soul_dir}/[/cyan]     -- view soul details")
-        console.print(
-            f"  [cyan]soul export {soul_dir}/ -o name.soul[/cyan] -- create portable .soul file"
-        )
+
+        if claude:
+            _setup_claude_code(soul_path, soul.name)
+        else:
+            console.print()
+            console.print("[dim]Next steps:[/dim]")
+            console.print(f"  [cyan]soul inspect {soul_dir}/[/cyan]     -- view soul details")
+            console.print(
+                f"  [cyan]soul export {soul_dir}/ -o name.soul[/cyan]"
+                " -- create portable .soul file"
+            )
+            console.print(
+                f"  [cyan]soul init {name or 'MyAgent'} --claude[/cyan]"
+                "  -- set up Claude Code integration"
+            )
 
     asyncio.run(_init())
 
