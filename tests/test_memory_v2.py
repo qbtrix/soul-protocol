@@ -525,7 +525,8 @@ class TestSalienceInActivation:
         assert score_high > score_low
 
     def test_default_salience_between_extremes(self):
-        # default salience=0.5 → multiplier=1.0 → W_BASE * 0.6 * 1.0 = 0.6 (between 0.3 and 0.9)
+        # With clamped multiplier: salience <= 0.5 → mult=1.0 (neutral),
+        # salience > 0.5 → mult > 1.0 (boost). So default == low, high > default.
         high = self._entry_with_salience(1.0)
         default = self._entry_with_salience(0.5)
         low = self._entry_with_salience(0.0)
@@ -534,7 +535,9 @@ class TestSalienceInActivation:
         score_default = compute_activation(default, "zzz", noise=False)
         score_low = compute_activation(low, "zzz", noise=False)
 
-        assert score_high > score_default > score_low
+        assert score_high > score_default
+        # Low salience is clamped to same multiplier as default (both 1.0)
+        assert score_default == pytest.approx(score_low, abs=0.01)
 
     def test_salience_zero_does_not_crash(self):
         entry = self._entry_with_salience(0.0)
