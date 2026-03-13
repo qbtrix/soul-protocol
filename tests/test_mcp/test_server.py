@@ -1,8 +1,6 @@
 # tests.test_mcp.test_server — MCP server integration tests
-# Tests all 10 tools, 3 resources, 2 prompts using FastMCP in-memory Client
-# Updated: 2026-03-13 — Auto-save on shutdown, directory SOUL_PATH tests.
-# Updated: Enum validation, core memory guard, export validation,
-#          birth replacement warning, resource guards, lifespan
+# Updated: 2026-03-13 — Multi-soul support: SoulRegistry, SOUL_DIR, soul_list, soul_switch.
+# Tests 12 tools, 3 resources, 2 prompts using FastMCP in-memory Client.
 
 from __future__ import annotations
 
@@ -19,13 +17,11 @@ from soul_protocol.mcp.server import mcp
 
 
 @pytest.fixture(autouse=True)
-def _reset_soul():
-    """Reset global soul state between tests."""
-    server_module._soul = None
-    server_module._soul_path = None
+def _reset_registry():
+    """Reset soul registry between tests."""
+    server_module._registry.clear()
     yield
-    server_module._soul = None
-    server_module._soul_path = None
+    server_module._registry.clear()
 
 
 # --- Helpers ---
@@ -37,6 +33,26 @@ async def _birth(client: Client, name: str = "TestBot") -> dict:
         {"name": name, "archetype": "Test Archetype", "values": ["curiosity", "honesty"]},
     )
     return json.loads(result.data)
+
+
+def _env_context(key: str, value: str | None):
+    """Helper to set/unset env vars with cleanup."""
+    class _Ctx:
+        def __init__(self):
+            self.old = os.environ.get(key)
+        def __enter__(self):
+            if value is not None:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
+            return self
+        def __exit__(self, *_):
+            if self.old is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = self.old
+            server_module._registry.clear()
+    return _Ctx()
 
 
 # --- Tool Tests ---
@@ -191,7 +207,6 @@ async def test_soul_state():
 async def test_soul_feel():
     async with Client(mcp) as client:
         await _birth(client)
-        # energy is a delta — starts at 100, -20 -> 80
         result = await client.call_tool(
             "soul_feel",
             {"mood": "curious", "energy": -20.0},
@@ -225,13 +240,11 @@ async def test_soul_feel_rejects_invalid_mood():
 async def test_soul_feel_clamps_energy():
     async with Client(mcp) as client:
         await _birth(client)
-        # Extreme delta should be clamped to -100..100
         result = await client.call_tool(
             "soul_feel",
             {"energy": -1e10},
         )
         data = json.loads(result.data)
-        # Energy starts at 100, delta clamped to -100 -> 0
         assert data["energy"] == 0.0
 
 
@@ -256,7 +269,6 @@ async def test_soul_save():
             )
             data = json.loads(result.data)
             assert data["status"] == "saved"
-            # save_local creates flat directory with soul.json directly inside
             save_dir = Path(path)
             assert save_dir.is_dir()
             assert (save_dir / "soul.json").exists()
@@ -275,6 +287,163 @@ async def test_soul_export():
             assert data["status"] == "exported"
             assert os.path.exists(path)
             assert os.path.getsize(path) > 0
+
+
+# --- Multi-Soul Tests ---
+
+
+async def test_soul_list_empty():
+    async with Client(mcp) as client:
+        result = await client.call_tool("soul_list", {})
+        data = json.loads(result.data)
+        assert data["count"] == 0
+        assert data["souls"] == []
+
+
+async def test_soul_list_after_births():
+    async with Client(mcp) as client:
+        await _birth(client, "Alpha")
+        await _birth(client, "Beta")
+        result = await client.call_tool("soul_list", {})
+        data = json.loads(result.data)
+        assert data["count"] == 2
+        names = [s["name"] for s in data["souls"]]
+        assert "Alpha" in names
+        assert "Beta" in names
+        # Last born should be active
+        active = [s for s in data["souls"] if s["active"]]
+        assert len(active) == 1
+        assert active[0]["name"] == "Beta"
+
+
+async def test_soul_switch():
+    async with Client(mcp) as client:
+        await _birth(client, "Alpha")
+        await _birth(client, "Beta")
+        # Beta is active after birth
+        result = await client.call_tool("soul_switch", {"name": "Alpha"})
+        data = json.loads(result.data)
+        assert data["status"] == "switched"
+        assert data["name"] == "Alpha"
+
+        # Verify state comes from Alpha
+        result = await client.call_tool("soul_state", {})
+        state = json.loads(result.data)
+        assert state["soul"] == "Alpha"
+
+
+async def test_soul_switch_invalid_name():
+    async with Client(mcp) as client:
+        await _birth(client, "Alpha")
+        with pytest.raises(Exception, match="No soul named"):
+            await client.call_tool("soul_switch", {"name": "Nonexistent"})
+
+
+async def test_soul_tool_with_name_param():
+    """Target a specific soul by name without switching active."""
+    async with Client(mcp) as client:
+        await _birth(client, "Alpha")
+        await _birth(client, "Beta")
+        # Beta is active, but remember to Alpha
+        await client.call_tool(
+            "soul_remember",
+            {"content": "Alpha-specific memory", "soul": "Alpha"},
+        )
+        # Recall from Alpha
+        result = await client.call_tool(
+            "soul_recall",
+            {"query": "Alpha-specific", "soul": "Alpha"},
+        )
+        data = json.loads(result.data)
+        assert data["soul"] == "Alpha"
+        assert data["count"] >= 1
+
+        # Beta should NOT have this memory
+        result = await client.call_tool(
+            "soul_recall",
+            {"query": "Alpha-specific", "soul": "Beta"},
+        )
+        data = json.loads(result.data)
+        assert data["count"] == 0
+
+
+async def test_soul_birth_adds_to_registry():
+    """Birth adds to registry, doesn't replace other souls."""
+    async with Client(mcp) as client:
+        await _birth(client, "First")
+        await _birth(client, "Second")
+        result = await client.call_tool("soul_list", {})
+        data = json.loads(result.data)
+        assert data["count"] == 2
+
+
+async def test_multi_soul_autosave(tmp_path):
+    """Only modified souls are auto-saved on shutdown."""
+    from soul_protocol import Soul
+
+    # Create two directory souls
+    soul_a = await Soul.birth("Alpha", values=["testing"])
+    dir_a = tmp_path / "alpha"
+    await soul_a.save_local(str(dir_a))
+
+    soul_b = await Soul.birth("Beta", values=["testing"])
+    dir_b = tmp_path / "beta"
+    await soul_b.save_local(str(dir_b))
+
+    with _env_context("SOUL_DIR", str(tmp_path)), \
+         _env_context("SOUL_PATH", None):
+        async with Client(mcp) as client:
+            # Only modify Alpha
+            await client.call_tool(
+                "soul_remember",
+                {"content": "Modified alpha memory", "soul": "Alpha"},
+            )
+        # Client exited — auto-save ran
+
+        # Verify Alpha's memory persisted
+        reloaded = await Soul.awaken(str(dir_a))
+        memories = await reloaded.recall("Modified alpha", limit=5)
+        assert any("Modified alpha memory" in m.content for m in memories)
+
+
+async def test_soul_dir_loads_mixed_formats(tmp_path):
+    """SOUL_DIR loads both directory souls and .soul ZIP files."""
+    from soul_protocol import Soul
+
+    # Create a directory soul
+    soul_dir = await Soul.birth("DirSoul", values=["testing"])
+    dir_path = tmp_path / "dirsoul"
+    await soul_dir.save_local(str(dir_path))
+
+    # Create a ZIP soul
+    soul_zip = await Soul.birth("ZipSoul", values=["testing"])
+    zip_path = tmp_path / "zipsoul.soul"
+    await soul_zip.export(str(zip_path))
+
+    with _env_context("SOUL_DIR", str(tmp_path)), \
+         _env_context("SOUL_PATH", None):
+        async with Client(mcp) as client:
+            result = await client.call_tool("soul_list", {})
+            data = json.loads(result.data)
+            assert data["count"] == 2
+            names = {s["name"] for s in data["souls"]}
+            assert "DirSoul" in names
+            assert "ZipSoul" in names
+            formats = {s["name"]: s["format"] for s in data["souls"]}
+            assert formats["DirSoul"] == "directory"
+            assert formats["ZipSoul"] == "zip"
+
+
+async def test_newborn_soul_no_path_autosave():
+    """Newborn soul (no save path) should not crash auto-save on shutdown."""
+    async with Client(mcp) as client:
+        await _birth(client, "Ephemeral")
+        # Modify the soul so it's marked as modified
+        await client.call_tool(
+            "soul_remember",
+            {"content": "ephemeral memory", "importance": 5},
+        )
+    # If we get here without error, auto-save handled empty path gracefully
 
 
 # --- Error Tests ---
@@ -299,18 +468,6 @@ async def test_observe_without_soul_raises_error():
 
 
 # --- Validation Tests ---
-
-
-async def test_soul_birth_replacement_warning():
-    async with Client(mcp) as client:
-        await _birth(client, "First")
-        result = await client.call_tool(
-            "soul_birth",
-            {"name": "Second"},
-        )
-        data = json.loads(result.data)
-        assert data["name"] == "Second"
-        assert "warning" in data
 
 
 async def test_soul_export_rejects_non_soul_extension():
@@ -374,7 +531,7 @@ async def test_state_resource():
 async def test_system_prompt():
     async with Client(mcp) as client:
         await _birth(client)
-        result = await client.get_prompt("soul_system_prompt", {})
+        result = await client.get_prompt("soul_system_prompt_template", {})
         content = result.messages[0].content
         text = content if isinstance(content, str) else content.text
         assert "TestBot" in text
@@ -392,7 +549,7 @@ async def test_introduction_prompt():
 
 async def test_prompts_without_soul():
     async with Client(mcp) as client:
-        result = await client.get_prompt("soul_system_prompt", {})
+        result = await client.get_prompt("soul_system_prompt_template", {})
         content = result.messages[0].content
         text = content if isinstance(content, str) else content.text
         assert "No soul loaded" in text
@@ -411,52 +568,52 @@ async def test_resource_without_soul_raises():
 
 
 async def test_lifespan_loads_soul_from_path(tmp_path):
-    """Test that SOUL_PATH env var loads a soul on startup."""
+    """SOUL_PATH env var loads a soul on startup (backward compat)."""
     from soul_protocol import Soul
 
-    # Create a real .soul file
     soul = await Soul.birth("LifespanTest", values=["testing"])
     soul_file = tmp_path / "test.soul"
     await soul.export(str(soul_file))
 
-    # Patch env and reset state
-    old_env = os.environ.get("SOUL_PATH")
-    os.environ["SOUL_PATH"] = str(soul_file)
-    server_module._soul = None
-    server_module._soul_path = None
-    try:
+    with _env_context("SOUL_PATH", str(soul_file)), \
+         _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             result = await client.call_tool("soul_state", {})
             data = json.loads(result.data)
             assert "mood" in data
             assert data["lifecycle"] == "active"
-    finally:
-        if old_env is None:
-            os.environ.pop("SOUL_PATH", None)
-        else:
-            os.environ["SOUL_PATH"] = old_env
-        server_module._soul = None
-        server_module._soul_path = None
 
 
 async def test_lifespan_handles_bad_path(tmp_path):
     """Bad SOUL_PATH degrades gracefully — server starts without soul."""
-    old_env = os.environ.get("SOUL_PATH")
-    os.environ["SOUL_PATH"] = str(tmp_path / "nonexistent.soul")
-    server_module._soul = None
-    server_module._soul_path = None
-    try:
+    with _env_context("SOUL_PATH", str(tmp_path / "nonexistent.soul")), \
+         _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
-            # Server should start, but no soul loaded
             with pytest.raises(Exception):
                 await client.call_tool("soul_state", {})
-    finally:
-        if old_env is None:
-            os.environ.pop("SOUL_PATH", None)
-        else:
-            os.environ["SOUL_PATH"] = old_env
-        server_module._soul = None
-        server_module._soul_path = None
+
+
+async def test_lifespan_loads_from_directory(tmp_path):
+    """SOUL_PATH pointing to a directory loads correctly."""
+    from soul_protocol import Soul
+
+    soul = await Soul.birth("DirLoad", values=["testing"])
+    await soul.remember("pre-existing memory", importance=7)
+    soul_dir = tmp_path / "dir_soul"
+    await soul.save_local(str(soul_dir))
+
+    with _env_context("SOUL_PATH", str(soul_dir)), \
+         _env_context("SOUL_DIR", None):
+        async with Client(mcp) as client:
+            result = await client.call_tool("soul_state", {})
+            data = json.loads(result.data)
+            assert data["lifecycle"] == "active"
+
+            result = await client.call_tool(
+                "soul_recall", {"query": "pre-existing memory", "limit": 5}
+            )
+            data = json.loads(result.data)
+            assert data["count"] >= 1
 
 
 # --- Auto-save Tests ---
@@ -470,29 +627,17 @@ async def test_autosave_to_soul_file(tmp_path):
     soul_file = tmp_path / "autosave.soul"
     await soul.export(str(soul_file))
 
-    old_env = os.environ.get("SOUL_PATH")
-    os.environ["SOUL_PATH"] = str(soul_file)
-    server_module._soul = None
-    server_module._soul_path = None
-    try:
+    with _env_context("SOUL_PATH", str(soul_file)), \
+         _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             await client.call_tool(
                 "soul_remember",
                 {"content": "Auto-save test memory", "importance": 9},
             )
-        # Client context exited — lifespan teardown ran, auto-saved
 
-        # Reload and verify memory persisted
         reloaded = await Soul.awaken(str(soul_file))
         memories = await reloaded.recall("Auto-save test", limit=5)
         assert any("Auto-save test memory" in m.content for m in memories)
-    finally:
-        if old_env is None:
-            os.environ.pop("SOUL_PATH", None)
-        else:
-            os.environ["SOUL_PATH"] = old_env
-        server_module._soul = None
-        server_module._soul_path = None
 
 
 async def test_autosave_to_directory(tmp_path):
@@ -503,70 +648,38 @@ async def test_autosave_to_directory(tmp_path):
     soul_dir = tmp_path / "guardian"
     await soul.save_local(str(soul_dir))
 
-    old_env = os.environ.get("SOUL_PATH")
-    os.environ["SOUL_PATH"] = str(soul_dir)
-    server_module._soul = None
-    server_module._soul_path = None
-    try:
+    with _env_context("SOUL_PATH", str(soul_dir)), \
+         _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             await client.call_tool(
                 "soul_remember",
                 {"content": "Directory auto-save test", "importance": 8},
             )
-        # Client context exited — lifespan teardown ran, auto-saved via save_local
 
-        # Reload from directory and verify
         reloaded = await Soul.awaken(str(soul_dir))
         memories = await reloaded.recall("Directory auto-save", limit=5)
         assert any("Directory auto-save test" in m.content for m in memories)
-    finally:
-        if old_env is None:
-            os.environ.pop("SOUL_PATH", None)
-        else:
-            os.environ["SOUL_PATH"] = old_env
-        server_module._soul = None
-        server_module._soul_path = None
 
 
-async def test_lifespan_loads_from_directory(tmp_path):
-    """SOUL_PATH pointing to a directory loads correctly."""
+async def test_soul_dir_autosave_zip(tmp_path):
+    """SOUL_DIR auto-saves ZIP souls in ZIP format (not directory)."""
     from soul_protocol import Soul
 
-    soul = await Soul.birth("DirLoad", values=["testing"])
-    await soul.remember("pre-existing memory", importance=7)
-    soul_dir = tmp_path / "dir_soul"
-    await soul.save_local(str(soul_dir))
+    soul = await Soul.birth("ZipAutoSave", values=["testing"])
+    zip_path = tmp_path / "zipsoul.soul"
+    await soul.export(str(zip_path))
 
-    old_env = os.environ.get("SOUL_PATH")
-    os.environ["SOUL_PATH"] = str(soul_dir)
-    server_module._soul = None
-    server_module._soul_path = None
-    try:
+    with _env_context("SOUL_DIR", str(tmp_path)), \
+         _env_context("SOUL_PATH", None):
         async with Client(mcp) as client:
-            result = await client.call_tool("soul_state", {})
-            data = json.loads(result.data)
-            assert data["lifecycle"] == "active"
-
-            # Verify pre-existing memory is accessible
-            result = await client.call_tool(
-                "soul_recall", {"query": "pre-existing memory", "limit": 5}
+            await client.call_tool(
+                "soul_remember",
+                {"content": "ZIP dir auto-save", "soul": "ZipAutoSave"},
             )
-            data = json.loads(result.data)
-            assert data["count"] >= 1
-    finally:
-        if old_env is None:
-            os.environ.pop("SOUL_PATH", None)
-        else:
-            os.environ["SOUL_PATH"] = old_env
-        server_module._soul = None
-        server_module._soul_path = None
 
-
-async def test_soul_save_updates_path(tmp_path):
-    """soul_save with a path updates _soul_path for auto-save."""
-    async with Client(mcp) as client:
-        await _birth(client)
-        save_dir = tmp_path / "saved"
-        save_dir.mkdir()
-        await client.call_tool("soul_save", {"path": str(save_dir)})
-        assert server_module._soul_path == str(save_dir)
+        # Should still be a ZIP file, not converted to directory
+        assert zip_path.is_file()
+        assert zip_path.suffix == ".soul"
+        reloaded = await Soul.awaken(str(zip_path))
+        memories = await reloaded.recall("ZIP dir auto-save", limit=5)
+        assert any("ZIP dir auto-save" in m.content for m in memories)

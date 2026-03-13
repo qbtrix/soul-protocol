@@ -1,10 +1,11 @@
 # test_cli.py — Tests for the CLI interface using click.testing.CliRunner.
-# Updated: 2026-03-13 — Strengthened --setup test with DID identity assertion.
+# Updated: 2026-03-13 — Added --format option tests for soul init (TDD: dir, zip, default).
 
 from __future__ import annotations
 
 import json
 import os
+import zipfile
 
 from click.testing import CliRunner
 
@@ -183,3 +184,43 @@ def test_init_setup_preserves_existing_soul(tmp_path, monkeypatch):
 
     # Verify .mcp.json was created (setup worked)
     assert (tmp_path / ".mcp.json").exists()
+
+
+def test_init_format_dir(tmp_path):
+    """soul init --format dir creates a directory with soul.json inside."""
+    runner = CliRunner()
+    soul_dir = str(tmp_path / ".soul" / "testbot")
+
+    result = runner.invoke(cli, ["init", "TestBot", "--format", "dir", "-d", soul_dir])
+
+    assert result.exit_code == 0, result.output
+    soul_json = tmp_path / ".soul" / "testbot" / "soul.json"
+    assert soul_json.exists(), f"soul.json not found at {soul_json}"
+    assert (tmp_path / ".soul" / "testbot").is_dir()
+
+
+def test_init_format_zip(tmp_path):
+    """soul init --format zip creates a .soul ZIP file at <dir>.soul."""
+    runner = CliRunner()
+    soul_dir = str(tmp_path / ".soul" / "testbot")
+
+    result = runner.invoke(cli, ["init", "TestBot", "--format", "zip", "-d", soul_dir])
+
+    assert result.exit_code == 0, result.output
+    # ZIP file should be at <soul_dir>.soul (appends .soul extension)
+    zip_path = tmp_path / ".soul" / "testbot.soul"
+    assert zip_path.exists(), f".soul zip not found at {zip_path}"
+    assert zipfile.is_zipfile(zip_path), f"{zip_path} is not a valid ZIP archive"
+
+
+def test_init_format_default_is_dir(tmp_path):
+    """soul init without --format defaults to directory format (soul.json in dir)."""
+    runner = CliRunner()
+    soul_dir = str(tmp_path / ".soul" / "defaultbot")
+
+    result = runner.invoke(cli, ["init", "TestBot", "-d", soul_dir])
+
+    assert result.exit_code == 0, result.output
+    soul_json = tmp_path / ".soul" / "defaultbot" / "soul.json"
+    assert soul_json.exists(), f"soul.json not found at {soul_json} (default format should be dir)"
+    assert (tmp_path / ".soul" / "defaultbot").is_dir()

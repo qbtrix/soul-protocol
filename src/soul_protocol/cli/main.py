@@ -1,5 +1,5 @@
 # cli/main.py — Click CLI for the Soul Protocol
-# Updated: 2026-03-13 — --setup preserves existing souls, warns on --from-file conflict.
+# Updated: 2026-03-13 — Added --format option (dir/zip) to soul init.
 # Updated: 2026-03-10 — Added `soul remember` and `soul recall` commands (issue #14).
 # Updated: 2026-03-02 — Removed dashboard/open commands (replaced by rich TUI in inspect/status).
 #   Enhanced `soul inspect` with OCEAN bars, memory stats, core memory, self-model panels.
@@ -201,6 +201,13 @@ def birth(
     help="Directory to create (default: .soul)",
 )
 @click.option(
+    "--format",
+    "soul_format",
+    type=click.Choice(["dir", "zip"], case_sensitive=False),
+    default="dir",
+    help="Storage format: 'dir' for browsable directory (default), 'zip' for portable .soul file",
+)
+@click.option(
     "--setup",
     "-s",
     "setup_targets",
@@ -211,7 +218,7 @@ def birth(
         "claude-code,cursor,vscode,windsurf,cline,continue,gemini,codex,amazon-q"
     ),
 )
-def init(name, archetype, values, from_file, soul_dir, setup_targets):
+def init(name, archetype, values, from_file, soul_dir, soul_format, setup_targets):
     """Initialize a .soul/ folder in the current directory.
 
     \b
@@ -263,9 +270,16 @@ def init(name, archetype, values, from_file, soul_dir, setup_targets):
                     values=values_list,
                 )
 
-            await soul.save_local(str(soul_path))
+            if soul_format == "zip":
+                # ZIP format: append .soul extension if not already there
+                zip_path = soul_path if str(soul_path).endswith(".soul") else Path(f"{soul_path}.soul")
+                zip_path.parent.mkdir(parents=True, exist_ok=True)
+                await soul.export(str(zip_path))
+                console.print(f"\n[green]OK[/green] Soul exported to [bold]{zip_path}[/bold]\n")
+            else:
+                await soul.save_local(str(soul_path))
+                console.print(f"\n[green]OK[/green] Soul initialized in [bold]{soul_path}/[/bold]\n")
 
-            console.print(f"\n[green]OK[/green] Soul initialized in [bold]{soul_path}/[/bold]\n")
             console.print(f"  Name:      [bold]{soul.name}[/bold]")
             console.print(f"  Archetype: {soul.archetype or '(none)'}")
             console.print(f"  DID:       [dim]{soul.did}[/dim]")
