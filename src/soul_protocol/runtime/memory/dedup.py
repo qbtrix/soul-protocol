@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from soul_protocol.runtime.memory.search import tokenize
+from soul_protocol.runtime.memory.search import _expand_synonyms, tokenize
 from soul_protocol.runtime.types import MemoryEntry
 
 
@@ -24,8 +24,8 @@ def _jaccard_similarity(a: str, b: str) -> float:
     Returns:
         Jaccard similarity coefficient (0.0 to 1.0).
     """
-    tokens_a = tokenize(a)
-    tokens_b = tokenize(b)
+    tokens_a = _expand_synonyms(tokenize(a))
+    tokens_b = _expand_synonyms(tokenize(b))
     if not tokens_a and not tokens_b:
         return 1.0  # Both empty = identical
     if not tokens_a or not tokens_b:
