@@ -1,6 +1,9 @@
 # test_spec_memory_model.py — Tests for v0.3.4 spec-level data model additions.
+# Updated: v0.3.4-fix — Rewrote salience activation tests for additive boost model.
+#   Added: test_salience_helps_negative_base, test_salience_zero_does_not_penalize,
+#   test_salience_additive_range, test_memory_entry_salience_default.
 # Tests: MemoryCategory enum, MemoryEntry new fields (category, abstract,
-# overview, salience), salience multiplier in activation, TemporalEdge metadata
+# overview, salience), salience boost in activation, TemporalEdge metadata
 # roundtrip and surfacing in query methods.
 
 from __future__ import annotations
@@ -88,7 +91,7 @@ class TestMemoryEntryNewFields:
 
 
 class TestSalienceActivation:
-    """Test that salience multiplier behaves correctly in compute_activation."""
+    """Test that salience additive boost behaves correctly in compute_activation."""
 
     def _make_entry(self, salience: float, importance: int = 8) -> MemoryEntry:
         return MemoryEntry(
@@ -99,43 +102,64 @@ class TestSalienceActivation:
         )
 
     def test_neutral_salience_is_identity(self):
-        """salience=0.5 → multiplier=max(1.0, 1.0)=1.0, same as before."""
+        """salience=0.5 → boost=0.0, no effect on activation."""
         entry = self._make_entry(salience=0.5)
         score = compute_activation(entry, "unrelated query", noise=False)
-        # Just verify it produces a finite number
         assert isinstance(score, float)
 
     def test_high_salience_beats_low_salience(self):
         """salience=1.0 should score higher than salience=0.0 for same content."""
         high = self._make_entry(salience=1.0)
         low = self._make_entry(salience=0.0)
-        # Use unrelated query so spreading activation is ~0 for both
         high_score = compute_activation(high, "zzzzz", noise=False)
         low_score = compute_activation(low, "zzzzz", noise=False)
         assert high_score > low_score
 
-    def test_low_salience_never_penalizes_negative_base(self):
-        """Low salience (multiplier clamped to 1.0) should not make negative base worse."""
-        # importance=2 → base = (2-5)*0.2 = -0.6
-        low_sal = self._make_entry(salience=0.0, importance=2)
-        neutral_sal = self._make_entry(salience=0.5, importance=2)
-        low_score = compute_activation(low_sal, "zzzzz", noise=False)
-        neutral_score = compute_activation(neutral_sal, "zzzzz", noise=False)
-        # With clamped multiplier, salience=0.0 (mult=1.0) == salience=0.5 (mult=1.0)
-        assert low_score == pytest.approx(neutral_score, abs=0.01)
-
     def test_high_salience_boosts_negative_base(self):
-        """salience=1.0 (mult=1.5) should boost even entries with negative base."""
+        """salience=1.0 should IMPROVE activation for low-importance (negative base) memories."""
         high_sal = self._make_entry(salience=1.0, importance=2)
         neutral_sal = self._make_entry(salience=0.5, importance=2)
         high_score = compute_activation(high_sal, "zzzzz", noise=False)
         neutral_score = compute_activation(neutral_sal, "zzzzz", noise=False)
-        # High salience multiplier makes negative base *more* negative,
-        # but that's correct — the multiplier only activates above 0.5
-        # Actually with clamped max(1.0, 1.5) = 1.5, it amplifies the negative.
-        # But that's fine because the overall activation includes other terms.
-        # The key property: high_sal != neutral_sal (multiplier is different)
-        assert high_score != pytest.approx(neutral_score, abs=0.001)
+        # Key fix: high salience must HELP negative base, not amplify the penalty
+        assert high_score > neutral_score
+
+    def test_salience_helps_negative_base(self):
+        """High salience should make a low-importance memory's activation less negative or positive."""
+        # importance=1 → base = (1-5)*0.2 = -0.8 (most negative possible)
+        low_imp_high_sal = self._make_entry(salience=1.0, importance=1)
+        low_imp_neutral_sal = self._make_entry(salience=0.5, importance=1)
+        high_score = compute_activation(low_imp_high_sal, "zzzzz", noise=False)
+        neutral_score = compute_activation(low_imp_neutral_sal, "zzzzz", noise=False)
+        # Salience boost of +0.25 should lift the activation
+        assert high_score > neutral_score
+        assert high_score - neutral_score == pytest.approx(0.25, abs=0.01)
+
+    def test_salience_zero_does_not_penalize(self):
+        """salience=0.0 should not make activation drastically worse than salience=0.5."""
+        zero_sal = self._make_entry(salience=0.0, importance=3)
+        neutral_sal = self._make_entry(salience=0.5, importance=3)
+        zero_score = compute_activation(zero_sal, "zzzzz", noise=False)
+        neutral_score = compute_activation(neutral_sal, "zzzzz", noise=False)
+        # Difference should be exactly 0.25 (additive), not a huge multiplied gap
+        diff = abs(neutral_score - zero_score)
+        assert diff == pytest.approx(0.25, abs=0.01)
+        # Zero salience is lower but not catastrophically so
+        assert zero_score < neutral_score
+
+    def test_salience_additive_range(self):
+        """Salience boost should be bounded between -0.25 and +0.25."""
+        min_entry = self._make_entry(salience=0.0)
+        max_entry = self._make_entry(salience=1.0)
+        min_score = compute_activation(min_entry, "zzzzz", noise=False)
+        max_score = compute_activation(max_entry, "zzzzz", noise=False)
+        # Total range of salience effect = 0.5 (from -0.25 to +0.25)
+        assert max_score - min_score == pytest.approx(0.5, abs=0.01)
+
+    def test_memory_entry_salience_default(self):
+        """MemoryEntry.salience should default to 0.5."""
+        entry = MemoryEntry(type=MemoryType.SEMANTIC, content="test content")
+        assert entry.salience == 0.5
 
 
 # ============ TemporalEdge Metadata ============
