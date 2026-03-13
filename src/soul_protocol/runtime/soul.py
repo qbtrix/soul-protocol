@@ -1,4 +1,6 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: feat/configurable-biorhythms — Pass biorhythms to StateManager for
+#   configurable drain rates, mood inertia, tired threshold, and auto-regen.
 # Updated: feat/dspy-integration — Wired DSPy processor into observe() pipeline.
 #   _dspy_processor is now initialized BEFORE MemoryManager and passed to it,
 #   so MemoryManager.observe() uses DSPy significance gate when available.
@@ -124,7 +126,7 @@ class Soul:
             personality=config.dna.personality,
             dspy_processor=self._dspy_processor,
         )
-        self._state = StateManager(config.state)
+        self._state = StateManager(config.state, biorhythms=config.dna.biorhythms)
         self._evolution = EvolutionManager(config.evolution)
         self._skills = SkillRegistry()
 

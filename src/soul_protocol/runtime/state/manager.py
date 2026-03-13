@@ -1,24 +1,21 @@
 # state/manager.py — StateManager for tracking and mutating a soul's runtime state.
-# Updated: Added structured logging for mood transitions and low-energy warnings.
+# Updated: Configurable biorhythms — all drain/regen/mood params read from Biorhythms
+#   instead of hardcoded constants. Added time-based auto-regen on elapsed time.
 
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
-from soul_protocol.runtime.types import Interaction, Mood, SomaticMarker, SoulState
+from soul_protocol.runtime.types import (
+    Biorhythms,
+    Interaction,
+    Mood,
+    SomaticMarker,
+    SoulState,
+)
 
 logger = logging.getLogger(__name__)
-
-# Default recovery rate per hour of rest (energy points)
-_DEFAULT_ENERGY_REGEN_RATE: float = 10.0
-
-# Minimum EMA-smoothed valence/arousal magnitude to trigger a mood change.
-_MOOD_THRESHOLD: float = 0.25
-
-# EMA smoothing factor for valence history.
-# Weight given to current message vs accumulated history.
-# 0.4 means ~4 consecutive mild signals shift mood; 1 strong signal shifts immediately.
-_EMA_ALPHA: float = 0.4
 
 # Primary label → Mood lookup. Labels come from sentiment.py's _classify_label(),
 # which already did the quadrant math — no need to redo it here.
@@ -33,7 +30,9 @@ _LABEL_TO_MOOD: dict[str, Mood] = {
 }
 
 
-def _somatic_to_mood(somatic: SomaticMarker) -> Mood | None:
+def _somatic_to_mood(
+    somatic: SomaticMarker, mood_sensitivity: float = 0.25
+) -> Mood | None:
     """Map a somatic marker to a Mood, or None if too mild to shift.
 
     Uses label as primary lookup (avoids re-deriving quadrant logic that
@@ -43,14 +42,11 @@ def _somatic_to_mood(somatic: SomaticMarker) -> Mood | None:
 
     Args:
         somatic: Marker with EMA-smoothed valence, raw arousal, and label.
+        mood_sensitivity: Valence threshold to trigger a mood change.
     """
     v, a = somatic.valence, somatic.arousal
 
-    # EMA-smoothed valence is the inertia gate.
-    # Arousal stays for quality differentiation (excited vs satisfied, etc.)
-    # but does not override the valence gate — pure high-arousal neutral
-    # conversation should not shift mood on its own.
-    if abs(v) < _MOOD_THRESHOLD:
+    if abs(v) < mood_sensitivity:
         return None
 
     # Label-based lookup (sentiment.py already resolved the quadrant)
@@ -58,14 +54,14 @@ def _somatic_to_mood(somatic: SomaticMarker) -> Mood | None:
         return _LABEL_TO_MOOD[somatic.label]
 
     # Fallback: valence/arousal quadrants for unlabeled or custom markers
-    if v >= _MOOD_THRESHOLD:
+    if v >= mood_sensitivity:
         if a >= 0.5:
             return Mood.EXCITED
         elif a >= 0.2:
             return Mood.CURIOUS
         else:
             return Mood.SATISFIED
-    elif v <= -_MOOD_THRESHOLD:
+    elif v <= -mood_sensitivity:
         return Mood.CONCERNED if a >= 0.5 else Mood.CONTEMPLATIVE
     else:
         return Mood.FOCUSED if a >= 0.5 else None
@@ -77,13 +73,19 @@ class StateManager:
     Provides delta-based updates for energy and social_battery (clamped 0-100),
     interaction-driven drain, and rest-based recovery.
 
+    All behavioral parameters (drain rates, regen, mood inertia, thresholds) are
+    read from the Biorhythms config. Pass ``Biorhythms()`` for default behavior,
+    or customize per-soul.
+
     Mood inertia is implemented via an exponential moving average (EMA) of
     valence. A single mild message cannot flip mood — the smoothed signal
-    must exceed _MOOD_THRESHOLD. Strong signals still shift mood immediately.
+    must exceed the mood_sensitivity threshold. Strong signals still shift
+    mood immediately.
     """
 
-    def __init__(self, state: SoulState) -> None:
+    def __init__(self, state: SoulState, biorhythms: Biorhythms | None = None) -> None:
         self._state = state
+        self._bio = biorhythms or Biorhythms()
         # EMA of valence across recent interactions (mood inertia)
         self._valence_ema: float = 0.0
 
@@ -91,6 +93,11 @@ class StateManager:
     def current(self) -> SoulState:
         """Return the current soul state."""
         return self._state
+
+    @property
+    def biorhythms(self) -> Biorhythms:
+        """Return the biorhythms configuration."""
+        return self._bio
 
     def update(self, **kwargs: object) -> None:
         """Update state fields.
@@ -116,6 +123,35 @@ class StateManager:
             elif hasattr(self._state, key):
                 setattr(self._state, key, value)
 
+    def _apply_auto_regen(self, now: datetime) -> None:
+        """Recover energy based on elapsed time since last interaction.
+
+        Uses ``biorhythms.energy_regen_rate`` (per hour) and applies
+        proportionally to elapsed seconds. Only runs if ``auto_regen``
+        is enabled and there is a previous interaction timestamp.
+        """
+        if not self._bio.auto_regen:
+            return
+        if self._state.last_interaction is None:
+            return
+        if self._bio.energy_regen_rate <= 0:
+            return
+
+        last = self._state.last_interaction
+        # Ensure both datetimes are tz-aware for comparison
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+
+        elapsed_hours = max(0.0, (now - last).total_seconds() / 3600.0)
+        if elapsed_hours <= 0:
+            return
+
+        energy_gain = self._bio.energy_regen_rate * elapsed_hours
+        social_gain = (self._bio.energy_regen_rate / 2.0) * elapsed_hours
+        self.update(energy=energy_gain, social_battery=social_gain)
+
     def on_interaction(
         self,
         interaction: Interaction,
@@ -123,29 +159,37 @@ class StateManager:
     ) -> None:
         """Process an interaction, draining energy and updating mood from sentiment.
 
-        - Decreases energy by 2
-        - Decreases social_battery by 5
+        - Applies time-based auto-regen (if enabled) before draining
+        - Decreases energy by ``biorhythms.energy_drain_rate``
+        - Decreases social_battery by ``biorhythms.social_drain_rate``
         - Updates last_interaction to the interaction's timestamp
         - If a somatic marker is provided, maps it to a mood change
-        - If energy drops below 20, mood shifts to TIRED (overrides sentiment)
+        - If energy drops below ``biorhythms.tired_threshold``, mood shifts to TIRED
 
         Args:
             interaction: The interaction that occurred.
             somatic: Optional somatic marker from sentiment detection.
         """
-        self.update(energy=-2, social_battery=-5)
+        # Auto-regen based on time elapsed since last interaction
+        self._apply_auto_regen(interaction.timestamp)
+
+        # Drain energy and social battery (configurable rates, 0 = no drain)
+        self.update(
+            energy=-self._bio.energy_drain_rate,
+            social_battery=-self._bio.social_drain_rate,
+        )
         self._state.last_interaction = interaction.timestamp
 
         # Map somatic marker to mood via EMA-smoothed valence
         if somatic is not None:
-            # Smooth valence: current message gets _EMA_ALPHA weight, history the rest
-            self._valence_ema = _EMA_ALPHA * somatic.valence + (1 - _EMA_ALPHA) * self._valence_ema
+            alpha = self._bio.mood_inertia
+            self._valence_ema = alpha * somatic.valence + (1 - alpha) * self._valence_ema
             smoothed = SomaticMarker(
                 valence=round(self._valence_ema, 3),
                 arousal=somatic.arousal,
                 label=somatic.label,
             )
-            new_mood = _somatic_to_mood(smoothed)
+            new_mood = _somatic_to_mood(smoothed, self._bio.mood_sensitivity)
             if new_mood is not None:
                 old_mood = self._state.mood
                 self._state.mood = new_mood
@@ -154,8 +198,8 @@ class StateManager:
                         "Mood shifted: %s -> %s", old_mood.value, new_mood.value
                     )
 
-        # Low energy overrides everything
-        if self._state.energy < 20:
+        # Low energy overrides everything (0 = disabled)
+        if self._bio.tired_threshold > 0 and self._state.energy < self._bio.tired_threshold:
             if self._state.mood != Mood.TIRED:
                 logger.debug(
                     "Low energy override: energy=%.0f, mood -> tired",
@@ -168,12 +212,11 @@ class StateManager:
 
         Args:
             hours: Duration of rest. Energy recovers at
-                ``_DEFAULT_ENERGY_REGEN_RATE`` per hour; social_battery
+                ``biorhythms.energy_regen_rate`` per hour; social_battery
                 recovers at half that rate.
         """
-        energy_gain = _DEFAULT_ENERGY_REGEN_RATE * hours
-        social_gain = (_DEFAULT_ENERGY_REGEN_RATE / 2.0) * hours
-
+        energy_gain = self._bio.energy_regen_rate * hours
+        social_gain = (self._bio.energy_regen_rate / 2.0) * hours
         self.update(energy=energy_gain, social_battery=social_gain)
 
     def reset(self) -> None:
