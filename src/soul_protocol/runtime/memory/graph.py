@@ -1,5 +1,8 @@
 # memory/graph.py — KnowledgeGraph for entity relationships.
 # Created: 2026-02-22
+# Updated: v0.3.4 — Added metadata dict to TemporalEdge for reasoning context,
+#   sentiment, and confidence on graph edges. Backward-compatible: edges without
+#   metadata deserialize with metadata=None.
 # Updated: 2026-03-10 — Added remove_entity() for GDPR-compliant entity deletion.
 #   Removes entity and all connected edges (incoming + outgoing).
 # Updated: 2026-03-06 — Added temporal fields (valid_from, valid_to) to edges.
@@ -23,9 +26,13 @@ class TemporalEdge:
         relation: The relationship type/verb.
         valid_from: When this relationship became active.
         valid_to: When this relationship ended (None = still active).
+        metadata: Optional reasoning context, sentiment, and confidence.
+            Captures WHY this relationship exists, not just THAT it exists.
+            Example: {"context": "Switched jobs for better work culture",
+                      "sentiment": "positive", "confidence": 0.9}
     """
 
-    __slots__ = ("source", "target", "relation", "valid_from", "valid_to")
+    __slots__ = ("source", "target", "relation", "valid_from", "valid_to", "metadata")
 
     def __init__(
         self,
@@ -34,12 +41,14 @@ class TemporalEdge:
         relation: str,
         valid_from: datetime | None = None,
         valid_to: datetime | None = None,
+        metadata: dict | None = None,
     ) -> None:
         self.source = source
         self.target = target
         self.relation = relation
         self.valid_from = valid_from or datetime.now()
         self.valid_to = valid_to
+        self.metadata = metadata
 
     def is_active_at(self, dt: datetime) -> bool:
         """Check if this edge is active at a specific datetime."""
@@ -67,6 +76,8 @@ class TemporalEdge:
         }
         if self.valid_to is not None:
             d["valid_to"] = self.valid_to.isoformat()
+        if self.metadata is not None:
+            d["metadata"] = self.metadata
         return d
 
     @classmethod
@@ -84,6 +95,7 @@ class TemporalEdge:
             relation=data["relation"],
             valid_from=valid_from,
             valid_to=valid_to,
+            metadata=data.get("metadata"),
         )
 
 
@@ -116,6 +128,7 @@ class KnowledgeGraph:
         relation: str,
         valid_from: datetime | None = None,
         valid_to: datetime | None = None,
+        metadata: dict | None = None,
     ) -> None:
         """Add a directed relationship between two entities.
 
@@ -129,6 +142,7 @@ class KnowledgeGraph:
             relation: Relationship type/verb.
             valid_from: When this relationship started (defaults to now).
             valid_to: When this relationship ended (None = still active).
+            metadata: Optional reasoning context, sentiment, confidence.
         """
         # Auto-create entities if missing
         if source not in self._entities:
@@ -153,6 +167,7 @@ class KnowledgeGraph:
                 relation=relation,
                 valid_from=valid_from,
                 valid_to=valid_to,
+                metadata=metadata,
             )
         )
 

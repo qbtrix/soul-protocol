@@ -1,4 +1,7 @@
 # memory/activation.py — ACT-R activation-based memory scoring.
+# Updated: v0.3.4 — Added salience multiplier to compute_activation().
+#   High-salience memories (medical allergies, critical preferences) resist
+#   temporal decay. Uses MemoryEntry.salience field (0.0-1.0, default 0.5).
 # Updated: v0.3.3 — Added personality parameter to compute_activation().
 #   Personality-modulated boost from OCEAN traits influences recall ranking.
 #   Backwards compatible: personality=None produces identical scores to before.
@@ -175,11 +178,22 @@ def compute_activation(
     # Importance boost: memories that passed a high significance bar get recall priority
     sig_boost = 0.3 * entry.significance if entry.significance else 0.0
 
+    # Salience multiplier (v0.3.4): high-salience memories resist decay.
+    # Default salience is 0.5 (neutral). Range 0.0-1.0.
+    # Multiplier maps [0.0, 1.0] → [0.5, 1.5] so salience=0.5 is identity.
+    salience_multiplier = 0.5 + getattr(entry, "salience", 0.5)
+
     # Personality modulation (v0.3.3)
     personality_boost = compute_personality_boost(entry, personality)
 
-    # Combine with weights
-    activation = (W_BASE * base) + (W_SPREAD * spread) + (W_EMOTION * emo) + sig_boost + personality_boost
+    # Combine with weights, apply salience multiplier to base (decay-resistant)
+    activation = (
+        (W_BASE * base * salience_multiplier)
+        + (W_SPREAD * spread)
+        + (W_EMOTION * emo)
+        + sig_boost
+        + personality_boost
+    )
 
     # Add stochastic noise for natural variability
     if noise:

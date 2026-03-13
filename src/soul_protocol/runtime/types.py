@@ -1,4 +1,7 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: v0.3.4 — Added MemoryCategory for structured extraction taxonomy,
+#   category + abstract + overview fields on MemoryEntry for progressive content
+#   loading (L0/L1/L2 layers), salience field for retrieval weighting.
 # Updated: Added Bond, incarnation, previous_lives, EternalLinks to Identity/SoulManifest.
 #   v0.2.2 — Added superseded_by field to MemoryEntry for fact conflict resolution.
 #   v0.2.1 — Added ReflectionResult for CognitiveEngine reflection output.
@@ -144,8 +147,38 @@ class MemoryType(StrEnum):
     PROCEDURAL = "procedural"
 
 
+class MemoryCategory(StrEnum):
+    """Structured extraction taxonomy for memory classification.
+
+    User-facing categories (about the bonded entity):
+    - PROFILE: Static identity attributes (name, role, location)
+    - PREFERENCE: Choices and habits (one facet per memory)
+    - ENTITY: Named things with attributes (projects, people, tools)
+    - EVENT: Time-bound activities (always absolute timestamps)
+
+    Agent-facing categories (about what the soul learned):
+    - CASE: Problem + cause + solution + outcome
+    - PATTERN: Reusable processes across scenarios
+    - SKILL: Skill execution strategies and tool usage knowledge
+    """
+
+    # User-facing (feed the bond system / human profile)
+    PROFILE = "profile"
+    PREFERENCE = "preference"
+    ENTITY = "entity"
+    EVENT = "event"
+    # Agent-facing (feed the self-model)
+    CASE = "case"
+    PATTERN = "pattern"
+    SKILL = "skill"
+
+
 class MemoryEntry(BaseModel):
     """A single memory with metadata.
+
+    v0.3.4 additions: category (extraction taxonomy), abstract (L0 ~100 tokens),
+    overview (L1 ~1K tokens) for progressive content loading, salience (retrieval
+    weight). All new fields default to None for backwards compatibility.
 
     v0.2.0 additions: somatic markers (emotional context), access_timestamps
     (full history for ACT-R decay), significance score, and general_event_id
@@ -170,6 +203,11 @@ class MemoryEntry(BaseModel):
     general_event_id: str | None = None
     # v0.2.2 — Fact conflict resolution
     superseded_by: str | None = None
+    # v0.3.4 — Extraction taxonomy and progressive content loading
+    category: MemoryCategory | None = None
+    abstract: str | None = None  # L0: ~100 token semantic fingerprint
+    overview: str | None = None  # L1: ~1K token structured summary
+    salience: float = Field(default=0.5, ge=0.0, le=1.0)  # Retrieval weight
 
 
 class CoreMemory(BaseModel):
