@@ -1,11 +1,12 @@
-<!-- Covers: Platform integration guide for Soul Protocol. Claude Code (MCP + CLAUDE.md template),
-     Claude Desktop, Cursor, Windsurf, custom Python agents, LangChain/LangGraph, CrewAI,
+<!-- Covers: Platform integration guide for Soul Protocol. CLI injection (soul inject), MCP server,
+     Claude Code, Claude Desktop, Cursor, Windsurf, custom Python agents, LangChain/LangGraph, CrewAI,
      integration tiers, portability patterns, and MCP tools reference table.
+     Updated: 2026-03-13 — Added Tier 1.5 (soul inject), multi-soul SOUL_DIR, updated tool count to 12.
      Updated: 2026-03-02 — Replaced dashboard references with inspect TUI. -->
 
 # Integrations
 
-Soul Protocol integrates with any AI agent through two paths: an MCP server that gives agents active memory and evolving identity, or system prompt injection for static personality. This guide covers both approaches across every major platform.
+Soul Protocol integrates with any AI agent through three paths: CLI injection for fast static context, an MCP server for active memory and evolving identity, or system prompt generation for manual injection. This guide covers all approaches across every major platform.
 
 
 ## Integration Tiers
@@ -24,9 +25,26 @@ prompt = soul.to_system_prompt()
 
 Best for: quick experiments, agents that don't support MCP, read-only personality injection.
 
+### Tier 1.5 -- CLI Injection (`soul inject`)
+
+One command injects soul context (identity, state, core memory, recent memories) directly into your agent's config file. No server, no MCP, no manual copy-paste. Runs in ~50ms.
+
+```bash
+soul inject claude-code              # writes to .claude/CLAUDE.md
+soul inject cursor --soul guardian   # specific soul into .cursorrules
+soul inject vscode --memories 20     # include 20 recent memories
+soul inject windsurf --dir ~/project/.soul
+```
+
+The injected block is idempotent -- re-running replaces the existing section. Supports 6 platforms: Claude Code, Cursor, VS Code/Copilot, Windsurf, Cline, Continue.
+
+Best for: projects that want persistent context without running a server, CI/CD pipelines, scripting, teams sharing soul context via git.
+
+See the [CLI Reference](cli-reference.md#soul-inject) for full options.
+
 ### Tier 2 -- MCP Server (Active)
 
-Run the Soul Protocol MCP server alongside your agent. The agent actively calls soul tools to recall memories, observe interactions, reflect on patterns, and evolve over time. Full bidirectional integration.
+Run the Soul Protocol MCP server alongside your agent. The agent actively calls soul tools to recall memories, observe interactions, reflect on patterns, and evolve over time. Full bidirectional integration. Supports multiple souls via `SOUL_DIR`.
 
 Best for: production agents, persistent companions, any platform with MCP support.
 
@@ -81,13 +99,19 @@ Add the soul MCP server to `.claude/settings.local.json` in your project root:
 
 `SOUL_PATH` can be a `.soul/` directory or a `.soul` archive file. Must be an absolute path. The server loads the soul on startup and keeps it in memory across tool calls.
 
-### Step 3: Add CLAUDE.md Instructions
+### Step 3: Inject Context (Fast Path)
 
-Create or update your project's `CLAUDE.md` to teach the agent how to use its soul. Add the template below.
+The quickest way to give Claude Code soul context is the `inject` command:
 
-### CLAUDE.md Template
+```bash
+soul inject claude-code
+```
 
-Copy this block into your `CLAUDE.md`:
+This writes identity, core memory, state, and recent memories directly into `.claude/CLAUDE.md`. Re-run it anytime to refresh. Done -- skip to Step 4.
+
+### Step 3 (Alternative): Manual CLAUDE.md Instructions
+
+If you prefer manual control, or want to combine `soul inject` with custom instructions, add this template to your `CLAUDE.md`:
 
 ```markdown
 ## Soul Protocol -- Persistent Identity
@@ -187,7 +211,14 @@ Cursor supports MCP servers through its settings. Run `soul init "MyAssistant"` 
 }
 ```
 
-Then add instructions to `.cursorrules` so the agent knows how to use its soul:
+Then inject soul context (or add it manually):
+
+```bash
+# Fast path: inject automatically
+soul inject cursor
+
+# Or add manual instructions to .cursorrules:
+```
 
 ```
 You have a persistent soul via the `soul` MCP server.
@@ -473,11 +504,13 @@ Roll back by loading an earlier snapshot. The soul picks up from that point with
 
 Quick reference for all tools, resources, and prompts exposed by the Soul Protocol MCP server. See the [MCP Server docs](mcp-server.md) for full parameter details.
 
-### Tools (10)
+### Tools (12)
 
 | Tool | Description |
 |------|-------------|
 | `soul_birth` | Create a new soul with name, archetype, and values |
+| `soul_list` | List all loaded souls with name, DID, memory count, and active status |
+| `soul_switch` | Set the active soul by name (case-insensitive) |
 | `soul_observe` | Process an interaction through the full psychology pipeline |
 | `soul_remember` | Store a memory directly (episodic, semantic, or procedural) |
 | `soul_recall` | Search memories by natural language query, ranked by ACT-R activation |
@@ -487,6 +520,8 @@ Quick reference for all tools, resources, and prompts exposed by the Soul Protoc
 | `soul_prompt` | Generate the complete system prompt for LLM injection |
 | `soul_save` | Persist the soul to disk |
 | `soul_export` | Export as a portable `.soul` file |
+
+All tools (except `soul_list` and `soul_switch`) accept an optional `soul` parameter to target a specific soul by name. If omitted, the active soul is used.
 
 ### Resources (3)
 
@@ -500,5 +535,5 @@ Quick reference for all tools, resources, and prompts exposed by the Soul Protoc
 
 | Name | Description |
 |------|-------------|
-| `soul_system_prompt` | Full system prompt combining DNA, identity, core memory, state, self-model |
+| `soul_system_prompt_template` | Full system prompt combining DNA, identity, core memory, state, self-model |
 | `soul_introduction` | First-person self-introduction for the soul |

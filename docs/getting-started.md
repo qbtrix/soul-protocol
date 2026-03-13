@@ -1,5 +1,6 @@
-<!-- Covers: Installation, optional extras, soul init quickstart, first soul walkthrough,
+<!-- Covers: Installation, optional extras, soul init quickstart, soul inject, first soul walkthrough,
      observe() pipeline explanation, next steps.
+     Updated: 2026-03-13 — Added soul inject section for fast agent integration.
      Updated: 2026-03-02 — Removed dashboard section (replaced by TUI in inspect/status). -->
 
 # Getting Started
@@ -54,6 +55,16 @@ The `.soul/` folder is human-readable (JSON + markdown), git-friendly, and cloud
 ```bash
 soul init --from-file colleague-shared-aria.soul
 ```
+
+To push your soul's context into your agent's config file:
+
+```bash
+soul inject claude-code    # writes to .claude/CLAUDE.md
+soul inject cursor         # writes to .cursorrules
+soul inject vscode         # writes to .github/copilot-instructions.md
+```
+
+This is the fastest way to give any AI agent your soul's identity, memories, and state -- no MCP server needed. Re-run it anytime to refresh the context.
 
 To export your `.soul/` folder as a portable archive:
 
@@ -225,4 +236,4 @@ See the [CognitiveEngine Guide](cognitive-engine.md) for details.
 - **[API Reference](api-reference.md)** -- Complete Soul class API, all types and models
 - **[MCP Server](mcp-server.md)** -- FastMCP server for agent integration
 - **[Integrations](integrations.md)** -- Give Claude Code, Cursor, or any agent a `.soul`
-- **[CLI Reference](cli-reference.md)** -- All 8 commands for soul management
+- **[CLI Reference](cli-reference.md)** -- All 9 commands including `soul inject` for fast agent integration
