@@ -183,23 +183,25 @@ class KnowledgeGraph:
             if not edge.is_currently_active():
                 continue
             if edge.source == entity:
-                results.append(
-                    {
-                        "source": edge.source,
-                        "target": edge.target,
-                        "relation": edge.relation,
-                        "direction": "outgoing",
-                    }
-                )
+                result: dict = {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "relation": edge.relation,
+                    "direction": "outgoing",
+                }
+                if edge.metadata is not None:
+                    result["metadata"] = edge.metadata
+                results.append(result)
             elif edge.target == entity:
-                results.append(
-                    {
-                        "source": edge.source,
-                        "target": edge.target,
-                        "relation": edge.relation,
-                        "direction": "incoming",
-                    }
-                )
+                result = {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "relation": edge.relation,
+                    "direction": "incoming",
+                }
+                if edge.metadata is not None:
+                    result["metadata"] = edge.metadata
+                results.append(result)
         return results
 
     def entities(self) -> list[str]:
@@ -249,15 +251,16 @@ class KnowledgeGraph:
         results: list[dict] = []
         for edge in self._edges:
             if edge.is_active_at(dt):
-                results.append(
-                    {
-                        "source": edge.source,
-                        "target": edge.target,
-                        "relation": edge.relation,
-                        "valid_from": edge.valid_from,
-                        "valid_to": edge.valid_to,
-                    }
-                )
+                result: dict = {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "relation": edge.relation,
+                    "valid_from": edge.valid_from,
+                    "valid_to": edge.valid_to,
+                }
+                if edge.metadata is not None:
+                    result["metadata"] = edge.metadata
+                results.append(result)
         return results
 
     def relationship_evolution(self, source: str, target: str) -> list[dict]:
@@ -276,15 +279,16 @@ class KnowledgeGraph:
         results: list[dict] = []
         for edge in self._edges:
             if edge.source == source and edge.target == target:
-                results.append(
-                    {
-                        "source": edge.source,
-                        "target": edge.target,
-                        "relation": edge.relation,
-                        "valid_from": edge.valid_from,
-                        "valid_to": edge.valid_to,
-                    }
-                )
+                result: dict = {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "relation": edge.relation,
+                    "valid_from": edge.valid_from,
+                    "valid_to": edge.valid_to,
+                }
+                if edge.metadata is not None:
+                    result["metadata"] = edge.metadata
+                results.append(result)
         results.sort(key=lambda r: r["valid_from"])
         return results
 

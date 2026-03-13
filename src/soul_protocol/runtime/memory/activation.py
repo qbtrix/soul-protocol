@@ -180,8 +180,9 @@ def compute_activation(
 
     # Salience multiplier (v0.3.4): high-salience memories resist decay.
     # Default salience is 0.5 (neutral). Range 0.0-1.0.
-    # Multiplier maps [0.0, 1.0] → [0.5, 1.5] so salience=0.5 is identity.
-    salience_multiplier = 0.5 + getattr(entry, "salience", 0.5)
+    # Multiplier clamped to >= 1.0 so high salience boosts but low salience
+    # never penalizes (avoids amplifying negative base in importance fallback).
+    salience_multiplier = max(1.0, 0.5 + getattr(entry, "salience", 0.5))
 
     # Personality modulation (v0.3.3)
     personality_boost = compute_personality_boost(entry, personality)
