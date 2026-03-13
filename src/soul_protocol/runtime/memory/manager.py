@@ -1,10 +1,11 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
-# Updated: Phase 2 memory-runtime-v2
+# Updated: v0.3.4 — Phase 2 memory-runtime-v2
 #   - observe() passes SignificanceScore to extract_facts for salience computation
 #   - observe() passes episodic_id to extract_entities for edge metadata provenance
 #   - observe() sets abstract and salience on episodic memories at storage time
 #   - update_graph() forwards edge_metadata to KnowledgeGraph.add_relationship()
 #   - observe() uses dedup.reconcile_fact() for semantic memory deduplication
+#   - Fixed duplicate significance computation block
 # Updated: v0.2.3 — Removed duplicate header comment entry, fixed stale promote block.
 # Updated: phase1-ablation-fixes — Pass token_count to significance gate, weaken
 #   promotion rule so trivial interactions with facts don't bypass the gate.
@@ -65,7 +66,6 @@ from soul_protocol.runtime.types import (
     MemoryType,
     Personality,
     ReflectionResult,
-    SignificanceScore,
 )
 
 if TYPE_CHECKING:
@@ -417,9 +417,8 @@ class MemoryManager:
         # Use DSPy significance gate if available (LLM-powered, optimizable),
         # otherwise fall back to heuristic via CognitiveProcessor.
         recent = self._episodic.recent_contents(n=10)
-        sig_score = await self._cognitive.assess_significance(interaction, values, recent)
         if self._dspy_processor is not None:
-            sig_score = await self._dspy_processor.assess_significance(
+            sig_score = await self._dspy_processor.assess_significance(  # type: ignore[union-attr]
                 interaction, values, recent
             )
         else:
@@ -428,12 +427,6 @@ class MemoryManager:
         token_count = len(tokenize(combined_text))
         sig_value = overall_significance(sig_score, token_count=token_count)
         significant = is_significant(sig_score, token_count=token_count)
-        recent = self._episodic.recent_contents(n=10)
-        sig_score = await self._cognitive.assess_significance(
-            interaction, values, recent
-        )
-        sig_value = overall_significance(sig_score)
-        significant = is_significant(sig_score)
         logger.debug(
             "Significance assessed: score=%.3f, significant=%s", sig_value, significant
         )
