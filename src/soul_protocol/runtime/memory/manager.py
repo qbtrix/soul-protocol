@@ -1,4 +1,7 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-03-13 — Replaced direct _memories dict access with
+#   EpisodicStore.update_entry() public API. Deduplicated cognitive engine
+#   imports in __init__ and observe().
 # Updated: v0.3.4 — Phase 2 memory-runtime-v2
 #   - observe() passes SignificanceScore to extract_facts for salience computation
 #   - observe() passes episodic_id to extract_entities for edge metadata provenance
@@ -339,10 +342,6 @@ class MemoryManager:
         # Lazy import to avoid circular dependency:
         #   cognitive.engine → memory.attention → memory.__init__ → memory.manager
         from soul_protocol.runtime.cognitive.engine import CognitiveProcessor, HeuristicEngine
-        from soul_protocol.runtime.cognitive.engine import (
-            CognitiveProcessor,
-            HeuristicEngine,
-        )
 
         heuristic = HeuristicEngine()
         if engine is not None:
@@ -402,6 +401,11 @@ class MemoryManager:
         core_values: list[str] | None = None,
     ) -> dict:
         """Process an interaction through the psychology-informed pipeline."""
+        from soul_protocol.runtime.cognitive.engine import (
+            compute_salience,
+            generate_abstract,
+        )
+
         values = core_values or self._core_values
 
         # --- 1. Detect sentiment ---
@@ -440,14 +444,12 @@ class MemoryManager:
                 significance=sig_value,
             )
             # Phase 2: set abstract and salience on the stored episodic memory
-            if episodic_id and episodic_id in self._episodic._memories:
-                from soul_protocol.runtime.cognitive.engine import (
-                    compute_salience,
-                    generate_abstract,
+            if episodic_id:
+                abstract = generate_abstract(
+                    f"User: {interaction.user_input}\nAgent: {interaction.agent_output}"
                 )
-                ep_entry = self._episodic._memories[episodic_id]
-                ep_entry.abstract = generate_abstract(ep_entry.content)
-                ep_entry.salience = compute_salience(sig_score)
+                salience = compute_salience(sig_score)
+                self._episodic.update_entry(episodic_id, abstract=abstract, salience=salience)
             logger.debug("Episodic memory stored: id=%s", episodic_id)
 
         # --- 4. Extract and store semantic facts ---
@@ -492,14 +494,12 @@ class MemoryManager:
                 significance=sig_value,
             )
             # Phase 2: set abstract and salience on promoted episodic
-            if episodic_id and episodic_id in self._episodic._memories:
-                from soul_protocol.runtime.cognitive.engine import (
-                    compute_salience,
-                    generate_abstract,
+            if episodic_id:
+                abstract = generate_abstract(
+                    f"User: {interaction.user_input}\nAgent: {interaction.agent_output}"
                 )
-                ep_entry = self._episodic._memories[episodic_id]
-                ep_entry.abstract = generate_abstract(ep_entry.content)
-                ep_entry.salience = compute_salience(sig_score)
+                salience = compute_salience(sig_score)
+                self._episodic.update_entry(episodic_id, abstract=abstract, salience=salience)
             logger.debug(
                 "Promoted to episodic (facts found): id=%s, sig=%.3f",
                 episodic_id,

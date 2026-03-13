@@ -1,4 +1,9 @@
 # test_memory_v2.py — Tests for Phase 2 memory architecture improvements.
+# Updated: v0.3.4-fix — Updated salience tests for additive boost model.
+#   Default salience (0.5) now sits between high (1.0) and low (0.0) as expected.
+# Updated: 2026-03-13 — Added tests for EpisodicStore.update_entry(),
+#   keyword classification false positive edge cases (from/may removal),
+#   and dedup pipeline (reconcile_fact) coverage.
 # Created: 2026-03-13 — Covers MemoryCategory enum, new MemoryEntry fields,
 #   classify_memory_category(), generate_abstract(), compute_salience(),
 #   reconcile_fact(), TemporalEdge metadata, and salience-weighted activation.
@@ -16,8 +21,10 @@ from soul_protocol.runtime.cognitive.engine import (
 )
 from soul_protocol.runtime.memory.activation import compute_activation
 from soul_protocol.runtime.memory.dedup import reconcile_fact
+from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import TemporalEdge
 from soul_protocol.runtime.types import (
+    Interaction,
     MemoryCategory,
     MemoryEntry,
     MemoryType,
@@ -513,9 +520,7 @@ class TestSalienceInActivation:
         )
 
     def test_high_salience_beats_low_salience_same_content(self):
-        # base=0.6, spread=0 (no token overlap), emotion=0
-        # high: W_BASE * 0.6 * (0.5 + 1.0) = 0.9
-        # low:  W_BASE * 0.6 * (0.5 + 0.0) = 0.3
+        # Additive boost: high salience adds +0.25, low adds -0.25
         high = self._entry_with_salience(1.0)
         low = self._entry_with_salience(0.0)
 
@@ -525,8 +530,7 @@ class TestSalienceInActivation:
         assert score_high > score_low
 
     def test_default_salience_between_extremes(self):
-        # With clamped multiplier: salience <= 0.5 → mult=1.0 (neutral),
-        # salience > 0.5 → mult > 1.0 (boost). So default == low, high > default.
+        # Additive model: default (0.5) → boost=0.0, sits between high and low
         high = self._entry_with_salience(1.0)
         default = self._entry_with_salience(0.5)
         low = self._entry_with_salience(0.0)
@@ -536,8 +540,7 @@ class TestSalienceInActivation:
         score_low = compute_activation(low, "zzz", noise=False)
 
         assert score_high > score_default
-        # Low salience is clamped to same multiplier as default (both 1.0)
-        assert score_default == pytest.approx(score_low, abs=0.01)
+        assert score_default > score_low
 
     def test_salience_zero_does_not_crash(self):
         entry = self._entry_with_salience(0.0)
@@ -563,3 +566,104 @@ class TestSalienceInActivation:
         assert entry.salience == 0.5
         score = compute_activation(entry, "generic", noise=False)
         assert isinstance(score, float)
+
+
+# ---------------------------------------------------------------------------
+# 9. EpisodicStore.update_entry() — public API for field updates
+# ---------------------------------------------------------------------------
+
+
+class TestEpisodicStoreUpdateEntry:
+    def _make_store_with_entry(self):
+        """Create an EpisodicStore with one entry, return (store, entry_id)."""
+        store = EpisodicStore(max_entries=100)
+        # Directly insert a MemoryEntry to avoid async add()
+        entry = MemoryEntry(
+            id="ep_test_01",
+            type=MemoryType.EPISODIC,
+            content="User: Hello there\nAgent: Hi! How can I help?",
+            importance=5,
+        )
+        store._memories[entry.id] = entry
+        return store, entry.id
+
+    def test_update_entry_sets_abstract(self):
+        store, entry_id = self._make_store_with_entry()
+        result = store.update_entry(entry_id, abstract="Short summary")
+        assert result is True
+        assert store._memories[entry_id].abstract == "Short summary"
+
+    def test_update_entry_sets_salience(self):
+        store, entry_id = self._make_store_with_entry()
+        result = store.update_entry(entry_id, salience=0.95)
+        assert result is True
+        assert store._memories[entry_id].salience == 0.95
+
+    def test_update_entry_nonexistent_id(self):
+        store, _ = self._make_store_with_entry()
+        result = store.update_entry("nonexistent_id_999", abstract="nope")
+        assert result is False
+
+    def test_update_entry_ignores_unknown_fields(self):
+        store, entry_id = self._make_store_with_entry()
+        # Should not raise, unknown kwargs are silently ignored
+        result = store.update_entry(entry_id, totally_fake_field="value")
+        assert result is True
+        assert not hasattr(store._memories[entry_id], "totally_fake_field")
+
+
+# ---------------------------------------------------------------------------
+# 10. Keyword classification edge cases — "from" and "may" removal
+# ---------------------------------------------------------------------------
+
+
+class TestKeywordFalsePositives:
+    def test_classify_from_not_false_positive(self):
+        # "from" in a non-profile context should NOT classify as PROFILE
+        # (avoid "message" which contains substring "age", a profile keyword)
+        result = classify_memory_category("I received data from the server")
+        assert result != MemoryCategory.PROFILE
+
+    def test_classify_may_not_false_positive(self):
+        # "may" as a verb (permission) should NOT classify as EVENT
+        result = classify_memory_category("The user may want to upgrade later")
+        assert result != MemoryCategory.EVENT
+
+    def test_classify_real_profile_still_works(self):
+        # "name is" still triggers PROFILE without "from"
+        result = classify_memory_category("User's name is Alex and they code daily")
+        assert result == MemoryCategory.PROFILE
+
+    def test_classify_real_event_still_works(self):
+        # "june" still triggers EVENT without "may"
+        result = classify_memory_category("Meeting on June 15th at the office")
+        assert result == MemoryCategory.EVENT
+
+
+# ---------------------------------------------------------------------------
+# 11. Dedup pipeline — reconcile_fact edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestReconcileFactPipeline:
+    def test_reconcile_fact_skip_duplicate(self):
+        """Near-identical fact is skipped (Jaccard > 0.85)."""
+        content = "User prefers coffee over tea in the morning"
+        existing = [_make_entry(content, eid="dup1")]
+        action, target = reconcile_fact(content, existing)
+        assert action == "SKIP"
+        assert target == "dup1"
+
+    def test_reconcile_fact_merge_similar(self):
+        """Similar fact triggers merge (Jaccard 0.6-0.85)."""
+        existing = [_make_entry("User prefers coffee in the morning", eid="old1")]
+        action, target = reconcile_fact("User prefers tea in the morning", existing)
+        assert action == "MERGE"
+        assert target == "old1"
+
+    def test_reconcile_fact_create_new(self):
+        """Sufficiently different fact is created (Jaccard < 0.6)."""
+        existing = [_make_entry("User loves hiking in the mountains", eid="hike1")]
+        action, target = reconcile_fact("The database schema needs indexing", existing)
+        assert action == "CREATE"
+        assert target is None

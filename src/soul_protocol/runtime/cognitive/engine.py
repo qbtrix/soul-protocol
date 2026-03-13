@@ -1,4 +1,6 @@
 # cognitive/engine.py — CognitiveEngine protocol, HeuristicEngine, CognitiveProcessor.
+# Updated: 2026-03-13 — Removed "from" from _PROFILE_KEYWORDS and "may" from
+#   _EVENT_KEYWORDS to prevent false positive classifications.
 # Updated: Phase 2 memory-runtime-v2
 #   - extract_facts() now classifies each fact into a MemoryCategory using heuristics
 #   - extract_facts() generates abstract (L0) for each fact (~400 chars of content)
@@ -251,10 +253,10 @@ _PREFERENCE_KEYWORDS = {"likes", "prefers", "favorite", "favourite", "love", "lo
 _EVENT_KEYWORDS = {"yesterday", "today", "tomorrow", "last week", "next week",
                    "last month", "next month", "monday", "tuesday", "wednesday",
                    "thursday", "friday", "saturday", "sunday", "january", "february",
-                   "march", "april", "may", "june", "july", "august", "september",
+                   "march", "april", "june", "july", "august", "september",
                    "october", "november", "december", "morning", "evening",
                    "afternoon", "meeting", "event", "scheduled", "deadline"}
-_PROFILE_KEYWORDS = {"name is", "works at", "work for", "lives in", "from",
+_PROFILE_KEYWORDS = {"name is", "works at", "work for", "lives in",
                      "is a", "is an", "age", "born", "occupation", "role"}
 
 

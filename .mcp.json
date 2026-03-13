@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "soul": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "soul-protocol[mcp]",
+        "soul-mcp"
+      ],
+      "env": {
+        "SOUL_PATH": "/private/var/folders/my/ly3fsydj59qdt_hj56rtc3dr0000gn/T/pytest-of-prakash/pytest-18/test_init_setup_preserves_exis0/.soul/testbot"
+      }
+    }
+  }
+}

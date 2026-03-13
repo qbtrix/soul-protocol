@@ -1,4 +1,6 @@
 # memory/episodic.py — EpisodicStore for timestamped interaction memories.
+# Updated: 2026-03-13 — Added update_entry() public method for updating fields
+#   on stored entries (replaces direct _memories dict access from manager.py).
 # Updated: 2026-03-10 — Added search_and_delete() and delete_before() for
 #   GDPR-compliant targeted and time-based memory deletion.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
@@ -105,6 +107,25 @@ class EpisodicStore:
 
         self._memories[memory_id] = entry
         return memory_id
+
+    def update_entry(self, memory_id: str, **kwargs) -> bool:
+        """Update fields on an existing episodic entry.
+
+        Args:
+            memory_id: The ID of the entry to update.
+            **kwargs: Field names and values to set on the entry.
+                      Unknown fields (not present on the entry) are ignored.
+
+        Returns:
+            True if the entry was found and updated, False if not found.
+        """
+        if memory_id in self._memories:
+            entry = self._memories[memory_id]
+            for key, value in kwargs.items():
+                if hasattr(entry, key):
+                    setattr(entry, key, value)
+            return True
+        return False
 
     async def get(self, memory_id: str) -> MemoryEntry | None:
         """Retrieve a single memory by ID, updating access metadata."""
