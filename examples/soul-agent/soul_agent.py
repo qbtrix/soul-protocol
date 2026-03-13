@@ -46,6 +46,7 @@ try:
         Interaction,
         MemoryType,
         Mood,
+        Skill,
         Soul,
     )
 except ImportError:
@@ -332,7 +333,7 @@ async def soul_feel(args: dict[str, Any]) -> dict[str, Any]:
     if "mood" in args:
         kwargs["mood"] = Mood(args["mood"])
     if "energy" in args:
-        kwargs["energy"] = args["energy"]
+        kwargs["energy"] = max(-100.0, min(100.0, args["energy"]))
     if "focus" in args:
         kwargs["focus"] = args["focus"]
     if "social_battery" in args:
@@ -447,8 +448,6 @@ async def soul_skills(args: dict[str, Any]) -> dict[str, Any]:
     },
 )
 async def soul_grant_xp(args: dict[str, Any]) -> dict[str, Any]:
-    from soul_protocol import Skill
-
     soul = await _get_soul()
     skill_id = args["skill_id"]
     amount = args.get("amount", 10)
