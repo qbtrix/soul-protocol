@@ -68,6 +68,8 @@ class Biorhythms(BaseModel):
     """
 
     chronotype: str = "neutral"
+    # Note: initial social battery at birth. StateManager reads SoulState.social_battery
+    # at runtime, not this field. Soul.birth() syncs this into SoulState at creation time.
     social_battery: float = Field(default=100.0, ge=0.0, le=100.0)
 
     # Energy dynamics

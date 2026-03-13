@@ -53,8 +53,8 @@ def _biorhythms_summary(b: Biorhythms) -> str:
         parts.append(f"mood inertia: {b.mood_inertia:.2f}")
     if b.mood_sensitivity != d.mood_sensitivity:
         parts.append(f"mood sensitivity: {b.mood_sensitivity:.2f}")
-    if b.auto_regen != d.auto_regen:
-        parts.append("auto-regen: off" if not b.auto_regen else "auto-regen: on")
+    if not b.auto_regen:
+        parts.append("auto-regen: off")
 
     return " | ".join(parts)
 

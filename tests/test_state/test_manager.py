@@ -593,3 +593,13 @@ class TestAutoRegen:
 
         manager.on_interaction(_make_interaction_at(t2))
         assert manager.current.last_interaction == t2
+
+    def test_rest_uses_configurable_regen_rate(self):
+        """rest() should use biorhythms.energy_regen_rate, not a hardcoded value."""
+        bio = Biorhythms(energy_regen_rate=20.0)
+        manager = StateManager(_make_state(energy=50.0), biorhythms=bio)
+        manager.rest(hours=1.0)
+        # 50 + 20*1 = 70
+        assert manager.current.energy == pytest.approx(70.0)
+        # social recovers at half rate: 100 + 10*1 = 100 (capped)
+        assert manager.current.social_battery == pytest.approx(100.0)

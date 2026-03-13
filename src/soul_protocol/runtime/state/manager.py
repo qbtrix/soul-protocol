@@ -170,7 +170,8 @@ class StateManager:
             interaction: The interaction that occurred.
             somatic: Optional somatic marker from sentiment detection.
         """
-        # Auto-regen based on time elapsed since last interaction
+        # Regen must run before drain and before last_interaction is updated —
+        # it reads the old timestamp to compute elapsed time.
         self._apply_auto_regen(interaction.timestamp)
 
         # Drain energy and social battery (configurable rates, 0 = no drain)
