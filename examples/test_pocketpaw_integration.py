@@ -20,8 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pocketpaw_integration import SoulProvider
 
-from soul_protocol.soul import Soul
-from soul_protocol.types import LifecycleState, MemoryType, Mood
+from soul_protocol import LifecycleState, MemoryType, Mood, Soul
 
 
 @pytest.fixture

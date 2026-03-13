@@ -11,8 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from soul_protocol.soul import Soul
-from soul_protocol.types import Interaction
+from soul_protocol import Interaction, Soul
 
 
 class SoulProvider:
