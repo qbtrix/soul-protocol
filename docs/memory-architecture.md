@@ -1,6 +1,9 @@
 <!-- Covers: The 5-tier memory system, psychology-informed observe() pipeline,
      ACT-R activation scoring, cross-store recall, pluggable retrieval,
-     reflection/consolidation, fact conflict resolution, and memory settings. -->
+     reflection/consolidation, fact conflict resolution, memory settings,
+     and v2 features: MemoryCategory, salience, L0/L1 content layers,
+     extraction taxonomy, dedup pipeline, abstract generation.
+     Updated: 2026-03-13 — added v2 memory features documentation. -->
 
 # Memory Architecture
 
@@ -365,6 +368,107 @@ Settings are passed at soul creation and persisted in the `.soul` file. They can
 - **Low-memory devices:** Reduce `episodic_max_entries` to 1,000 and `semantic_max_facts` to 200
 - **Long-running companions:** Increase limits and rely on eviction policies to keep quality high
 - **Testing:** Use small limits (100/50) for fast iteration
+
+
+## Memory Categories (v2)
+
+Every `MemoryEntry` can be assigned a `MemoryCategory` that classifies its semantic role. The `MemoryCategory` enum defines 7 values:
+
+| Category | Description | Example |
+|----------|-------------|---------|
+| `profile` | Identity facts about the user or soul | "User's name is Prakash" |
+| `preference` | Likes, dislikes, style choices | "User prefers dark mode" |
+| `entity` | Named things: people, places, organizations | "User works at Qbtrix" |
+| `event` | Time-bound happenings | "Deployed v0.2.2 on Tuesday" |
+| `case` | Problem/solution pairs, debugging sessions | "Fixed the OOM by reducing batch size" |
+| `pattern` | Recurring behaviors, workflows | "User always reviews PRs before merging" |
+| `skill` | Learned capabilities, domain knowledge | "User is proficient in async Python" |
+
+Categories are assigned automatically during fact extraction via the `classify_memory_category()` heuristic. The heuristic checks content against keyword patterns for each category and picks the best match. When no pattern matches, the default is `preference` for semantic memories and `event` for episodic memories.
+
+Categories power filtered recall: `soul.recall("Python", categories=[MemoryCategory.SKILL, MemoryCategory.PREFERENCE])`.
+
+
+## Salience (v2)
+
+Each `MemoryEntry` carries an optional `salience` field -- an additive boost applied during ACT-R activation scoring. The range is **-0.25 to +0.25**.
+
+```
+total = W_BASE * base + W_SPREAD * spread + W_EMOTION * emo + salience + noise
+```
+
+Salience lets the system (or an LLM judge) mark certain memories as more or less retrievable without changing their importance score. Use cases:
+
+- **Positive salience (+0.1 to +0.25):** Key architectural decisions, user corrections, safety-critical facts. These should surface even when activation would otherwise decay them.
+- **Negative salience (-0.1 to -0.25):** Stale preferences the user has moved past, superseded patterns. Soft-demoting without deletion.
+- **Zero (default):** No boost. Standard ACT-R decay applies.
+
+Salience is persisted in the `.soul` file and survives export/import round-trips.
+
+
+## Content Layers: L0 and L1 (v2)
+
+Long memories are expensive to inject into LLM context. Content layers provide progressive loading:
+
+- **L0 (abstract):** A compressed summary of the memory, roughly 100 tokens. Generated automatically when a memory is created. Used for listing and scanning large memory sets without blowing up context.
+- **L1 (overview):** A more detailed summary, roughly 1,000 tokens. Generated on demand or during reflection. Provides enough detail for most recall scenarios.
+- **Full content:** The original, uncompressed memory text. Loaded only when a client explicitly requests the full entry.
+
+Fields on `MemoryEntry`:
+
+| Field | Type | Size | When generated |
+|-------|------|------|----------------|
+| `content` | `str` | Full | Always (original text) |
+| `abstract` | `str` or `None` | ~100 tokens | On creation (first sentence, ~400 chars) |
+| `overview` | `str` or `None` | ~1K tokens | On demand or during reflection |
+
+Recall results include `abstract` by default. Clients can request `full=True` to get the complete content. This keeps context budgets manageable for souls with thousands of memories.
+
+### Abstract Generation
+
+Abstracts are generated using a simple heuristic: take the first sentence of the content, capped at approximately 400 characters. If the content is shorter than 400 characters, the abstract equals the full content. The heuristic splits on sentence boundaries (`.`, `!`, `?`) and picks the first complete sentence.
+
+With a `CognitiveEngine` attached, the LLM generates a more meaningful abstract that captures the key point rather than just the first sentence.
+
+
+## Extraction Taxonomy (v2)
+
+The `classify_memory_category()` function assigns a `MemoryCategory` to extracted facts. It runs as part of the fact extraction step in the psychology pipeline.
+
+**Heuristic classification rules (checked in order):**
+
+1. **profile** -- matches patterns like "name is", "I am a", "I'm from", "born in"
+2. **entity** -- matches patterns like "works at", "works for", capitalized proper nouns with relational context
+3. **skill** -- matches patterns like "proficient in", "experienced with", "knows how to", technology keywords
+4. **preference** -- matches patterns like "prefer", "like", "love", "hate", "dislike", "favorite"
+5. **event** -- matches temporal markers: "yesterday", "last week", "on Monday", date patterns
+6. **case** -- matches problem/solution language: "fixed", "solved", "debugged", "the issue was"
+7. **pattern** -- matches frequency language: "always", "usually", "every time", "tends to"
+
+If no rule matches, the fallback is `preference` for semantic entries and `event` for episodic entries.
+
+With a `CognitiveEngine`, the LLM classifies categories with richer context understanding, handling ambiguous cases that keyword matching misses.
+
+
+## Deduplication Pipeline (v2)
+
+The `reconcile_fact()` function runs before storing any new semantic fact. It prevents duplicates and handles updates to existing knowledge.
+
+**Algorithm:**
+
+1. Compute Jaccard token overlap between the new fact and every existing fact in semantic memory.
+2. Find the highest-overlap match.
+3. Apply thresholds:
+
+| Overlap | Action | Rationale |
+|---------|--------|-----------|
+| > 0.85 | **SKIP** | Near-duplicate. The existing fact already captures this knowledge. |
+| 0.6 -- 0.85 | **MERGE** | Partial overlap. Update the existing fact's content and bump its importance. The old content is preserved in `superseded_by` linkage. |
+| < 0.6 | **CREATE** | Sufficiently novel. Store as a new fact. |
+
+The merge operation combines the new information with the existing fact. If a `CognitiveEngine` is available, the LLM produces a merged statement. Otherwise, the newer fact replaces the older one (with `superseded_by` tracking).
+
+This three-tier approach (skip / merge / create) replaces the earlier binary dedup (overlap > 0.7 = skip, otherwise create) and reduces semantic memory bloat while preserving knowledge evolution history.
 
 
 ## Serialization

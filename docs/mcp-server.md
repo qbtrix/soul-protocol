@@ -1,5 +1,7 @@
-<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 10 tools with parameters,
-     3 resources, 2 prompts, programmatic usage, and design notes. -->
+<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 12 tools with parameters,
+     3 resources, 2 prompts, programmatic usage, and design notes.
+     Updated: 2026-03-13 — added soul_list + soul_switch tools, SOUL_DIR env var, multi-soul registry notes,
+     renamed soul_system_prompt to soul_system_prompt_template, added optional soul parameter docs. -->
 
 # MCP Server
 
@@ -26,6 +28,8 @@ soul-mcp
 ```
 
 The server reads `SOUL_PATH` from the environment on startup. If set, it loads that soul file (`.soul`, `.json`, `.yaml`, or `.md`) before accepting connections. If not set, the server starts with no soul loaded -- clients must call `soul_birth` before using any other tool.
+
+You can also set `SOUL_DIR` to point to a directory containing multiple soul folders (e.g. `~/.soul/`). When `SOUL_DIR` is set, the server discovers all souls in that directory and loads them into the `SoulRegistry`. The first soul found becomes the active soul. Use `soul_list` and `soul_switch` to manage which soul is active at runtime. If both `SOUL_PATH` and `SOUL_DIR` are set, `SOUL_PATH` takes priority as the initially active soul.
 
 ## Configuration
 
@@ -65,9 +69,11 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (10)
+## Tools (12)
 
 All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers.
+
+**Multi-soul targeting:** When the server is running with `SOUL_DIR` and multiple souls are loaded, all tools accept an optional `soul` parameter (string) to target a specific soul by name or ID. If omitted, the tool operates on the currently active soul.
 
 ---
 
@@ -202,6 +208,30 @@ Export the soul as a portable `.soul` file (zip archive). Contains identity, DNA
 
 ---
 
+### `soul_list`
+
+List all souls known to the server. When running with `SOUL_DIR`, this returns every soul in the registry. When running with a single `SOUL_PATH`, it returns that one soul.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| (none) | | | |
+
+**Returns:** JSON with `souls` array. Each entry includes `name`, `did`, `active` (boolean), and `lifecycle`.
+
+---
+
+### `soul_switch`
+
+Switch the active soul. The newly active soul becomes the target for all subsequent tool calls that omit the `soul` parameter.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `soul` | `str` | required | Name or DID of the soul to activate |
+
+**Returns:** JSON with `status`, `name`, and `did` of the newly active soul. Returns an error if the soul is not found in the registry.
+
+---
+
 ## Resources (3)
 
 Resources provide read-only access to soul data. MCP clients can subscribe to these URIs for live state.
@@ -218,7 +248,7 @@ Prompts are pre-built text templates that MCP clients can request.
 
 | Name | Purpose |
 |------|---------|
-| `soul_system_prompt` | Complete system prompt for LLM context injection. Combines DNA, identity, core memory, state, and self-model into a single prompt string. |
+| `soul_system_prompt_template` | Complete system prompt template for LLM context injection. Combines DNA, identity, core memory, state, and self-model into a single prompt string. (Renamed from `soul_system_prompt` in v0.2.3.) |
 | `soul_introduction` | First-person self-introduction. Example: "I'm Aria, The Compassionate Creator. My core values are empathy, curiosity. I'm currently feeling curious with 85% energy." |
 
 ## Programmatic Usage
@@ -241,7 +271,7 @@ async with Client(mcp) as client:
 
 ## Design Notes
 
-- **One soul per server instance.** The server holds a single soul in a global variable. To manage multiple souls, run multiple server processes.
+- **Multi-soul via SoulRegistry.** When `SOUL_DIR` is set, the server loads all discovered souls into a `SoulRegistry` and exposes `soul_list` / `soul_switch` for runtime selection. One soul is active at a time; all tools default to it unless a `soul` parameter is provided. For single-soul setups (`SOUL_PATH` only), the registry holds one entry and `soul_switch` is a no-op.
 - **All tools are prefixed `soul_`.** This avoids name collisions when a client connects to several MCP servers simultaneously (e.g. soul + filesystem + database).
 - **Global state -- not thread-safe.** The server uses module-level state. Do not call `soul_observe` concurrently from multiple threads. Sequential tool calls from a single MCP client are fine.
 - **Stateful lifecycle.** The soul persists in memory across tool calls within a session. Call `soul_save` or `soul_export` to persist before the server shuts down.

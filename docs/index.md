@@ -1,4 +1,5 @@
 <!-- Covers: Documentation index, quick links to all guides (including integrations), version info, project links -->
+<!-- Updated: 2026-03-13 — added Tier 1.5 soul inject guide link -->
 
 # Soul Protocol Documentation
 
@@ -18,6 +19,7 @@ A soul remembers. A soul grows. A soul migrates.
 | [API Reference](api-reference.md) | Complete Soul class API, all types and models |
 | [MCP Server](mcp-server.md) | FastMCP server for agent integration -- tools, resources, prompts |
 | [Integrations](integrations.md) | Claude Code, Cursor, custom agents -- give any agent a .soul |
+| [Soul Inject Guide](guide-soul-inject.md) | Tier 1.5 integration -- inject soul context into agent platform configs with a single CLI command |
 | [CLI Reference](cli-reference.md) | Command-line interface for soul management |
 | [Architecture](architecture.md) | Design philosophy, psychology stack, module structure |
 
