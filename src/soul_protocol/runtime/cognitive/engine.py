@@ -14,6 +14,7 @@ import json
 import logging
 import re
 from collections.abc import Callable
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from soul_protocol.runtime.cognitive.prompts import (
@@ -508,11 +509,9 @@ class CognitiveProcessor:
             source_memory_id: Optional ID of the episodic memory that triggered
                 this extraction, used for edge metadata provenance.
         """
-        from datetime import datetime as _dt
-
         edge_metadata = {
             "source_memory_id": source_memory_id or "",
-            "extracted_at": _dt.now().isoformat(),
+            "extracted_at": datetime.now().isoformat(),
         }
 
         # Fast path: delegate to MemoryManager's heuristic extractor

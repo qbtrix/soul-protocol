@@ -464,16 +464,16 @@ class MemoryManager:
                 logger.debug("Dedup SKIP: fact too similar to existing id=%s", merge_id)
                 continue
             elif action == "MERGE" and merge_id:
-                # Update existing fact: supersede old with new
+                # Store first so fact.id is populated, then link superseded
+                await self.add(fact)
                 for ef in existing_facts:
                     if ef.id == merge_id:
-                        ef.superseded_by = fact.id or "new"
+                        ef.superseded_by = fact.id
                         logger.debug(
-                            "Dedup MERGE: old id=%s superseded by new fact",
-                            merge_id,
+                            "Dedup MERGE: old id=%s superseded by %s",
+                            merge_id, fact.id,
                         )
                         break
-                await self.add(fact)
                 stored_facts.append(fact)
             else:
                 # CREATE
