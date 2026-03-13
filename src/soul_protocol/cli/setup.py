@@ -1,5 +1,5 @@
 # cli/setup.py — Universal agent platform integration for soul-protocol
-# Updated: 2026-03-13 — Resolve absolute path to uvx for GUI app compatibility.
+# Updated: 2026-03-13 — SOUL_DIR support for multi-soul directories.
 #
 # Supports: Claude Code, Cursor, VS Code/Copilot, Windsurf, Cline, Continue,
 #           Gemini CLI, Codex CLI, Amazon Q, Zed, Claude Desktop.
@@ -200,12 +200,34 @@ def _resolve_uvx() -> str:
     return resolved if resolved else "uvx"  # fallback to bare name
 
 
+def _is_multi_soul(soul_path: Path) -> bool:
+    """Check if soul_path is a directory containing multiple souls."""
+    if not soul_path.is_dir():
+        return False
+    entries = 0
+    for item in soul_path.iterdir():
+        if item.is_dir() and (item / "soul.json").exists():
+            entries += 1
+        elif item.is_file() and item.suffix == ".soul":
+            entries += 1
+        if entries > 1:
+            return True
+    return False
+
+
+def _soul_env(soul_path: Path) -> dict[str, str]:
+    """Build the env dict: SOUL_DIR for multi-soul, SOUL_PATH for single."""
+    if _is_multi_soul(soul_path):
+        return {"SOUL_DIR": str(soul_path.resolve())}
+    return {"SOUL_PATH": str(soul_path.resolve())}
+
+
 def _mcp_server_entry(soul_path: Path) -> dict:
     """Standard MCP server config for soul-protocol."""
     return {
         "command": _resolve_uvx(),
         "args": ["--from", "soul-protocol[mcp]", "soul-mcp"],
-        "env": {"SOUL_PATH": str(soul_path.resolve())},
+        "env": _soul_env(soul_path),
     }
 
 
@@ -215,7 +237,7 @@ def _mcp_server_entry_vscode(soul_path: Path) -> dict:
         "type": "stdio",
         "command": _resolve_uvx(),
         "args": ["--from", "soul-protocol[mcp]", "soul-mcp"],
-        "env": {"SOUL_PATH": str(soul_path.resolve())},
+        "env": _soul_env(soul_path),
     }
 
 
@@ -262,12 +284,13 @@ def _write_mcp_toml(config_path: Path, soul_path: Path) -> bool:
     # Use forward slashes (posix) for cross-platform TOML safety
     safe_path = soul_path.resolve().as_posix()
     uvx_cmd = Path(_resolve_uvx()).as_posix()  # forward slashes for TOML safety
+    env_key = "SOUL_DIR" if _is_multi_soul(soul_path) else "SOUL_PATH"
     toml_section = (
         f'\n[mcp_servers.soul]\n'
         f'command = "{uvx_cmd}"\n'
         f'args = ["--from", "soul-protocol[mcp]", "soul-mcp"]\n'
         f'\n[mcp_servers.soul.env]\n'
-        f"SOUL_PATH = '{safe_path}'\n"  # single-quoted TOML literal string
+        f"{env_key} = '{safe_path}'\n"  # single-quoted TOML literal string
     )
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
