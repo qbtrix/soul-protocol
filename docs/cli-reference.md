@@ -1,5 +1,6 @@
-<!-- Covers: CLI installation, all 8 commands (init, birth, inspect, status, export, migrate, retire, list)
+<!-- Covers: CLI installation, all 9 commands (init, birth, inject, inspect, status, export, migrate, retire, list)
      with usage examples, options tables, and output descriptions.
+     Updated: 2026-03-13 — Added soul inject command for fast context injection into agent configs.
      Updated: 2026-03-02 — Removed dashboard/open commands, enhanced inspect with TUI panels. -->
 
 # CLI Reference
@@ -23,6 +24,8 @@ soul --version
 ### `soul init`
 
 Initialize a `.soul/` folder in the current directory. This is the recommended way to start using Soul Protocol in a project -- like `git init` for identity.
+
+> **Tip:** After `soul init`, run `soul inject claude-code` (or your platform) to push soul context directly into your agent's config file. See [`soul inject`](#soul-inject) below.
 
 ```bash
 # Interactive -- prompts for name
@@ -79,6 +82,78 @@ soul inspect .soul/
 soul status .soul/
 soul export .soul/ -o aria.soul
 ```
+
+---
+
+### `soul inject`
+
+Inject soul context (identity, core memory, state, recent memories) directly into an agent platform's config file. This is the fast, CLI-based alternative to running an MCP server -- ~50ms vs ~500ms per operation, no server process needed, works offline.
+
+The injected block is idempotent: running `soul inject` again replaces the existing section without duplicating content.
+
+```bash
+# Inject into Claude Code's CLAUDE.md
+soul inject claude-code
+
+# Inject a specific soul into Cursor's config
+soul inject cursor --soul guardian
+
+# Include more memories (default: 10)
+soul inject vscode --memories 20
+
+# Custom soul directory
+soul inject windsurf --dir ~/my-project/.soul
+
+# Quiet mode (no console output)
+soul inject cline --quiet
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `TARGET` | Yes | Platform to inject into. One of: `claude-code`, `cursor`, `vscode`, `windsurf`, `cline`, `continue`. |
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--soul TEXT` | | Soul name to inject. Default: first soul found in the directory. |
+| `--dir PATH` | `-d` | Soul directory path. Default: `.soul/` in the current working directory. |
+| `--memories INT` | `-m` | Number of recent memories to include. Default: 10. |
+| `--quiet` | `-q` | Suppress console output. |
+
+**Target config files:**
+
+| Target | Config file |
+|--------|-------------|
+| `claude-code` | `.claude/CLAUDE.md` |
+| `cursor` | `.cursorrules` |
+| `vscode` | `.github/copilot-instructions.md` |
+| `windsurf` | `.windsurfrules` |
+| `cline` | `.clinerules` |
+| `continue` | `.continuerules` |
+
+**What gets injected:**
+
+The command writes a markdown block between `<!-- SOUL-CONTEXT-START -->` and `<!-- SOUL-CONTEXT-END -->` markers containing:
+
+- Soul identity (name, archetype, DID, core values)
+- Current state (mood, energy, lifecycle stage)
+- Core memory (persona definition, knowledge about the human)
+- Recent episodic memories (configurable count, truncated at 120 chars)
+- Injection timestamp
+
+**When to use inject vs MCP:**
+
+| Use `soul inject` when... | Use MCP when... |
+|---------------------------|-----------------|
+| You want fast, static context | You need real-time memory updates during conversation |
+| MCP server keeps disconnecting | The agent needs to call `soul_observe` or `soul_remember` |
+| You're scripting or automating | You're using Claude Desktop (no CLI integration) |
+| You want to version-control the context | You want the soul to evolve during the session |
+
+Both approaches work together. Use `soul inject` for baseline context and MCP for live memory operations.
 
 ---
 
