@@ -1,4 +1,7 @@
 # cli/main.py — Click CLI for the Soul Protocol
+# Updated: 2026-03-13 — Added `soul inject <target>` command for fast CLI-based
+#   soul context injection into agent config files (claude-code, cursor, vscode,
+#   windsurf, cline, continue). Idempotent with marker-based replacement.
 # Updated: 2026-03-13 — Added --format option (dir/zip) to soul init.
 # Updated: 2026-03-10 — Added `soul remember` and `soul recall` commands (issue #14).
 # Updated: 2026-03-02 — Removed dashboard/open commands (replaced by rich TUI in inspect/status).
@@ -947,6 +950,85 @@ def recall_cmd(path, query, recent, limit, min_importance):
         )
 
     asyncio.run(_recall())
+
+
+@cli.command("inject")
+@click.argument(
+    "target",
+    type=click.Choice(
+        ["claude-code", "cursor", "vscode", "windsurf", "cline", "continue"],
+        case_sensitive=False,
+    ),
+)
+@click.option("--soul", "soul_name", default=None, help="Soul name to inject (default: first found)")
+@click.option(
+    "--dir",
+    "-d",
+    "soul_dir",
+    default=".soul",
+    help="Soul directory path (default: .soul/ in cwd)",
+)
+@click.option(
+    "--memories",
+    "-m",
+    type=int,
+    default=10,
+    help="Number of recent memories to include (default: 10)",
+)
+@click.option("--quiet", "-q", is_flag=True, help="Suppress output")
+def inject_cmd(target, soul_name, soul_dir, memories, quiet):
+    """Inject soul context into an agent platform's config file.
+
+    Reads the active soul and writes identity, core memory, state, and
+    recent memories into the target platform's configuration file.
+    Idempotent — safe to re-run without duplicating content.
+
+    \b
+    Examples:
+      soul inject claude-code                # inject into .claude/CLAUDE.md
+      soul inject cursor --soul Aria         # inject specific soul
+      soul inject vscode --memories 20       # include more memories
+      soul inject windsurf --dir ~/my-soul   # custom soul directory
+    """
+
+    async def _inject():
+        from .inject import (
+            build_context_block,
+            find_soul,
+            inject_context_block,
+            resolve_target_path,
+        )
+
+        # Resolve soul directory
+        dir_path = Path(soul_dir)
+        if not dir_path.is_absolute():
+            dir_path = Path.cwd() / soul_dir
+
+        # Find the soul
+        try:
+            soul_path = find_soul(dir_path, soul_name)
+        except FileNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise SystemExit(1)
+
+        # Build context block
+        try:
+            block = await build_context_block(soul_path, memory_limit=memories)
+        except Exception as e:
+            console.print(f"[red]Error reading soul:[/red] {e}")
+            raise SystemExit(1)
+
+        # Resolve target config file and inject
+        target_path = resolve_target_path(target, Path.cwd())
+        inject_context_block(target_path, block)
+
+        if not quiet:
+            console.print(
+                f"[green]Injected[/green] soul context into "
+                f"[bold]{target_path.relative_to(Path.cwd())}[/bold]"
+            )
+
+    asyncio.run(_inject())
 
 
 if __name__ == "__main__":
