@@ -1,7 +1,8 @@
 # memory/activation.py — ACT-R activation-based memory scoring.
-# Updated: v0.3.4 — Added salience multiplier to compute_activation().
-#   High-salience memories (medical allergies, critical preferences) resist
-#   temporal decay. Uses MemoryEntry.salience field (0.0-1.0, default 0.5).
+# Updated: v0.3.4-fix — Salience now uses additive boost instead of multiplicative.
+#   Fixes bug where multiplying negative base by salience amplified the penalty.
+#   High salience always helps activation, never hurts it. Replaced getattr with
+#   direct field access since salience is a Pydantic field with default 0.5.
 # Updated: v0.3.3 — Added personality parameter to compute_activation().
 #   Personality-modulated boost from OCEAN traits influences recall ranking.
 #   Backwards compatible: personality=None produces identical scores to before.
