@@ -1,4 +1,10 @@
 # cognitive/engine.py — CognitiveEngine protocol, HeuristicEngine, CognitiveProcessor.
+# Updated: Phase 2 memory-runtime-v2
+#   - extract_facts() now classifies each fact into a MemoryCategory using heuristics
+#   - extract_facts() generates abstract (L0) for each fact (~400 chars of content)
+#   - extract_facts() computes salience from SignificanceScore when available
+#   - extract_entities() passes metadata dict with source_memory_id and extracted_at
+#     to graph edge creation (returned in entity dicts for caller to forward)
 # Updated: Fixed import ordering — moved logger assignment after all imports
 #   (stdlib, then project imports, then logger).
 
@@ -20,6 +26,7 @@ from soul_protocol.runtime.cognitive.prompts import (
 )
 from soul_protocol.runtime.types import (
     Interaction,
+    MemoryCategory,
     MemoryEntry,
     MemoryType,
     ReflectionResult,
@@ -234,6 +241,105 @@ def _clamp(value: float, low: float, high: float) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Extraction taxonomy classification (Phase 2 — heuristic, no LLM)
+# ---------------------------------------------------------------------------
+
+# Keyword sets for heuristic category classification
+_PREFERENCE_KEYWORDS = {"likes", "prefers", "favorite", "favourite", "love", "loves",
+                        "prefer", "dislikes", "hates", "hate", "dislike"}
+_EVENT_KEYWORDS = {"yesterday", "today", "tomorrow", "last week", "next week",
+                   "last month", "next month", "monday", "tuesday", "wednesday",
+                   "thursday", "friday", "saturday", "sunday", "january", "february",
+                   "march", "april", "may", "june", "july", "august", "september",
+                   "october", "november", "december", "morning", "evening",
+                   "afternoon", "meeting", "event", "scheduled", "deadline"}
+_PROFILE_KEYWORDS = {"name is", "works at", "work for", "lives in", "from",
+                     "is a", "is an", "age", "born", "occupation", "role"}
+
+
+def classify_memory_category(content: str) -> MemoryCategory | None:
+    """Classify a memory's content into a MemoryCategory using keyword heuristics.
+
+    No LLM required. Returns None for content that doesn't clearly match
+    a category (backward-compatible default for semantic memories).
+
+    Args:
+        content: The memory content string to classify.
+
+    Returns:
+        A MemoryCategory or None if no clear match.
+    """
+    lower = content.lower()
+
+    # Check preference keywords
+    if any(kw in lower for kw in _PREFERENCE_KEYWORDS):
+        return MemoryCategory.PREFERENCE
+
+    # Check for person-name / entity patterns (capitalized words after "User's")
+    if re.search(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", content):
+        # Looks like a proper name → entity
+        return MemoryCategory.ENTITY
+
+    # Check event keywords (time/date references)
+    if any(kw in lower for kw in _EVENT_KEYWORDS):
+        return MemoryCategory.EVENT
+
+    # Check profile keywords
+    if any(kw in lower for kw in _PROFILE_KEYWORDS):
+        return MemoryCategory.PROFILE
+
+    # Default: don't set category (None for backward compat)
+    return None
+
+
+def generate_abstract(content: str) -> str:
+    """Generate a short abstract (L0) from memory content.
+
+    Heuristic approach: extracts the first sentence, truncated to ~400 chars
+    (~100 tokens). This serves as a semantic fingerprint for progressive
+    content loading.
+
+    Args:
+        content: The full memory content.
+
+    Returns:
+        A truncated abstract string.
+    """
+    # Take first sentence (split on sentence-ending punctuation)
+    first_sentence = re.split(r"[.!?\n]", content, maxsplit=1)[0].strip()
+    # Truncate to ~400 chars
+    if len(first_sentence) > 400:
+        # Truncate at last word boundary before 400 chars
+        truncated = first_sentence[:400].rsplit(" ", 1)[0]
+        return truncated + "..."
+    return first_sentence
+
+
+def compute_salience(significance: SignificanceScore) -> float:
+    """Map a SignificanceScore to a salience value (0.0-1.0).
+
+    Weighted combination of significance dimensions:
+      - novelty: 0.3
+      - emotional_intensity: 0.3
+      - goal_relevance: 0.25
+      - content_richness: 0.15
+
+    Args:
+        significance: The SignificanceScore from the attention gate.
+
+    Returns:
+        Salience value clamped to [0.0, 1.0].
+    """
+    raw = (
+        significance.novelty * 0.3
+        + significance.emotional_intensity * 0.3
+        + significance.goal_relevance * 0.25
+        + significance.content_richness * 0.15
+    )
+    return min(1.0, raw)
+
+
+# ---------------------------------------------------------------------------
 # CognitiveProcessor — internal orchestrator
 # ---------------------------------------------------------------------------
 
@@ -321,11 +427,20 @@ class CognitiveProcessor:
         self,
         interaction: Interaction,
         existing_facts: list[MemoryEntry] | None = None,
+        significance: SignificanceScore | None = None,
     ) -> list[MemoryEntry]:
-        """Extract semantic facts from an interaction."""
+        """Extract semantic facts from an interaction.
+
+        Phase 2 enhancements:
+          - Classifies each fact into a MemoryCategory via heuristic keywords
+          - Generates an abstract (L0) from the fact content
+          - Computes salience from the interaction's SignificanceScore
+        """
         # Fast path: delegate to MemoryManager's heuristic extractor
         if self._is_heuristic_only and self._fact_extractor:
-            return self._fact_extractor(interaction)
+            entries = self._fact_extractor(interaction)
+            self._enrich_facts(entries, significance)
+            return entries
 
         prompt = FACT_EXTRACTION_PROMPT.format(
             user_input=interaction.user_input,
@@ -346,20 +461,66 @@ class CognitiveProcessor:
                         importance=min(10, max(1, int(item.get("importance", 5)))),
                     )
                 )
+            self._enrich_facts(entries, significance)
             return entries
         except Exception:
             logger.warning(
                 "LLM fact extraction failed, falling back to heuristic"
             )
             if self._fact_extractor:
-                return self._fact_extractor(interaction)
+                entries = self._fact_extractor(interaction)
+                self._enrich_facts(entries, significance)
+                return entries
             return []
 
-    async def extract_entities(self, interaction: Interaction) -> list[dict]:
-        """Extract named entities from an interaction."""
+    @staticmethod
+    def _enrich_facts(
+        entries: list[MemoryEntry],
+        significance: SignificanceScore | None = None,
+    ) -> None:
+        """Enrich extracted facts with category, abstract, and salience.
+
+        Mutates entries in-place. Called after both heuristic and LLM
+        extraction paths.
+
+        Args:
+            entries: List of MemoryEntry objects to enrich.
+            significance: Optional SignificanceScore for salience computation.
+        """
+        salience = compute_salience(significance) if significance else 0.5
+        for entry in entries:
+            entry.category = classify_memory_category(entry.content)
+            entry.abstract = generate_abstract(entry.content)
+            entry.salience = salience
+
+    async def extract_entities(
+        self,
+        interaction: Interaction,
+        source_memory_id: str | None = None,
+    ) -> list[dict]:
+        """Extract named entities from an interaction.
+
+        Phase 2 enhancement: each entity dict includes an ``edge_metadata``
+        field with source_memory_id and extracted_at for graph edge provenance.
+
+        Args:
+            interaction: The interaction to extract entities from.
+            source_memory_id: Optional ID of the episodic memory that triggered
+                this extraction, used for edge metadata provenance.
+        """
+        from datetime import datetime as _dt
+
+        edge_metadata = {
+            "source_memory_id": source_memory_id or "",
+            "extracted_at": _dt.now().isoformat(),
+        }
+
         # Fast path: delegate to MemoryManager's heuristic extractor
         if self._is_heuristic_only and self._entity_extractor:
-            return self._entity_extractor(interaction)
+            entities = self._entity_extractor(interaction)
+            for e in entities:
+                e["edge_metadata"] = edge_metadata
+            return entities
 
         prompt = ENTITY_EXTRACTION_PROMPT.format(
             user_input=interaction.user_input,
@@ -378,6 +539,7 @@ class CognitiveProcessor:
                         "name": item["name"],
                         "type": item.get("type", "unknown"),
                         "relation": item.get("relation"),
+                        "edge_metadata": edge_metadata,
                     }
                 )
             return entities
@@ -386,7 +548,10 @@ class CognitiveProcessor:
                 "LLM entity extraction failed, falling back to heuristic"
             )
             if self._entity_extractor:
-                return self._entity_extractor(interaction)
+                entities = self._entity_extractor(interaction)
+                for e in entities:
+                    e["edge_metadata"] = edge_metadata
+                return entities
             return []
 
     async def update_self_model(
