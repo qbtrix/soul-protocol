@@ -848,7 +848,10 @@ def remember_cmd(path, text, importance, emotion):
             importance=importance,
             emotion=emotion,
         )
-        await soul.export(path)
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path)
 
         console.print(
             Panel(
