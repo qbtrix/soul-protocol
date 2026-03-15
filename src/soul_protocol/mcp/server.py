@@ -1,5 +1,6 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 12 tools, 3 resources, 2 prompts for AI agent integration
+# 13 tools, 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-03-15 — Added soul_reload tool to pick up external .soul file changes.
 # Updated: 2026-03-13 — Multi-soul support via SoulRegistry + SOUL_DIR scanning.
 #
 # Usage:
@@ -598,6 +599,45 @@ async def soul_export(
             "status": "exported",
             "path": str(resolved),
             "name": s.name,
+        }
+    )
+
+
+@mcp.tool
+async def soul_reload(
+    soul: str | None = None,
+) -> str:
+    """Reload a soul from disk, picking up any changes made externally.
+
+    Use this when the .soul file has been updated outside the MCP server
+    (e.g. by another process, a different session, or manual editing).
+    The in-memory soul is replaced with the freshly loaded version.
+
+    Args:
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = _resolve_soul(soul)
+    key = s.name.lower()
+    source_path = _registry._paths.get(key)
+    if not source_path:
+        raise RuntimeError(
+            f"No source path for soul '{s.name}'. "
+            "Cannot reload a soul that was created at runtime (not loaded from disk)."
+        )
+    fmt = _registry._formats.get(key, "directory")
+
+    reloaded = await Soul.awaken(source_path)
+    _registry._souls[key] = reloaded
+    # Preserve active status and path — just swap the Soul instance
+    _registry._modified.discard(key)
+
+    return json.dumps(
+        {
+            "status": "reloaded",
+            "name": reloaded.name,
+            "path": source_path,
+            "format": fmt,
+            "memories": reloaded.memory_count,
         }
     )
 
