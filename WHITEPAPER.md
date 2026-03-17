@@ -410,14 +410,14 @@ Python 3.12. Open source. MIT license.
 - Temporal knowledge graph (point-in-time queries, relationship evolution)
 - Fact conflict detection (superseded_by chain)
 - Evolution (supervised mutations, approval workflow)
+- Reincarnation (`Soul.reincarnate()` — preserves memories, increments incarnation, tracks lineage)
+- Archival memory store (compressed conversation archives with keyword search and date-range queries)
 
 ### Not working yet
 
 **Skills/XP system.** The data models exist but the full leveling system (domain expertise with XP tracking and portable skill history) is not wired into the runtime. Planned.
 
-**Reincarnation.** The lifecycle state exists in the type system but `reincarnate()` is not implemented. Planned.
-
-**Archival memory.** The vision describes compressed conversation transcripts with keyword and date-range search. Not implemented. The five working tiers (core, episodic, semantic, procedural, graph) handle current needs.
+**Archival memory wiring.** `ArchivalMemoryStore` exists with search and date-range queries, but is not integrated into the observe() pipeline or auto-compression.
 
 **Learning events.** The system records what happened, not what was *learned*. No formalized feedback loop from experience to procedural knowledge. A soul that fails at a task and a soul that succeeds store the same kind of memory. They shouldn't.
 
