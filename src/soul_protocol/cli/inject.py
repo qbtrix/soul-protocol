@@ -1,4 +1,5 @@
 # cli/inject.py — Soul context injection into agent platform config files.
+# Updated: 2026-03-18 — Added behavioral instructions for auto soul_recall.
 # Created: 2026-03-13 — Fast CLI-based alternative to MCP for injecting soul
 #   context (identity, core memory, state, recent memories) into agent configs.
 #   Supports: claude-code, cursor, vscode, windsurf, cline, continue.
@@ -110,6 +111,23 @@ async def build_context_block(
 
 ### Recent Context ({len(entries)} memories)
 {memories_section}
+
+### Soul Sync (Persistent Memory via MCP)
+
+The soul is shared across all sessions (Claude Code, Claude Desktop, other agents).
+The MCP server auto-reloads the .soul file when another process modifies it.
+
+**On session start:**
+1. Call `soul_recall` with the current task context to load relevant memories
+2. Call `soul_state` to check mood/energy
+
+**During work:**
+- Use `soul_observe` after completing tasks, key decisions, or important conversations
+- Use `soul_remember` for facts that should persist across sessions
+- When the user asks about something from a previous session, call `soul_recall` first
+
+**On session end:**
+- The soul auto-saves on shutdown
 
 _Injected by `soul inject` at {timestamp}_
 {SOUL_CONTEXT_END}"""

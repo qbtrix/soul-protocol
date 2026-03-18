@@ -1,9 +1,11 @@
 # tests.test_mcp.test_server — MCP server integration tests
+# Updated: 2026-03-18 — Auto-reload + background file watcher tests.
 # Updated: 2026-03-13 — Multi-soul support: SoulRegistry, SOUL_DIR, soul_list, soul_switch.
 # Tests 12 tools, 3 resources, 2 prompts using FastMCP in-memory Client.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import tempfile
@@ -683,3 +685,90 @@ async def test_soul_dir_autosave_zip(tmp_path):
         reloaded = await Soul.awaken(str(zip_path))
         memories = await reloaded.recall("ZIP dir auto-save", limit=5)
         assert any("ZIP dir auto-save" in m.content for m in memories)
+
+
+# --- Auto-reload on external file change ---
+
+
+async def test_auto_reload_on_external_change(tmp_path):
+    """soul_recall auto-reloads when the .soul file was modified externally."""
+    from soul_protocol import Soul
+
+    # Create a soul and export to disk
+    soul = await Soul.birth("AutoReloadTest", values=["testing"])
+    zip_path = tmp_path / "autoreload.soul"
+    await soul.export(str(zip_path))
+
+    with _env_context("SOUL_PATH", str(zip_path)), \
+         _env_context("SOUL_DIR", None):
+        async with Client(mcp) as client:
+            # Recall should return nothing initially
+            result = await client.call_tool(
+                "soul_recall",
+                {"query": "external memory", "limit": 5},
+            )
+            data = json.loads(result.data)
+            assert data["count"] == 0
+
+            # Simulate an external process modifying the .soul file
+            # (like Claude Desktop saving new memories)
+            external_soul = await Soul.awaken(str(zip_path))
+            await external_soul.remember(
+                "external memory added by another process",
+                importance=9,
+            )
+            await external_soul.export(str(zip_path))
+
+            # Recall should now find the externally-added memory
+            # WITHOUT needing an explicit soul_reload call
+            result = await client.call_tool(
+                "soul_recall",
+                {"query": "external memory", "limit": 5},
+            )
+            data = json.loads(result.data)
+            assert data["count"] >= 1, (
+                "Auto-reload failed: soul_recall didn't pick up external changes. "
+                f"Got {data['count']} results, expected >= 1."
+            )
+            assert any("external memory" in m["content"] for m in data["memories"])
+
+
+async def test_background_watcher_reloads_on_change(tmp_path):
+    """Background file watcher detects changes and reloads without any tool call."""
+    from soul_protocol import Soul
+
+    soul = await Soul.birth("WatcherTest", values=["testing"])
+    zip_path = tmp_path / "watcher.soul"
+    await soul.export(str(zip_path))
+
+    # Use a fast poll interval for testing
+    os.environ["SOUL_POLL_INTERVAL"] = "0.1"
+    try:
+        with _env_context("SOUL_PATH", str(zip_path)), \
+             _env_context("SOUL_DIR", None):
+            async with Client(mcp) as client:
+                # Verify initial soul has no extra memories
+                initial_soul = server_module._registry.get("WatcherTest")
+                initial_count = initial_soul.memory_count
+
+                # Externally modify the .soul file
+                external_soul = await Soul.awaken(str(zip_path))
+                await external_soul.remember(
+                    "watcher detected this memory",
+                    importance=8,
+                )
+                await external_soul.export(str(zip_path))
+
+                # Wait for the background watcher to pick it up
+                # (poll interval is 0.1s, give it a few cycles)
+                await asyncio.sleep(0.5)
+
+                # The registry should have the updated soul
+                # WITHOUT any tool call triggering the reload
+                reloaded_soul = server_module._registry.get("WatcherTest")
+                assert reloaded_soul.memory_count > initial_count, (
+                    "Background watcher failed: memory count didn't increase. "
+                    f"Before: {initial_count}, After: {reloaded_soul.memory_count}"
+                )
+    finally:
+        os.environ.pop("SOUL_POLL_INTERVAL", None)
