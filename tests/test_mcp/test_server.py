@@ -741,34 +741,30 @@ async def test_background_watcher_reloads_on_change(tmp_path):
     zip_path = tmp_path / "watcher.soul"
     await soul.export(str(zip_path))
 
-    # Use a fast poll interval for testing
-    os.environ["SOUL_POLL_INTERVAL"] = "0.1"
-    try:
-        with _env_context("SOUL_PATH", str(zip_path)), \
-             _env_context("SOUL_DIR", None):
-            async with Client(mcp) as client:
-                # Verify initial soul has no extra memories
-                initial_soul = server_module._registry.get("WatcherTest")
-                initial_count = initial_soul.memory_count
+    with _env_context("SOUL_POLL_INTERVAL", "0.1"), \
+         _env_context("SOUL_PATH", str(zip_path)), \
+         _env_context("SOUL_DIR", None):
+        async with Client(mcp) as client:
+            # Verify initial soul has no extra memories
+            initial_soul = server_module._registry.get("WatcherTest")
+            initial_count = initial_soul.memory_count
 
-                # Externally modify the .soul file
-                external_soul = await Soul.awaken(str(zip_path))
-                await external_soul.remember(
-                    "watcher detected this memory",
-                    importance=8,
-                )
-                await external_soul.export(str(zip_path))
+            # Externally modify the .soul file
+            external_soul = await Soul.awaken(str(zip_path))
+            await external_soul.remember(
+                "watcher detected this memory",
+                importance=8,
+            )
+            await external_soul.export(str(zip_path))
 
-                # Wait for the background watcher to pick it up
-                # (poll interval is 0.1s, give it a few cycles)
-                await asyncio.sleep(0.5)
+            # Wait for the background watcher to pick it up
+            # (poll interval is 0.1s, give it a few cycles)
+            await asyncio.sleep(0.5)
 
-                # The registry should have the updated soul
-                # WITHOUT any tool call triggering the reload
-                reloaded_soul = server_module._registry.get("WatcherTest")
-                assert reloaded_soul.memory_count > initial_count, (
-                    "Background watcher failed: memory count didn't increase. "
-                    f"Before: {initial_count}, After: {reloaded_soul.memory_count}"
-                )
-    finally:
-        os.environ.pop("SOUL_POLL_INTERVAL", None)
+            # The registry should have the updated soul
+            # WITHOUT any tool call triggering the reload
+            reloaded_soul = server_module._registry.get("WatcherTest")
+            assert reloaded_soul.memory_count > initial_count, (
+                "Background watcher failed: memory count didn't increase. "
+                f"Before: {initial_count}, After: {reloaded_soul.memory_count}"
+            )

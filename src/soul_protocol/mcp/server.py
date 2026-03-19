@@ -37,6 +37,7 @@ class SoulRegistry:
         self._paths: dict[str, str] = {}  # lowercase name -> source path
         self._formats: dict[str, str] = {}  # lowercase name -> "directory" | "zip"
         self._mtimes: dict[str, float] = {}  # lowercase name -> last known mtime
+        self._reload_locks: dict[str, asyncio.Lock] = {}  # per-key reload lock
         self._active: str | None = None
         self._modified: set[str] = set()
 
@@ -61,6 +62,7 @@ class SoulRegistry:
         self._paths[key] = path
         self._formats[key] = fmt
         self._mtimes[key] = self._get_mtime(path)
+        self._reload_locks[key] = asyncio.Lock()
         if self._active is None:
             self._active = key
 
@@ -132,13 +134,21 @@ class SoulRegistry:
         ]
 
     async def check_and_reload(self, key: str) -> None:
-        """Reload a soul from disk if its file was modified externally."""
+        """Reload a soul from disk if its file was modified externally.
+
+        Uses a per-key lock to prevent concurrent reloads of the same soul
+        (e.g. background watcher and tool call racing).
+        """
         path = self._paths.get(key)
         if not path:
             return
-        current_mtime = self._get_mtime(path)
-        stored_mtime = self._mtimes.get(key, 0.0)
-        if current_mtime > stored_mtime:
+        lock = self._reload_locks.get(key)
+        if not lock:
+            return
+        async with lock:
+            current_mtime = self._get_mtime(path)
+            if current_mtime <= self._mtimes.get(key, 0.0):
+                return  # already up-to-date (or reloaded by another caller)
             try:
                 reloaded = await Soul.awaken(path)
                 self._souls[key] = reloaded
@@ -162,6 +172,7 @@ class SoulRegistry:
         self._paths.clear()
         self._formats.clear()
         self._mtimes.clear()
+        self._reload_locks.clear()
         self._active = None
         self._modified.clear()
 
@@ -216,15 +227,25 @@ async def _scan_soul_dir(directory: str) -> list[tuple[Soul, str, str]]:
 async def _file_watcher() -> None:
     """Background task: poll soul file mtimes and auto-reload on change.
 
-    Runs every SOUL_POLL_INTERVAL seconds (default 2s). When an external
-    process (e.g. Claude Desktop) modifies the .soul file, the in-memory
-    soul is replaced before the next tool call even happens.
+    Runs every SOUL_POLL_INTERVAL seconds (default 2s, min 0.5s). When an
+    external process (e.g. Claude Desktop) modifies the .soul file, the
+    in-memory soul is replaced before the next tool call even happens.
     """
     while True:
-        interval = float(os.environ.get("SOUL_POLL_INTERVAL", "2.0"))
+        try:
+            interval = max(0.5, float(os.environ.get("SOUL_POLL_INTERVAL", "2.0")))
+        except (ValueError, TypeError):
+            interval = 2.0
         await asyncio.sleep(interval)
-        for key in list(_registry._souls):
-            await _registry.check_and_reload(key)
+        try:
+            for key in list(_registry._souls):
+                await _registry.check_and_reload(key)
+        except Exception as e:
+            print(
+                f"soul-mcp: file watcher error: {e}",
+                file=sys.stderr,
+                flush=True,
+            )
 
 
 # ── Lifespan ──
