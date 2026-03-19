@@ -1,4 +1,7 @@
 # evolution/manager.py — EvolutionManager for proposing, approving, and applying DNA mutations.
+# Updated: Wired check_triggers() to accept optional evaluation_triggers from
+#   Evaluator.check_evolution_triggers() and propose mutations for high-performance
+#   streaks. Previously was a no-op placeholder.
 # Updated: Added structured logging for mutation proposals, approvals,
 #   rejections, and applications.
 
@@ -200,12 +203,38 @@ class EvolutionManager:
         _set_nested_attr(new_dna, mutation.trait, mutation.new_value)
         return new_dna
 
-    async def check_triggers(self, dna: DNA, interaction: Interaction) -> None:
-        """Placeholder for automatic evolution triggers.
+    async def check_triggers(
+        self, dna: DNA, interaction: Interaction, evaluation_triggers: list[dict] | None = None,
+    ) -> list[Mutation]:
+        """Check for automatic evolution triggers from evaluation patterns.
 
-        For MVP this is a no-op.  Future versions may analyse interaction
-        patterns and propose mutations automatically.
+        Args:
+            dna: Current DNA state.
+            interaction: The triggering interaction.
+            evaluation_triggers: Optional triggers from Evaluator.check_evolution_triggers().
+
+        Returns:
+            List of proposed mutations (empty if no triggers fired).
         """
+        mutations: list[Mutation] = []
+        if not evaluation_triggers:
+            return mutations
+
+        for trigger in evaluation_triggers:
+            if trigger.get("trigger") == "high_performance_streak":
+                domain = trigger.get("domain", "unknown")
+                try:
+                    mutation = await self.propose(
+                        dna=dna,
+                        trait="communication.warmth",
+                        new_value="high",
+                        reason=trigger["reason"],
+                    )
+                    mutations.append(mutation)
+                except (ValueError, KeyError):
+                    # Trait immutable or invalid — skip silently
+                    pass
+        return mutations
 
     # ------------------------------------------------------------------
     # Internal helpers

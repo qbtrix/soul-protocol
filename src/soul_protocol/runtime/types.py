@@ -1,4 +1,6 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: v0.3.5 — Added RubricCriterion, Rubric, CriterionResult, RubricResult
+#   models for rubric-based self-evaluation system.
 # Updated: v0.3.4 — Added MemoryCategory for structured extraction taxonomy,
 #   category + abstract + overview fields on MemoryEntry for progressive content
 #   loading (L0/L1/L2 layers), salience field for retrieval weighting.
@@ -11,7 +13,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
@@ -290,6 +292,49 @@ class Mutation(BaseModel):
     proposed_at: datetime = Field(default_factory=datetime.now)
     approved: bool | None = None
     approved_at: datetime | None = None
+
+
+# ============ Rubric-based Self-Evaluation ============
+
+
+class RubricCriterion(BaseModel):
+    """A single pass/fail evaluation criterion."""
+
+    name: str
+    description: str
+    weight: float = 1.0
+
+
+class Rubric(BaseModel):
+    """A named collection of evaluation criteria for a domain."""
+
+    id: str = ""
+    name: str
+    domain: str = ""
+    criteria: list[RubricCriterion]
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.id:
+            self.id = self.name.lower().replace(" ", "_")
+
+
+class CriterionResult(BaseModel):
+    """Result of evaluating one criterion."""
+
+    criterion: str
+    passed: bool
+    score: float  # 0.0-1.0
+    reasoning: str = ""
+
+
+class RubricResult(BaseModel):
+    """Complete evaluation result against a rubric."""
+
+    rubric_id: str
+    overall_score: float  # weighted average, 0.0-1.0
+    criterion_results: list[CriterionResult]
+    learning: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class EvolutionConfig(BaseModel):

@@ -1,4 +1,8 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: Wired Evaluator into Soul.__init__() and added evaluate() method.
+#   evaluate() scores interactions via rubric, stores learning as procedural
+#   memory, adjusts skill XP, and checks evolution triggers. Added evaluator
+#   property. observe() now passes evaluation triggers to check_triggers().
 # Updated: feat/configurable-biorhythms — Pass biorhythms to StateManager for
 #   configurable drain rates, mood inertia, tired threshold, and auto-regen.
 # Updated: feat/dspy-integration — Wired DSPy processor into observe() pipeline.
@@ -52,6 +56,7 @@ from typing import Any
 from .bond import Bond
 from .cognitive.engine import CognitiveEngine
 from .dna.prompt import dna_to_system_prompt
+from .evaluation import Evaluator
 from .evolution.manager import EvolutionManager
 from .export.pack import pack_soul
 from .export.unpack import unpack_soul
@@ -74,6 +79,7 @@ from .types import (
     Mutation,
     Personality,
     ReflectionResult,
+    RubricResult,
     SoulConfig,
     SoulState,
 )
@@ -129,6 +135,7 @@ class Soul:
         self._state = StateManager(config.state, biorhythms=config.dna.biorhythms)
         self._evolution = EvolutionManager(config.evolution)
         self._skills = SkillRegistry()
+        self._evaluator = Evaluator()
 
     # ============ Lifecycle ============
 
@@ -706,7 +713,8 @@ class Soul:
                 self._skills.add(new_skill)
 
         # Check for evolution triggers
-        await self._evolution.check_triggers(self._dna, interaction)
+        evaluation_triggers = self._evaluator.check_evolution_triggers()
+        await self._evolution.check_triggers(self._dna, interaction, evaluation_triggers)
 
     async def forget_by_id(self, memory_id: str) -> bool:
         """Soul forgets a specific memory by ID.
@@ -821,6 +829,64 @@ class Soul:
     def skills(self) -> SkillRegistry:
         """Access the soul's skill registry."""
         return self._skills
+
+    @property
+    def evaluator(self) -> Evaluator:
+        """Access the soul's evaluator."""
+        return self._evaluator
+
+    async def evaluate(self, interaction: Interaction, domain: str | None = None) -> RubricResult:
+        """Evaluate an interaction against a rubric and feed results into learning.
+
+        Scores the interaction, stores learning as procedural memory,
+        adjusts skill XP based on score, and checks evolution triggers.
+
+        Args:
+            interaction: The interaction to evaluate.
+            domain: Self-model domain to use for rubric selection.
+                If None, uses the strongest matching domain.
+        """
+        # Pick domain from self-model if not specified
+        if domain is None:
+            active_images = self._memory.self_model.get_active_self_images(limit=1)
+            if active_images:
+                domain = active_images[0].domain
+
+        result = await self._evaluator.evaluate(interaction, domain=domain)
+
+        # Store learning as procedural memory
+        if result.learning:
+            await self.remember(
+                result.learning,
+                type=MemoryType.PROCEDURAL,
+                importance=max(3, int(result.overall_score * 8)),
+            )
+
+        # Weighted XP: base 20, modulated by score (range: 10-30)
+        xp_amount = int(20 * (0.5 + result.overall_score))
+        if domain:
+            skill_id = domain.lower().replace(" ", "_")
+            skill = self._skills.get(skill_id)
+            if skill:
+                skill.add_xp(xp_amount)
+            else:
+                from .skills import Skill
+
+                new_skill = Skill(id=skill_id, name=domain)
+                new_skill.add_xp(xp_amount)
+                self._skills.add(new_skill)
+
+        # Check evolution triggers from evaluation patterns
+        triggers = self._evaluator.check_evolution_triggers()
+        for trigger in triggers:
+            await self._evolution.propose(
+                dna=self._dna,
+                trait="communication.warmth",
+                new_value="high",
+                reason=trigger["reason"],
+            )
+
+        return result
 
     # ============ State / Feelings ============
 
