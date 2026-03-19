@@ -295,7 +295,7 @@ class Evaluator:
     def get_domain_stats(self, domain: str) -> dict:
         """Get average score, count, and streak for a domain."""
         domain_results = [
-            r for r in self._history if r.rubric_id.startswith(domain)
+            r for r in self._history if r.rubric_id == domain
         ]
         if not domain_results:
             return {"domain": domain, "count": 0, "avg_score": 0.0, "streak": 0}

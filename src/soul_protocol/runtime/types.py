@@ -302,7 +302,7 @@ class RubricCriterion(BaseModel):
 
     name: str
     description: str
-    weight: float = 1.0
+    weight: float = Field(default=1.0, gt=0.0)
 
 
 class Rubric(BaseModel):

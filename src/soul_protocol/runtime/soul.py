@@ -876,15 +876,8 @@ class Soul:
                 new_skill.add_xp(xp_amount)
                 self._skills.add(new_skill)
 
-        # Check evolution triggers from evaluation patterns
-        triggers = self._evaluator.check_evolution_triggers()
-        for trigger in triggers:
-            await self._evolution.propose(
-                dna=self._dna,
-                trait="communication.warmth",
-                new_value="high",
-                reason=trigger["reason"],
-            )
+        # Evolution triggers are checked centrally in observe(), not here.
+        # Calling evaluate() + observe() in sequence would double-trigger otherwise.
 
         return result
 
