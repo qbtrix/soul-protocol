@@ -4,10 +4,13 @@
 #   - SKIP: >0.85 similarity (near-duplicate), MERGE: 0.6-0.85 (update existing),
 #     CREATE: <0.6 (genuinely new fact)
 #   - Uses the same tokenize() function as search.py for consistency
+# Updated: 2026-03-20 — Asymmetric synonym expansion in _jaccard_similarity():
+#   only the existing fact (b) is expanded, mirroring relevance_score() in search.py.
+#   Prevents false positives when short facts share synonym-group vocabulary.
 
 from __future__ import annotations
 
-from soul_protocol.runtime.memory.search import _expand_synonyms, tokenize
+from soul_protocol.runtime.memory.search import expand_synonyms, tokenize
 from soul_protocol.runtime.types import MemoryEntry
 
 
@@ -17,22 +20,42 @@ def _jaccard_similarity(a: str, b: str) -> float:
     Uses the same tokenizer as search.py (alpha-only tokens, len >= 3)
     for consistency with the rest of the memory system.
 
+    Expansion is **asymmetric**: only the existing fact (b) is expanded
+    with synonyms, while the new fact (a) uses raw tokens. This mirrors
+    how ``relevance_score()`` in search.py works and prevents false
+    positives when short facts happen to use different words from the
+    same synonym group.
+
+    The final score is ``max(raw_jaccard, expanded_jaccard)`` so that
+    identical or near-identical strings still score 1.0 even when
+    synonym expansion adds extra tokens to the union.
+
     Args:
-        a: First string.
-        b: Second string.
+        a: New fact string (not expanded).
+        b: Existing fact string (synonym-expanded).
 
     Returns:
         Jaccard similarity coefficient (0.0 to 1.0).
     """
-    tokens_a = _expand_synonyms(tokenize(a))
-    tokens_b = _expand_synonyms(tokenize(b))
-    if not tokens_a and not tokens_b:
+    tokens_a = tokenize(a)
+    tokens_b_raw = tokenize(b)
+    if not tokens_a and not tokens_b_raw:
         return 1.0  # Both empty = identical
-    if not tokens_a or not tokens_b:
+    if not tokens_a or not tokens_b_raw:
         return 0.0
-    intersection = tokens_a & tokens_b
-    union = tokens_a | tokens_b
-    return len(intersection) / len(union)
+
+    # Raw Jaccard — catches identical / near-identical strings
+    raw_inter = tokens_a & tokens_b_raw
+    raw_union = tokens_a | tokens_b_raw
+    raw_score = len(raw_inter) / len(raw_union)
+
+    # Asymmetric expanded Jaccard — catches synonym variants
+    tokens_b_exp = expand_synonyms(tokens_b_raw)
+    exp_inter = tokens_a & tokens_b_exp
+    exp_union = tokens_a | tokens_b_exp
+    exp_score = len(exp_inter) / len(exp_union)
+
+    return max(raw_score, exp_score)
 
 
 def reconcile_fact(

@@ -65,7 +65,7 @@ for _group in _SYNONYM_GROUPS:
         _SYNONYM_MAP[_term] = _fset
 
 
-def _expand_synonyms(tokens: set[str]) -> set[str]:
+def expand_synonyms(tokens: set[str]) -> set[str]:
     """Expand a token set with synonyms from ``_SYNONYM_MAP``.
 
     For each token that appears in the synonym map, all members of its
@@ -127,7 +127,7 @@ def relevance_score(query: str, content: str) -> float:
     content_tokens = tokenize(content)
     if not query_tokens:
         return 0.0
-    expanded_content = _expand_synonyms(content_tokens)
+    expanded_content = expand_synonyms(content_tokens)
     overlap = query_tokens & expanded_content
     return len(overlap) / len(query_tokens)
 
@@ -186,7 +186,7 @@ class BM25Index:
             content: Raw text content to index.
         """
         tokens = tokenize(content)
-        expanded = _expand_synonyms(tokens)
+        expanded = expand_synonyms(tokens)
         token_list = list(expanded)
         tf = Counter(token_list)
 
@@ -237,7 +237,7 @@ class BM25Index:
         if doc_id not in self._doc_tf:
             return 0.0
 
-        query_tokens = _expand_synonyms(tokenize(query))
+        query_tokens = expand_synonyms(tokenize(query))
         tf = self._doc_tf[doc_id]
         dl = self._doc_len[doc_id]
         avgdl = self.avg_doc_len or 1.0

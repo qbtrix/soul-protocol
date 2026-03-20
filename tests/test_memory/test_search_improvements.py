@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from soul_protocol.runtime.memory.search import (
     _SYNONYM_MAP,
-    _expand_synonyms,
+    expand_synonyms,
     relevance_score,
     tokenize,
 )
@@ -112,11 +112,11 @@ class TestTokenizerSplitsOnSeparators:
 
 
 class TestSynonymExpansion:
-    """_expand_synonyms() adds related terms from the synonym map."""
+    """expand_synonyms() adds related terms from the synonym map."""
 
     def test_database_synonyms(self):
         """'database' expands to include sql, postgresql, etc."""
-        expanded = _expand_synonyms({"database"})
+        expanded = expand_synonyms({"database"})
         assert "sql" in expanded
         assert "postgresql" in expanded
         assert "postgres" in expanded
@@ -126,39 +126,39 @@ class TestSynonymExpansion:
 
     def test_reverse_synonym(self):
         """'sql' expands to include 'database' — synonyms are bidirectional."""
-        expanded = _expand_synonyms({"sql"})
+        expanded = expand_synonyms({"sql"})
         assert "database" in expanded
 
     def test_no_synonyms_passthrough(self):
         """Tokens without synonym entries pass through unchanged."""
-        expanded = _expand_synonyms({"banana", "smoothie"})
+        expanded = expand_synonyms({"banana", "smoothie"})
         assert expanded == {"banana", "smoothie"}
 
     def test_empty_set(self):
         """Empty input returns empty output."""
-        assert _expand_synonyms(set()) == set()
+        assert expand_synonyms(set()) == set()
 
     def test_multiple_tokens_some_with_synonyms(self):
         """Only tokens in the map get expanded; others pass through."""
-        expanded = _expand_synonyms({"database", "banana"})
+        expanded = expand_synonyms({"database", "banana"})
         assert "banana" in expanded
         assert "sql" in expanded
         assert "database" in expanded
 
     def test_python_synonyms(self):
         """'python' and 'pip' are in the same synonym group."""
-        expanded = _expand_synonyms({"python"})
+        expanded = expand_synonyms({"python"})
         assert "pip" in expanded
 
     def test_deploy_synonyms(self):
         """'deploy' expands to 'deployment' and 'shipping'."""
-        expanded = _expand_synonyms({"deploy"})
+        expanded = expand_synonyms({"deploy"})
         assert "deployment" in expanded
         assert "shipping" in expanded
 
     def test_auth_synonyms(self):
         """'auth' expands to 'authentication' and 'login'."""
-        expanded = _expand_synonyms({"auth"})
+        expanded = expand_synonyms({"auth"})
         assert "authentication" in expanded
         assert "login" in expanded
 
