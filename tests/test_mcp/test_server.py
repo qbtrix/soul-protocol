@@ -15,10 +15,13 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from fastmcp import Client
 
-import soul_protocol.mcp.server as server_module
-from soul_protocol.mcp.server import mcp
+pytest.importorskip("fastmcp", reason="fastmcp required for MCP server tests — pip install soul-protocol[mcp]")
+
+from fastmcp import Client  # noqa: E402
+
+import soul_protocol.mcp.server as server_module  # noqa: E402
+from soul_protocol.mcp.server import mcp  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

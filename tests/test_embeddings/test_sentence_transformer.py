@@ -7,8 +7,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import numpy as np
 import pytest
+
+np = pytest.importorskip("numpy", reason="numpy required for sentence-transformer tests")
 
 from soul_protocol.runtime.embeddings.protocol import EmbeddingProvider
 
