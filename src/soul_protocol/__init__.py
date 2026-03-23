@@ -1,4 +1,5 @@
 # __init__.py — Public API for the soul-protocol package
+# Updated: 2026-03-23 (v0.2.5 release) — Bumped __version__ to 0.2.5.
 # Updated: feat/spec-multi-participant — Added Participant, BondTarget exports
 #   for multi-participant Interaction and multi-bond Identity support.
 # Updated: feat/soul-encryption — Added SoulEncryptedError and SoulDecryptionError
@@ -139,4 +140,4 @@ __all__ = [
     "MemoryStore",
 ]
 
-__version__ = "0.2.4"
+__version__ = "0.2.5"

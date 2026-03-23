@@ -1,5 +1,7 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-03-13 — updated test count to 1189, tool count to 12, CLI commands to 15 -->
+<!-- Updated: 2026-03-23 (v0.2.5) — updated test count to 1851, added cognitive adapters/MCP sampling/
+     LCM/visibility tiers/A2A bridge/format importers to features, expanded install extras table,
+     added engine="auto" quick-start example. -->
 
 # Soul Protocol
 
@@ -7,7 +9,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 1189 passing](https://img.shields.io/badge/tests-1189%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 1851 passing](https://img.shields.io/badge/tests-1851%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 
@@ -84,14 +86,21 @@ Like HTTP and nginx. The spec defines the contract. The runtime is one implement
 | **Personality** | OCEAN Big Five with communication style and biorhythms. Structured, not a prompt string. |
 | **Bond** | Emotional attachment (0-100 strength). Logarithmic growth, linear decay. |
 | **Evolution** | Supervised or autonomous trait mutation with approval workflow |
-| **Vector search** | Pluggable EmbeddingProvider. Ships HashEmbedder and TFIDFEmbedder. |
+| **Cognitive adapters** | `engine="auto"` or `engine=AnthropicEngine()` — wire any LLM into the cognitive pipeline |
+| **MCP sampling** | Running inside Claude Code / Desktop? The host LLM handles cognition. No extra API key. |
+| **LCM** | Lossless Context Management — three-level compaction, SQLite backing, no lost context |
+| **Visibility tiers** | `PUBLIC` / `BONDED` / `PRIVATE` on every memory; recall filtered by bond strength |
+| **Templates** | `SoulFactory` — define archetypes and batch-create souls from a template |
+| **A2A bridge** | Export/import Google A2A Agent Cards ↔ `.soul` files |
+| **Format importers** | `SoulSpecImporter` (SOUL.md), `TavernAIImporter` (Character Card V2, incl. PNG) |
+| **Graph traversal** | BFS, shortest path, neighborhood, subgraph, and `progressive_context()` (L0/L1/L2) |
+| **Vector search** | Pluggable EmbeddingProvider. Real backends: sentence-transformers, OpenAI, Ollama. |
 | **Encryption** | AES-256-GCM encryption at rest for .soul files (scrypt key derivation) |
 | **GDPR deletion** | Targeted memory deletion with cascade logic and audit trail |
 | **Eternal storage** | Archive to decentralized storage (mock providers, production planned) |
 | **Portability** | `.soul` ZIP archive. JSON inside. Rename to .zip and read it. |
-| **Integration** | Single `CognitiveEngine.think()` method. Plug in any LLM. |
 | **Cross-language** | JSON Schemas auto-generated from spec. Validate `.soul` files in any language. |
-| **CLI** | 15 commands. Rich TUI output. |
+| **CLI** | 17 commands. Rich TUI output. |
 | **MCP** | 12 tools + 3 resources for Claude Code, Cursor, or any MCP client |
 
 ---
@@ -104,9 +113,30 @@ pip install git+https://github.com/qbtrix/soul-protocol.git
 
 Extras:
 
+| Extra | What it adds |
+|---|---|
+| `[engine]` | CLI, YAML config, Rich TUI, encryption |
+| `[mcp]` | MCP server (Claude Code, Cursor, any MCP client) |
+| `[anthropic]` | `AnthropicEngine` — Anthropic SDK cognitive adapter |
+| `[openai]` | `OpenAIEngine` — OpenAI SDK cognitive adapter |
+| `[ollama]` | `OllamaEngine` — local Ollama cognitive adapter |
+| `[litellm]` | `LiteLLMEngine` — 100+ providers via LiteLLM |
+| `[llm]` | All three commercial adapters at once |
+| `[embeddings-st]` | `SentenceTransformerEmbedder` — local semantic embeddings |
+| `[embeddings-openai]` | `OpenAIEmbedder` — OpenAI text-embedding-3 |
+| `[embeddings-ollama]` | `OllamaEmbedder` — local Ollama embeddings |
+| `[graph]` | networkx knowledge graph |
+| `[all]` | Everything above |
+
 ```bash
-pip install "soul-protocol[graph] @ git+https://github.com/qbtrix/soul-protocol.git"  # networkx
-pip install "soul-protocol[mcp] @ git+https://github.com/qbtrix/soul-protocol.git"    # MCP server
+# LLM-wired soul (Anthropic)
+pip install "soul-protocol[anthropic] @ git+https://github.com/qbtrix/soul-protocol.git"
+
+# MCP server
+pip install "soul-protocol[mcp] @ git+https://github.com/qbtrix/soul-protocol.git"
+
+# Everything
+pip install "soul-protocol[all] @ git+https://github.com/qbtrix/soul-protocol.git"
 ```
 
 Or clone:
@@ -221,27 +251,38 @@ Retrieval uses ACT-R activation decay: recent, frequently accessed, emotionally 
 
 ## CognitiveEngine
 
-Connect any LLM:
+Connect any LLM — three ways:
 
 ```python
-from soul_protocol import Soul, CognitiveEngine
+from soul_protocol import Soul
+from soul_protocol.runtime.cognitive.adapters import AnthropicEngine, LiteLLMEngine
 
-class ClaudeEngine:
-    def __init__(self, client):
-        self.client = client
+# 1. Auto-detect from installed packages
+soul = await Soul.birth("Aria", engine="auto")
 
+# 2. Explicit adapter
+soul = await Soul.birth("Aria", engine=AnthropicEngine(model="claude-opus-4-5"))
+
+# 3. Any async callable
+async def my_llm(prompt: str) -> str:
+    ...  # call your own API
+
+soul = await Soul.birth("Aria", engine=my_llm)
+```
+
+Or write your own adapter — implement a single `async def think(self, prompt: str) -> str` method:
+
+```python
+class MyEngine:
     async def think(self, prompt: str) -> str:
-        response = await self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return response.content[0].text
+        ...
 
-soul = await Soul.birth("Aria", engine=ClaudeEngine(client))
+soul = await Soul.birth("Aria", engine=MyEngine())
 ```
 
 Without an engine, the soul falls back to `HeuristicEngine`: word-list sentiment, formula-based significance, regex fact extraction. No LLM calls, no hallucination, no cost.
+
+When running as an MCP server inside Claude Code or Claude Desktop, `engine="auto"` automatically routes cognitive tasks to the host LLM via MCP sampling — no API key needed.
 
 ---
 
@@ -359,7 +400,7 @@ await soul.observe(Interaction(
 git clone https://github.com/qbtrix/soul-protocol.git
 cd soul-protocol
 pip install -e ".[dev]"
-pytest tests/   # 1189 tests
+pytest tests/   # 1851 tests
 ```
 
 ---
