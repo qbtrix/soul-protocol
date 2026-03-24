@@ -71,6 +71,51 @@ soul recall .soul/aria.soul "python" --limit 5 --min-importance 7
 soul recall .soul/aria.soul --recent 10
 ```
 
+### Runtime operations (v0.2.6)
+
+```bash
+# Process interaction through full cognitive pipeline
+soul observe .soul/ --user-input "Hello" --agent-output "Hi there!" --channel discord
+
+# Memory consolidation and reflection
+soul reflect .soul/
+soul reflect aria.soul --no-apply
+
+# Update emotional state
+soul feel .soul/ --mood excited --energy 5
+
+# Generate system prompt (pipe-friendly, no Rich formatting)
+soul prompt .soul/ > prompt.txt
+
+# Delete memories (GDPR-compliant)
+soul forget .soul/ "credit card"
+soul forget aria.soul --entity "John Doe"
+
+# Edit core memory
+soul edit-core .soul/ --persona "I am a helpful coding assistant"
+soul edit-core aria.soul --human "User prefers Python"
+
+# Evolution system
+soul evolve .soul/ --propose --trait communication.warmth --value high --reason "User prefers warmth"
+soul evolve .soul/ --list
+soul evolve .soul/ --approve abc123
+
+# Evaluation and learning
+soul evaluate .soul/ --user-input "Explain recursion" --agent-output "Recursion is..."
+soul learn .soul/ --user-input "Fix this bug" --agent-output "Here's the fix" --domain coding
+
+# Skills, bonds, events
+soul skills .soul/
+soul bond .soul/ --strengthen 5.0
+soul events .soul/ --recent 20
+
+# LCM context management
+soul context --ingest --role user --content "Hello there"
+soul context --assemble --max-tokens 4000
+soul context --grep "hello"
+soul context --describe
+```
+
 ### Export and portability
 
 ```bash
@@ -137,20 +182,41 @@ soul export .soul/myagent.soul --output .soul/myagent.soul
 | Export | `soul export path -o out.soul` | `soul_export(path)` |
 | List souls | `soul list` | `soul_list()` |
 | Configure agent | `soul inject --target X` | N/A (manual config) |
+| Process interaction | `soul observe path --user-input X --agent-output Y` | `soul_observe(user_input, agent_output)` |
+| Reflect | `soul reflect path` | `soul_reflect()` |
+| Update mood/energy | `soul feel path --mood X --energy Y` | `soul_feel(mood, energy)` |
+| System prompt | `soul prompt path` | `soul_prompt()` |
+| Delete memories | `soul forget path "query"` | N/A (Python API) |
+| Edit core memory | `soul edit-core path --persona X` | N/A (Python API) |
+| Evolution | `soul evolve path --propose ...` | N/A (Python API) |
+| Evaluate | `soul evaluate path --user-input X --agent-output Y` | N/A (Python API) |
+| Learn | `soul learn path --user-input X --agent-output Y` | N/A (Python API) |
+| Skills | `soul skills path` | N/A (Python API) |
+| Bond | `soul bond path` | N/A (Python API) |
+| Events | `soul events path` | N/A (Python API) |
+| Ingest context | `soul context --ingest --role X --content Y` | `soul_context_ingest(role, content)` |
+| Assemble context | `soul context --assemble --max-tokens N` | `soul_context_assemble(max_tokens)` |
+| Search context | `soul context --grep PATTERN` | `soul_context_grep(pattern)` |
+| Expand node | N/A | `soul_context_expand(node_id)` |
+| Context metadata | `soul context --describe` | `soul_context_describe()` |
 
 **Rule of thumb:** if the agent has Bash access, always prefer CLI. It's a direct process call — no JSON-RPC serialization, no MCP protocol overhead, no server needed.
 
 ## MCP Server (for agents without shell access)
 
-18 tools available. Only set this up if the agent can't run shell commands.
+18 tools available (13 soul/memory + 5 context). Only set this up if the agent can't run shell commands.
 
 ```bash
-# Start server (auto-detects .soul/ directory)
+# Start server (auto-detects .soul/ directory — no env vars needed)
 soul-mcp
 
 # Or with explicit path
 SOUL_DIR=.soul soul-mcp
 ```
+
+**Auto-detect:** When no `SOUL_DIR` or `SOUL_PATH` env var is set, the server looks for `.soul/` in CWD first, then falls back to `~/.soul/`. Just run `soul-mcp` in a project with a `.soul/` folder and it works.
+
+**MCP Sampling Engine:** The server delegates cognitive tasks (sentiment, fact extraction, reflection, context compaction) to the host LLM via `ctx.sample()`. No API key needed — the host provides the model. Wired lazily on the first tool call.
 
 ### Soul tools (9)
 `soul_birth`, `soul_list`, `soul_switch`, `soul_state`, `soul_feel`, `soul_save`, `soul_export`, `soul_reload`, `soul_prompt`
@@ -159,7 +225,13 @@ SOUL_DIR=.soul soul-mcp
 `soul_observe`, `soul_remember`, `soul_recall`, `soul_reflect`
 
 ### Context tools — LCM (5)
-`soul_context_ingest`, `soul_context_assemble`, `soul_context_grep`, `soul_context_expand`, `soul_context_describe`
+| Tool | Purpose |
+|------|---------|
+| `soul_context_ingest` | Ingest a message (role + content) into the immutable context store |
+| `soul_context_assemble` | Assemble a context window within a token budget (auto-compacts) |
+| `soul_context_grep` | Regex search across all context history (even compacted messages) |
+| `soul_context_expand` | Expand a compacted node back to original messages (lossless recovery) |
+| `soul_context_describe` | Metadata snapshot: message count, tokens, date range, compaction stats |
 
 ### Resources (3)
 `soul://identity`, `soul://memory/core`, `soul://state`
@@ -228,7 +300,7 @@ Messages go into an immutable SQLite store. Three-level compaction when the wind
 
 After compaction, `grep` still searches originals and `expand` recovers them. Nothing is lost.
 
-LCM is currently MCP-only (no CLI commands yet). Use `soul_context_ingest`, `soul_context_assemble`, `soul_context_grep`, `soul_context_expand`, `soul_context_describe`.
+LCM is available via both MCP (`soul_context_*` tools) and CLI (`soul context --ingest`, `--assemble`, `--grep`, `--describe`). The CLI uses an in-memory SQLite store per invocation; the MCP server maintains a persistent per-soul context store across the session.
 
 ## Python API (for building on top)
 

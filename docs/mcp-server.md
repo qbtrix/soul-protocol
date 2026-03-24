@@ -1,5 +1,8 @@
-<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 12 tools with parameters,
-     3 resources, 2 prompts, programmatic usage, and design notes.
+<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 18 tools (13 soul/memory + 5 context)
+     with parameters, 3 resources, 2 prompts, auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
+     Updated: 2026-03-24 — v0.2.6: Added 5 LCM context tools (soul_context_ingest, soul_context_assemble,
+     soul_context_grep, soul_context_expand, soul_context_describe), soul_reload tool, auto-detect section,
+     MCP Sampling Engine section. Tool count: 12 → 18.
      Updated: 2026-03-13 — added soul_list + soul_switch tools, SOUL_DIR env var, multi-soul registry notes,
      renamed soul_system_prompt to soul_system_prompt_template, added optional soul parameter docs. -->
 
@@ -30,6 +33,15 @@ soul-mcp
 The server reads `SOUL_PATH` from the environment on startup. If set, it loads that soul file (`.soul`, `.json`, `.yaml`, or `.md`) before accepting connections. If not set, the server starts with no soul loaded -- clients must call `soul_birth` before using any other tool.
 
 You can also set `SOUL_DIR` to point to a directory containing multiple soul folders (e.g. `~/.soul/`). When `SOUL_DIR` is set, the server discovers all souls in that directory and loads them into the `SoulRegistry`. The first soul found becomes the active soul. Use `soul_list` and `soul_switch` to manage which soul is active at runtime. If both `SOUL_PATH` and `SOUL_DIR` are set, `SOUL_PATH` takes priority as the initially active soul.
+
+### Auto-detect (no env var needed)
+
+When neither `SOUL_DIR` nor `SOUL_PATH` is set, the server auto-detects soul files:
+
+1. **`.soul/` in CWD** — if a non-empty `.soul/` directory exists in the current working directory, it is used as `SOUL_DIR`.
+2. **`~/.soul/` fallback** — if CWD has no `.soul/` (or it is empty), the server checks `~/.soul/` as a user-level default.
+
+This means running `soul-mcp` in a project with a `.soul/` folder just works — no env vars needed.
 
 ## Configuration
 
@@ -69,9 +81,9 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (12)
+## Tools (18)
 
-All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers.
+All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 18 tools break down as: 9 soul management, 4 memory, and 5 context (LCM).
 
 **Multi-soul targeting:** When the server is running with `SOUL_DIR` and multiple souls are loaded, all tools accept an optional `soul` parameter (string) to target a specific soul by name or ID. If omitted, the tool operates on the currently active soul.
 
@@ -229,6 +241,101 @@ Switch the active soul. The newly active soul becomes the target for all subsequ
 | `soul` | `str` | required | Name or DID of the soul to activate |
 
 **Returns:** JSON with `status`, `name`, and `did` of the newly active soul. Returns an error if the soul is not found in the registry.
+
+---
+
+### `soul_reload`
+
+Reload a soul from disk, picking up any changes made externally (e.g. by another process, a different session, or manual editing). The in-memory soul is replaced with the freshly loaded version.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON with `status`, `name`, `path`, `format`, and `memories` count.
+
+---
+
+## Context Tools — LCM (5)
+
+Lossless Context Management tools for within-session context. Messages go into an immutable SQLite store. Three-level compaction runs automatically when the token budget is approached: Summary (LLM), Bullets (LLM), Truncation (deterministic). After compaction, `grep` still searches originals and `expand` recovers them — nothing is lost.
+
+---
+
+### `soul_context_ingest`
+
+Ingest a message into the soul's context store. Messages are immutable once stored. Compaction runs automatically when the token budget is approached.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `role` | `str` | required | Message role (e.g. `"user"`, `"assistant"`, `"system"`) |
+| `content` | `str` | required | Message content text |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON with `message_id`, `soul`, `total_messages`, and `total_tokens`.
+
+---
+
+### `soul_context_assemble`
+
+Assemble a context window that fits within the token budget. Returns ordered nodes (verbatim + compacted) ready for LLM injection. Applies three-level compaction as needed.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `max_tokens` | `int` | `100000` | Token budget for the assembled context |
+| `system_reserve` | `int` | `0` | Tokens to reserve for system prompts / tool schemas |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON with `soul`, `node_count`, `total_tokens`, `compaction_applied`, and `nodes` array. Each node includes `level`, `content`, `token_count`, and `seq_range`.
+
+---
+
+### `soul_context_grep`
+
+Search the soul's context history by regex pattern. Searches the immutable message store — even compacted messages are searchable since originals are never deleted.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `pattern` | `str` | required | Regex pattern to search for |
+| `limit` | `int` | `20` | Maximum number of results |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON with `soul`, `count`, and `results` array. Each result includes `message_id`, `seq`, `role`, and `snippet`.
+
+---
+
+### `soul_context_expand`
+
+Expand a compacted node back to its original messages. Walks the DAG to recover verbatim content that was summarized or truncated. This is the "lossless" in Lossless Context Management.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `node_id` | `str` | required | The ID of the compacted node to expand |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON with `soul`, `node_id`, `level`, `original_count`, and `messages` array. Each message includes `id`, `role`, `content`, and `seq`.
+
+---
+
+### `soul_context_describe`
+
+Get a metadata snapshot of the soul's context store. Returns message count, token totals, date range, and compaction statistics.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON with `soul`, `total_messages`, `total_nodes`, `total_tokens`, `compaction_stats`, and `date_range`.
+
+---
+
+## MCP Sampling Engine
+
+When running as an MCP server inside Claude Code, Claude Desktop, or any MCP host, the soul delegates cognitive tasks (sentiment analysis, fact extraction, entity extraction, significance scoring, reflection, context compaction) to the **host LLM** via `ctx.sample()`. No API key is needed — the host provides the model.
+
+The engine is lazily constructed on the first tool call that carries a FastMCP Context. Once created, it is wired into all loaded souls via `Soul.set_engine()` and reused for the remainder of the session. Tools that trigger cognitive work (`soul_observe`, `soul_reflect`, `soul_birth`) accept a `ctx` parameter for this purpose.
+
+Without an MCP host (e.g. when using the Python API directly), you can plug in any LLM by implementing the `CognitiveEngine` protocol (`async def think(self, prompt: str) -> str`). Without any engine, the soul falls back to heuristic processing (pattern-based sentiment, rule-based fact extraction).
 
 ---
 
