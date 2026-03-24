@@ -3,13 +3,12 @@ name: soul-protocol
 description: >
   Give AI agents persistent identity, memory, and personality using Soul Protocol.
   Use when building agents that need to remember across sessions, maintain consistent
-  behavior, evolve over time, or migrate between platforms. Covers soul creation,
-  memory management, MCP server setup (18 tools), lossless context management,
-  cognitive engine wiring, CLI commands, and cross-platform identity.
+  behavior, evolve over time, or migrate between platforms. CLI-first — use shell
+  commands for speed, MCP tools as fallback for agents without shell access.
   Keywords: memory, identity, personality, persistent, remember, recall, soul,
-  companion, MCP server, context window, lossless, OCEAN, Big Five, observe, reflect.
+  companion, MCP, context, lossless, OCEAN, Big Five, observe, reflect.
 license: MIT
-compatibility: "Python 3.11+. MCP server requires soul-protocol[mcp]. No external API keys needed — uses host LLM via MCP sampling."
+compatibility: "Python 3.11+. CLI requires soul-protocol[engine]. MCP server requires soul-protocol[mcp]."
 metadata:
   author: OCEAN Foundation
   version: 0.2.5
@@ -21,25 +20,151 @@ metadata:
 
 Give your agent a soul — persistent memory, personality, and identity that survive across sessions and platforms. Souls are portable `.soul` files that work with any LLM.
 
+**Two integration paths:**
+- **CLI (fast)** — use `soul` commands via Bash. Direct execution, no server overhead. Best for coding agents (Claude Code, Cursor, Copilot).
+- **MCP (universal)** — use MCP tools via `soul-mcp` server. Works for agents without shell access (Claude Desktop, web agents).
+
+Use CLI when you have Bash. Use MCP when you don't.
+
 ## Install
 
 ```bash
-pip install soul-protocol          # Core (zero heavy deps)
-pip install soul-protocol[mcp]     # + MCP server (recommended for agents)
-pip install soul-protocol[all]     # Everything (MCP + vector + graph + CLI)
+pip install soul-protocol[engine]    # CLI + core (recommended)
+pip install soul-protocol[mcp]       # + MCP server
+pip install soul-protocol[all]       # Everything
 ```
 
-## Setup MCP Server
+## CLI Reference (preferred — faster than MCP)
 
-The fastest way to wire a soul into any agent. Auto-detects `.soul/` directory — zero config needed.
+### Create and manage souls
 
 ```bash
-# Create a soul and configure MCP for your agent in one step
-soul init --setup-targets claude-code
+# Birth a new soul
+soul birth "Aria" --archetype "The Compassionate Creator"
+
+# Initialize a soul in the current directory (creates .soul/ folder)
+soul init --format zip
+
+# Inspect a soul (rich TUI: OCEAN bars, memories, state)
+soul inspect .soul/aria.soul
+
+# Quick status check (mood, energy, memory count)
+soul status .soul/aria.soul
+
+# List all local souls
+soul list
 ```
 
-Or add to your MCP config manually:
+### Memory operations
 
+```bash
+# Store a memory (fast — direct write, no server round-trip)
+soul remember .soul/aria.soul "User prefers concise answers" --importance 8
+soul remember .soul/aria.soul "User is a senior Python developer" --importance 9
+soul remember .soul/aria.soul "Had a productive session" --emotion happy
+
+# Recall memories by query
+soul recall .soul/aria.soul "user preferences"
+soul recall .soul/aria.soul "python" --limit 5 --min-importance 7
+
+# Show recent memories
+soul recall .soul/aria.soul --recent 10
+```
+
+### Export and portability
+
+```bash
+# Export to portable .soul file (ZIP archive)
+soul export aria.yaml --output aria.soul
+
+# Unpack to browse contents
+soul unpack aria.soul --output aria-unpacked/
+
+# Cross-format: SoulSpec, TavernAI, A2A Agent Card
+soul export-soulspec aria.soul --output aria-soulspec/
+soul export-tavernai aria.soul --output aria.png
+soul export-a2a aria.soul --output aria-agent-card.json
+```
+
+### Agent configuration
+
+```bash
+# Auto-configure MCP for your agent
+soul inject --target claude-code     # Claude Code (.mcp.json)
+soul inject --target claude-desktop  # Claude Desktop
+soul inject --target cursor          # Cursor
+soul inject --target vscode          # VS Code
+soul inject --target windsurf        # Windsurf
+soul inject --target cline           # Cline
+```
+
+## Session Workflow (CLI)
+
+### On session start
+```bash
+# Load relevant memories for the current task
+soul recall .soul/myagent.soul "current project context" --limit 5
+
+# Check mood and energy
+soul status .soul/myagent.soul
+```
+
+### During work
+```bash
+# Store important facts as you learn them
+soul remember .soul/myagent.soul "Switched to FSL license for PocketPaw" --importance 9
+soul remember .soul/myagent.soul "NexWrk demo scheduled for next week" --importance 8
+
+# Recall when you need context
+soul recall .soul/myagent.soul "licensing decisions"
+```
+
+### On session end
+```bash
+# Export updated soul (optional — MCP server auto-saves)
+soul export .soul/myagent.soul --output .soul/myagent.soul
+```
+
+## CLI vs MCP — Quick Mapping
+
+| Task | CLI (fast, use when you have Bash) | MCP (universal, use without shell) |
+|------|-------|-----|
+| Store a memory | `soul remember path "text" -i 8` | `soul_remember(content, importance)` |
+| Search memories | `soul recall path "query" -n 5` | `soul_recall(query, limit)` |
+| Check status | `soul status path` | `soul_state()` |
+| Create soul | `soul birth "Name"` | `soul_birth(name)` |
+| Inspect soul | `soul inspect path` | `soul_prompt()` + `soul_state()` |
+| Export | `soul export path -o out.soul` | `soul_export(path)` |
+| List souls | `soul list` | `soul_list()` |
+| Configure agent | `soul inject --target X` | N/A (manual config) |
+
+**Rule of thumb:** if the agent has Bash access, always prefer CLI. It's a direct process call — no JSON-RPC serialization, no MCP protocol overhead, no server needed.
+
+## MCP Server (for agents without shell access)
+
+18 tools available. Only set this up if the agent can't run shell commands.
+
+```bash
+# Start server (auto-detects .soul/ directory)
+soul-mcp
+
+# Or with explicit path
+SOUL_DIR=.soul soul-mcp
+```
+
+### Soul tools (9)
+`soul_birth`, `soul_list`, `soul_switch`, `soul_state`, `soul_feel`, `soul_save`, `soul_export`, `soul_reload`, `soul_prompt`
+
+### Memory tools (4)
+`soul_observe`, `soul_remember`, `soul_recall`, `soul_reflect`
+
+### Context tools — LCM (5)
+`soul_context_ingest`, `soul_context_assemble`, `soul_context_grep`, `soul_context_expand`, `soul_context_describe`
+
+### Resources (3)
+`soul://identity`, `soul://memory/core`, `soul://state`
+
+### MCP config
 ```json
 {
   "mcpServers": {
@@ -51,92 +176,19 @@ Or add to your MCP config manually:
 }
 ```
 
-## Quick Start (Python API)
+Or just run `soul inject --target claude-code` to auto-configure.
 
-```python
-from soul_protocol import Soul, Interaction
+## CognitiveEngine
 
-# 1. Birth a soul
-soul = await Soul.birth(
-    name="Aria",
-    archetype="The Compassionate Creator",
-    values=["empathy", "creativity", "honesty"],
-)
+### Via MCP (automatic)
+When running as MCP server, the soul uses the **host LLM** (Claude, GPT, etc.) for cognitive tasks via MCP sampling. No API keys needed. Powers: sentiment analysis, fact extraction, entity extraction, significance scoring, reflection, context compaction.
 
-# 2. Observe interactions (feeds the full cognitive pipeline)
-await soul.observe(Interaction(
-    user_input="I've been learning Rust lately",
-    agent_output="Nice — Rust is solid for systems work.",
-    channel="chat",
-))
-
-# 3. Recall memories by query
-memories = await soul.recall("programming", limit=5)
-
-# 4. Generate system prompt (personality + memories + mood)
-prompt = soul.to_system_prompt()
-
-# 5. Export portable .soul file
-await soul.export("aria.soul")
-```
-
-## MCP Tools (18)
-
-### Soul Management
-| Tool | What it does |
-|------|-------------|
-| `soul_birth` | Create a new soul with name, archetype, and values |
-| `soul_list` | List all loaded souls |
-| `soul_switch` | Switch active soul (multi-soul support) |
-| `soul_state` | Get current mood, energy, focus, social battery |
-| `soul_feel` | Update emotional state |
-| `soul_save` | Save soul to disk |
-| `soul_export` | Export to portable `.soul` file |
-| `soul_reload` | Reload from disk (picks up external changes) |
-| `soul_prompt` | Generate complete system prompt for LLM injection |
-
-### Memory
-| Tool | What it does |
-|------|-------------|
-| `soul_observe` | Process interaction through the full cognitive pipeline |
-| `soul_remember` | Store a fact directly (with importance score) |
-| `soul_recall` | Search memories by query |
-| `soul_reflect` | Consolidate recent memories into themes and insights |
-
-### Lossless Context Management (LCM)
-| Tool | What it does |
-|------|-------------|
-| `soul_context_ingest` | Store a message in the immutable context store |
-| `soul_context_assemble` | Build token-budgeted context window with auto-compaction |
-| `soul_context_grep` | Regex search across full conversation history |
-| `soul_context_expand` | Recover originals from any compacted node |
-| `soul_context_describe` | Metadata snapshot — counts, tokens, compaction stats |
-
-### Resources
-- `soul://identity` — DID, name, archetype, values
-- `soul://memory/core` — Persona and human knowledge
-- `soul://state` — Mood, energy, focus
-
-## Session Workflow
-
-**Start:** `soul_recall` relevant memories + `soul_state` to check mood/energy.
-
-**During work:** `soul_observe` after significant interactions. `soul_remember` for facts worth keeping. `soul_context_ingest` for within-session recall.
-
-**End:** Auto-saves on shutdown. No manual save needed.
-
-## CognitiveEngine — Zero Config via MCP
-
-When running as an MCP server, the soul uses the **host LLM** for all cognitive tasks via MCP sampling. No API keys needed — the soul piggybacks on whatever brain is running the session.
-
-This powers: sentiment analysis, significance scoring (LIDA-based), fact extraction, entity extraction, self-model evolution, memory reflection, and context compaction.
-
-### Custom Engine (standalone Python)
-
+### Via Python (manual)
 One method: `async def think(self, prompt: str) -> str`
 
 ```python
 from anthropic import AsyncAnthropic
+from soul_protocol import Soul
 
 class ClaudeEngine:
     def __init__(self):
@@ -152,67 +204,71 @@ class ClaudeEngine:
 soul = await Soul.birth("Aria", engine=ClaudeEngine())
 ```
 
-Works with any LLM: Claude, OpenAI, Ollama, local models.
+### Without any LLM
+Works offline with heuristic fallback — pattern matching for sentiment, rule-based fact extraction. Less accurate but zero dependencies.
 
 ## Memory Architecture
 
-| Tier | Purpose | Recalled by |
-|------|---------|------------|
-| **Core** | Persona + human knowledge | Always in system prompt |
-| **Episodic** | Interaction history with sentiment | Query similarity |
-| **Semantic** | Extracted facts | Query similarity |
-| **Procedural** | Learned patterns | Query similarity |
-| **Knowledge Graph** | Entity relationships | Entity traversal |
+| Tier | Purpose | CLI access |
+|------|---------|-----------|
+| **Core** | Persona + human knowledge | `soul inspect` |
+| **Episodic** | Interaction history with sentiment | `soul recall` |
+| **Semantic** | Extracted facts | `soul recall` |
+| **Procedural** | Learned patterns | `soul recall` |
+| **Knowledge Graph** | Entity relationships | Python API |
 
-## Lossless Context Management
+## Lossless Context Management (LCM)
 
 Soul = cross-session memory (who you are). LCM = within-session context (what was said).
 
 Messages go into an immutable SQLite store. Three-level compaction when the window fills:
-1. **Summary** — LLM prose summary of old messages
+1. **Summary** — LLM prose summary (uses CognitiveEngine)
 2. **Bullets** — LLM bullet points (more compact)
 3. **Truncation** — Deterministic (guaranteed convergence, no LLM)
 
 After compaction, `grep` still searches originals and `expand` recovers them. Nothing is lost.
 
-## Common Patterns
+LCM is currently MCP-only (no CLI commands yet). Use `soul_context_ingest`, `soul_context_assemble`, `soul_context_grep`, `soul_context_expand`, `soul_context_describe`.
 
-### Stateful Chat Agent
+## Python API (for building on top)
+
 ```python
-soul = await Soul.awaken("aria.soul")
+from soul_protocol import Soul, Interaction
 
-async def handle(user_msg: str) -> str:
-    response = await llm_call(system=soul.to_system_prompt(), message=user_msg)
-    await soul.observe(Interaction(user_input=user_msg, agent_output=response))
-    await soul.save()
-    return response
+soul = await Soul.awaken(".soul/aria.soul")
+
+# Observe (full cognitive pipeline: sentiment → significance → facts → entities)
+await soul.observe(Interaction(
+    user_input="I'm learning Rust",
+    agent_output="Great choice for systems work!",
+    channel="chat",
+))
+
+# Recall
+memories = await soul.recall("programming", limit=5)
+
+# System prompt (personality + core memory + mood + recalled context)
+prompt = soul.to_system_prompt()
+
+# Direct memory storage
+await soul.remember("User prefers TypeScript", importance=8)
+
+# Reflect (consolidate recent episodes into themes)
+result = await soul.reflect()
+
+# Export
+await soul.export("aria.soul")
 ```
 
-### Teach the Soul
-```python
-await soul.remember("User prefers concise answers", importance=8)
-await soul.remember("User is a senior Python developer", importance=9)
-```
+## .soul File Format
 
-### Cross-Platform Migration
-```python
-await soul.export("aria.soul")                # Export from platform A
-soul = await Soul.awaken("aria.soul")         # Import on platform B
-```
+A `.soul` file is a ZIP archive containing:
+- `soul.json` — Identity, DNA (OCEAN personality), state
+- `memory.json` — All memory tiers
+- `graph.json` — Knowledge graph (if present)
+- `metadata.json` — Version, timestamps
 
-## CLI
-
-```bash
-soul birth "Aria" --archetype "The Compassionate Creator"
-soul init --format zip --setup-targets claude-code
-soul inspect aria.soul
-soul status aria.soul
-soul remember aria.soul "Loves hiking" --importance 7
-soul recall aria.soul "hobbies"
-soul export aria.yaml --output aria.soul
-soul inject --target claude-code              # Configure MCP
-soul list
-```
+Portable across platforms. `soul inject` writes MCP config for any supported agent.
 
 ## Key Types
 
