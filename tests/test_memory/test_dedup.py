@@ -206,3 +206,97 @@ class TestReconcileFact:
         existing = [_make_entry("User prefers AI tools")]
         action, _ = reconcile_fact("User prefers ML tools", existing)
         assert action != "SKIP", f"Expected CREATE or MERGE, got {action}"
+
+
+# ===========================================================================
+# Containment coefficient — subset/superset enrichment detection
+# ===========================================================================
+
+
+class TestContainmentMerge:
+    """Enriched facts (supersets of shorter originals) should MERGE, not CREATE.
+
+    Pure Jaccard under-scores these because extra tokens inflate the union.
+    The containment coefficient catches the subset relationship.
+    """
+
+    def test_python_enriched(self):
+        """Short fact fully contained in longer enriched version -> MERGE."""
+        sim = _jaccard_similarity(
+            "User likes Python",
+            "User likes Python and has been using it for web development",
+        )
+        assert sim >= 0.6, f"Expected >= 0.6 (MERGE), got {sim}"
+
+    def test_docker_enriched(self):
+        sim = _jaccard_similarity(
+            "Team uses Docker",
+            "Team uses Docker and Kubernetes for container orchestration",
+        )
+        assert sim >= 0.6, f"Expected >= 0.6 (MERGE), got {sim}"
+
+    def test_postgresql_enriched(self):
+        sim = _jaccard_similarity(
+            "Project uses PostgreSQL",
+            "Project uses PostgreSQL with read replicas for high availability",
+        )
+        assert sim >= 0.6, f"Expected >= 0.6 (MERGE), got {sim}"
+
+    def test_dark_mode_enriched(self):
+        sim = _jaccard_similarity(
+            "User prefers dark mode",
+            "User prefers dark mode in their IDE and terminal applications",
+        )
+        assert sim >= 0.6, f"Expected >= 0.6 (MERGE), got {sim}"
+
+    def test_containment_does_not_trigger_skip(self):
+        """Perfect containment should land in MERGE, never SKIP."""
+        sim = _jaccard_similarity(
+            "User likes Python",
+            "User likes Python and has been using it for web development",
+        )
+        assert sim <= 0.85, f"Expected <= 0.85 (not SKIP), got {sim}"
+
+    def test_identical_still_skip(self):
+        """Equal-length identical facts are unaffected by containment."""
+        sim = _jaccard_similarity(
+            "User likes Python",
+            "User likes Python",
+        )
+        assert sim > 0.85
+
+    def test_different_facts_partial_overlap_still_create(self):
+        """Partial overlap (not a true subset) should stay CREATE."""
+        sim = _jaccard_similarity(
+            "User likes Python for data science",
+            "User likes Python for web development",
+        )
+        assert sim < 0.6, f"Expected < 0.6 (CREATE), got {sim}"
+
+    def test_short_tokens_no_spurious_containment(self):
+        """Facts with < 3 tokens should not get the containment boost."""
+        sim = _jaccard_similarity(
+            "big dog",
+            "big dog loves playing with the ball outside",
+        )
+        # "big dog" -> 2 tokens after dedup_tokenize, guard should skip containment
+        assert sim < 0.6, f"Expected < 0.6 (no containment boost), got {sim}"
+
+    def test_reconcile_enriched_fact_merges(self):
+        """reconcile_fact should MERGE when new fact enriches existing one."""
+        existing = [_make_entry("Team uses Docker")]
+        action, target = reconcile_fact(
+            "Team uses Docker and Kubernetes for container orchestration",
+            existing,
+        )
+        assert action == "MERGE", f"Expected MERGE, got {action}"
+        assert target == "existing-1"
+
+    def test_reconcile_reverse_enrichment_merges(self):
+        """MERGE should also work when existing fact is the longer one."""
+        existing = [_make_entry(
+            "User likes Python and has been using it for web development",
+        )]
+        action, target = reconcile_fact("User likes Python", existing)
+        assert action == "MERGE", f"Expected MERGE, got {action}"
+        assert target == "existing-1"
