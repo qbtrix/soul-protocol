@@ -49,13 +49,13 @@ mcp = [
     "fastmcp>=2.0",
     "soul-protocol[engine]",
 ]
-dspy = ["dspy>=3.1.3"]
+dspy = []  # dspy depends on litellm which breaks uv sync — install dspy manually if needed
 graph = ["networkx>=3.0"]
 vector = ["numpy>=1.24"]
 anthropic = ["anthropic>=0.40.0"]
 openai = ["openai>=1.0.0"]
 ollama = []  # uses httpx which is already in engine deps
-litellm = ["litellm>=1.0.0"]
+litellm = []  # litellm breaks uv sync resolution — install litellm manually if needed
 llm = ["anthropic>=0.40.0", "openai>=1.0.0"]
 lcm = []  # Zero new deps — sqlite3 is stdlib, Pydantic is already core
 embeddings-st = ["sentence-transformers>=2.0.0"]
