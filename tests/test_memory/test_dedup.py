@@ -300,3 +300,19 @@ class TestContainmentMerge:
         action, target = reconcile_fact("User likes Python", existing)
         assert action == "MERGE", f"Expected MERGE, got {action}"
         assert target == "existing-1"
+
+    def test_three_token_full_containment_merges(self):
+        """Exactly 3 tokens, all contained in the longer fact — should MERGE."""
+        sim = _jaccard_similarity(
+            "User likes Python",
+            "User likes Python and Java and Go",
+        )
+        assert sim >= 0.6, f"Expected >= 0.6 (MERGE), got {sim}"
+
+    def test_three_token_partial_containment_creates(self):
+        """3 tokens, only 2 shared — containment too low, should still CREATE."""
+        sim = _jaccard_similarity(
+            "User likes Python",
+            "User likes Ruby and Java and Go",
+        )
+        assert sim < 0.6, f"Expected < 0.6 (CREATE), got {sim}"

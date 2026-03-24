@@ -1,8 +1,11 @@
 # memory/dedup.py — Deduplication pipeline for semantic memory reconciliation.
 # Created: Phase 2 memory-runtime-v2
-#   - reconcile_fact() uses token overlap (Jaccard) to decide CREATE/SKIP/MERGE
+# Updated: 2026-03-24 — Added containment coefficient to _jaccard_similarity so
+#   enriched/superset facts land in MERGE range instead of CREATE.
+#   - reconcile_fact() uses token overlap (Jaccard + containment) to decide CREATE/SKIP/MERGE
 #   - SKIP: >0.85 similarity (near-duplicate), MERGE: 0.6-0.85 (update existing),
 #     CREATE: <0.6 (genuinely new fact)
+#   - Containment boost (intersection/min-set * 0.75) applies only when min_size >= 3 tokens
 #   - Uses tokenize() from search.py with min_length=2 for dedup so that short
 #     but meaningful tokens (Go, JS, AI, ML, UI, etc.) are preserved.
 
