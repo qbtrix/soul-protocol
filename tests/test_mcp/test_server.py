@@ -25,9 +25,16 @@ from soul_protocol.mcp.server import mcp  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _reset_registry():
-    """Reset soul registry between tests."""
+def _reset_registry(tmp_path, monkeypatch):
+    """Reset soul registry and isolate from real .soul/ directories."""
     server_module._registry.clear()
+    # Prevent auto-detect from finding real .soul/ in the repo or ~/.soul/
+    monkeypatch.delenv("SOUL_DIR", raising=False)
+    monkeypatch.delenv("SOUL_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    _fake_home = tmp_path / "fake_home"
+    _fake_home.mkdir(exist_ok=True)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: _fake_home))
     yield
     server_module._registry.clear()
 
@@ -813,10 +820,11 @@ class TestAutoDetectSoulDir:
     @pytest.mark.asyncio
     async def test_autodetect_home_soul_dir(self, tmp_path, monkeypatch):
         """With no CWD .soul/, falls back to ~/.soul/."""
-        home_soul = tmp_path / "fake_home" / ".soul"
+        # The autouse fixture already points Path.home() to tmp_path/fake_home
+        # and CWD to tmp_path (which has no .soul/ dir)
+        fake_home = tmp_path / "fake_home"
+        home_soul = fake_home / ".soul"
         home_soul.mkdir(parents=True)
-        cwd_dir = tmp_path / "empty_project"
-        cwd_dir.mkdir()
 
         # Create a soul subdirectory in the fake home dir
         from soul_protocol.runtime.soul import Soul
@@ -825,12 +833,6 @@ class TestAutoDetectSoulDir:
         soul_subdir.mkdir()
         soul = await Soul.birth("AutoHome", archetype="Test", values=["honesty"])
         await soul.save_local(str(soul_subdir))
-
-        # Point home to fake_home, CWD to empty_project (no .soul/ there)
-        monkeypatch.delenv("SOUL_DIR", raising=False)
-        monkeypatch.delenv("SOUL_PATH", raising=False)
-        monkeypatch.chdir(cwd_dir)
-        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "fake_home"))
 
         async with Client(mcp) as client:
             result = await client.call_tool("soul_list", {})
