@@ -777,3 +777,63 @@ async def test_background_watcher_reloads_on_change(tmp_path):
                 "Background watcher failed: memory count didn't increase. "
                 f"Before: {initial_count}, After: {reloaded_soul.memory_count}"
             )
+
+
+# --- Auto-detect .soul/ directory tests ---
+
+
+class TestAutoDetectSoulDir:
+    """Test that the lifespan auto-detects .soul/ in CWD and ~/.soul/ fallback."""
+
+    @pytest.mark.asyncio
+    async def test_autodetect_cwd_soul_dir(self, tmp_path, monkeypatch):
+        """With no env vars, .soul/ in CWD should be auto-detected."""
+        soul_dir = tmp_path / ".soul"
+        soul_dir.mkdir()
+
+        # Create a soul subdirectory (scanner expects .soul/SoulName/soul.json)
+        from soul_protocol.runtime.soul import Soul
+
+        soul_subdir = soul_dir / "AutoCWD"
+        soul_subdir.mkdir()
+        soul = await Soul.birth("AutoCWD", archetype="Test", values=["curiosity"])
+        await soul.save_local(str(soul_subdir))
+
+        # Clear env vars and set CWD
+        monkeypatch.delenv("SOUL_DIR", raising=False)
+        monkeypatch.delenv("SOUL_PATH", raising=False)
+        monkeypatch.chdir(tmp_path)
+
+        async with Client(mcp) as client:
+            result = await client.call_tool("soul_list", {})
+            data = json.loads(result.data)
+            names = [s["name"] for s in data["souls"]]
+            assert "AutoCWD" in names, f"Expected AutoCWD in {names}"
+
+    @pytest.mark.asyncio
+    async def test_autodetect_home_soul_dir(self, tmp_path, monkeypatch):
+        """With no CWD .soul/, falls back to ~/.soul/."""
+        home_soul = tmp_path / "fake_home" / ".soul"
+        home_soul.mkdir(parents=True)
+        cwd_dir = tmp_path / "empty_project"
+        cwd_dir.mkdir()
+
+        # Create a soul subdirectory in the fake home dir
+        from soul_protocol.runtime.soul import Soul
+
+        soul_subdir = home_soul / "AutoHome"
+        soul_subdir.mkdir()
+        soul = await Soul.birth("AutoHome", archetype="Test", values=["honesty"])
+        await soul.save_local(str(soul_subdir))
+
+        # Point home to fake_home, CWD to empty_project (no .soul/ there)
+        monkeypatch.delenv("SOUL_DIR", raising=False)
+        monkeypatch.delenv("SOUL_PATH", raising=False)
+        monkeypatch.chdir(cwd_dir)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "fake_home"))
+
+        async with Client(mcp) as client:
+            result = await client.call_tool("soul_list", {})
+            data = json.loads(result.data)
+            names = [s["name"] for s in data["souls"]]
+            assert "AutoHome" in names, f"Expected AutoHome in {names}"

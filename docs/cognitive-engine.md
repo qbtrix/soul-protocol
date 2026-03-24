@@ -1,5 +1,8 @@
-<!-- Covers: CognitiveEngine protocol, LLM integration examples (Claude, OpenAI,
-     Ollama, Gemini), the 6 cognitive tasks and their prompt templates,
+<!-- Updated for v0.2.5: Added Cognitive Adapters (built-in engines for Anthropic,
+     OpenAI, Ollama, LiteLLM, callable), engine="auto" shortcut on Soul.birth/awaken,
+     MCPSamplingEngine for host-LLM routing, and engine_from_env() auto-detection.
+     Original content: CognitiveEngine protocol, LLM integration examples (Claude,
+     OpenAI, Ollama, Gemini), the 6 cognitive tasks and their prompt templates,
      fallback chain, SearchStrategy protocol, HeuristicEngine internals,
      and CognitiveProcessor orchestration. -->
 
@@ -361,3 +364,155 @@ class TieredEngine:
 ```
 
 This is not a built-in feature -- it is a pattern you can implement in your engine. The protocol's simplicity makes this kind of routing straightforward.
+
+
+## Cognitive Adapters (v0.2.5)
+
+Starting with v0.2.5, Soul Protocol ships built-in adapter engines so you no longer need to write your own `CognitiveEngine` implementation. These live in `soul_protocol.runtime.cognitive.adapters` and are ready to use out of the box.
+
+### AnthropicEngine
+
+Wraps the Anthropic Python SDK. Requires `anthropic` installed.
+
+```python
+from soul_protocol.runtime.cognitive.adapters import AnthropicEngine
+
+engine = AnthropicEngine(api_key="sk-ant-...", model="claude-sonnet-4-5-20250514")
+soul = await Soul.birth("Aria", engine=engine)
+```
+
+If `api_key` is omitted, it reads from `ANTHROPIC_API_KEY`.
+
+### OpenAIEngine
+
+Wraps the OpenAI Python SDK. Works with OpenAI and any compatible endpoint (Azure, Together, Groq, etc.).
+
+```python
+from soul_protocol.runtime.cognitive.adapters import OpenAIEngine
+
+engine = OpenAIEngine(api_key="sk-...", model="gpt-4o")
+soul = await Soul.birth("Aria", engine=engine)
+
+# OpenAI-compatible endpoint
+engine = OpenAIEngine(
+    api_key="...",
+    model="mixtral-8x7b",
+    base_url="https://api.together.xyz/v1",
+)
+```
+
+If `api_key` is omitted, it reads from `OPENAI_API_KEY`.
+
+### OllamaEngine
+
+Talks to a local Ollama instance over HTTP. No extra dependencies beyond `httpx` (already a soul-protocol dependency).
+
+```python
+from soul_protocol.runtime.cognitive.adapters import OllamaEngine
+
+engine = OllamaEngine(model="llama3", host="http://localhost:11434")
+soul = await Soul.birth("Aria", engine=engine)
+```
+
+If `host` is omitted, it reads from `OLLAMA_HOST` or defaults to `http://localhost:11434`.
+
+### LiteLLMEngine
+
+Routes to 100+ LLM providers via the `litellm` library. Requires `litellm` installed.
+
+```python
+from soul_protocol.runtime.cognitive.adapters import LiteLLMEngine
+
+engine = LiteLLMEngine(model="anthropic/claude-sonnet-4-5-20250514")
+soul = await Soul.birth("Aria", engine=engine)
+
+# Any litellm-supported model string works
+engine = LiteLLMEngine(model="bedrock/anthropic.claude-3-sonnet")
+```
+
+### CallableEngine
+
+Wraps any sync or async callable into a `CognitiveEngine`. Useful for testing, custom routing, or quick prototyping.
+
+```python
+from soul_protocol.runtime.cognitive.adapters import CallableEngine
+
+# Sync function
+engine = CallableEngine(lambda prompt: my_llm.complete(prompt))
+
+# Async function
+async def my_think(prompt: str) -> str:
+    return await some_api_call(prompt)
+
+engine = CallableEngine(my_think)
+
+soul = await Soul.birth("Aria", engine=engine)
+```
+
+### engine_from_env()
+
+Auto-detects the best available engine by checking environment variables in priority order:
+
+```
+ANTHROPIC_API_KEY  →  AnthropicEngine
+OPENAI_API_KEY     →  OpenAIEngine
+OLLAMA_HOST        →  OllamaEngine
+(none found)       →  HeuristicEngine
+```
+
+```python
+from soul_protocol.runtime.cognitive.adapters import engine_from_env
+
+engine = engine_from_env()
+soul = await Soul.birth("Aria", engine=engine)
+```
+
+This is what powers the `engine="auto"` shortcut described below.
+
+
+## engine="auto" Shortcut (v0.2.5)
+
+`Soul.birth()`, `Soul.awaken()`, and `Soul.birth_from_config()` now accept `engine="auto"` to automatically detect and use the best available engine from environment variables.
+
+```python
+# Auto-detect from env vars (ANTHROPIC_API_KEY → OPENAI_API_KEY → OLLAMA_HOST → HeuristicEngine)
+soul = await Soul.birth("my-agent", engine="auto")
+
+# Explicit adapter instance
+from soul_protocol.runtime.cognitive.adapters import AnthropicEngine
+soul = await Soul.birth("my-agent", engine=AnthropicEngine())
+
+# Any callable (sync or async) — automatically wrapped in CallableEngine
+soul = await Soul.birth("my-agent", engine=my_callable)
+
+# Same behavior on awaken
+soul = await Soul.awaken("path/to/my-agent.soul", engine="auto")
+
+# And birth_from_config
+soul = await Soul.birth_from_config("soul.yaml", engine="auto")
+```
+
+When `engine` is a plain callable (not a `CognitiveEngine` instance), it is automatically wrapped in `CallableEngine`. This means any function with the signature `(str) -> str` works as an engine without boilerplate.
+
+The previous behavior is unchanged: passing `None` (the default) uses `HeuristicEngine`, and passing a `CognitiveEngine` instance uses it directly.
+
+
+## MCP Sampling Engine (v0.2.5)
+
+When a soul runs inside an MCP server (e.g., inside Claude Code or Claude Desktop), it can route cognitive tasks to the host LLM using MCP's sampling capability. No API key needed -- the host application provides the LLM.
+
+```python
+from soul_protocol.runtime.cognitive.adapters import MCPSamplingEngine
+
+# Inside an MCP tool handler, ctx is the MCP server context
+engine = MCPSamplingEngine(ctx)
+soul = await Soul.birth("my-agent", engine=engine)
+```
+
+`MCPSamplingEngine` calls `ctx.sample()` to send prompts to the host LLM. The host decides which model to use and handles authentication. This is ideal for MCP server deployments where:
+
+- You don't want to manage separate API keys for the soul
+- The host application already has an LLM connection
+- You want the soul's cognitive tasks to use the same model the user is already talking to
+
+When Soul Protocol's built-in MCP server starts, it uses `MCPSamplingEngine` automatically if MCP sampling is available. No configuration required.

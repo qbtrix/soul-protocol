@@ -1,4 +1,7 @@
-# cli/main.py — Click CLI for the Soul Protocol
+# cli/main.py — Click CLI for the Soul Protocol (34 commands)
+# Updated: 2026-03-24 — Added 13 commands for full runtime/MCP feature parity:
+#   observe, reflect, feel, prompt, forget, edit-core, evolve, evaluate, learn,
+#   skills, bond, events, context. Total: 34 commands.
 # Updated: 2026-03-23 — Added `soul import-soulspec`, `soul import-tavernai`,
 #   `soul export-soulspec`, `soul export-tavernai` commands for cross-format
 #   import/export (SoulSpec directories and TavernAI Character Card V2 JSON/PNG).
@@ -1245,6 +1248,774 @@ def import_a2a_cmd(file, output):
         )
 
     asyncio.run(_import())
+
+
+# ============ Runtime Feature Parity Commands ============
+
+
+def _save_soul(soul, path):
+    """Save soul back to its source (directory or .soul file)."""
+
+    async def _do_save():
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path)
+
+    asyncio.run(_do_save())
+
+
+@cli.command("observe")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--user-input", "user_input", required=True, help="User's message")
+@click.option("--agent-output", "agent_output", required=True, help="Agent's response")
+@click.option("--channel", default="cli", help="Channel name (default: cli)")
+def observe_cmd(path, user_input, agent_output, channel):
+    """Process an interaction through the full cognitive pipeline.
+
+    Runs sentiment detection, significance gating, memory storage,
+    entity extraction, self-model updates, and evolution triggers.
+
+    \b
+    Examples:
+      soul observe .soul/ --user-input "Hello" --agent-output "Hi there!"
+      soul observe aria.soul --user-input "Tell me a joke" --agent-output "Why did..." --channel discord
+    """
+
+    async def _observe():
+        from soul_protocol.runtime.soul import Soul
+        from soul_protocol.runtime.types import Interaction
+
+        soul = await Soul.awaken(path)
+        interaction = Interaction(
+            user_input=user_input,
+            agent_output=agent_output,
+            channel=channel,
+        )
+        await soul.observe(interaction)
+
+        # Save
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path)
+
+        mood = soul.state.mood.value
+        energy = soul.state.energy
+        console.print(
+            f"[green]Observed[/green] interaction for [bold]{soul.name}[/bold]\n"
+            f"  Mood:   [cyan]{mood}[/cyan]\n"
+            f"  Energy: {energy:.0f}%"
+        )
+
+    asyncio.run(_observe())
+
+
+@cli.command("reflect")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--no-apply", is_flag=True, default=False, help="Don't consolidate results into memory")
+def reflect_cmd(path, no_apply):
+    """Trigger memory consolidation and reflection.
+
+    The soul reviews recent interactions, extracts themes, creates
+    summaries, and updates its self-understanding. Call periodically
+    (e.g., every 10-20 interactions, or at session end).
+
+    \b
+    Examples:
+      soul reflect .soul/
+      soul reflect aria.soul --no-apply
+    """
+
+    async def _reflect():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        result = await soul.reflect(apply=not no_apply)
+
+        if result is None:
+            console.print(
+                "[yellow]No engine available[/yellow] — reflection requires a "
+                "CognitiveEngine (LLM). Set one up to enable reflection."
+            )
+            return
+
+        # Save if we applied
+        if not no_apply:
+            if Path(path).is_dir():
+                await soul.save_local(path)
+            else:
+                await soul.export(path)
+
+        lines = []
+        if result.themes:
+            lines.append("[cyan]Themes:[/cyan]")
+            for theme in result.themes:
+                lines.append(f"  • {theme}")
+        if result.summaries:
+            lines.append("[cyan]Summaries:[/cyan]")
+            for summary in result.summaries:
+                content = summary.get("summary", str(summary))
+                lines.append(f"  • {content}")
+        if result.emotional_patterns:
+            lines.append(f"[cyan]Emotional patterns:[/cyan]\n  {result.emotional_patterns}")
+        if result.self_insight:
+            lines.append(f"[cyan]Self-insight:[/cyan]\n  {result.self_insight}")
+
+        if not lines:
+            lines.append("[dim]No notable reflections from recent episodes.[/dim]")
+
+        console.print(
+            Panel(
+                "\n".join(lines),
+                title=f"Reflection — {soul.name}",
+                border_style="blue",
+            )
+        )
+
+    asyncio.run(_reflect())
+
+
+@cli.command("feel")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--mood", type=str, default=None, help="Set mood (neutral, curious, focused, tired, excited, contemplative, satisfied, concerned)")
+@click.option("--energy", type=float, default=None, help="Adjust energy (can be negative, e.g. -10)")
+def feel_cmd(path, mood, energy):
+    """Update a soul's emotional state.
+
+    \b
+    Examples:
+      soul feel .soul/ --mood excited
+      soul feel aria.soul --energy -10
+      soul feel .soul/ --mood focused --energy 5
+    """
+
+    async def _feel():
+        from soul_protocol.runtime.soul import Soul
+        from soul_protocol.runtime.types import Mood
+
+        soul = await Soul.awaken(path)
+
+        kwargs = {}
+        if mood is not None:
+            try:
+                kwargs["mood"] = Mood(mood)
+            except ValueError:
+                valid = ", ".join(m.value for m in Mood)
+                console.print(f"[red]Invalid mood:[/red] '{mood}'. Valid: {valid}")
+                raise SystemExit(1)
+        if energy is not None:
+            kwargs["energy"] = energy
+
+        if not kwargs:
+            console.print("[red]Provide at least --mood or --energy[/red]")
+            raise SystemExit(1)
+
+        soul.feel(**kwargs)
+
+        # Save
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path)
+
+        state = soul.state
+        console.print(
+            f"[green]Updated[/green] [bold]{soul.name}[/bold]\n"
+            f"  Mood:   [cyan]{state.mood.value}[/cyan]\n"
+            f"  Energy: {state.energy:.0f}%"
+        )
+
+    asyncio.run(_feel())
+
+
+@cli.command("prompt")
+@click.argument("path", type=click.Path(exists=True))
+def prompt_cmd(path):
+    """Generate and print the system prompt for a soul.
+
+    Outputs the full system prompt to stdout with no Rich formatting,
+    so it can be piped to other commands or captured in a variable.
+
+    \b
+    Examples:
+      soul prompt .soul/
+      soul prompt aria.soul > prompt.txt
+      soul prompt .soul/ | pbcopy
+    """
+
+    async def _prompt():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        click.echo(soul.to_system_prompt())
+
+    asyncio.run(_prompt())
+
+
+@cli.command("forget")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("query", required=False, default=None)
+@click.option("--entity", type=str, default=None, help="Delete by entity name instead of query")
+@click.option("--before", type=str, default=None, help="Delete before ISO timestamp")
+@click.option("--confirm", "skip_confirm", is_flag=True, default=False, help="Skip confirmation prompt")
+def forget_cmd(path, query, entity, before, skip_confirm):
+    """Delete memories by query, entity, or timestamp (GDPR-compliant).
+
+    Searches and deletes matching memories across all tiers. Records
+    a deletion audit entry without storing deleted content.
+
+    \b
+    Examples:
+      soul forget .soul/ "credit card"
+      soul forget aria.soul --entity "John Doe"
+      soul forget .soul/ --before 2026-01-01T00:00:00 --confirm
+    """
+
+    async def _forget():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+
+        if entity:
+            description = f"entity '{entity}'"
+            if not skip_confirm and not click.confirm(
+                f"Delete all memories related to {description}?"
+            ):
+                console.print("[dim]Cancelled.[/dim]")
+                return
+            result = await soul.forget_entity(entity)
+        elif before:
+            from datetime import datetime as dt
+
+            try:
+                timestamp = dt.fromisoformat(before)
+            except ValueError:
+                console.print(f"[red]Invalid ISO timestamp:[/red] '{before}'")
+                raise SystemExit(1)
+            description = f"memories before {before}"
+            if not skip_confirm and not click.confirm(
+                f"Delete all {description}?"
+            ):
+                console.print("[dim]Cancelled.[/dim]")
+                return
+            result = await soul.forget_before(timestamp)
+        elif query:
+            description = f"query '{query}'"
+            if not skip_confirm and not click.confirm(
+                f"Delete memories matching {description}?"
+            ):
+                console.print("[dim]Cancelled.[/dim]")
+                return
+            result = await soul.forget(query)
+        else:
+            console.print("[red]Provide a QUERY, --entity, or --before[/red]")
+            raise SystemExit(1)
+
+        total = result.get("total_deleted", 0)
+
+        # Save
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path)
+
+        console.print(
+            f"[yellow]Forgot[/yellow] {total} memor{'y' if total == 1 else 'ies'} "
+            f"from [bold]{soul.name}[/bold] ({description})"
+        )
+        if result.get("tiers"):
+            for tier, count in result["tiers"].items():
+                if count > 0:
+                    console.print(f"  {tier}: {count}")
+
+    asyncio.run(_forget())
+
+
+@cli.command("edit-core")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--persona", type=str, default=None, help="Set persona text")
+@click.option("--human", type=str, default=None, help="Set human knowledge text")
+def edit_core_cmd(path, persona, human):
+    """Edit a soul's core memory (always-loaded persona and human knowledge).
+
+    \b
+    Examples:
+      soul edit-core .soul/ --persona "I am a helpful coding assistant"
+      soul edit-core aria.soul --human "User prefers Python and dark mode"
+      soul edit-core .soul/ --persona "New persona" --human "New human"
+    """
+
+    async def _edit_core():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+
+        if persona is None and human is None:
+            console.print("[red]Provide at least --persona or --human[/red]")
+            raise SystemExit(1)
+
+        await soul.edit_core_memory(persona=persona, human=human)
+
+        # Save
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path)
+
+        core = soul.get_core_memory()
+        console.print(
+            Panel(
+                f"[cyan]Persona[/]\n  {core.persona or '[dim]empty[/dim]'}\n\n"
+                f"[cyan]Human[/]\n  {core.human or '[dim]empty[/dim]'}",
+                title=f"Core Memory — {soul.name}",
+                border_style="green",
+            )
+        )
+
+    asyncio.run(_edit_core())
+
+
+@cli.command("evolve")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--propose", is_flag=True, default=False, help="Propose a new mutation")
+@click.option("--trait", type=str, default=None, help="Trait to mutate (with --propose)")
+@click.option("--value", type=str, default=None, help="New value for trait (with --propose)")
+@click.option("--reason", type=str, default=None, help="Reason for mutation (with --propose)")
+@click.option("--approve", "approve_id", type=str, default=None, help="Approve a pending mutation by ID")
+@click.option("--reject", "reject_id", type=str, default=None, help="Reject a pending mutation by ID")
+@click.option("--list", "list_mutations", is_flag=True, default=False, help="List pending mutations and history")
+def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_mutations):
+    """Manage soul evolution — propose, approve, reject, or list mutations.
+
+    \b
+    Examples:
+      soul evolve .soul/ --propose --trait communication.warmth --value high --reason "User prefers warmth"
+      soul evolve .soul/ --list
+      soul evolve .soul/ --approve abc123
+      soul evolve .soul/ --reject abc123
+    """
+
+    async def _evolve():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+
+        if propose:
+            if not all([trait, value, reason]):
+                console.print("[red]--propose requires --trait, --value, and --reason[/red]")
+                raise SystemExit(1)
+            mutation = await soul.propose_evolution(trait, value, reason)
+            if Path(path).is_dir():
+                await soul.save_local(path)
+            else:
+                await soul.export(path)
+            console.print(
+                f"[green]Proposed[/green] mutation [bold]{mutation.id}[/bold]\n"
+                f"  Trait:  {mutation.trait}\n"
+                f"  Old:    {mutation.old_value}\n"
+                f"  New:    {mutation.new_value}\n"
+                f"  Reason: {mutation.reason}"
+            )
+        elif approve_id:
+            result = await soul.approve_evolution(approve_id)
+            if result:
+                if Path(path).is_dir():
+                    await soul.save_local(path)
+                else:
+                    await soul.export(path)
+                console.print(f"[green]Approved[/green] mutation {approve_id}")
+            else:
+                console.print(f"[red]Could not approve[/red] mutation {approve_id}")
+        elif reject_id:
+            result = await soul.reject_evolution(reject_id)
+            if result:
+                if Path(path).is_dir():
+                    await soul.save_local(path)
+                else:
+                    await soul.export(path)
+                console.print(f"[yellow]Rejected[/yellow] mutation {reject_id}")
+            else:
+                console.print(f"[red]Could not reject[/red] mutation {reject_id}")
+        elif list_mutations:
+            pending = soul.pending_mutations
+            history = soul.evolution_history
+
+            if pending:
+                table = Table(title="Pending Mutations", border_style="yellow")
+                table.add_column("ID", style="cyan", width=12)
+                table.add_column("Trait")
+                table.add_column("Old → New")
+                table.add_column("Reason", style="dim")
+                for m in pending:
+                    table.add_row(m.id[:12], m.trait, f"{m.old_value} → {m.new_value}", m.reason)
+                console.print(table)
+            else:
+                console.print("[dim]No pending mutations.[/dim]")
+
+            if history:
+                htable = Table(title="Evolution History", border_style="blue")
+                htable.add_column("ID", style="dim", width=12)
+                htable.add_column("Trait")
+                htable.add_column("Change")
+                htable.add_column("Status")
+                htable.add_column("Date", style="dim")
+                for m in history:
+                    status = "[green]Approved[/]" if m.approved else "[red]Rejected[/]"
+                    date = m.approved_at.strftime("%Y-%m-%d") if m.approved_at else ""
+                    htable.add_row(m.id[:12], m.trait, f"{m.old_value} → {m.new_value}", status, date)
+                console.print(htable)
+            else:
+                console.print("[dim]No evolution history.[/dim]")
+        else:
+            console.print("[red]Use --propose, --approve ID, --reject ID, or --list[/red]")
+            raise SystemExit(1)
+
+    asyncio.run(_evolve())
+
+
+@cli.command("evaluate")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--user-input", "user_input", required=True, help="User's message")
+@click.option("--agent-output", "agent_output", required=True, help="Agent's response")
+@click.option("--domain", type=str, default=None, help="Domain for rubric selection")
+def evaluate_cmd(path, user_input, agent_output, domain):
+    """Evaluate an interaction against a rubric.
+
+    Scores the interaction, stores learning as procedural memory,
+    and adjusts skill XP based on the score.
+
+    \b
+    Examples:
+      soul evaluate .soul/ --user-input "Explain recursion" --agent-output "Recursion is..."
+      soul evaluate aria.soul --user-input "Fix this bug" --agent-output "Here's the fix" --domain coding
+    """
+
+    async def _evaluate():
+        from soul_protocol.runtime.soul import Soul
+        from soul_protocol.runtime.types import Interaction
+
+        soul = await Soul.awaken(path)
+        interaction = Interaction(
+            user_input=user_input,
+            agent_output=agent_output,
+        )
+
+        try:
+            result = await soul.evaluate(interaction, domain=domain)
+        except Exception as e:
+            console.print(f"[red]Evaluation failed:[/red] {e}")
+            raise SystemExit(1)
+
+        # Save
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path)
+
+        # Display results
+        lines = [
+            f"[bold]Overall Score:[/bold] {result.overall_score:.2f}",
+            f"[bold]Rubric:[/bold] {result.rubric_id}",
+        ]
+        if result.criterion_results:
+            lines.append("")
+            lines.append("[cyan]Criteria:[/cyan]")
+            for cr in result.criterion_results:
+                icon = "[green]✓[/]" if cr.passed else "[red]✗[/]"
+                lines.append(f"  {icon} {cr.criterion}: {cr.score:.2f}")
+                if cr.reasoning:
+                    lines.append(f"      [dim]{cr.reasoning}[/dim]")
+        if result.learning:
+            lines.append(f"\n[cyan]Learning:[/cyan]\n  {result.learning}")
+
+        console.print(
+            Panel("\n".join(lines), title=f"Evaluation — {soul.name}", border_style="blue")
+        )
+
+    asyncio.run(_evaluate())
+
+
+@cli.command("learn")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--user-input", "user_input", required=True, help="User's message")
+@click.option("--agent-output", "agent_output", required=True, help="Agent's response")
+@click.option("--domain", type=str, default=None, help="Domain for rubric selection")
+def learn_cmd(path, user_input, agent_output, domain):
+    """Evaluate an interaction and create a learning event if notable.
+
+    Combines evaluation with the learning pipeline — extracts lessons,
+    grants XP, and stores procedural memory.
+
+    \b
+    Examples:
+      soul learn .soul/ --user-input "Explain recursion" --agent-output "Recursion is..."
+      soul learn aria.soul --user-input "Fix this bug" --agent-output "Here's the fix" --domain coding
+    """
+
+    async def _learn():
+        from soul_protocol.runtime.soul import Soul
+        from soul_protocol.runtime.types import Interaction
+
+        soul = await Soul.awaken(path)
+        interaction = Interaction(
+            user_input=user_input,
+            agent_output=agent_output,
+        )
+
+        try:
+            event = await soul.learn(interaction, domain=domain)
+        except Exception as e:
+            console.print(f"[red]Learning failed:[/red] {e}")
+            raise SystemExit(1)
+
+        # Save
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path)
+
+        if event is None:
+            console.print("[dim]No notable learning from this interaction.[/dim]")
+            return
+
+        score_str = f"{event.evaluation_score:.2f}" if event.evaluation_score is not None else "n/a"
+        console.print(
+            Panel(
+                f"[cyan]Lesson:[/cyan]\n  {event.lesson}\n\n"
+                f"  Domain:     {event.domain}\n"
+                f"  Confidence: {event.confidence:.0%}\n"
+                f"  Score:      {score_str}\n"
+                f"  Skill:      {event.skill_id or '[dim]none[/dim]'}",
+                title=f"Learning Event — {soul.name}",
+                border_style="green",
+            )
+        )
+
+    asyncio.run(_learn())
+
+
+@cli.command("skills")
+@click.argument("path", type=click.Path(exists=True))
+def skills_cmd(path):
+    """View a soul's skills with level, XP, and progress.
+
+    \b
+    Examples:
+      soul skills .soul/
+      soul skills aria.soul
+    """
+
+    async def _skills():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        registry = soul.skills
+
+        if not registry.skills:
+            console.print(f"[dim]{soul.name} has no skills yet. Interact more![/dim]")
+            return
+
+        table = Table(title=f"Skills — {soul.name}", border_style="blue")
+        table.add_column("Skill", style="cyan")
+        table.add_column("Level", justify="center")
+        table.add_column("XP", justify="right")
+        table.add_column("Next", justify="right", style="dim")
+        table.add_column("Progress")
+
+        for skill in registry.skills:
+            pct = skill.xp / skill.xp_to_next if skill.xp_to_next > 0 else 1.0
+            filled = int(pct * 15)
+            bar = "█" * filled + "░" * (15 - filled)
+            table.add_row(
+                skill.name,
+                str(skill.level),
+                str(skill.xp),
+                str(skill.xp_to_next),
+                f"[cyan]{bar}[/] {int(pct * 100)}%",
+            )
+
+        console.print(table)
+
+    asyncio.run(_skills())
+
+
+@cli.command("bond")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--strengthen", type=float, default=None, help="Strengthen bond by this amount")
+def bond_cmd(path, strengthen):
+    """View or modify the soul's bond with its bonded entity.
+
+    \b
+    Examples:
+      soul bond .soul/
+      soul bond aria.soul --strengthen 5.0
+    """
+
+    async def _bond():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        bond = soul.bond
+
+        if strengthen is not None:
+            bond.strengthen(amount=strengthen)
+            if Path(path).is_dir():
+                await soul.save_local(path)
+            else:
+                await soul.export(path)
+            console.print(f"[green]Strengthened[/green] bond for [bold]{soul.name}[/bold]")
+
+        strength = bond.bond_strength
+        s_color = _pct_color(strength)
+        filled = int(strength / 5)
+        bar = "█" * filled + "░" * (20 - filled)
+
+        lines = [
+            f"  Bonded to:    {bond.bonded_to or '[dim]nobody[/dim]'}",
+            f"  Strength:     [{s_color}]{strength:.1f}%[/]  [{s_color}]{bar}[/]",
+            f"  Interactions: {bond.interaction_count}",
+            f"  Since:        {bond.bonded_at.strftime('%Y-%m-%d %H:%M')}",
+        ]
+
+        console.print(
+            Panel("\n".join(lines), title=f"Bond — {soul.name}", border_style="blue")
+        )
+
+    asyncio.run(_bond())
+
+
+@cli.command("events")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--recent", "-n", type=int, default=10, help="Number of recent events (default: 10)")
+def events_cmd(path, recent):
+    """View general events (Conway's autobiographical memory hierarchy).
+
+    \b
+    Examples:
+      soul events .soul/
+      soul events aria.soul --recent 20
+    """
+
+    async def _events():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        all_events = soul.general_events
+
+        if not all_events:
+            console.print(f"[dim]{soul.name} has no general events yet.[/dim]")
+            return
+
+        # Sort by last_updated descending
+        all_events.sort(key=lambda e: e.last_updated, reverse=True)
+        events = all_events[:recent]
+
+        table = Table(title=f"General Events — {soul.name}", border_style="blue")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Theme", style="cyan")
+        table.add_column("Episodes", justify="center", width=8)
+        table.add_column("Started", style="dim", width=16)
+        table.add_column("Updated", style="dim", width=16)
+
+        for idx, event in enumerate(events, 1):
+            table.add_row(
+                str(idx),
+                event.theme or "[dim]untitled[/dim]",
+                str(len(event.episode_ids)),
+                event.started_at.strftime("%Y-%m-%d %H:%M"),
+                event.last_updated.strftime("%Y-%m-%d %H:%M"),
+            )
+
+        console.print(table)
+        console.print(f"[dim]{len(events)} of {len(all_events)} event(s)[/dim]")
+
+    asyncio.run(_events())
+
+
+@cli.command("context")
+@click.argument("path", type=click.Path(exists=True), required=False, default=None)
+@click.option("--ingest", is_flag=True, default=False, help="Ingest a message into context")
+@click.option("--role", type=str, default=None, help="Message role (with --ingest)")
+@click.option("--content", "msg_content", type=str, default=None, help="Message content (with --ingest)")
+@click.option("--assemble", is_flag=True, default=False, help="Assemble context window")
+@click.option("--max-tokens", type=int, default=None, help="Token budget (with --assemble)")
+@click.option("--grep", "grep_pattern", type=str, default=None, help="Search context history by pattern")
+@click.option("--describe", "describe_flag", is_flag=True, default=False, help="Show context store metadata")
+def context_cmd(path, ingest, role, msg_content, assemble, max_tokens, grep_pattern, describe_flag):
+    """LCM (Lossless Context Management) — ingest, assemble, search, and describe context.
+
+    Works standalone with an in-memory SQLite store. Pass a .soul path to use
+    the soul's context store (if available).
+
+    \b
+    Examples:
+      soul context --ingest --role user --content "Hello there"
+      soul context --assemble --max-tokens 4000
+      soul context --grep "hello"
+      soul context --describe
+    """
+
+    async def _context():
+        from soul_protocol.runtime.context.lcm import LCMContext
+
+        # Create standalone LCMContext (in-memory)
+        lcm = LCMContext(db_path=":memory:")
+        await lcm.initialize()
+
+        if ingest:
+            if not role or not msg_content:
+                console.print("[red]--ingest requires --role and --content[/red]")
+                raise SystemExit(1)
+            msg_id = await lcm.ingest(role, msg_content)
+            console.print(f"[green]Ingested[/green] message [dim]{msg_id}[/dim] (role={role})")
+
+        elif assemble:
+            result = await lcm.assemble(max_tokens=max_tokens)
+            console.print(
+                Panel(
+                    f"Nodes:            {len(result.nodes)}\n"
+                    f"Total tokens:     {result.total_tokens}\n"
+                    f"Compaction:       {'yes' if result.compaction_applied else 'no'}",
+                    title="Assembled Context",
+                    border_style="blue",
+                )
+            )
+            for node in result.nodes:
+                content = node.content[:80] if node.content else ""
+                console.print(f"  [{node.level.value}] {content}...")
+
+        elif grep_pattern:
+            results = await lcm.grep(grep_pattern)
+            if not results:
+                console.print(f"[dim]No matches for '{grep_pattern}'[/dim]")
+                return
+            table = Table(title=f"Context Search — '{grep_pattern}'", border_style="blue")
+            table.add_column("ID", style="dim", width=12)
+            table.add_column("Role", style="cyan", width=10)
+            table.add_column("Snippet")
+            for hit in results:
+                table.add_row(hit.message_id, hit.role, hit.content_snippet[:80])
+            console.print(table)
+
+        elif describe_flag:
+            info = await lcm.describe()
+            earliest, latest = info.date_range
+            console.print(
+                Panel(
+                    f"Messages:     {info.total_messages}\n"
+                    f"Nodes:        {info.total_nodes}\n"
+                    f"Total tokens: {info.total_tokens}\n"
+                    f"Date range:   {earliest or 'n/a'} → {latest or 'n/a'}",
+                    title="Context Store",
+                    border_style="blue",
+                )
+            )
+        else:
+            console.print("[red]Use --ingest, --assemble, --grep PATTERN, or --describe[/red]")
+            raise SystemExit(1)
+
+    asyncio.run(_context())
 
 
 if __name__ == "__main__":
