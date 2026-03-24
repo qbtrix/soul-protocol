@@ -56,7 +56,7 @@ anthropic = ["anthropic>=0.40.0"]
 openai = ["openai>=1.0.0"]
 ollama = []  # uses httpx which is already in engine deps
 litellm = ["litellm>=1.0.0"]
-llm = ["anthropic>=0.40.0", "openai>=1.0.0", "litellm>=1.0.0"]
+llm = ["anthropic>=0.40.0", "openai>=1.0.0"]
 lcm = []  # Zero new deps — sqlite3 is stdlib, Pydantic is already core
 embeddings-st = ["sentence-transformers>=2.0.0"]
 embeddings-openai = ["openai>=1.0.0"]
