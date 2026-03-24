@@ -1,5 +1,5 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 13 tools, 3 resources, 2 prompts for AI agent integration
+# 18 tools (13 soul + 5 context), 3 resources, 2 prompts for AI agent integration
 # Updated: feat/mcp-sampling-engine — Lazy MCPSamplingEngine wiring. On the first tool
 #   call that carries a FastMCP Context, MCPSamplingEngine is constructed and pushed to
 #   all loaded souls via Soul.set_engine(). Subsequent calls reuse the same engine.
@@ -27,6 +27,7 @@ from typing import Any
 from fastmcp import Context, FastMCP  # optional dep: pip install soul-protocol[mcp]
 
 from ..runtime.cognitive.adapters.mcp_sampling import MCPSamplingEngine
+from ..runtime.context import LCMContext
 from ..runtime.exceptions import SoulProtocolError
 from ..runtime.soul import Soul
 from ..runtime.types import Interaction, MemoryType, Mood
@@ -191,6 +192,21 @@ class SoulRegistry:
 
 _registry = SoulRegistry()
 
+# ── LCM Context instances (per-soul, keyed by lowercase soul name) ──
+_contexts: dict[str, LCMContext] = {}
+
+
+async def _get_or_create_context(soul_name: str) -> LCMContext:
+    """Return (or create) the LCMContext for a soul. Uses in-memory SQLite."""
+    key = soul_name.lower()
+    if key not in _contexts:
+        ctx = LCMContext(db_path=":memory:", engine=_engine)
+        await ctx.initialize()
+        _contexts[key] = ctx
+        print(f"soul-mcp: LCM context initialized for {soul_name}", file=sys.stderr, flush=True)
+    return _contexts[key]
+
+
 # ── MCPSamplingEngine cache ──
 # Lazily constructed on the first tool call that carries a FastMCP Context.
 # Reused across all subsequent calls within the session.
@@ -217,6 +233,9 @@ def _get_or_create_engine(ctx: Context) -> MCPSamplingEngine:
         # Wire the engine into every loaded soul
         for soul in _registry._souls.values():
             soul.set_engine(_engine)
+        # Wire the engine into any existing LCM contexts (for Level 1/2 compaction)
+        for lcm_ctx in _contexts.values():
+            lcm_ctx._compactor._engine = _engine
         print(
             "soul-mcp: MCPSamplingEngine wired — cognitive tasks routed to host LLM",
             file=sys.stderr,
@@ -363,6 +382,15 @@ async def _lifespan(server: FastMCP):
                 file=sys.stderr,
                 flush=True,
             )
+
+    # Close LCM contexts
+    for lcm_ctx in _contexts.values():
+        try:
+            await lcm_ctx.close()
+        except Exception:
+            pass
+    _contexts.clear()
+
     _registry.clear()
     _engine = None
 
@@ -795,6 +823,169 @@ async def soul_reload(
             "memories": reloaded.memory_count,
         }
     )
+
+
+# --- Context Tools (LCM — Lossless Context Management) ---
+
+
+@mcp.tool
+async def soul_context_ingest(
+    role: str,
+    content: str,
+    soul: str | None = None,
+) -> str:
+    """Ingest a message into the soul's context store.
+
+    Messages are immutable once stored — the store never updates or deletes them.
+    Compaction runs automatically when the token budget is approached.
+
+    Args:
+        role: Message role (e.g., "user", "assistant", "system").
+        content: Message content text.
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    ctx = await _get_or_create_context(s.name)
+    msg_id = await ctx.ingest(role, content)
+    desc = await ctx.describe()
+    return json.dumps({
+        "message_id": msg_id,
+        "soul": s.name,
+        "total_messages": desc.total_messages,
+        "total_tokens": desc.total_tokens,
+    })
+
+
+@mcp.tool
+async def soul_context_assemble(
+    max_tokens: int = 100_000,
+    system_reserve: int = 0,
+    soul: str | None = None,
+) -> str:
+    """Assemble a context window that fits within the token budget.
+
+    Returns ordered nodes (verbatim + compacted) ready for LLM injection.
+    Applies three-level compaction as needed: Summary (LLM), Bullets (LLM),
+    Truncation (deterministic, guaranteed convergence).
+
+    Args:
+        max_tokens: Token budget for the assembled context.
+        system_reserve: Tokens to reserve for system prompts / tool schemas.
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    ctx = await _get_or_create_context(s.name)
+    result = await ctx.assemble(max_tokens, system_reserve=system_reserve)
+    return json.dumps({
+        "soul": s.name,
+        "node_count": len(result.nodes),
+        "total_tokens": result.total_tokens,
+        "compaction_applied": result.compaction_applied,
+        "nodes": [
+            {
+                "level": n.level.value,
+                "content": n.content,
+                "token_count": n.token_count,
+                "seq_range": [n.seq_start, n.seq_end],
+            }
+            for n in result.nodes
+        ],
+    })
+
+
+@mcp.tool
+async def soul_context_grep(
+    pattern: str,
+    limit: int = 20,
+    soul: str | None = None,
+) -> str:
+    """Search the soul's context history by regex pattern.
+
+    Searches the immutable message store — even compacted messages are
+    searchable since originals are never deleted.
+
+    Args:
+        pattern: Regex pattern to search for.
+        limit: Maximum number of results.
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    ctx = await _get_or_create_context(s.name)
+    hits = await ctx.grep(pattern, limit=limit)
+    return json.dumps({
+        "soul": s.name,
+        "count": len(hits),
+        "results": [
+            {
+                "message_id": h.message_id,
+                "seq": h.seq,
+                "role": h.role,
+                "snippet": h.content_snippet,
+            }
+            for h in hits
+        ],
+    })
+
+
+@mcp.tool
+async def soul_context_expand(
+    node_id: str,
+    soul: str | None = None,
+) -> str:
+    """Expand a compacted node back to its original messages.
+
+    Walks the DAG to recover verbatim content that was summarized or truncated.
+    Nothing is ever truly lost — this is the "lossless" in Lossless Context Management.
+
+    Args:
+        node_id: The ID of the compacted node to expand.
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    ctx = await _get_or_create_context(s.name)
+    result = await ctx.expand(node_id)
+    return json.dumps({
+        "soul": s.name,
+        "node_id": result.node_id,
+        "level": result.level.value,
+        "original_count": len(result.original_messages),
+        "messages": [
+            {
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "seq": m.seq,
+            }
+            for m in result.original_messages
+        ],
+    })
+
+
+@mcp.tool
+async def soul_context_describe(
+    soul: str | None = None,
+) -> str:
+    """Get a metadata snapshot of the soul's context store.
+
+    Returns message count, token totals, date range, and compaction statistics.
+
+    Args:
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    ctx = await _get_or_create_context(s.name)
+    desc = await ctx.describe()
+    return json.dumps({
+        "soul": s.name,
+        "total_messages": desc.total_messages,
+        "total_nodes": desc.total_nodes,
+        "total_tokens": desc.total_tokens,
+        "compaction_stats": desc.compaction_stats,
+        "date_range": [
+            desc.date_range[0].isoformat() if desc.date_range[0] else None,
+            desc.date_range[1].isoformat() if desc.date_range[1] else None,
+        ],
+    })
 
 
 # --- Resources (3) ---
