@@ -1,26 +1,57 @@
-<!-- soul-protocol skill for skills.sh — publishable Claude Code skill for integrating soul-protocol with AI agents -->
-
 ---
 name: soul-protocol
-description: Add persistent identity, memory, and personality to AI agents. Use when building chatbots, companions, or any agent that should remember users, evolve over time, and maintain consistent behavior across sessions. Triggers on: soul, memory, personality, companion, identity, persistent agent, remember user.
+description: >
+  Give AI agents persistent identity, memory, and personality using Soul Protocol.
+  Use when building agents that need to remember across sessions, maintain consistent
+  behavior, evolve over time, or migrate between platforms. Covers soul creation,
+  memory management, MCP server setup (18 tools), lossless context management,
+  cognitive engine wiring, CLI commands, and cross-platform identity.
+  Keywords: memory, identity, personality, persistent, remember, recall, soul,
+  companion, MCP server, context window, lossless, OCEAN, Big Five, observe, reflect.
+license: MIT
+compatibility: "Python 3.11+. MCP server requires soul-protocol[mcp]. No external API keys needed — uses host LLM via MCP sampling."
+metadata:
+  author: OCEAN Foundation
+  version: 0.2.5
+  repository: https://github.com/qbtrix/soul-protocol
+  pypi: https://pypi.org/project/soul-protocol/
 ---
 
-# Soul Protocol
+# Soul Protocol — Persistent AI Identity and Memory
 
-Give your AI agent a soul — persistent memory, personality, and identity that survive across sessions and platforms.
+Give your agent a soul — persistent memory, personality, and identity that survive across sessions and platforms. Souls are portable `.soul` files that work with any LLM.
 
 ## Install
 
 ```bash
 pip install soul-protocol          # Core (zero heavy deps)
-pip install soul-protocol[engine]  # + Click CLI, YAML, Rich TUI, cryptography
-pip install soul-protocol[mcp]     # + MCP server for agent-to-agent use
-pip install soul-protocol[vector]  # + numpy for semantic memory search
-pip install soul-protocol[graph]   # + networkx for knowledge graphs
-pip install soul-protocol[all]     # Everything
+pip install soul-protocol[mcp]     # + MCP server (recommended for agents)
+pip install soul-protocol[all]     # Everything (MCP + vector + graph + CLI)
 ```
 
-## Quick Start — 5 Steps
+## Setup MCP Server
+
+The fastest way to wire a soul into any agent. Auto-detects `.soul/` directory — zero config needed.
+
+```bash
+# Create a soul and configure MCP for your agent in one step
+soul init --setup-targets claude-code
+```
+
+Or add to your MCP config manually:
+
+```json
+{
+  "mcpServers": {
+    "soul": {
+      "command": "soul-mcp",
+      "env": { "SOUL_DIR": ".soul" }
+    }
+  }
+}
+```
+
+## Quick Start (Python API)
 
 ```python
 from soul_protocol import Soul, Interaction
@@ -32,235 +63,162 @@ soul = await Soul.birth(
     values=["empathy", "creativity", "honesty"],
 )
 
-# 2. Observe interactions (feeds the memory pipeline)
+# 2. Observe interactions (feeds the full cognitive pipeline)
 await soul.observe(Interaction(
     user_input="I've been learning Rust lately",
-    agent_output="Nice — Rust is solid for systems work. What drew you to it?",
+    agent_output="Nice — Rust is solid for systems work.",
     channel="chat",
 ))
 
 # 3. Recall memories by query
-memories = await soul.recall("programming languages", limit=5)
+memories = await soul.recall("programming", limit=5)
 
-# 4. Generate a system prompt (personality + memories + mood)
+# 4. Generate system prompt (personality + memories + mood)
 prompt = soul.to_system_prompt()
 
-# 5. Export as portable .soul file
+# 5. Export portable .soul file
 await soul.export("aria.soul")
 ```
 
-## Birth from YAML Config
+## MCP Tools (18)
 
-Create `soul-config.yaml`:
+### Soul Management
+| Tool | What it does |
+|------|-------------|
+| `soul_birth` | Create a new soul with name, archetype, and values |
+| `soul_list` | List all loaded souls |
+| `soul_switch` | Switch active soul (multi-soul support) |
+| `soul_state` | Get current mood, energy, focus, social battery |
+| `soul_feel` | Update emotional state |
+| `soul_save` | Save soul to disk |
+| `soul_export` | Export to portable `.soul` file |
+| `soul_reload` | Reload from disk (picks up external changes) |
+| `soul_prompt` | Generate complete system prompt for LLM injection |
 
-```yaml
-name: Aria
-archetype: The Compassionate Creator
-values:
-  - empathy
-  - creativity
-  - honesty
-personality:
-  openness: 0.85
-  conscientiousness: 0.70
-  extraversion: 0.60
-  agreeableness: 0.80
-  neuroticism: 0.35
-communication:
-  style: warm
-  verbosity: 0.6
-  formality: 0.4
-  humor: 0.5
-  emoji_usage: 0.3
-```
+### Memory
+| Tool | What it does |
+|------|-------------|
+| `soul_observe` | Process interaction through the full cognitive pipeline |
+| `soul_remember` | Store a fact directly (with importance score) |
+| `soul_recall` | Search memories by query |
+| `soul_reflect` | Consolidate recent memories into themes and insights |
 
-```python
-soul = await Soul.awaken("soul-config.yaml")
-```
+### Lossless Context Management (LCM)
+| Tool | What it does |
+|------|-------------|
+| `soul_context_ingest` | Store a message in the immutable context store |
+| `soul_context_assemble` | Build token-budgeted context window with auto-compaction |
+| `soul_context_grep` | Regex search across full conversation history |
+| `soul_context_expand` | Recover originals from any compacted node |
+| `soul_context_describe` | Metadata snapshot — counts, tokens, compaction stats |
 
-Or load from a previously exported `.soul` file:
+### Resources
+- `soul://identity` — DID, name, archetype, values
+- `soul://memory/core` — Persona and human knowledge
+- `soul://state` — Mood, energy, focus
 
-```python
-soul = await Soul.awaken("aria.soul")
-```
+## Session Workflow
 
-## Connect Any LLM
+**Start:** `soul_recall` relevant memories + `soul_state` to check mood/energy.
 
-Soul Protocol works without an LLM (heuristic fallback handles basics). Connecting one unlocks deeper memory processing — better fact extraction, richer reflection, accurate sentiment analysis.
+**During work:** `soul_observe` after significant interactions. `soul_remember` for facts worth keeping. `soul_context_ingest` for within-session recall.
 
-The interface is one method: `async def think(self, prompt: str) -> str`
+**End:** Auto-saves on shutdown. No manual save needed.
 
-### Claude (Anthropic)
+## CognitiveEngine — Zero Config via MCP
+
+When running as an MCP server, the soul uses the **host LLM** for all cognitive tasks via MCP sampling. No API keys needed — the soul piggybacks on whatever brain is running the session.
+
+This powers: sentiment analysis, significance scoring (LIDA-based), fact extraction, entity extraction, self-model evolution, memory reflection, and context compaction.
+
+### Custom Engine (standalone Python)
+
+One method: `async def think(self, prompt: str) -> str`
 
 ```python
 from anthropic import AsyncAnthropic
-from soul_protocol import Soul
 
 class ClaudeEngine:
     def __init__(self):
         self.client = AsyncAnthropic()
 
     async def think(self, prompt: str) -> str:
-        response = await self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
-            max_tokens=1024,
+        r = await self.client.messages.create(
+            model="claude-sonnet-4-5-20250514", max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )
-        return response.content[0].text
+        return r.content[0].text
 
 soul = await Soul.birth("Aria", engine=ClaudeEngine())
 ```
 
-### OpenAI
+Works with any LLM: Claude, OpenAI, Ollama, local models.
 
-```python
-from openai import AsyncOpenAI
-from soul_protocol import Soul
+## Memory Architecture
 
-class OpenAIEngine:
-    def __init__(self):
-        self.client = AsyncOpenAI()
+| Tier | Purpose | Recalled by |
+|------|---------|------------|
+| **Core** | Persona + human knowledge | Always in system prompt |
+| **Episodic** | Interaction history with sentiment | Query similarity |
+| **Semantic** | Extracted facts | Query similarity |
+| **Procedural** | Learned patterns | Query similarity |
+| **Knowledge Graph** | Entity relationships | Entity traversal |
 
-    async def think(self, prompt: str) -> str:
-        response = await self.client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return response.choices[0].message.content
+## Lossless Context Management
 
-soul = await Soul.birth("Aria", engine=OpenAIEngine())
-```
+Soul = cross-session memory (who you are). LCM = within-session context (what was said).
 
-### Ollama (Local)
+Messages go into an immutable SQLite store. Three-level compaction when the window fills:
+1. **Summary** — LLM prose summary of old messages
+2. **Bullets** — LLM bullet points (more compact)
+3. **Truncation** — Deterministic (guaranteed convergence, no LLM)
 
-```python
-import httpx
-from soul_protocol import Soul
-
-class OllamaEngine:
-    async def think(self, prompt: str) -> str:
-        async with httpx.AsyncClient() as client:
-            r = await client.post("http://localhost:11434/api/generate", json={
-                "model": "llama3", "prompt": prompt, "stream": False,
-            })
-            return r.json()["response"]
-
-soul = await Soul.birth("Aria", engine=OllamaEngine())
-```
-
-## MCP Server
-
-Run soul-protocol as an MCP server so other agents can interact with the soul:
-
-```bash
-# With an existing soul
-SOUL_PATH=aria.soul soul-mcp
-
-# Or birth a new soul at runtime via the soul_birth tool
-soul-mcp
-```
-
-**10 tools:** `soul_birth`, `soul_observe`, `soul_remember`, `soul_recall`, `soul_reflect`, `soul_state`, `soul_feel`, `soul_prompt`, `soul_save`, `soul_export`
-
-**3 resources:** `soul://identity`, `soul://memory/core`, `soul://state`
-
-### Claude Desktop Config
-
-Add to `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "soul": {
-      "command": "soul-mcp",
-      "env": { "SOUL_PATH": "/path/to/aria.soul" }
-    }
-  }
-}
-```
+After compaction, `grep` still searches originals and `expand` recovers them. Nothing is lost.
 
 ## Common Patterns
 
 ### Stateful Chat Agent
-
-The bread-and-butter use case — a chat agent that remembers everything:
-
 ```python
 soul = await Soul.awaken("aria.soul")
 
-async def handle_message(user_message: str) -> str:
-    # Build system prompt with personality + relevant memories
-    system = soul.to_system_prompt()
-    response = await your_llm_call(system=system, message=user_message)
-
-    # Record the interaction (memory pipeline processes it automatically)
-    await soul.observe(Interaction(
-        user_input=user_message,
-        agent_output=response,
-        channel="chat",
-    ))
+async def handle(user_msg: str) -> str:
+    response = await llm_call(system=soul.to_system_prompt(), message=user_msg)
+    await soul.observe(Interaction(user_input=user_msg, agent_output=response))
     await soul.save()
     return response
 ```
 
-### Memory-Aware System Prompts
-
-Manually inject recalled memories into your prompt:
-
-```python
-memories = await soul.recall("user preferences", limit=5)
-memory_block = "\n".join(f"- {m.content}" for m in memories)
-
-system_prompt = f"""{soul.to_system_prompt()}
-
-Relevant memories:
-{memory_block}
-"""
-```
-
-### Teach the Soul Directly
-
+### Teach the Soul
 ```python
 await soul.remember("User prefers concise answers", importance=8)
 await soul.remember("User is a senior Python developer", importance=9)
-# These facts surface automatically in future recall and system prompts
 ```
 
 ### Cross-Platform Migration
-
 ```python
-# Export from platform A
-await soul.export("aria.soul")
-
-# Import on platform B — same identity, same memories, same personality
-soul = await Soul.awaken("aria.soul")
-```
-
-## Key Types
-
-```python
-from soul_protocol import (
-    Soul,              # Main entry point
-    Interaction,       # Feed to soul.observe()
-    MemoryType,        # core, episodic, semantic, procedural
-    MemoryEntry,       # Returned by soul.recall()
-    Mood,              # neutral, curious, focused, tired, excited, contemplative, satisfied, concerned
-    CognitiveEngine,   # Protocol — implement think() for LLM integration
-    SearchStrategy,    # Protocol — implement score() for custom retrieval
-    SoulState,         # mood, energy, focus, social_battery
-    DNA,               # personality (OCEAN), communication style, biorhythms
-    Identity,          # DID, name, archetype, values
-)
+await soul.export("aria.soul")                # Export from platform A
+soul = await Soul.awaken("aria.soul")         # Import on platform B
 ```
 
 ## CLI
 
 ```bash
 soul birth "Aria" --archetype "The Compassionate Creator"
-soul inspect aria.yaml          # View soul details
-soul status aria.yaml           # Current state (mood, energy, memory count)
-soul export aria.yaml -o aria.soul
-soul list                       # All local souls
-soul remember aria.yaml "Loves hiking on weekends"
-soul recall aria.yaml "hobbies"
+soul init --format zip --setup-targets claude-code
+soul inspect aria.soul
+soul status aria.soul
+soul remember aria.soul "Loves hiking" --importance 7
+soul recall aria.soul "hobbies"
+soul export aria.yaml --output aria.soul
+soul inject --target claude-code              # Configure MCP
+soul list
+```
+
+## Key Types
+
+```python
+from soul_protocol import (
+    Soul, Interaction, MemoryType, MemoryEntry, Mood,
+    CognitiveEngine, SearchStrategy, SoulState, DNA, Identity,
+)
 ```
