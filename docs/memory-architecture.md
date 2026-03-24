@@ -1,9 +1,13 @@
 <!-- Covers: The 5-tier memory system, psychology-informed observe() pipeline,
      ACT-R activation scoring, cross-store recall, pluggable retrieval,
      reflection/consolidation, fact conflict resolution, memory settings,
-     and v2 features: MemoryCategory, salience, L0/L1 content layers,
+     v2 features: MemoryCategory, salience, L0/L1 content layers,
      extraction taxonomy, dedup pipeline, abstract generation.
-     Updated: 2026-03-13 — added v2 memory features documentation. -->
+     v0.2.5 additions: memory visibility tiers (PUBLIC/BONDED/PRIVATE),
+     contradiction pipeline with ContradictionDetector in observe(),
+     Long Context Memory (LCM) with ContextStore and 3-level compaction,
+     real embedding providers (SentenceTransformer, OpenAI, Ollama).
+     Updated: 2026-03-24 — added v0.2.5 memory features documentation. -->
 
 # Memory Architecture
 
@@ -22,6 +26,7 @@ Interaction
 |  2. Significance -> LIDA Gate         |
 |  3. Fact Extraction -> Semantic       |
 |  4. Entity Extraction -> Graph        |
+|  4d. Contradiction Scan -> Supersede  |
 |  5. Self-Model Update -> Klein        |
 +--------------------------------------+
     |
@@ -103,6 +108,52 @@ Python --[uses]--> User
 PocketPaw --[builds]--> User
 FastAPI --[uses]--> User
 ```
+
+
+## Memory Visibility Tiers (v0.2.5)
+
+Every `MemoryEntry` now carries a `visibility` field that controls who can access the memory. This adds a privacy layer on top of the existing memory system.
+
+### Three Visibility Levels
+
+| Level | Value | Who can see it |
+|-------|-------|---------------|
+| **PUBLIC** | `"public"` | Any requester -- visible to all connected agents, users, and bonded souls |
+| **BONDED** | `"bonded"` | Only bonded souls/users -- the requester must have an active bond with the soul |
+| **PRIVATE** | `"private"` | Only the soul itself -- invisible to all external requesters |
+
+### How Visibility Filtering Works
+
+Recall is automatically filtered by requester identity and bond strength. When `soul.recall()` is called:
+
+1. The requester's identity (DID or session context) is checked
+2. If the requester is the soul itself, all memories are visible (PUBLIC + BONDED + PRIVATE)
+3. If the requester has an active bond with the soul, PUBLIC and BONDED memories are visible
+4. Otherwise, only PUBLIC memories are returned
+
+This filtering happens transparently inside the recall engine -- callers do not need to manually filter results.
+
+### Setting Visibility
+
+Visibility can be set at creation time or updated later:
+
+```python
+# Set visibility when observing
+await soul.observe(
+    "User shared their home address",
+    visibility="private"
+)
+
+# Set visibility when remembering a fact
+await soul.remember(
+    "User's favorite color is blue",
+    visibility="public"
+)
+
+# Default visibility is PUBLIC for backward compatibility
+```
+
+Visibility is persisted in the `.soul` file and survives export/import round-trips. Existing memories without a visibility field default to `PUBLIC` during migration.
 
 
 ## Psychology Pipeline (observe())
@@ -195,6 +246,35 @@ Three detection strategies run in sequence:
 
 Extracted entities are fed into the knowledge graph via `update_graph()`.
 
+### Step 4d: Contradiction Pipeline (v0.2.5)
+
+After entity extraction, `observe()` now runs a raw-text contradiction scan against the semantic store on every memory write. This is handled by the `ContradictionDetector`, which catches life-change statements that the older template-prefix approach would miss.
+
+**How it works:**
+
+1. The `ContradictionDetector` scans the incoming text for verb-fact patterns that signal a state change.
+2. Detected patterns include:
+   - **Location changes:** "moved to X", "relocated to X", "living in X now"
+   - **Employer changes:** "joined Y", "works at Z", "started at Y", "left Z"
+   - **Role changes:** "promoted to X", "switched to X role", "now a X"
+   - **Relationship changes:** "married", "divorced", "broke up with"
+3. For each detected verb-fact pattern, the detector queries the semantic store for existing facts with overlapping subjects (e.g., all facts about where the user lives or works).
+4. Contradicting facts are automatically marked as superseded (`superseded_by = new_fact_id`) rather than accumulating as duplicates.
+
+**Example:**
+
+```python
+# Session 1: user says "I work at Acme Corp"
+# -> Semantic memory stores: "User works at Acme Corp"
+
+# Session 2: user says "I joined Globex last month"
+# -> ContradictionDetector matches "joined Y" pattern
+# -> Finds existing fact "User works at Acme Corp"
+# -> Supersedes old fact, stores "User works at Globex"
+```
+
+This runs as part of the standard `observe()` pipeline -- no additional API calls needed. The detector integrates between entity extraction (Step 4) and self-model update (Step 5), ensuring the knowledge graph and semantic store stay consistent.
+
 ### Step 5: Self-Model Update (Klein's Self-Concept)
 
 The soul learns who it is from accumulated interactions. Six fixed domains are tracked:
@@ -260,8 +340,9 @@ total      = 1.0 * base + 1.5 * spread + 0.5 * emo + noise(0, 0.1)
 1. Each store runs its own `search()` to find candidates with relevance > 0.0
 2. All candidates are merged into a single list
 3. Candidates are scored by ACT-R activation (without noise)
-4. Results are sorted by activation descending and returned up to `limit`
-5. Access timestamps on retrieved entries are updated (strengthens future recall)
+4. **Visibility filtering** is applied based on requester identity and bond strength (v0.2.5)
+5. Results are sorted by activation descending and returned up to `limit`
+6. Access timestamps on retrieved entries are updated (strengthens future recall)
 
 The timestamp update creates a reinforcement loop: memories that get recalled become easier to recall again. This mirrors the psychological "use it or lose it" principle.
 
@@ -318,6 +399,46 @@ soul = await Soul.birth("Aria", search_strategy=EmbeddingSearch(my_embed))
 The strategy is injected at `Soul.birth()` and propagates to `RecallEngine` and `compute_activation()`. You do not need to change any other code.
 
 
+## Real Embedding Providers (v0.2.5)
+
+While the `SearchStrategy` protocol lets you bring any scoring function, v0.2.5 ships three production-ready embedding providers that plug directly into the memory pipeline for vector-based semantic recall. These replace the hash-based default with real embeddings.
+
+### Available Providers
+
+| Provider | Class | Backend | Dependencies |
+|----------|-------|---------|-------------|
+| **SentenceTransformer** | `SentenceTransformerEmbedder` | Local model (e.g., `all-MiniLM-L6-v2`) | `sentence-transformers` |
+| **OpenAI** | `OpenAIEmbedder` | OpenAI Embeddings API (`text-embedding-3-small`) | `openai` |
+| **Ollama** | `OllamaEmbedder` | Local via Ollama server | `httpx` (already a dep) |
+
+### Usage
+
+```python
+from soul_protocol.runtime.embeddings import SentenceTransformerEmbedder
+
+embedder = SentenceTransformerEmbedder(model="all-MiniLM-L6-v2")
+soul = await Soul.birth("Aria", search_strategy=embedder)
+```
+
+```python
+from soul_protocol.runtime.embeddings import OpenAIEmbedder
+
+embedder = OpenAIEmbedder(api_key="sk-...", model="text-embedding-3-small")
+soul = await Soul.birth("Aria", search_strategy=embedder)
+```
+
+```python
+from soul_protocol.runtime.embeddings import OllamaEmbedder
+
+embedder = OllamaEmbedder(model="nomic-embed-text", base_url="http://localhost:11434")
+soul = await Soul.birth("Aria", search_strategy=embedder)
+```
+
+All three implement `SearchStrategy`, so they drop in wherever the default `TokenOverlapStrategy` was used. Each provider computes cosine similarity between query and content embeddings, returning a 0.0-1.0 score that feeds into the ACT-R spreading activation component.
+
+The hash-based default remains the zero-dependency fallback. No new required dependencies were added to the core package -- each embedding provider is an optional extra (`pip install soul-protocol[embeddings]` for SentenceTransformer, or bring your own OpenAI/Ollama client).
+
+
 ## Reflection and Consolidation
 
 ### reflect()
@@ -348,6 +469,84 @@ The consolidation returns a dict summarizing what was applied:
 result = await soul.reflect()
 # result: {"summaries": 3, "general_events": 2, "self_insight": True, "emotional_pattern": True}
 ```
+
+
+## Long Context Memory (v0.2.5)
+
+The `soul_protocol.runtime.context` package provides Long Context Memory (LCM) -- a SQLite-backed conversation store that keeps conversations coherent at 100k+ tokens without losing earlier context.
+
+### Problem
+
+Long conversations exceed LLM context windows. Naive truncation loses early context. Simply stuffing everything into the prompt wastes tokens on low-relevance turns.
+
+### Architecture
+
+LCM introduces `ContextStore`, which sits alongside the 5-tier memory system and handles raw conversation history with intelligent compaction.
+
+```
+Conversation Turns
+    |
+    v
++---------------------------+
+|      ContextStore         |
+|  (SQLite-backed)          |
+|                           |
+|  Recent turns  -> Full    |
+|  Older turns   -> Bullets |
+|  Ancient turns -> Summary |
++---------------------------+
+    |
+    v
+  Compacted context window
+  (fits within token budget)
+```
+
+### Three-Level Compaction
+
+| Level | Age | Representation | Token cost |
+|-------|-----|----------------|------------|
+| **Full** | Recent (last N turns) | Original text, verbatim | High |
+| **Bullets** | Older | Key points as bullet list | ~20% of original |
+| **Summary** | Ancient | Single paragraph summary | ~5% of original |
+
+Compaction runs automatically when the context window exceeds the configured token budget. Turns are progressively compressed from oldest to newest:
+
+1. **Summary**: The oldest turns are collapsed into a running summary paragraph
+2. **Bullets**: Mid-age turns are reduced to bullet-point key points
+3. **Truncate**: If still over budget after compaction, the least-relevant bullets are dropped
+
+### Relevance-Weighted Retrieval
+
+Not all past conversation is equally relevant to the current turn. LCM builds a hierarchical DAG (directed acyclic graph) of conversation topics and retrieves context weighted by relevance to the active topic.
+
+When assembling context for a new turn:
+
+1. The current message is analyzed for topic signals
+2. The DAG is traversed to find related earlier conversation segments
+3. Relevant segments are promoted (kept at higher fidelity) even if they are old
+4. Irrelevant segments are compacted more aggressively
+
+This means a user can reference something from 200 turns ago and the soul will still have that context available -- as long as it is topically connected.
+
+### Usage
+
+```python
+from soul_protocol.runtime.context import ContextStore
+
+store = ContextStore(db_path="conversations.db")
+
+# Record turns
+await store.add_turn(role="user", content="Tell me about Python decorators")
+await store.add_turn(role="assistant", content="Decorators are functions that...")
+
+# Get compacted context for the next LLM call
+context = await store.get_context(token_budget=4000)
+# Returns a list of messages, with older turns compacted
+```
+
+### Zero New Dependencies
+
+`ContextStore` uses `sqlite3` from the Python standard library. No additional packages are required. The SQLite database is stored alongside the `.soul` file or at a configurable path.
 
 
 ## Memory Settings

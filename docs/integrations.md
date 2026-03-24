@@ -1,6 +1,9 @@
 <!-- Covers: Platform integration guide for Soul Protocol. CLI injection (soul inject), MCP server,
      Claude Code, Claude Desktop, Cursor, Windsurf, custom Python agents, LangChain/LangGraph, CrewAI,
-     integration tiers, portability patterns, and MCP tools reference table.
+     integration tiers, portability patterns, MCP tools reference table, format importers, and A2A bridge.
+     Updated: 2026-03-24 — Added MCP Sampling Engine (ctx.sample() for host-delegated cognition),
+     A2A Bridge (Google Agent Card bidirectional conversion), and Format Importers
+     (SoulSpecImporter, TavernAIImporter) for migrating characters from other platforms.
      Updated: 2026-03-13 — Added Tier 1.5 (soul inject), multi-soul SOUL_DIR, updated tool count to 12.
      Updated: 2026-03-02 — Replaced dashboard references with inspect TUI. -->
 
@@ -47,6 +50,23 @@ See the [CLI Reference](cli-reference.md#soul-inject) for full options.
 Run the Soul Protocol MCP server alongside your agent. The agent actively calls soul tools to recall memories, observe interactions, reflect on patterns, and evolve over time. Full bidirectional integration. Supports multiple souls via `SOUL_DIR`.
 
 Best for: production agents, persistent companions, any platform with MCP support.
+
+#### MCP Sampling Engine
+
+When the soul runs as an MCP server, cognitive tasks that normally require a separate LLM API key -- significance gating, fact extraction, entity extraction, reflection -- are delegated to the host application's LLM via `ctx.sample()`. The host (Claude Code, Claude Desktop, or any MCP-compatible client) handles the inference call, so the soul server itself needs no API key and no direct LLM dependency.
+
+This means:
+- **Zero configuration.** Install `soul-protocol[mcp]`, point `SOUL_PATH`, done. The host's model handles all reasoning.
+- **Works everywhere MCP works.** Claude Code, Claude Desktop, Cursor, Windsurf -- any host that implements MCP sampling.
+- **No token costs on the soul side.** Cognitive calls ride on the host's existing model context, so there is no separate billing or rate limiting to manage.
+
+Under the hood, the MCP server wraps each cognitive task (e.g., "score the significance of this interaction" or "extract facts from this conversation") into a structured prompt and sends it through `ctx.sample()`. The host LLM returns the result, and the soul's psychology pipeline continues with that output. If the host does not support sampling, the server falls back to the `HeuristicEngine` (rule-based, no LLM needed).
+
+```python
+# No change needed in your MCP config -- sampling is automatic.
+# The soul-mcp server calls ctx.sample() internally when it needs cognition.
+# Your host LLM (Claude, GPT, etc.) handles the thinking.
+```
 
 
 ## Claude Code
@@ -498,6 +518,96 @@ soul export aria.soul --output snapshots/aria-v2.soul
 ```
 
 Roll back by loading an earlier snapshot. The soul picks up from that point with all its memories intact up to that moment.
+
+
+## A2A Bridge -- Google Agent Cards
+
+The `A2AAgentCardBridge` provides bidirectional conversion between `.soul` files and [Google A2A Agent Cards](https://google.github.io/A2A/). This lets souls participate in the A2A ecosystem and lets existing A2A agents adopt soul-based identity.
+
+### Export a Soul to an Agent Card
+
+```bash
+soul export-a2a my-agent.soul --output agent-card.json
+```
+
+This maps soul identity (name, archetype, values, skills) to the A2A Agent Card schema. The resulting JSON can be published to any A2A-compatible registry or used directly in A2A workflows.
+
+### Import an Agent Card as a Soul
+
+```bash
+soul import-a2a agent-card.json --output my-agent.soul
+```
+
+This reads an A2A Agent Card and creates a `.soul` file with the agent's name, description, capabilities, and skills mapped to soul DNA. The imported soul starts with empty memory tiers, ready to begin forming its own experiences.
+
+### Python API
+
+```python
+from soul_protocol.bridges import A2AAgentCardBridge
+
+# Soul → Agent Card
+bridge = A2AAgentCardBridge()
+agent_card = bridge.to_agent_card(soul)
+
+# Agent Card → Soul
+soul = bridge.from_agent_card(agent_card_dict)
+```
+
+The bridge preserves as much identity information as both formats support. Fields that exist in one format but not the other (e.g., soul's OCEAN personality, A2A's endpoint URLs) are stored in metadata so round-tripping doesn't lose data.
+
+
+## Format Importers -- Migrating From Other Platforms
+
+Soul Protocol can import characters from other persona formats, so you don't have to start from scratch when migrating to `.soul`.
+
+### SoulSpecImporter -- SOUL.md / soul.json
+
+Import persona files written in the SOUL.md or soul.json conventions (common in prompt engineering and agent frameworks):
+
+```bash
+soul import soul-spec persona.md --output my-agent.soul
+soul import soul-spec config/soul.json --output my-agent.soul
+```
+
+```python
+from soul_protocol.importers import SoulSpecImporter
+
+importer = SoulSpecImporter()
+soul = importer.from_file("persona.md")
+```
+
+The importer parses name, personality traits, backstory, values, and instructions from the source file and maps them to soul DNA fields. Markdown headers, YAML frontmatter, and JSON structures are all supported.
+
+### TavernAIImporter -- Character Card V2
+
+Import characters from TavernAI / SillyTavern Character Card V2 format, including both standalone JSON files and PNG files with embedded character data in the tEXt chunk:
+
+```bash
+soul import tavern character.json --output my-agent.soul
+soul import tavern character.png --output my-agent.soul
+```
+
+```python
+from soul_protocol.importers import TavernAIImporter
+
+importer = TavernAIImporter()
+
+# From JSON
+soul = importer.from_file("character.json")
+
+# From PNG with embedded tEXt chunk (no Pillow dependency)
+soul = importer.from_file("character.png")
+```
+
+The importer maps Character Card V2 fields -- `name`, `description`, `personality`, `scenario`, `first_mes`, `mes_example`, `creator_notes` -- to soul identity and core memory. PNG parsing uses only the standard library (zlib + struct), so there is no Pillow or image processing dependency.
+
+### Supported Formats
+
+| Format | File Types | Importer | CLI Command |
+|--------|-----------|----------|-------------|
+| SOUL.md / soul.json | `.md`, `.json` | `SoulSpecImporter` | `soul import soul-spec <file>` |
+| TavernAI Character Card V2 | `.json`, `.png` | `TavernAIImporter` | `soul import tavern <file>` |
+| A2A Agent Card | `.json` | `A2AAgentCardBridge` | `soul import-a2a <file>` |
 
 
 ## MCP Tools Reference

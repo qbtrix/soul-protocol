@@ -1,5 +1,8 @@
 <!-- Covers: Installation, optional extras, soul init quickstart, soul inject, first soul walkthrough,
      observe() pipeline explanation, next steps.
+     Updated: 2026-03-24 — v0.2.5: Added LLM engine extras (anthropic, openai, ollama, litellm, llm),
+       embedding extras (embeddings-st, embeddings-openai, embeddings-ollama), [all] meta-extra,
+       and engine="auto" quick start example.
      Updated: 2026-03-13 — Added soul inject section for fast agent integration.
      Updated: 2026-03-02 — Removed dashboard section (replaced by TUI in inspect/status). -->
 
@@ -20,16 +23,32 @@ The core package includes Pydantic models, YAML support, the Click CLI, Rich ter
 Install only what you need:
 
 ```bash
+# Infrastructure
 pip install soul-protocol[mcp]     # MCP server for agent integration (FastMCP)
 pip install soul-protocol[graph]   # Knowledge graph support (NetworkX)
 pip install soul-protocol[vector]  # NumPy for vector operations
 pip install soul-protocol[dev]     # Development tools (pytest, ruff, mypy)
+
+# LLM Engines (new in v0.2.5)
+pip install soul-protocol[anthropic]   # Anthropic Claude engine
+pip install soul-protocol[openai]      # OpenAI engine
+pip install soul-protocol[ollama]      # Ollama engine (local models)
+pip install soul-protocol[litellm]     # LiteLLM (100+ providers)
+pip install soul-protocol[llm]         # All LLM adapters at once
+
+# Embeddings (new in v0.2.5)
+pip install soul-protocol[embeddings-st]      # SentenceTransformer embeddings
+pip install soul-protocol[embeddings-openai]  # OpenAI embeddings
+pip install soul-protocol[embeddings-ollama]  # Ollama embeddings
+
+# Meta
+pip install soul-protocol[all]     # Everything
 ```
 
 You can combine extras:
 
 ```bash
-pip install soul-protocol[mcp,graph,vector]
+pip install soul-protocol[mcp,graph,anthropic]
 ```
 
 **Python version**: Requires Python 3.11 or later.
@@ -71,6 +90,26 @@ To export your `.soul/` folder as a portable archive:
 ```bash
 soul export .soul/ -o aria.soul
 ```
+
+
+## Quick Start: Wire Up an LLM
+
+If you have an LLM engine installed (e.g. `pip install soul-protocol[anthropic]`), you can let the soul auto-detect it:
+
+```python
+soul = await Soul.birth("my-agent", engine="auto")
+```
+
+`engine="auto"` picks the first available adapter based on your installed extras and environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.). If no adapter is found, it falls back to the built-in heuristic engine -- no LLM required.
+
+You can also be explicit:
+
+```python
+soul = await Soul.birth("my-agent", engine="anthropic")  # use Claude
+soul = await Soul.birth("my-agent", engine="ollama")     # use local Ollama
+```
+
+See the [CognitiveEngine Guide](cognitive-engine.md) for full details on each adapter.
 
 
 ## Your First Soul (Python)
