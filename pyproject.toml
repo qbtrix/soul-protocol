@@ -1,9 +1,6 @@
 # soul-protocol — Portable AI identity and memory
-# Updated: 2026-03-23 — v0.2.5 release: cognitive adapters, MCP sampling, real embeddings,
-#   LCM, memory visibility tiers, soul templates, A2A bridge, format importers,
-#   graph traversal, learning events, multi-participant interaction, multi-soul coordination spec.
-#   Bug fixes: contradiction detection in observe(), third-person relationship extraction,
-#   verb-based contradiction patterns, dedup tokenizer short token preservation.
+# Updated: 2026-03-24 — v0.2.6 release: MCP LCM context tools, CLI runtime parity (34 commands),
+#   soul directory auto-detect, dedup containment coefficient, CI dep fixes, docs refresh.
 
 [build-system]
 requires = ["hatchling"]
@@ -11,7 +8,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soul-protocol"
-version = "0.2.5"
+version = "0.2.6"
 description = "The open standard for portable AI identity and memory"
 readme = "README.md"
 license = "MIT"

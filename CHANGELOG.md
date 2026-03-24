@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.6] — 2026-03-24
+
+### Added
+
+- **MCP LCM context tools** — 5 new MCP tools expose Lossless Context Management through the soul server: `soul_context_ingest`, `soul_context_assemble`, `soul_context_grep`, `soul_context_expand`, `soul_context_describe`. Per-soul in-memory SQLite stores, CognitiveEngine auto-wired to compactors. (#138)
+- **CLI runtime parity** — 13 new CLI commands for full feature parity with the Python API: `observe`, `reflect`, `feel`, `prompt`, `forget`, `edit-core`, `evolve`, `evaluate`, `learn`, `skills`, `bond`, `events`, `context`. Total: 34 commands. (#138)
+- **Soul directory auto-detect** — MCP server now auto-detects `.soul/` in the working directory or `~/.soul/` when no `SOUL_DIR`/`SOUL_PATH` env var is set. Uses `Path.cwd()` for all install modes. Logs empty directory fallthrough. (#136)
+- **Docs refresh** — updated getting-started, cognitive-engine, integrations, and memory-architecture guides for v0.2.5 features. (#137)
+
+### Fixed
+
+- **Dedup containment coefficient** — enriched facts (where a short fact is a subset of a longer version) now correctly land in MERGE range instead of CREATE. Containment coefficient (`intersection / min-set * 0.75`) used as floor for Jaccard, with `min_size >= 3` guard against spurious matches. (#135)
+- **CI dependency resolution** — `dspy` and `litellm` extras emptied to prevent `uv sync` from failing on unresolvable transitive dependencies. Both can still be installed manually. (#136)
+- **MCP test isolation** — autouse fixture now monkeypatches CWD and `Path.home()` to prevent auto-detect from loading real souls during tests. (#136)
+
+---
+
 ## [0.2.5] — 2026-03-23
 
 ### Added

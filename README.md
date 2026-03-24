@@ -9,7 +9,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 1851 passing](https://img.shields.io/badge/tests-1851%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 1885 passing](https://img.shields.io/badge/tests-1885%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 
