@@ -68,7 +68,7 @@ dev = [
     "mypy>=1.8",
     "soul-protocol[engine]",
 ]
-all = ["soul-protocol[engine,mcp,graph,vector,dspy,llm,lcm,embeddings-st,embeddings-openai,embeddings-ollama]"]
+all = ["soul-protocol[engine,mcp,graph,vector,llm,lcm,embeddings-st,embeddings-openai,embeddings-ollama]"]
 
 [project.scripts]
 soul = "soul_protocol.cli.main:cli"
