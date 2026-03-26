@@ -1,4 +1,9 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-03-26 — Added _TOPIC_PATTERNS for richer entity extraction from
+#   natural speech ("I'm a data scientist", "I work on X", "we're building Y").
+#   Integrated topic extraction pass into extract_entities() before the existing
+#   first-person relation pass. Fixes dead knowledge graph + empty skills from
+#   conversations that lack capitalized proper nouns or KNOWN_TECH words.
 # Updated: fix/contradiction-pipeline — Added step 4d (raw-text contradiction scan)
 #   to observe() pipeline. When FACT_PATTERNS misses a location/employer/role update
 #   (e.g. "I moved to Amsterdam"), stored_facts is empty and step 4c never fires.
@@ -296,6 +301,29 @@ ENTITY_RELATIONS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"i (?:prefer|like|love)\b", re.IGNORECASE), "prefers"),
     (re.compile(r"i (?:work at|work for)\b", re.IGNORECASE), "works_at"),
     (re.compile(r"i(?:'m| am) (?:learning|studying)\b", re.IGNORECASE), "learns"),
+]
+
+# ---------------------------------------------------------------------------
+# Topic extraction patterns — capture concepts/topics from natural speech
+# Each pattern yields (name, type, relation).
+# ---------------------------------------------------------------------------
+_TOPIC_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
+    # "I'm a backend engineer" / "I am a data scientist"
+    (re.compile(r"i(?:'m| am) (?:a |an )([\w][\w /\-]+)", re.IGNORECASE), "role", "is"),
+    # "I work on the API layer" / "I work on machine learning"
+    (re.compile(r"i work on ([\w][\w /\-]+)", re.IGNORECASE), "topic", "works_on"),
+    # "I'm interested in distributed systems"
+    (re.compile(r"i(?:'m| am) interested in ([\w][\w /\-]+)", re.IGNORECASE), "topic", "interested_in"),
+    # "I'm working on a new feature" / "I'm working on soul protocol"
+    (re.compile(r"i(?:'m| am) working on ([\w][\w /\-]+)", re.IGNORECASE), "topic", "works_on"),
+    # "at Google" / "at Acme Corp" (organization)
+    (re.compile(r"(?:work|working) (?:at|for) ((?:[A-Z][\w]*(?:\s+[A-Z][\w]*){0,3}))"), "organization", "works_at"),
+    # "my project is called X" / "the project is X"
+    (re.compile(r"(?:project|app|tool|product) (?:is |called |named )([\w][\w\-]+)", re.IGNORECASE), "project", "builds"),
+    # "I manage a team" / "I lead the engineering team"
+    (re.compile(r"i (?:manage|lead|run|own) (?:a |the )?([\w][\w /\-]+)", re.IGNORECASE), "topic", "manages"),
+    # "we're building X" / "we are building X"
+    (re.compile(r"we(?:'re| are) (?:building|creating|making|developing) ([\w][\w /\-]+)", re.IGNORECASE), "project", "builds"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -982,6 +1010,23 @@ class MemoryManager:
                         "relation": None,
                         "relationships": [],
                     }
+
+        # --- Topic extraction pass: capture concepts from natural speech ---
+        for topic_pattern, entity_type, relation in _TOPIC_PATTERNS:
+            for match in topic_pattern.finditer(combined):
+                raw_name = match.group(1).strip().rstrip(".,;:!?")
+                # Limit to reasonable length and skip overly generic results
+                if len(raw_name) < 2 or len(raw_name) > 60:
+                    continue
+                key = raw_name.lower().replace(" ", "_")
+                if key in entities or key in _STOP_WORDS:
+                    continue
+                entities[key] = {
+                    "name": raw_name,
+                    "type": entity_type,
+                    "relation": relation,
+                    "relationships": [],
+                }
 
         # --- First-person relation pass (existing behaviour, backward compat) ---
         for entity_info in entities.values():

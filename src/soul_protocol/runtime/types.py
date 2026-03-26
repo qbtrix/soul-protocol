@@ -1,4 +1,6 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-03-26 — Added skills and evaluation_history fields to SoulConfig so
+#   that learned skills and evaluation history persist through export/awaken cycles.
 # Updated: v0.4.0 — Added ingested_at (bi-temporal) and superseded (contradiction detection)
 #   fields to MemoryEntry. ingested_at tracks when a memory entered the pipeline,
 #   superseded marks memories replaced by newer contradicting information.
@@ -419,6 +421,8 @@ class SoulConfig(BaseModel):
     state: SoulState = Field(default_factory=SoulState)
     evolution: EvolutionConfig = Field(default_factory=EvolutionConfig)
     lifecycle: LifecycleState = LifecycleState.BORN
+    skills: list[dict] = Field(default_factory=list)
+    evaluation_history: list[dict] = Field(default_factory=list)
 
 
 # ============ Interaction (input to observe()) ============

@@ -1,5 +1,12 @@
 # runtime/evaluation.py — Rubric-based self-evaluation for soul interactions.
 # Created: 2026-03-18 — MVP: heuristic evaluator, default rubrics, domain stats.
+# Updated: 2026-03-26 — Recalibrated heuristic scoring for realistic conversation scores:
+#   - completeness: 20-word threshold (was 40), so 2-sentence responses score ~1.0
+#   - relevance: uses len(user_tokens) as denominator (was max), so thorough
+#     agent responses aren't penalized for extra context
+#   - specificity: counts 6+ char words as specific content, *2 multiplier
+#   - evolution trigger: streak threshold 0.55 (was 0.70), trigger avg 0.55 (was 0.75)
+#   A solid technical conversation now scores ~0.65-0.80 and can trigger evolution.
 # Updated: 2026-03-22 — Added create_learning_event() to Evaluator.
 
 from __future__ import annotations
@@ -125,12 +132,21 @@ DEFAULT_RUBRICS: dict[str, Rubric] = {
 
 
 def _score_completeness(agent_output: str) -> float:
-    """Longer responses score higher, up to 40 words = 1.0."""
-    return min(1.0, len(agent_output.split()) / 40)
+    """Longer responses score higher, up to 20 words = 1.0.
+
+    Recalibrated: 40 words was too harsh — a solid 2-sentence response
+    (15-20 words) should score near 1.0, not 0.5.
+    """
+    return min(1.0, len(agent_output.split()) / 20)
 
 
 def _score_relevance(user_input: str, agent_output: str) -> float:
-    """Token overlap between input and output, excluding stop words."""
+    """Token overlap between input and output, excluding stop words.
+
+    Recalibrated: uses min(len) as denominator instead of max(len) so
+    that a thorough agent response with extra context doesn't get penalized
+    for having more tokens than the user's question.
+    """
     user_tokens = {
         w.lower() for w in user_input.split() if w.lower() not in STOP_WORDS
     }
@@ -140,8 +156,8 @@ def _score_relevance(user_input: str, agent_output: str) -> float:
     if not user_tokens or not agent_tokens:
         return 0.0
     shared = user_tokens & agent_tokens
-    max_tokens = max(len(user_tokens), len(agent_tokens))
-    return len(shared) / max_tokens
+    # Use user_tokens as denominator — did the agent address the user's terms?
+    return min(1.0, len(shared) / len(user_tokens))
 
 
 def _score_helpfulness(completeness: float, relevance: float, sentiment_positive: bool) -> float:
@@ -151,22 +167,30 @@ def _score_helpfulness(completeness: float, relevance: float, sentiment_positive
 
 
 def _score_specificity(agent_output: str) -> float:
-    """Count technical-looking tokens (uppercase, numbers, code-like chars)."""
+    """Score based on concrete/specific content markers.
+
+    Recalibrated: also counts longer words (6+ chars) as likely-specific
+    content, not just uppercase/digits/code-like tokens. Conversational
+    but substantive responses should score ~0.5-0.7, not ~0.05.
+    """
     words = agent_output.split()
     if not words:
         return 0.0
-    technical_count = 0
+    specific_count = 0
     for word in words:
         # Has uppercase letters (proper nouns, acronyms)
         if any(c.isupper() for c in word[1:] if c.isalpha()):
-            technical_count += 1
+            specific_count += 1
         # Has numbers
         elif any(c.isdigit() for c in word):
-            technical_count += 1
+            specific_count += 1
         # Code-like tokens
         elif any(ch in word for ch in (".", "()", "_")):
-            technical_count += 1
-    return min(1.0, technical_count / len(words))
+            specific_count += 1
+        # Longer words are more likely to be specific/technical
+        elif len(word) >= 6:
+            specific_count += 1
+    return min(1.0, specific_count / max(len(words), 1) * 2)
 
 
 def _score_empathy(agent_output: str) -> float:
@@ -309,10 +333,13 @@ class Evaluator:
 
         scores = [r.overall_score for r in domain_results]
 
-        # Calculate streak of consecutive high scores (>= 0.7)
+        # Calculate streak of consecutive above-average scores.
+        # Threshold 0.55 is calibrated for heuristic mode where a solid
+        # conversational exchange scores ~0.6-0.8. LLM evaluators
+        # naturally score higher, so this threshold works for both.
         streak = 0
         for score in reversed(scores):
-            if score >= 0.7:
+            if score >= 0.55:
                 streak += 1
             else:
                 break
@@ -333,7 +360,7 @@ class Evaluator:
 
         for domain in seen_domains:
             stats = self.get_domain_stats(domain)
-            if stats["streak"] >= 5 and stats["avg_score"] >= 0.75:
+            if stats["streak"] >= 5 and stats["avg_score"] >= 0.55:
                 triggers.append({
                     "domain": domain,
                     "trigger": "high_performance_streak",

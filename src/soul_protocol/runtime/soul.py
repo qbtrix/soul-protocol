@@ -1,4 +1,11 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: 2026-03-26 — Fixed 5 broken pipelines discovered in feature audit:
+#   1. context_for() now passes bond_strength to recall (was always defaulting to 100.0)
+#   2. observe() now calls evaluate() to build evaluation history, enabling evolution
+#      triggers and skill XP from learning (was dead code — history always empty)
+#   3. Both fixes together wire bonds→memory visibility and observe→evaluate→evolve
+#   4. Skills now persist through export/awaken (added to SoulConfig serialization)
+#   5. Evaluation history now persists through export/awaken (added to SoulConfig)
 # Updated: feat/mcp-sampling-engine — Added set_engine() to swap CognitiveEngine at runtime.
 #   MCPSamplingEngine uses this for lazy wiring on first MCP tool call.
 # Updated: 2026-03-22 — Added learn() and learning_events for LearningEvent pipeline.
@@ -72,7 +79,7 @@ from .export.unpack import unpack_soul
 from .identity.did import generate_did
 from .memory.manager import MemoryManager
 from .memory.strategy import SearchStrategy
-from .skills import SkillRegistry
+from .skills import Skill, SkillRegistry
 from .state.manager import StateManager
 from .types import (
     DNA,
@@ -178,8 +185,23 @@ class Soul:
         )
         self._state = StateManager(config.state, biorhythms=config.dna.biorhythms)
         self._evolution = EvolutionManager(config.evolution)
-        self._skills = SkillRegistry()
+        # Restore skills from config (persisted since v0.2.3)
+        restored_skills = []
+        for skill_data in getattr(config, "skills", []) or []:
+            try:
+                restored_skills.append(Skill(**skill_data))
+            except Exception:
+                pass  # Skip malformed skill entries
+        self._skills = SkillRegistry(skills=restored_skills)
+
+        # Restore evaluation history from config (persisted since v0.2.3)
         self._evaluator = Evaluator()
+        for eval_data in getattr(config, "evaluation_history", []) or []:
+            try:
+                self._evaluator._history.append(RubricResult(**eval_data))
+            except Exception:
+                pass  # Skip malformed eval entries
+
         self._learning_events: list[LearningEvent] = []
 
     # ============ Lifecycle ============
@@ -640,7 +662,11 @@ class Soul:
             )
 
         if include_memories and user_input.strip():
-            memories = await self._memory.recall(query=user_input, limit=max_memories)
+            memories = await self._memory.recall(
+                query=user_input,
+                limit=max_memories,
+                bond_strength=self._identity.bond.bond_strength,
+            )
             if memories:
                 lines = [f"- {m.content}" for m in memories]
                 parts.append("[Relevant memories:\n" + "\n".join(lines) + "]")
@@ -770,7 +796,13 @@ class Soul:
                 new_skill.add_xp(10)
                 self._skills.add(new_skill)
 
-        # Check for evolution triggers
+        # Evaluate the interaction to build evaluation history.
+        # This feeds the Evaluator._history which evolution triggers inspect.
+        # Without this, check_evolution_triggers() always returns [] because
+        # the history is empty (evaluate() was never called from observe()).
+        await self.evaluate(interaction)
+
+        # Check for evolution triggers (now has evaluation history to work with)
         evaluation_triggers = self._evaluator.check_evolution_triggers()
         await self._evolution.check_triggers(self._dna, interaction, evaluation_triggers)
 
@@ -1138,4 +1170,6 @@ class Soul:
             state=self._state.current,
             evolution=self._evolution.config,
             lifecycle=self._lifecycle,
+            skills=[s.model_dump(mode="json") for s in self._skills.skills],
+            evaluation_history=[r.model_dump(mode="json") for r in self._evaluator._history],
         )
