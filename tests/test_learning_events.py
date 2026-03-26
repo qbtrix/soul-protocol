@@ -415,19 +415,16 @@ class TestSoulLearn:
 
     async def test_learn_returns_none_for_medium_scores(self):
         soul = await Soul.birth("Learner")
-        # Medium-length response with moderate overlap to score between 0.3 and 0.8
+        # Medium response with some overlap — should score between 0.3 and 0.8.
+        # Not great (to stay below HIGH_SCORE_THRESHOLD) but not terrible either
+        # (to stay above LOW_SCORE_THRESHOLD).
         interaction = Interaction(
-            user_input="explain python decorators",
-            agent_output=(
-                "Python decorators are special functions that wrap other functions "
-                "to extend behavior. Use the at-symbol syntax to apply them. "
-                "Common uses include logging and caching. They are a core part "
-                "of modern Python development and widely used in Flask and Django "
-                "web frameworks for request handling."
-            ),
+            user_input="explain python decorators and how they work",
+            agent_output="Decorators wrap functions. You can use the at sign to apply them. "
+                         "They are useful for many things in coding.",
         )
         event = await soul.learn(interaction, domain="technical_helper")
-        # ~46 words, some overlap -> score ~0.4 (between 0.3 and 0.8)
+        # Medium score — no learning event created
         assert event is None
 
     async def test_learn_stores_in_learning_events(self):

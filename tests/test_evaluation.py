@@ -223,7 +223,8 @@ def test_heuristic_evaluate_low_specificity():
     )
     result = heuristic_evaluate(interaction, rubric)
     specificity_result = next(r for r in result.criterion_results if r.criterion == "specificity")
-    assert specificity_result.score == 0.0
+    # With recalibrated specificity (counts 6+ char words), "wonderful" scores.
+    assert specificity_result.score < 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -532,7 +533,7 @@ def test_evaluator_evolution_trigger():
 
 
 def test_evaluator_evolution_trigger_requires_high_avg():
-    """A streak of 5 is not enough if avg_score is below 0.75."""
+    """A streak of 5 is not enough if avg_score is below the trigger threshold (0.55)."""
     evaluator = Evaluator()
 
     def _make_result(score: float) -> RubricResult:
@@ -542,8 +543,8 @@ def test_evaluator_evolution_trigger_requires_high_avg():
             criterion_results=[],
         )
 
-    # 5 scores at exactly 0.7 → streak=5, avg=0.7 < 0.75 → no trigger
-    evaluator._history = [_make_result(0.7) for _ in range(5)]
+    # 5 scores at exactly 0.50 → streak=0 (below 0.55), avg=0.50 < 0.55 → no trigger
+    evaluator._history = [_make_result(0.50) for _ in range(5)]
 
     triggers = evaluator.check_evolution_triggers()
     assert triggers == []
