@@ -185,22 +185,22 @@ class Soul:
         )
         self._state = StateManager(config.state, biorhythms=config.dna.biorhythms)
         self._evolution = EvolutionManager(config.evolution)
-        # Restore skills from config (persisted since v0.2.3)
+        # Restore skills from config (persisted since v0.2.7)
         restored_skills = []
         for skill_data in getattr(config, "skills", []) or []:
             try:
                 restored_skills.append(Skill(**skill_data))
             except Exception:
-                pass  # Skip malformed skill entries
+                logger.warning("Skipping malformed skill entry: %s", skill_data)
         self._skills = SkillRegistry(skills=restored_skills)
 
-        # Restore evaluation history from config (persisted since v0.2.3)
+        # Restore evaluation history from config (persisted since v0.2.7)
         self._evaluator = Evaluator()
         for eval_data in getattr(config, "evaluation_history", []) or []:
             try:
                 self._evaluator._history.append(RubricResult(**eval_data))
             except Exception:
-                pass  # Skip malformed eval entries
+                logger.warning("Skipping malformed evaluation entry: %s", eval_data)
 
         self._learning_events: list[LearningEvent] = []
 

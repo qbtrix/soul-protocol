@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.7] — 2026-03-26
+
+### Fixed
+
+- **Bond system** — `context_for()` now passes actual `bond_strength` to memory recall instead of always defaulting to 100.0. Bond score now genuinely influences which memories surface in context.
+- **Evolution pipeline** — `observe()` now calls `evaluate()` to build evaluation history. Previously, evaluation history was always empty so evolution triggers never fired and OCEAN personality was stuck at defaults forever.
+- **Entity extraction** — added topic extraction patterns for natural speech (`"I work on X"`, `"I'm a Y"`, `"we're building Z"`). Captures concepts from real conversations that lack capitalized proper nouns or hardcoded tech names. Regex bounded to 5 words with trailing stop-word trimming.
+- **Heuristic evaluator calibration** — recalibrated scoring functions so solid technical conversations score ~0.65–0.80 instead of ~0.33. Completeness threshold lowered to 20 words, relevance uses user tokens as denominator, specificity counts 6+ char words. Evolution trigger thresholds adjusted to 0.55 for heuristic mode.
+
+### Added
+
+- **Skills persistence** — `SkillRegistry` now serialized in `SoulConfig` and restored on `awaken()`. Learned skills survive export/import cycles.
+- **Evaluation history persistence** — `Evaluator._history` now serialized in `SoulConfig` and restored on `awaken()`. Evaluation streaks accumulate across sessions.
+- **18 real-world e2e tests** — new `test_e2e_real_world.py` with 8 scenarios simulating realistic multi-turn human conversations: developer onboarding, personal bonding, evolution triggers, self-model emergence, bond-filtered recall, full lifecycle persistence, mixed conversation, and evolution mutation proposals. (#143)
+
+---
+
 ## [0.2.6] — 2026-03-24
 
 ### Added

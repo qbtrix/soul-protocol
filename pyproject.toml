@@ -1,6 +1,7 @@
 # soul-protocol — Portable AI identity and memory
-# Updated: 2026-03-24 — v0.2.6 release: MCP LCM context tools, CLI runtime parity (34 commands),
-#   soul directory auto-detect, dedup containment coefficient, CI dep fixes, docs refresh.
+# Updated: 2026-03-26 — v0.2.7 release: Fixed 5 broken psychology pipelines (bond, evolution,
+#   skills, entity extraction, heuristic evaluator). Skills + eval history now persist.
+#   18 real-world e2e tests. 1903 tests passing.
 
 [build-system]
 requires = ["hatchling"]
@@ -8,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soul-protocol"
-version = "0.2.6"
+version = "0.2.7"
 description = "The open standard for portable AI identity and memory"
 readme = "README.md"
 license = "MIT"
