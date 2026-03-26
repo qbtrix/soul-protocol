@@ -207,7 +207,7 @@ soul export .soul/myagent.soul --output .soul/myagent.soul
 
 ## MCP Server (for agents without shell access)
 
-18 tools available (13 soul/memory + 5 context). Only set this up if the agent can't run shell commands.
+23 tools available (13 soul/memory + 5 context + 5 psychology). Only set this up if the agent can't run shell commands.
 
 ```bash
 # Start server (auto-detects .soul/ directory — no env vars needed)

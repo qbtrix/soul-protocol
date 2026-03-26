@@ -9,7 +9,7 @@
 
 # CLI Reference
 
-Soul Protocol ships a command-line interface with 34 commands for creating, inspecting, exporting, and managing souls. Built on Click with Rich output formatting.
+Soul Protocol ships a command-line interface with 37 commands for creating, inspecting, exporting, and managing souls. Built on Click with Rich output formatting.
 
 ## Installation
 
