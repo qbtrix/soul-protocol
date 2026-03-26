@@ -1,4 +1,8 @@
-# cli/main.py — Click CLI for the Soul Protocol (34 commands)
+# cli/main.py — Click CLI for the Soul Protocol (37 commands)
+# Updated: 2026-03-26 — Added 3 soul maintenance commands: health, cleanup, repair.
+#   health: audit memory tiers, duplicates, orphan nodes, skills, bond sanity.
+#   cleanup: remove duplicates, stale evals, orphan graph nodes, low-importance memories.
+#   repair: reset energy/bond, rebuild graph, clear evals/skills/procedural.
 # Updated: 2026-03-24 — Added 13 commands for full runtime/MCP feature parity:
 #   observe, reflect, feel, prompt, forget, edit-core, evolve, evaluate, learn,
 #   skills, bond, events, context. Total: 34 commands.
@@ -25,6 +29,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import io
 import json
 import zipfile
@@ -2016,6 +2021,318 @@ def context_cmd(path, ingest, role, msg_content, assemble, max_tokens, grep_patt
             raise SystemExit(1)
 
     asyncio.run(_context())
+
+
+# ---------------------------------------------------------------------------
+# soul health / cleanup / repair — soul maintenance commands (v0.2.7)
+# ---------------------------------------------------------------------------
+
+
+@cli.command("health")
+@click.argument("path", type=click.Path(exists=True))
+def health_cmd(path):
+    """Audit a soul's health — memory tiers, duplicates, skills, graph, bond."""
+
+    async def _health():
+        from soul_protocol.runtime.soul import Soul
+        from soul_protocol.runtime.memory.compression import MemoryCompressor
+
+        soul = await Soul.awaken(path)
+        mm = soul._memory
+
+        episodic = builtins.list(mm._episodic.entries())
+        semantic = builtins.list(mm._semantic.facts())
+        procedural = builtins.list(mm._procedural.entries())
+        graph_nodes = mm._graph.entities()
+        skills = soul.skills.skills
+        evals = soul.evaluator._history
+        total = len(episodic) + len(semantic) + len(procedural)
+
+        # Detect duplicates
+        compressor = MemoryCompressor()
+        all_mems = episodic + semantic + procedural
+        deduped = compressor.deduplicate(all_mems, similarity_threshold=0.8)
+        dup_count = len(all_mems) - len(deduped)
+
+        # Detect low-importance memories
+        low_imp = [m for m in all_mems if m.importance <= 2]
+
+        # Detect stale procedural (evaluation scores)
+        stale_proc = [p for p in procedural if p.content.startswith("Scored ")]
+
+        # Orphan graph nodes (nodes not referenced in any memory)
+        all_content = " ".join(m.content for m in all_mems)
+        orphan_nodes = [n for n in graph_nodes if n.lower() not in all_content.lower() and len(n) > 2]
+
+        # Bond sanity
+        bond = soul.bond
+        bond_issues = []
+        if bond.bond_strength > 100:
+            bond_issues.append(f"Bond strength {bond.bond_strength:.0f} exceeds 100")
+        if bond.bond_strength < 0:
+            bond_issues.append(f"Bond strength {bond.bond_strength:.0f} is negative")
+
+        # Skill sanity
+        skill_issues = []
+        for s in skills:
+            if s.xp < 0:
+                skill_issues.append(f"Skill {s.id} has negative XP ({s.xp})")
+            if s.level < 1 or s.level > 10:
+                skill_issues.append(f"Skill {s.id} has invalid level ({s.level})")
+
+        # Build report
+        lines = [
+            f"[bold]{soul.name}[/bold] — Soul Health Report",
+            "",
+            "[bold]Memory Tiers[/bold]",
+            f"  Episodic:    {len(episodic):>5}",
+            f"  Semantic:    {len(semantic):>5}",
+            f"  Procedural:  {len(procedural):>5}",
+            f"  [bold]Total:       {total:>5}[/bold]",
+            "",
+            "[bold]Knowledge & Skills[/bold]",
+            f"  Graph nodes: {len(graph_nodes):>5}",
+            f"  Skills:      {len(skills):>5}",
+            f"  Eval history:{len(evals):>5}",
+            "",
+            "[bold]Bond[/bold]",
+            f"  Strength:    {bond.bond_strength:>5.1f}",
+            f"  Interactions:{bond.interaction_count:>5}",
+            "",
+            "[bold]Issues Found[/bold]",
+        ]
+
+        issues_found = 0
+        if dup_count > 0:
+            lines.append(f"  [yellow]⚠ {dup_count} duplicate memories (>80% overlap)[/]")
+            issues_found += 1
+        if low_imp:
+            lines.append(f"  [dim]ℹ {len(low_imp)} low-importance memories (≤2)[/]")
+        if stale_proc:
+            lines.append(f"  [dim]ℹ {len(stale_proc)} evaluation procedural entries[/]")
+        if orphan_nodes and len(orphan_nodes) > 10:
+            lines.append(f"  [yellow]⚠ {len(orphan_nodes)} orphan graph nodes (not in any memory)[/]")
+            issues_found += 1
+        for issue in bond_issues:
+            lines.append(f"  [red]✗ {issue}[/]")
+            issues_found += 1
+        for issue in skill_issues:
+            lines.append(f"  [red]✗ {issue}[/]")
+            issues_found += 1
+
+        if issues_found == 0 and not low_imp and not stale_proc:
+            lines.append("  [green]✓ No issues found — soul is healthy[/]")
+        elif issues_found == 0:
+            lines.append("  [green]✓ No critical issues[/]")
+
+        color = "green" if issues_found == 0 else "yellow" if issues_found < 3 else "red"
+        console.print(Panel("\n".join(lines), title="Soul Health", border_style=color))
+
+    asyncio.run(_health())
+
+
+@cli.command("cleanup")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--auto", "auto_mode", is_flag=True, help="Apply all cleanups without prompting.")
+@click.option("--dry-run", is_flag=True, help="Show what would be cleaned without changing anything.")
+@click.option("--dedup/--no-dedup", default=True, help="Remove near-duplicate memories.")
+@click.option("--stale-evals/--no-stale-evals", default=True, help="Remove low-value evaluation procedurals.")
+@click.option("--orphan-nodes/--no-orphan-nodes", default=True, help="Remove orphan graph nodes.")
+@click.option("--low-importance", type=int, default=0, help="Remove memories with importance ≤ N (0=skip).")
+def cleanup_cmd(path, auto_mode, dry_run, dedup, stale_evals, orphan_nodes, low_importance):
+    """Clean up a soul — remove duplicates, stale evals, orphan nodes."""
+
+    async def _cleanup():
+        from soul_protocol.runtime.soul import Soul
+        from soul_protocol.runtime.memory.compression import MemoryCompressor
+
+        soul = await Soul.awaken(path)
+        mm = soul._memory
+        actions = []
+
+        # 1. Deduplicate
+        if dedup:
+            compressor = MemoryCompressor()
+            for tier_name, store in [("episodic", mm._episodic), ("semantic", mm._semantic), ("procedural", mm._procedural)]:
+                if tier_name == "semantic":
+                    entries = builtins.list(store.facts())
+                else:
+                    entries = builtins.list(store.entries())
+                if not entries:
+                    continue
+                deduped = compressor.deduplicate(entries, similarity_threshold=0.8)
+                removed_ids = {m.id for m in entries} - {m.id for m in deduped}
+                if removed_ids:
+                    actions.append(("dedup", tier_name, removed_ids))
+
+        # 2. Stale evaluation procedurals
+        if stale_evals:
+            procedural = builtins.list(mm._procedural.entries())
+            stale = [p for p in procedural if p.content.startswith("Scored ") and p.importance <= 5]
+            if stale:
+                actions.append(("stale_evals", "procedural", {p.id for p in stale}))
+
+        # 3. Orphan graph nodes
+        if orphan_nodes:
+            all_mems = builtins.list(mm._episodic.entries()) + builtins.list(mm._semantic.facts()) + builtins.list(mm._procedural.entries())
+            all_content = " ".join(m.content for m in all_mems).lower()
+            nodes = mm._graph.entities()
+            orphans = [n for n in nodes if n.lower() not in all_content and len(n) > 2]
+            if orphans:
+                actions.append(("orphan_nodes", "graph", orphans))
+
+        # 4. Low importance
+        if low_importance > 0:
+            for tier_name, store in [("episodic", mm._episodic), ("semantic", mm._semantic)]:
+                if tier_name == "semantic":
+                    entries = builtins.list(store.facts())
+                else:
+                    entries = builtins.list(store.entries())
+                low = [m for m in entries if m.importance <= low_importance]
+                if low:
+                    actions.append(("low_importance", tier_name, {m.id for m in low}))
+
+        if not actions:
+            console.print("[green]✓ Nothing to clean up — soul is tidy[/]")
+            return
+
+        # Show plan
+        total_removals = 0
+        for action_type, target, items in actions:
+            count = len(items)
+            total_removals += count
+            if action_type == "dedup":
+                console.print(f"  [yellow]Remove {count} duplicates from {target}[/]")
+            elif action_type == "stale_evals":
+                console.print(f"  [yellow]Remove {count} stale evaluation entries[/]")
+            elif action_type == "orphan_nodes":
+                console.print(f"  [yellow]Remove {count} orphan graph nodes[/]")
+                if count <= 10:
+                    for n in items:
+                        console.print(f"    - {n}")
+            elif action_type == "low_importance":
+                console.print(f"  [yellow]Remove {count} low-importance memories from {target}[/]")
+
+        console.print(f"\n  [bold]Total: {total_removals} items to remove[/]")
+
+        if dry_run:
+            console.print("\n[dim]Dry run — no changes made.[/]")
+            return
+
+        # Confirm
+        if not auto_mode:
+            if not click.confirm("\nProceed with cleanup?"):
+                console.print("[dim]Cancelled.[/]")
+                return
+
+        # Execute
+        removed = 0
+        for action_type, target, items in actions:
+            if action_type == "orphan_nodes":
+                for node in items:
+                    mm._graph.remove_entity(node)
+                    removed += 1
+            elif action_type in ("dedup", "stale_evals", "low_importance"):
+                for mid in items:
+                    if target == "episodic":
+                        await mm._episodic.remove(mid)
+                    elif target == "semantic":
+                        await mm._semantic.remove(mid)
+                    elif target == "procedural":
+                        await mm._procedural.remove(mid)
+                    removed += 1
+
+        # Save
+        await soul.export(path)
+        console.print(f"\n[green]✓ Cleaned {removed} items. Soul saved.[/]")
+
+    asyncio.run(_cleanup())
+
+
+@cli.command("repair")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--reset-energy", is_flag=True, help="Reset energy and social battery to 100%.")
+@click.option("--reset-bond", is_flag=True, help="Reset bond strength to 50.0.")
+@click.option("--rebuild-graph", is_flag=True, help="Rebuild knowledge graph from memory content.")
+@click.option("--clear-evals", is_flag=True, help="Clear evaluation history.")
+@click.option("--clear-skills", is_flag=True, help="Clear all learned skills.")
+@click.option("--clear-procedural", is_flag=True, help="Clear all procedural memories.")
+def repair_cmd(path, reset_energy, reset_bond, rebuild_graph, clear_evals, clear_skills, clear_procedural):
+    """Repair a soul — reset state, rebuild graph, clear stale data."""
+
+    async def _repair():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        changes = []
+
+        if reset_energy:
+            soul._state.current.energy = 100.0
+            soul._state.current.social_battery = 100.0
+            changes.append("Reset energy and social battery to 100%")
+
+        if reset_bond:
+            soul._identity.bond.bond_strength = 50.0
+            changes.append("Reset bond strength to 50.0")
+
+        if rebuild_graph:
+            # Clear and rebuild from all memories
+            mm = soul._memory
+            old_count = len(mm._graph.entities())
+            mm._graph._entities.clear()
+            mm._graph._edges.clear()
+
+            all_mems = builtins.list(mm._episodic.entries()) + builtins.list(mm._semantic.facts())
+            from soul_protocol.runtime.types import Interaction
+            for mem in all_mems:
+                # Extract entities from memory content using the heuristic extractor
+                interaction = Interaction(user_input=mem.content, agent_output="")
+                entities = mm.extract_entities(interaction)
+                if entities:
+                    graph_entities = []
+                    for ent in entities:
+                        graph_ent = {
+                            "name": ent["name"],
+                            "entity_type": ent.get("type", "unknown"),
+                        }
+                        graph_entities.append(graph_ent)
+                    await mm.update_graph(graph_entities)
+
+            new_count = len(mm._graph.entities())
+            changes.append(f"Rebuilt graph: {old_count} → {new_count} nodes")
+
+        if clear_evals:
+            count = len(soul.evaluator._history)
+            soul.evaluator._history.clear()
+            changes.append(f"Cleared {count} evaluation entries")
+
+        if clear_skills:
+            count = len(soul.skills.skills)
+            soul.skills.skills.clear()
+            changes.append(f"Cleared {count} skills")
+
+        if clear_procedural:
+            mm = soul._memory
+            procs = builtins.list(mm._procedural.entries())
+            for p in procs:
+                await mm._procedural.remove(p.id)
+            changes.append(f"Cleared {len(procs)} procedural memories")
+
+        if not changes:
+            console.print("[yellow]No repair actions specified. Use --help to see options.[/]")
+            return
+
+        # Save
+        await soul.export(path)
+
+        lines = [f"[bold]{soul.name}[/bold] — Repairs Applied", ""]
+        for change in changes:
+            lines.append(f"  [green]✓[/] {change}")
+        lines.append(f"\n  Soul saved to {path}")
+
+        console.print(Panel("\n".join(lines), title="Soul Repair", border_style="green"))
+
+    asyncio.run(_repair())
 
 
 if __name__ == "__main__":
