@@ -46,6 +46,7 @@ async def rich_soul() -> Soul:
             "neuroticism": 0.2,
         },
         communication={"warmth": "high", "verbosity": "moderate"},
+        biorhythms={"energy_drain_rate": 2.0, "social_drain_rate": 5.0},
     )
 
     # Seed some memories

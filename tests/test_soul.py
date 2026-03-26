@@ -72,9 +72,10 @@ async def test_observe():
     )
     await soul.observe(interaction)
 
-    # Energy and social battery should drain after interaction
-    assert soul.state.energy < initial_energy
-    assert soul.state.social_battery < initial_social
+    # With default biorhythms (no drain), energy stays at 100%.
+    # Drain is opt-in for companion souls via Biorhythms config.
+    assert soul.state.energy == initial_energy
+    assert soul.state.social_battery == initial_social
     assert soul.state.last_interaction is not None
 
 

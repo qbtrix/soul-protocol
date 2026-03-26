@@ -199,7 +199,8 @@ class TestLabelMoodMapping:
 class TestEnergyOverride:
     def test_low_energy_overrides_sentiment_mood(self):
         """TIRED override fires when energy < 20, regardless of somatic signal."""
-        manager = StateManager(_make_state(energy=21.0))
+        bio = Biorhythms(energy_drain_rate=2.0, tired_threshold=20.0, auto_regen=False)
+        manager = StateManager(_make_state(energy=21.0), biorhythms=bio)
         interaction = _make_interaction()
 
         # Drain energy to below 20
@@ -211,7 +212,8 @@ class TestEnergyOverride:
 
     def test_positive_sentiment_does_not_override_tired(self):
         """Strong positive signal should not clear TIRED when energy is low."""
-        manager = StateManager(_make_state(energy=20.0))
+        bio = Biorhythms(energy_drain_rate=2.0, tired_threshold=20.0, auto_regen=False)
+        manager = StateManager(_make_state(energy=20.0), biorhythms=bio)
         manager.on_interaction(
             _make_interaction(),
             somatic=_make_somatic(valence=0.9, arousal=0.8, label="excitement"),
@@ -241,18 +243,18 @@ class TestBiorhythmsConfig:
     # Constructor: default Biorhythms when none supplied
     # ------------------------------------------------------------------
 
-    def test_default_biorhythms_applied_when_not_supplied(self):
-        """StateManager(state) uses Biorhythms() defaults — 2 energy drain per interaction."""
+    def test_default_biorhythms_no_drain(self):
+        """StateManager(state) uses Biorhythms() defaults — 0 drain (always-on mode)."""
         manager = StateManager(_make_state())
         manager.on_interaction(_make_interaction())
-        # Default energy_drain_rate=2.0; energy starts at 100 → 98
-        assert manager.current.energy == pytest.approx(98.0)
+        # Default drain rates are 0.0 — energy stays at 100
+        assert manager.current.energy == pytest.approx(100.0)
 
-    def test_default_biorhythms_social_drain(self):
-        """Default social_drain_rate=5 → social_battery drops from 100 to 95."""
+    def test_default_biorhythms_no_social_drain(self):
+        """Default social_drain_rate=0 → social_battery stays at 100."""
         manager = StateManager(_make_state())
         manager.on_interaction(_make_interaction())
-        assert manager.current.social_battery == pytest.approx(95.0)
+        assert manager.current.social_battery == pytest.approx(100.0)
 
     def test_biorhythms_attribute_accessible(self):
         """biorhythms property returns the configured Biorhythms instance."""

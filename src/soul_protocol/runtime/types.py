@@ -101,8 +101,12 @@ class CommunicationStyle(BaseModel):
 class Biorhythms(BaseModel):
     """Simulated vitality and energy patterns.
 
-    All fields have sensible defaults matching the original hardcoded behavior.
-    Set drain rates to 0 for "always-on" agents that never get tired.
+    Defaults to "always-on" mode with no energy/social drain — appropriate for
+    developer tools, consulting agents, and most non-companion use cases.
+    For companion souls that should simulate fatigue and recovery, set
+    energy_drain_rate, social_drain_rate, and auto_regen explicitly::
+
+        Biorhythms(energy_drain_rate=2.0, social_drain_rate=5.0, auto_regen=True)
     """
 
     chronotype: str = "neutral"
@@ -110,18 +114,18 @@ class Biorhythms(BaseModel):
     # at runtime, not this field. Soul.birth() syncs this into SoulState at creation time.
     social_battery: float = Field(default=100.0, ge=0.0, le=100.0)
 
-    # Energy dynamics
-    energy_regen_rate: float = Field(default=10.0, ge=0.0, description="Energy recovered per hour of elapsed time")
-    energy_drain_rate: float = Field(default=2.0, ge=0.0, description="Energy lost per interaction (0 = no drain)")
-    social_drain_rate: float = Field(default=5.0, ge=0.0, description="Social battery lost per interaction (0 = no drain)")
+    # Energy dynamics — defaults to 0 (always-on, no drain)
+    energy_regen_rate: float = Field(default=0.0, ge=0.0, description="Energy recovered per hour of elapsed time (0 = no regen needed)")
+    energy_drain_rate: float = Field(default=0.0, ge=0.0, description="Energy lost per interaction (0 = no drain)")
+    social_drain_rate: float = Field(default=0.0, ge=0.0, description="Social battery lost per interaction (0 = no drain)")
 
     # Mood dynamics
-    tired_threshold: float = Field(default=20.0, ge=0.0, le=100.0, description="Energy below this forces TIRED mood (0 = disabled)")
+    tired_threshold: float = Field(default=0.0, ge=0.0, le=100.0, description="Energy below this forces TIRED mood (0 = disabled)")
     mood_inertia: float = Field(default=0.4, ge=0.0, le=1.0, description="EMA alpha for mood shifts (0 = max inertia, 1 = instant)")
     mood_sensitivity: float = Field(default=0.25, ge=0.0, le=1.0, description="Valence threshold to trigger mood change (0 = always shift)")
 
     # Auto-regeneration
-    auto_regen: bool = Field(default=True, description="Recover energy automatically based on elapsed time between interactions")
+    auto_regen: bool = Field(default=False, description="Recover energy automatically based on elapsed time (enable for companion souls)")
 
 
 class DNA(BaseModel):

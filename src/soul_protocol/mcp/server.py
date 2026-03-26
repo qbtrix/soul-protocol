@@ -1,5 +1,8 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 18 tools (13 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# 23 tools (18 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-03-26 — Added 5 psychology pipeline tools: soul_skills, soul_evaluate,
+#   soul_learn, soul_evolve, soul_bond. MCP now has feature parity with CLI for the
+#   psychology subsystem fixed in v0.2.7.
 # Updated: 2026-03-24 — Auto-detect .soul/ in CWD or ~/.soul/ when no env var set.
 # Updated: feat/mcp-sampling-engine — Lazy MCPSamplingEngine wiring. On the first tool
 #   call that carries a FastMCP Context, MCPSamplingEngine is constructed and pushed to
@@ -840,6 +843,224 @@ async def soul_reload(
             "memories": reloaded.memory_count,
         }
     )
+
+
+# --- Psychology Pipeline Tools (v0.2.7) ---
+
+
+@mcp.tool
+async def soul_skills(soul: str | None = None) -> str:
+    """View the soul's learned skills with level, XP, and progress.
+
+    Skills are learned from entity extraction during observe() and from
+    evaluation-based XP grants. They persist across sessions.
+
+    Args:
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    skills = s.skills.skills
+    if not skills:
+        return json.dumps({"soul": s.name, "skills": [], "total": 0})
+    return json.dumps({
+        "soul": s.name,
+        "total": len(skills),
+        "skills": [
+            {
+                "id": sk.id,
+                "name": sk.name,
+                "level": sk.level,
+                "xp": sk.xp,
+                "xp_to_next": sk.xp_to_next,
+            }
+            for sk in sorted(skills, key=lambda x: x.xp, reverse=True)
+        ],
+    })
+
+
+@mcp.tool
+async def soul_evaluate(
+    user_input: str,
+    agent_output: str,
+    domain: str | None = None,
+    soul: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Evaluate an interaction against a rubric and build evaluation history.
+
+    Scores the interaction on completeness, relevance, helpfulness, and
+    specificity. Stores learning as procedural memory and grants skill XP.
+    Evaluation history feeds the evolution trigger system.
+
+    Args:
+        user_input: What the user said
+        agent_output: What the agent responded
+        domain: Self-model domain for rubric selection (auto-detected if omitted)
+        soul: Target soul name (uses active soul if omitted)
+    """
+    if ctx is not None:
+        _get_or_create_engine(ctx)
+    s = await _resolve_soul(soul)
+    interaction = Interaction(user_input=user_input, agent_output=agent_output)
+    result = await s.evaluate(interaction, domain=domain)
+    _registry.mark_modified(soul)
+    return json.dumps({
+        "soul": s.name,
+        "rubric": result.rubric_id,
+        "overall_score": round(result.overall_score, 3),
+        "criteria": [
+            {"name": cr.criterion, "score": round(cr.score, 3), "passed": cr.passed}
+            for cr in result.criterion_results
+        ],
+        "learning": result.learning,
+        "eval_history_size": len(s.evaluator._history),
+    })
+
+
+@mcp.tool
+async def soul_learn(
+    user_input: str,
+    agent_output: str,
+    domain: str | None = None,
+    soul: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Evaluate an interaction and create a learning event if notable.
+
+    Combines evaluation with learning event creation. High-scoring
+    interactions generate success patterns; low-scoring ones generate
+    failure patterns. Both are stored as procedural memory.
+
+    Args:
+        user_input: What the user said
+        agent_output: What the agent responded
+        domain: Domain for rubric selection (auto-detected if omitted)
+        soul: Target soul name (uses active soul if omitted)
+    """
+    if ctx is not None:
+        _get_or_create_engine(ctx)
+    s = await _resolve_soul(soul)
+    interaction = Interaction(user_input=user_input, agent_output=agent_output)
+    event = await s.learn(interaction, domain=domain)
+    _registry.mark_modified(soul)
+    if event is None:
+        return json.dumps({
+            "soul": s.name,
+            "learning_event": None,
+            "reason": "Score in medium range — no notable learning pattern",
+        })
+    return json.dumps({
+        "soul": s.name,
+        "learning_event": {
+            "id": event.id,
+            "lesson": event.lesson,
+            "domain": event.domain,
+            "score": round(event.evaluation_score, 3) if event.evaluation_score else None,
+            "confidence": round(event.confidence, 3),
+            "skill_id": event.skill_id,
+        },
+    })
+
+
+@mcp.tool
+async def soul_evolve(
+    action: str = "list",
+    trait: str | None = None,
+    new_value: str | None = None,
+    reason: str | None = None,
+    mutation_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Manage soul evolution — propose, approve, reject, or list mutations.
+
+    Evolution allows the soul's traits to change over time based on
+    interaction patterns. Mutations can be proposed manually or triggered
+    automatically by evaluation streaks.
+
+    Args:
+        action: One of: list, propose, approve, reject
+        trait: Trait path to mutate (e.g. "communication.warmth") — for propose
+        new_value: New value for the trait — for propose
+        reason: Why this mutation is proposed — for propose
+        mutation_id: ID of mutation to approve/reject — for approve/reject
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+
+    if action == "list":
+        pending = s.pending_mutations
+        history = s.evolution_history
+        return json.dumps({
+            "soul": s.name,
+            "pending": [
+                {"id": m.id, "trait": m.trait, "old": m.old_value,
+                 "new": m.new_value, "reason": m.reason}
+                for m in pending
+            ],
+            "history_count": len(history),
+        })
+
+    elif action == "propose":
+        if not trait or not new_value or not reason:
+            return json.dumps({"error": "propose requires trait, new_value, and reason"})
+        mutation = await s.propose_evolution(
+            trait=trait, new_value=new_value, reason=reason,
+        )
+        _registry.mark_modified(soul)
+        return json.dumps({
+            "soul": s.name,
+            "mutation_id": mutation.id,
+            "trait": mutation.trait,
+            "old_value": mutation.old_value,
+            "new_value": mutation.new_value,
+            "status": "pending",
+        })
+
+    elif action == "approve":
+        if not mutation_id:
+            return json.dumps({"error": "approve requires mutation_id"})
+        success = await s.approve_evolution(mutation_id)
+        _registry.mark_modified(soul)
+        return json.dumps({"soul": s.name, "mutation_id": mutation_id, "approved": success})
+
+    elif action == "reject":
+        if not mutation_id:
+            return json.dumps({"error": "reject requires mutation_id"})
+        success = await s.reject_evolution(mutation_id)
+        _registry.mark_modified(soul)
+        return json.dumps({"soul": s.name, "mutation_id": mutation_id, "rejected": success})
+
+    return json.dumps({"error": f"Unknown action: {action}. Use list/propose/approve/reject."})
+
+
+@mcp.tool
+async def soul_bond(
+    strengthen: float | None = None,
+    soul: str | None = None,
+) -> str:
+    """View or modify the soul's bond strength.
+
+    Bond strength influences memory visibility — higher bond unlocks
+    BONDED and PRIVATE memories. Bond grows naturally through observe()
+    interactions, or can be manually adjusted.
+
+    Args:
+        strengthen: Amount to strengthen bond by (negative to weaken). Omit to just view.
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    bond = s.bond
+    if strengthen is not None:
+        if strengthen >= 0:
+            bond.strengthen(amount=strengthen)
+        else:
+            bond.bond_strength = max(0.0, bond.bond_strength + strengthen)
+        _registry.mark_modified(soul)
+    return json.dumps({
+        "soul": s.name,
+        "bond_strength": round(bond.bond_strength, 2),
+        "interaction_count": bond.interaction_count,
+    })
 
 
 # --- Context Tools (LCM — Lossless Context Management) ---

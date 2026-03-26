@@ -597,9 +597,9 @@ class TestMixedConversation:
             "Expected to recall payment-related memories"
         )
 
-        # 5. State updated
-        assert soul.state.energy < 100.0, (
-            "Energy should have drained after 6 interactions"
+        # 5. State updated (energy stays at 100% — drain is opt-in for companion souls)
+        assert soul.state.last_interaction is not None, (
+            "last_interaction should be set after 6 interactions"
         )
 
         # Print summary for debugging
