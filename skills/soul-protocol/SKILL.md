@@ -188,12 +188,15 @@ soul export .soul/myagent.soul --output .soul/myagent.soul
 | System prompt | `soul prompt path` | `soul_prompt()` |
 | Delete memories | `soul forget path "query"` | N/A (Python API) |
 | Edit core memory | `soul edit-core path --persona X` | N/A (Python API) |
-| Evolution | `soul evolve path --propose ...` | N/A (Python API) |
-| Evaluate | `soul evaluate path --user-input X --agent-output Y` | N/A (Python API) |
-| Learn | `soul learn path --user-input X --agent-output Y` | N/A (Python API) |
-| Skills | `soul skills path` | N/A (Python API) |
-| Bond | `soul bond path` | N/A (Python API) |
+| Evolution | `soul evolve path --propose ...` | `soul_evolve(action, trait, new_value, reason)` |
+| Evaluate | `soul evaluate path --user-input X --agent-output Y` | `soul_evaluate(user_input, agent_output)` |
+| Learn | `soul learn path --user-input X --agent-output Y` | `soul_learn(user_input, agent_output)` |
+| Skills | `soul skills path` | `soul_skills()` |
+| Bond | `soul bond path` | `soul_bond(strengthen)` |
 | Events | `soul events path` | N/A (Python API) |
+| Health audit | `soul health path` | N/A (CLI only) |
+| Cleanup | `soul cleanup path --auto` | N/A (CLI only) |
+| Repair | `soul repair path --reset-energy` | N/A (CLI only) |
 | Ingest context | `soul context --ingest --role X --content Y` | `soul_context_ingest(role, content)` |
 | Assemble context | `soul context --assemble --max-tokens N` | `soul_context_assemble(max_tokens)` |
 | Search context | `soul context --grep PATTERN` | `soul_context_grep(pattern)` |

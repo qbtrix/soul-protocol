@@ -1,10 +1,11 @@
-<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 18 tools (13 soul/memory + 5 context)
-     with parameters, 3 resources, 2 prompts, auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
-     Updated: 2026-03-26 — v0.2.7 note: skills, evaluate, evolve, bond, learn are CLI-only for now.
-     MCP tools for these are planned for v0.2.8. Bond fix in context_for() benefits MCP users via soul_recall.
-     Updated: 2026-03-24 — v0.2.6: Added 5 LCM context tools (soul_context_ingest, soul_context_assemble,
-     soul_context_grep, soul_context_expand, soul_context_describe), soul_reload tool, auto-detect section,
-     MCP Sampling Engine section. Tool count: 12 → 18.
+<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 23 tools
+     (13 soul/memory + 5 context + 5 psychology), 3 resources, 2 prompts, auto-detect,
+     MCP Sampling Engine, programmatic usage, and design notes.
+     Updated: 2026-03-26 — v0.2.7: Added 5 psychology pipeline tools (soul_skills,
+     soul_evaluate, soul_learn, soul_evolve, soul_bond). Tool count: 18 → 23.
+     Updated: 2026-03-24 — v0.2.6: Added 5 LCM context tools (soul_context_ingest,
+     soul_context_assemble, soul_context_grep, soul_context_expand, soul_context_describe),
+     soul_reload tool, auto-detect section, MCP Sampling Engine section. Tool count: 12 → 18.
      Updated: 2026-03-13 — added soul_list + soul_switch tools, SOUL_DIR env var, multi-soul registry notes,
      renamed soul_system_prompt to soul_system_prompt_template, added optional soul parameter docs. -->
 
@@ -85,7 +86,7 @@ Any client that speaks the Model Context Protocol over stdio can connect. The se
 
 ## Tools (18)
 
-All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 18 tools break down as: 9 soul management, 4 memory, and 5 context (LCM).
+All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 23 tools break down as: 9 soul management, 4 memory, 5 context (LCM), and 5 psychology pipeline (v0.2.7).
 
 **Multi-soul targeting:** When the server is running with `SOUL_DIR` and multiple souls are loaded, all tools accept an optional `soul` parameter (string) to target a specific soul by name or ID. If omitted, the tool operates on the currently active soul.
 
@@ -255,6 +256,72 @@ Reload a soul from disk, picking up any changes made externally (e.g. by another
 | `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
 
 **Returns:** JSON with `status`, `name`, `path`, `format`, and `memories` count.
+
+---
+
+## Psychology Pipeline Tools (5) — v0.2.7
+
+### `soul_skills`
+
+View the soul's learned skills with level, XP, and progress.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `soul` | string | No | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON with `skills` array (id, name, level, xp, xp_to_next) and `total` count.
+
+### `soul_evaluate`
+
+Evaluate an interaction against a rubric and build evaluation history.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_input` | string | Yes | What the user said |
+| `agent_output` | string | Yes | What the agent responded |
+| `domain` | string | No | Self-model domain for rubric selection (auto-detected if omitted) |
+| `soul` | string | No | Target soul name |
+
+**Returns:** JSON with `rubric`, `overall_score`, `criteria` array, `learning` string, and `eval_history_size`.
+
+### `soul_learn`
+
+Evaluate an interaction and create a learning event if notable.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user_input` | string | Yes | What the user said |
+| `agent_output` | string | Yes | What the agent responded |
+| `domain` | string | No | Domain for rubric selection |
+| `soul` | string | No | Target soul name |
+
+**Returns:** JSON with `learning_event` (id, lesson, domain, score, confidence, skill_id) or null if score is in medium range.
+
+### `soul_evolve`
+
+Manage soul evolution — propose, approve, reject, or list trait mutations.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | No | One of: `list`, `propose`, `approve`, `reject` (default: `list`) |
+| `trait` | string | No | Trait path (e.g. `communication.warmth`) — for propose |
+| `new_value` | string | No | New value for the trait — for propose |
+| `reason` | string | No | Why this mutation is proposed — for propose |
+| `mutation_id` | string | No | ID of mutation to approve/reject |
+| `soul` | string | No | Target soul name |
+
+**Returns:** JSON with `pending` mutations array and `history_count` (for list), or mutation details (for propose/approve/reject).
+
+### `soul_bond`
+
+View or modify the soul's bond strength.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `strengthen` | float | No | Amount to strengthen (negative to weaken). Omit to just view. |
+| `soul` | string | No | Target soul name |
+
+**Returns:** JSON with `bond_strength` and `interaction_count`.
 
 ---
 

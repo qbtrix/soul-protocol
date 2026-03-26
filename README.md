@@ -1,7 +1,8 @@
 <!-- README.md — soul-protocol open standard -->
 <!-- Updated: 2026-03-26 (v0.2.7) — bumped test count to 1903, version to 0.2.7.
      v0.2.7 fixes 5 broken psychology pipelines: bond recall, evolution wiring,
-     entity extraction, skills/eval persistence, heuristic calibration. -->
+     entity extraction, skills/eval persistence, heuristic calibration.
+     Updated CLI count to 37 commands, MCP tools count to 23. -->
 
 # Soul Protocol
 
@@ -65,8 +66,8 @@ Full methodology: [research/EVAL-FRAMEWORK.md](research/EVAL-FRAMEWORK.md)
 soul_protocol/
 ├── spec/      695 lines   The protocol. Portable, minimal, no opinions.
 ├── runtime/  9,693 lines  Reference implementation. Opinionated, batteries-included.
-├── cli/                    15-command CLI
-└── mcp/                    MCP server (12 tools, 3 resources)
+├── cli/                    37-command CLI
+└── mcp/                    MCP server (23 tools, 3 resources)
 ```
 
 **`spec/`** defines what any runtime must implement: Identity, MemoryStore, MemoryEntry, SoulContainer, `.soul` file format, EmbeddingProvider, EternalStorageProvider. Depends on Pydantic only.
@@ -100,8 +101,8 @@ Like HTTP and nginx. The spec defines the contract. The runtime is one implement
 | **Eternal storage** | Archive to decentralized storage (mock providers, production planned) |
 | **Portability** | `.soul` ZIP archive. JSON inside. Rename to .zip and read it. |
 | **Cross-language** | JSON Schemas auto-generated from spec. Validate `.soul` files in any language. |
-| **CLI** | 17 commands. Rich TUI output. |
-| **MCP** | 12 tools + 3 resources for Claude Code, Cursor, or any MCP client |
+| **CLI** | 37 commands. Rich TUI output. |
+| **MCP** | 23 tools + 3 resources for Claude Code, Cursor, or any MCP client |
 
 ---
 
@@ -345,7 +346,7 @@ pip install soul-protocol[mcp]
 SOUL_PATH=aria.soul soul-mcp
 ```
 
-12 tools and 3 resources for Claude Code, Cursor, or any MCP-compatible client. See [integrations](docs/integrations.md).
+23 tools and 3 resources for Claude Code, Cursor, or any MCP-compatible client. See [integrations](docs/integrations.md).
 
 ---
 

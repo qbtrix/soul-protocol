@@ -1,8 +1,9 @@
-<!-- Covers: CLI installation, all 34 commands with usage examples, options tables, and output descriptions.
+<!-- Covers: CLI installation, all 37 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-03-26 — v0.2.7: Added 3 maintenance commands (health, cleanup, repair).
+     Total: 37 commands. Biorhythms defaults changed to always-on (no energy/social drain).
      Updated: 2026-03-24 — v0.2.6: Added 13 runtime commands (observe, reflect, feel, prompt, forget,
      edit-core, evolve, evaluate, learn, skills, bond, events, context) and 6 import/export commands
      (import-soulspec, export-soulspec, import-tavernai, export-tavernai, import-a2a, export-a2a).
-     Total: 34 commands.
      Updated: 2026-03-13 — Added soul inject command for fast context injection into agent configs.
      Updated: 2026-03-02 — Removed dashboard/open commands, enhanced inspect with TUI panels. -->
 
@@ -851,6 +852,66 @@ soul context --describe
 | `--max-tokens INT` | Token budget (with `--assemble`). |
 | `--grep PATTERN` | Search context history by regex pattern. |
 | `--describe` | Show context store metadata (message count, tokens, date range). |
+
+---
+
+## Soul Maintenance (v0.2.7)
+
+### `soul health <path>`
+
+Audit a soul's health — memory tiers, duplicates, orphan graph nodes, skills, bond.
+
+```bash
+soul health .soul/
+```
+
+Shows a panel with:
+- Memory tier counts (episodic, semantic, procedural)
+- Knowledge graph nodes, skills, evaluation history count
+- Bond strength and interaction count
+- Issues: duplicates (>80% overlap), orphan graph nodes, skill/bond integrity
+
+### `soul cleanup <path>`
+
+Remove duplicates, stale evaluations, and orphan graph nodes.
+
+```bash
+soul cleanup .soul/ --dry-run          # preview without changes
+soul cleanup .soul/ --auto             # apply all cleanups
+soul cleanup .soul/ --no-dedup         # skip duplicate removal
+soul cleanup .soul/ --low-importance 2 # remove memories with importance ≤ 2
+```
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Preview what would be cleaned without changing anything |
+| `--auto` | Apply all cleanups without prompting |
+| `--dedup / --no-dedup` | Toggle near-duplicate removal (default: on) |
+| `--stale-evals / --no-stale-evals` | Toggle stale evaluation procedural cleanup (default: on) |
+| `--orphan-nodes / --no-orphan-nodes` | Toggle orphan graph node cleanup (default: on) |
+| `--low-importance N` | Remove memories with importance ≤ N (default: 0 = skip) |
+
+### `soul repair <path>`
+
+Targeted fixes for corrupted or stale soul state.
+
+```bash
+soul repair .soul/ --reset-energy      # energy + social battery → 100%
+soul repair .soul/ --reset-bond        # bond strength → 50.0
+soul repair .soul/ --rebuild-graph     # re-extract entities from all memories
+soul repair .soul/ --clear-evals       # wipe evaluation history
+soul repair .soul/ --clear-skills      # wipe all learned skills
+soul repair .soul/ --clear-procedural  # wipe procedural memories
+```
+
+| Option | Description |
+|--------|-------------|
+| `--reset-energy` | Reset energy and social battery to 100% |
+| `--reset-bond` | Reset bond strength to 50.0 |
+| `--rebuild-graph` | Clear graph and re-extract entities from all memories |
+| `--clear-evals` | Clear evaluation history |
+| `--clear-skills` | Clear all learned skills |
+| `--clear-procedural` | Clear all procedural memories |
 
 ---
 
