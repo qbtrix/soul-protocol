@@ -69,6 +69,11 @@ soul recall .soul/aria.soul "python" --limit 5 --min-importance 7
 
 # Show recent memories
 soul recall .soul/aria.soul --recent 10
+
+# LLM-friendly output (v0.2.8) — use these when agents need full content
+soul recall .soul/aria.soul "query" --full          # Complete text, no truncation
+soul recall .soul/aria.soul "query" --json          # Machine-readable JSON array
+soul recall .soul/aria.soul --recent 5 --json       # Recent memories as JSON
 ```
 
 ### Runtime operations (v0.2.6)
@@ -176,6 +181,8 @@ soul export .soul/myagent.soul --output .soul/myagent.soul
 |------|-------|-----|
 | Store a memory | `soul remember path "text" -i 8` | `soul_remember(content, importance)` |
 | Search memories | `soul recall path "query" -n 5` | `soul_recall(query, limit)` |
+| Search (full text) | `soul recall path "query" --full` | `soul_recall(query)` (returns full content) |
+| Search (JSON) | `soul recall path "query" --json` | `soul_recall(query)` (already JSON) |
 | Check status | `soul status path` | `soul_state()` |
 | Create soul | `soul birth "Name"` | `soul_birth(name)` |
 | Inspect soul | `soul inspect path` | `soul_prompt()` + `soul_state()` |
