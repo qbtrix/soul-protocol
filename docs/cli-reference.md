@@ -1,4 +1,5 @@
 <!-- Covers: CLI installation, all 37 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-03-27 — v0.2.8: Added archive, recover, and eternal-status command documentation.
      Updated: 2026-03-26 — v0.2.7: Added 3 maintenance commands (health, cleanup, repair).
      Total: 37 commands. Biorhythms defaults changed to always-on (no energy/social drain).
      Updated: 2026-03-24 — v0.2.6: Added 13 runtime commands (observe, reflect, feel, prompt, forget,
@@ -912,6 +913,78 @@ soul repair .soul/ --clear-procedural  # wipe procedural memories
 | `--clear-evals` | Clear evaluation history |
 | `--clear-skills` | Clear all learned skills |
 | `--clear-procedural` | Clear all procedural memories |
+
+---
+
+## Eternal Storage
+
+### `soul archive`
+
+Archive a `.soul` file to eternal storage tiers (IPFS, Arweave, Blockchain). Uses mock providers by default.
+
+```bash
+soul archive my-soul.soul
+soul archive .soul/ --tiers ipfs arweave
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a `.soul` file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--tiers TIER` | `-t` | Storage tiers to archive to (repeatable). If omitted, archives to all mock providers. |
+
+**Output:** A table showing each tier's name, reference hash (truncated), cost, and whether storage is permanent. Archive references are persisted into the `.soul` manifest.
+
+---
+
+### `soul recover`
+
+Recover a soul from eternal storage by its reference hash.
+
+```bash
+soul recover QmRef123... --tier ipfs --output recovered.soul
+soul recover arweave_ref_456 --tier arweave --output my-soul.soul
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `REFERENCE` | Yes | The storage reference hash returned by `soul archive`. |
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--tier TIER` | `-t` | Which tier to recover from: `ipfs`, `arweave`, or `blockchain`. Default: `ipfs`. |
+| `--output PATH` | `-o` | Output file path (required). |
+
+**Output:** Writes the recovered `.soul` file to the output path and prints the byte count.
+
+---
+
+### `soul eternal-status`
+
+Show eternal storage references for a `.soul` file. Reads the manifest inside the archive and displays any previously archived tiers and their references.
+
+```bash
+soul eternal-status my-soul.soul
+soul eternal-status .soul/
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a `.soul` file or `.soul/` directory. |
+
+**Output:** A table showing each archived tier, its reference, and timestamp.
 
 ---
 

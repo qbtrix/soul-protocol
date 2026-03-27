@@ -1,4 +1,6 @@
-<!-- Covers: Soul lifecycle, .soul file format, Identity and DID, OCEAN personality, DNA, state management, memory architecture overview, evolution system, CognitiveEngine overview, SearchStrategy overview -->
+<!-- Covers: Soul lifecycle, .soul file format, Identity and DID, OCEAN personality, DNA, state management, memory architecture overview, evolution system, CognitiveEngine overview, SearchStrategy overview.
+     Updated: 2026-03-27 — v0.2.8: Fixed biorhythms table (removed social_battery state field,
+     added all config fields with correct always-on defaults). Updated observe() drain text. -->
 
 # Core Concepts
 
@@ -168,8 +170,13 @@ Simulated vitality patterns:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `chronotype` | `str` | `"neutral"` | Morning person, night owl, or neutral |
-| `social_battery` | `float` | `100.0` | Social energy (0-100) |
-| `energy_regen_rate` | `float` | `5.0` | Energy recovery rate |
+| `energy_regen_rate` | `float` | `0.0` | Energy recovered per hour of elapsed time |
+| `energy_drain_rate` | `float` | `0.0` | Energy lost per interaction (0 = no drain) |
+| `social_drain_rate` | `float` | `0.0` | Social battery lost per interaction (0 = no drain) |
+| `tired_threshold` | `float` | `0.0` | Energy below this forces TIRED mood (0 = disabled) |
+| `mood_inertia` | `float` | `0.4` | How quickly mood shifts (0 = max inertia, 1 = instant) |
+| `mood_sensitivity` | `float` | `0.25` | Sentiment threshold to trigger a mood change |
+| `auto_regen` | `bool` | `false` | Recover energy based on elapsed time between interactions |
 
 
 ## State Management
@@ -192,7 +199,7 @@ The `SoulState` tracks the soul's current condition. It changes with every inter
 
 ### How State Changes
 
-**On interaction**: Each `observe()` call drains 2 energy and 5 social_battery. If energy drops below 20, mood auto-shifts to `TIRED`.
+**On interaction**: With default biorhythms (always-on), `observe()` does not drain energy. Drain is opt-in for companion souls via `energy_drain_rate` and `social_drain_rate`. If energy drops below `tired_threshold`, mood auto-shifts to `TIRED`.
 
 **Manual updates with `feel()`**: Use delta values for energy and social_battery (they are added to the current value and clamped to 0-100). Other fields are set directly.
 

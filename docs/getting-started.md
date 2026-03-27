@@ -1,5 +1,7 @@
 <!-- Covers: Installation, optional extras, soul init quickstart, soul inject, first soul walkthrough,
      observe() pipeline explanation, next steps.
+     Updated: 2026-03-27 — v0.2.8: Fixed CLI command count (9 → 37), updated energy drain text
+       to reflect always-on defaults, fixed example output (energy 96 → 100).
      Updated: 2026-03-24 — v0.2.5: Added LLM engine extras (anthropic, openai, ollama, litellm, llm),
        embedding extras (embeddings-st, embeddings-openai, embeddings-ollama), [all] meta-extra,
        and engine="auto" quick start example.
@@ -189,12 +191,12 @@ Born: Aria (DID: did:soul:aria-a3f2b1)
   [semantic] User prefers concise code examples
   [semantic] User is building a Python web app
   [semantic] User's favorite framework is FastAPI
-Mood: neutral, Energy: 96.0
+Mood: neutral, Energy: 100.0
 System prompt: 847 chars
 Awakened: Aria, memories preserved!
 ```
 
-Notice that energy dropped from 100 to 96. Each `observe()` call drains 2 energy and 5 social battery, simulating the cost of social interaction.
+With default biorhythms (always-on), energy stays at 100%. Drain only occurs when `energy_drain_rate` is configured above zero (e.g., for companion souls).
 
 
 ## What Happened Behind the Scenes
@@ -275,4 +277,4 @@ See the [CognitiveEngine Guide](cognitive-engine.md) for details.
 - **[API Reference](api-reference.md)** -- Complete Soul class API, all types and models
 - **[MCP Server](mcp-server.md)** -- FastMCP server for agent integration
 - **[Integrations](integrations.md)** -- Give Claude Code, Cursor, or any agent a `.soul`
-- **[CLI Reference](cli-reference.md)** -- All 9 commands including `soul inject` for fast agent integration
+- **[CLI Reference](cli-reference.md)** -- All 37 commands including `soul inject` for fast agent integration

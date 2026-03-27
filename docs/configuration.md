@@ -1,5 +1,7 @@
 <!-- Covers: Soul configuration — birth parameters, OCEAN personality, communication style,
-     biorhythms, persona, config files (YAML/JSON), CLI options, and examples. -->
+     biorhythms, persona, config files (YAML/JSON), CLI options, and examples.
+     Updated: 2026-03-27 — v0.2.8: Fixed biorhythm defaults to always-on (all drain rates 0.0,
+     auto_regen false). Updated companion soul example to note opt-in overrides. -->
 
 # Configuration
 
@@ -117,13 +119,13 @@ Biorhythms control a soul's simulated energy, fatigue, and mood dynamics. They d
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `chronotype` | `str` | `"neutral"` | Flavor text (e.g., `"night_owl"`, `"early_bird"`) |
-| `energy_regen_rate` | `float` | `10.0` | Energy recovered per hour of elapsed time |
-| `energy_drain_rate` | `float` | `2.0` | Energy lost per interaction (`0` = no drain) |
-| `social_drain_rate` | `float` | `5.0` | Social battery lost per interaction (`0` = no drain) |
-| `tired_threshold` | `float` | `20.0` | Energy below this forces TIRED mood (`0` = disabled) |
+| `energy_regen_rate` | `float` | `0.0` | Energy recovered per hour of elapsed time |
+| `energy_drain_rate` | `float` | `0.0` | Energy lost per interaction (`0` = no drain) |
+| `social_drain_rate` | `float` | `0.0` | Social battery lost per interaction (`0` = no drain) |
+| `tired_threshold` | `float` | `0.0` | Energy below this forces TIRED mood (`0` = disabled) |
 | `mood_inertia` | `float` | `0.4` | How quickly mood shifts (0 = max inertia, 1 = instant) |
 | `mood_sensitivity` | `float` | `0.25` | Sentiment threshold to trigger a mood change |
-| `auto_regen` | `bool` | `true` | Recover energy based on elapsed time between interactions |
+| `auto_regen` | `bool` | `false` | Recover energy based on elapsed time between interactions |
 
 ### When to use energy drain (companion souls)
 
@@ -136,12 +138,13 @@ Energy drain makes a soul feel alive. Use it for consumer companions, roleplay c
 Good for: virtual pets, emotional companions, game characters, therapeutic agents, Tamagotchi-style apps.
 
 ```yaml
-# Companion soul -- default biorhythms work well
+# Companion soul -- opt-in overrides for simulated fatigue
 biorhythms:
-  energy_drain_rate: 2.0      # Gradual fatigue
-  social_drain_rate: 5.0      # Social interactions cost more
-  tired_threshold: 20.0       # Gets tired eventually
-  auto_regen: true            # Recovers between sessions
+  energy_drain_rate: 2.0      # Gradual fatigue (default: 0.0)
+  social_drain_rate: 5.0      # Social interactions cost more (default: 0.0)
+  tired_threshold: 20.0       # Gets tired eventually (default: 0.0)
+  auto_regen: true            # Recovers between sessions (default: false)
+  energy_regen_rate: 10.0     # Energy recovered per hour (default: 0.0)
 ```
 
 ### When to disable energy drain (tool / worker souls)

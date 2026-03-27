@@ -11,7 +11,7 @@ license: MIT
 compatibility: "Python 3.11+. CLI requires soul-protocol[engine]. MCP server requires soul-protocol[mcp]."
 metadata:
   author: OCEAN Foundation
-  version: 0.2.7
+  version: 0.2.8
   repository: https://github.com/qbtrix/soul-protocol
   pypi: https://pypi.org/project/soul-protocol/
 ---
@@ -186,16 +186,16 @@ soul export .soul/myagent.soul --output .soul/myagent.soul
 | Reflect | `soul reflect path` | `soul_reflect()` |
 | Update mood/energy | `soul feel path --mood X --energy Y` | `soul_feel(mood, energy)` |
 | System prompt | `soul prompt path` | `soul_prompt()` |
-| Delete memories | `soul forget path "query"` | N/A (Python API) |
-| Edit core memory | `soul edit-core path --persona X` | N/A (Python API) |
+| Delete memories | `soul forget path "query"` | `soul_forget(query)` |
+| Edit core memory | `soul edit-core path --persona X` | `soul_edit_core(persona, human)` |
 | Evolution | `soul evolve path --propose ...` | `soul_evolve(action, trait, new_value, reason)` |
 | Evaluate | `soul evaluate path --user-input X --agent-output Y` | `soul_evaluate(user_input, agent_output)` |
 | Learn | `soul learn path --user-input X --agent-output Y` | `soul_learn(user_input, agent_output)` |
 | Skills | `soul skills path` | `soul_skills()` |
 | Bond | `soul bond path` | `soul_bond(strengthen)` |
 | Events | `soul events path` | N/A (Python API) |
-| Health audit | `soul health path` | N/A (CLI only) |
-| Cleanup | `soul cleanup path --auto` | N/A (CLI only) |
+| Health audit | `soul health path` | `soul_health()` |
+| Cleanup | `soul cleanup path --auto` | `soul_cleanup(auto)` |
 | Repair | `soul repair path --reset-energy` | N/A (CLI only) |
 | Ingest context | `soul context --ingest --role X --content Y` | `soul_context_ingest(role, content)` |
 | Assemble context | `soul context --assemble --max-tokens N` | `soul_context_assemble(max_tokens)` |
@@ -235,6 +235,9 @@ SOUL_DIR=.soul soul-mcp
 | `soul_context_grep` | Regex search across all context history (even compacted messages) |
 | `soul_context_expand` | Expand a compacted node back to original messages (lossless recovery) |
 | `soul_context_describe` | Metadata snapshot: message count, tokens, date range, compaction stats |
+
+### Psychology tools (5)
+`soul_evolve`, `soul_evaluate`, `soul_learn`, `soul_skills`, `soul_bond`
 
 ### Resources (3)
 `soul://identity`, `soul://memory/core`, `soul://state`
@@ -338,10 +341,17 @@ await soul.export("aria.soul")
 ## .soul File Format
 
 A `.soul` file is a ZIP archive containing:
-- `soul.json` — Identity, DNA (OCEAN personality), state
-- `memory.json` — All memory tiers
-- `graph.json` — Knowledge graph (if present)
-- `metadata.json` — Version, timestamps
+- `manifest.json` — Version, timestamps, format metadata
+- `soul.json` — Identity, DNA (OCEAN personality), config
+- `state.json` — Runtime state (mood, energy, lifecycle)
+- `dna.md` — Human-readable personality snapshot
+- `memory/core.json` — Core memory (persona + human knowledge)
+- `memory/episodic.json` — Interaction history with sentiment
+- `memory/semantic.json` — Extracted facts
+- `memory/procedural.json` — Learned patterns
+- `memory/graph.json` — Knowledge graph (entity relationships)
+- `memory/self_model.json` — Self-image and reflection data
+- `memory/general_events.json` — General event log
 
 Portable across platforms. `soul inject` writes MCP config for any supported agent.
 

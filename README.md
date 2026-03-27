@@ -1,8 +1,7 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-03-26 (v0.2.7) — bumped test count to 1903, version to 0.2.7.
-     v0.2.7 fixes 5 broken psychology pipelines: bond recall, evolution wiring,
-     entity extraction, skills/eval persistence, heuristic calibration.
-     Updated CLI count to 37 commands, MCP tools count to 23. -->
+<!-- Updated: 2026-03-27 (v0.2.8) — bumped test count to 1943, version to 0.2.8.
+     Added CLI table note linking to full cli-reference.md (37 commands).
+     Dev section test count updated to 1943. -->
 
 # Soul Protocol
 
@@ -10,7 +9,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 1903 passing](https://img.shields.io/badge/tests-1903%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 1943 passing](https://img.shields.io/badge/tests-1943%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 
@@ -319,6 +318,8 @@ Archive souls to decentralized storage (local, IPFS, Arweave, blockchain). Curre
 soul <command> [options]
 ```
 
+See [CLI Reference](docs/cli-reference.md) for all 37 commands. Highlights:
+
 | Command | Description |
 |---|---|
 | `init` | Initialize a .soul/ folder (like .git/) |
@@ -401,7 +402,7 @@ await soul.observe(Interaction(
 git clone https://github.com/qbtrix/soul-protocol.git
 cd soul-protocol
 pip install -e ".[dev]"
-pytest tests/   # 1851 tests
+pytest tests/   # 1943 tests
 ```
 
 ---

@@ -1,6 +1,7 @@
 <!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 23 tools
      (13 soul/memory + 5 context + 5 psychology), 3 resources, 2 prompts, auto-detect,
      MCP Sampling Engine, programmatic usage, and design notes.
+     Updated: 2026-03-27 — v0.2.8: Fixed section header "Tools (18)" → "Tools (23)".
      Updated: 2026-03-26 — v0.2.7: Added 5 psychology pipeline tools (soul_skills,
      soul_evaluate, soul_learn, soul_evolve, soul_bond). Tool count: 18 → 23.
      Updated: 2026-03-24 — v0.2.6: Added 5 LCM context tools (soul_context_ingest,
@@ -84,7 +85,7 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (18)
+## Tools (23)
 
 All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 23 tools break down as: 9 soul management, 4 memory, 5 context (LCM), and 5 psychology pipeline (v0.2.7).
 
