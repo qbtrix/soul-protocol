@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.8] -- 2026-03-27
+
+### Added
+- `soul health` CLI — audit memory tiers, duplicates, orphan nodes, bond sanity
+- `soul cleanup` CLI — remove dupes, stale evals, orphans (--dry-run, --auto)
+- `soul repair` CLI — reset energy/bond, rebuild graph, clear evals/skills
+- `soul_skills`, `soul_evaluate`, `soul_learn`, `soul_evolve`, `soul_bond` MCP tools (23 total)
+- `soul recall --full` flag for complete memory content (no truncation)
+- `soul recall --json` flag for machine-readable output
+- `soul_forget`, `soul_edit_core`, `soul_health`, `soul_cleanup` MCP tools
+- Biorhythms documentation with always-on vs companion usage guide
+- Always-On Worker preset in configuration docs
+
+### Changed
+- Default biorhythms now always-on (energy_drain_rate=0, social_drain_rate=0, tired_threshold=0)
+- Companion souls opt-in to drain via explicit biorhythm config
+
+### Fixed
+- Evolution pending mutations now persist across save/reload cycles
+- Previously, proposed mutations were lost on export/awaken (in-memory only)
+
+---
+
 ## [0.2.7] — 2026-03-26
 
 ### Fixed

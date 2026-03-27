@@ -1,7 +1,7 @@
 # soul-protocol — Portable AI identity and memory
-# Updated: 2026-03-26 — v0.2.7 release: Fixed 5 broken psychology pipelines (bond, evolution,
-#   skills, entity extraction, heuristic evaluator). Skills + eval history now persist.
-#   18 real-world e2e tests. 1903 tests passing.
+# Updated: 2026-03-27 — v0.2.8 release: Added soul health/cleanup/repair CLI, 5 new MCP
+#   psychology tools (23 total), --full/--json recall flags, biorhythms always-on defaults,
+#   evolution mutation persistence fix. Added httpx dep to ollama extra.
 
 [build-system]
 requires = ["hatchling"]
@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soul-protocol"
-version = "0.2.7"
+version = "0.2.8"
 description = "The open standard for portable AI identity and memory"
 readme = "README.md"
 license = "MIT"
@@ -52,7 +52,7 @@ graph = ["networkx>=3.0"]
 vector = ["numpy>=1.24"]
 anthropic = ["anthropic>=0.40.0"]
 openai = ["openai>=1.0.0"]
-ollama = []  # uses httpx which is already in engine deps
+ollama = ["httpx>=0.27"]
 litellm = []  # litellm breaks uv sync resolution — install litellm manually if needed
 llm = ["anthropic>=0.40.0", "openai>=1.0.0"]
 lcm = []  # Zero new deps — sqlite3 is stdlib, Pydantic is already core
