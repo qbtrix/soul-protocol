@@ -108,6 +108,64 @@ soul = await Soul.birth(
 | `emoji_usage` | none, minimal, moderate, heavy | none | Emoji frequency |
 
 
+## Biorhythms
+
+Biorhythms control a soul's simulated energy, fatigue, and mood dynamics. They determine whether your soul "feels" the weight of interactions over time or stays constant.
+
+### Parameter Reference
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `chronotype` | `str` | `"neutral"` | Flavor text (e.g., `"night_owl"`, `"early_bird"`) |
+| `energy_regen_rate` | `float` | `10.0` | Energy recovered per hour of elapsed time |
+| `energy_drain_rate` | `float` | `2.0` | Energy lost per interaction (`0` = no drain) |
+| `social_drain_rate` | `float` | `5.0` | Social battery lost per interaction (`0` = no drain) |
+| `tired_threshold` | `float` | `20.0` | Energy below this forces TIRED mood (`0` = disabled) |
+| `mood_inertia` | `float` | `0.4` | How quickly mood shifts (0 = max inertia, 1 = instant) |
+| `mood_sensitivity` | `float` | `0.25` | Sentiment threshold to trigger a mood change |
+| `auto_regen` | `bool` | `true` | Recover energy based on elapsed time between interactions |
+
+### When to use energy drain (companion souls)
+
+Energy drain makes a soul feel alive. Use it for consumer companions, roleplay characters, or any soul where simulated fatigue adds to the experience:
+
+- The soul gets "tired" after many interactions, shifting to shorter or softer responses
+- Social battery depletion can signal the UI to show "resting" states (engagement mechanic)
+- Recovery over time creates a natural rhythm -- the soul "misses" the user
+
+Good for: virtual pets, emotional companions, game characters, therapeutic agents, Tamagotchi-style apps.
+
+```yaml
+# Companion soul -- default biorhythms work well
+biorhythms:
+  energy_drain_rate: 2.0      # Gradual fatigue
+  social_drain_rate: 5.0      # Social interactions cost more
+  tired_threshold: 20.0       # Gets tired eventually
+  auto_regen: true            # Recovers between sessions
+```
+
+### When to disable energy drain (tool / worker souls)
+
+For agents that serve as tools, assistants, or workers, energy drain is counterproductive. The soul shouldn't degrade its own usefulness by pretending to be tired after 15 interactions. Set all drain rates to zero:
+
+Good for: coding assistants, CI/CD agents, API bots, DevOps souls, builder agents, any soul where consistent performance matters.
+
+```yaml
+# Always-on worker soul -- no fatigue simulation
+biorhythms:
+  energy_drain_rate: 0        # Never drains
+  social_drain_rate: 0        # Never drains
+  tired_threshold: 0          # Never forced tired
+  auto_regen: false           # Not needed when drain is off
+```
+
+When both drain rates are zero, the prompt engine outputs `"always-on (no drain)"` instead of listing individual rates.
+
+### Mood dynamics (independent of energy)
+
+Even with drain disabled, mood still responds to interaction sentiment via `mood_inertia` and `mood_sensitivity`. A worker soul can still feel satisfaction after a successful task or frustration after errors -- it just won't get artificially tired.
+
+
 ## Config Files
 
 For complex configurations, use YAML or JSON files instead of inline parameters.
@@ -308,6 +366,33 @@ persona: >
   I am Sunny, a warm and encouraging companion. I celebrate
   your wins, support you through challenges, and always
   believe in your potential.
+```
+
+### Always-On Worker
+
+```yaml
+name: BuildBot
+archetype: The Builder
+values: [reliability, speed, precision]
+ocean:
+  openness: 0.6
+  conscientiousness: 0.9
+  extraversion: 0.4
+  agreeableness: 0.6
+  neuroticism: 0.2
+communication:
+  warmth: moderate
+  verbosity: low
+  humor_style: none
+biorhythms:
+  energy_drain_rate: 0       # No fatigue
+  social_drain_rate: 0       # No social cost
+  tired_threshold: 0         # Never forced tired
+  auto_regen: false          # Not needed
+persona: >
+  I am BuildBot, a tireless worker that ships code,
+  reviews PRs, and keeps the pipeline green. I don't
+  get tired -- I get things done.
 ```
 
 
