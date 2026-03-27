@@ -399,6 +399,7 @@ class EvolutionConfig(BaseModel):
     mutable_traits: list[str] = Field(default_factory=lambda: ["communication", "biorhythms"])
     immutable_traits: list[str] = Field(default_factory=lambda: ["personality", "core_values"])
     history: list[Mutation] = Field(default_factory=list)
+    pending: list[Mutation] = Field(default_factory=list)
 
 
 # ============ Lifecycle ============

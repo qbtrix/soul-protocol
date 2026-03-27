@@ -1,4 +1,6 @@
 # evolution/manager.py — EvolutionManager for proposing, approving, and applying DNA mutations.
+# Updated: Fixed pending mutations not persisting — moved from in-memory list to
+#   EvolutionConfig.pending so mutations survive save/reload cycles.
 # Updated: Wired check_triggers() to accept optional evaluation_triggers from
 #   Evaluator.check_evolution_triggers() and propose mutations for high-performance
 #   streaks. Previously was a no-op placeholder.
@@ -68,7 +70,6 @@ class EvolutionManager:
 
     def __init__(self, config: EvolutionConfig) -> None:
         self._config = config
-        self._pending: list[Mutation] = []
 
     @property
     def config(self) -> EvolutionConfig:
@@ -78,7 +79,7 @@ class EvolutionManager:
     @property
     def pending(self) -> list[Mutation]:
         """Return mutations awaiting approval."""
-        return [m for m in self._pending if m.approved is None]
+        return [m for m in self._config.pending if m.approved is None]
 
     @property
     def history(self) -> list[Mutation]:
@@ -131,7 +132,7 @@ class EvolutionManager:
             )
         else:
             # supervised — stays pending
-            self._pending.append(mutation)
+            self._config.pending.append(mutation)
             logger.info(
                 "Mutation proposed (supervised): id=%s, trait=%s, %s -> %s",
                 mutation.id,
@@ -148,11 +149,11 @@ class EvolutionManager:
         Returns:
             ``True`` if the mutation was found and approved, ``False`` otherwise.
         """
-        for mutation in self._pending:
+        for mutation in self._config.pending:
             if mutation.id == mutation_id and mutation.approved is None:
                 mutation.approved = True
                 mutation.approved_at = datetime.now()
-                self._pending.remove(mutation)
+                self._config.pending.remove(mutation)
                 self._config.history.append(mutation)
                 logger.info(
                     "Mutation approved: id=%s, trait=%s", mutation_id, mutation.trait
@@ -166,10 +167,10 @@ class EvolutionManager:
         Returns:
             ``True`` if the mutation was found and rejected, ``False`` otherwise.
         """
-        for mutation in self._pending:
+        for mutation in self._config.pending:
             if mutation.id == mutation_id and mutation.approved is None:
                 mutation.approved = False
-                self._pending.remove(mutation)
+                self._config.pending.remove(mutation)
                 self._config.history.append(mutation)
                 logger.info(
                     "Mutation rejected: id=%s, trait=%s",
