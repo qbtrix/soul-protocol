@@ -1,4 +1,6 @@
 # cli/main.py — Click CLI for the Soul Protocol (37 commands)
+# Updated: 2026-03-27 — Added --full and --json flags to `soul recall` for untruncated
+#   and machine-readable output (v0.2.8).
 # Updated: 2026-03-26 — Added 3 soul maintenance commands: health, cleanup, repair.
 #   health: audit memory tiers, duplicates, orphan nodes, skills, bond sanity.
 #   cleanup: remove duplicates, stale evals, orphan graph nodes, low-importance memories.
@@ -907,7 +909,20 @@ def remember_cmd(path, text, importance, emotion):
     default=0,
     help="Minimum importance threshold (0 = no filter)",
 )
-def recall_cmd(path, query, recent, limit, min_importance):
+@click.option(
+    "--full",
+    is_flag=True,
+    default=False,
+    help="Show complete memory content without truncation",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Output results as a JSON array (machine-readable)",
+)
+def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
     """Query a Soul's memories.
 
     \b
@@ -915,6 +930,8 @@ def recall_cmd(path, query, recent, limit, min_importance):
       soul recall aria.soul "user preferences"
       soul recall aria.soul --recent 10
       soul recall aria.soul "python" --min-importance 5
+      soul recall aria.soul "python" --full
+      soul recall aria.soul --recent 5 --json
     """
 
     async def _recall():
@@ -947,9 +964,41 @@ def recall_cmd(path, query, recent, limit, min_importance):
             raise SystemExit(1)
 
         if not entries:
-            console.print(f"[dim]No memories found for {soul.name}.[/dim]")
+            if as_json:
+                click.echo("[]")
+            else:
+                console.print(f"[dim]No memories found for {soul.name}.[/dim]")
             return
 
+        # --json: machine-readable JSON array
+        if as_json:
+            items = [
+                {
+                    "type": entry.type.value,
+                    "content": entry.content,
+                    "importance": entry.importance,
+                    "emotion": entry.emotion,
+                    "created": entry.created_at.isoformat(),
+                }
+                for entry in entries
+            ]
+            click.echo(json.dumps(items, indent=2))
+            return
+
+        # --full: untruncated plain text output
+        if full:
+            for idx, entry in enumerate(entries, 1):
+                created = entry.created_at.strftime("%Y-%m-%d")
+                click.echo(
+                    f"--- Memory {idx} ({entry.type.value}, "
+                    f"importance: {entry.importance}, "
+                    f"created: {created}) ---"
+                )
+                click.echo(entry.content)
+                click.echo()
+            return
+
+        # Default: Rich table with truncation
         table = Table(title=title, border_style="blue")
         table.add_column("#", style="dim", width=3)
         table.add_column("Type", style="cyan", width=10)

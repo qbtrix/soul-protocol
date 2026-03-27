@@ -1,4 +1,5 @@
 # test_cli.py — Tests for the CLI interface using click.testing.CliRunner.
+# Updated: 2026-03-27 — Added tests for recall --full and --json flags (v0.2.8).
 # Updated: 2026-03-13 — Added --format option tests for soul init (TDD: dir, zip, default).
 
 from __future__ import annotations
@@ -224,3 +225,110 @@ def test_init_format_default_is_dir(tmp_path):
     soul_json = tmp_path / ".soul" / "defaultbot" / "soul.json"
     assert soul_json.exists(), f"soul.json not found at {soul_json} (default format should be dir)"
     assert (tmp_path / ".soul" / "defaultbot").is_dir()
+
+
+# --- recall --full / --json tests (v0.2.8) ---
+
+
+def test_recall_full_flag(tmp_path):
+    """recall --full shows complete memory content without truncation."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "full-test.soul")
+
+    runner.invoke(cli, ["birth", "FullBot", "-o", soul_path])
+    long_text = "User preferences for dark mode and Python programming " * 4  # exceeds 80-char limit
+    runner.invoke(cli, ["remember", soul_path, long_text.strip()])
+
+    # Use --recent to avoid search matching issues
+    result = runner.invoke(cli, ["recall", soul_path, "--recent", "5", "--full"])
+
+    assert result.exit_code == 0
+    # --full should show the complete text, not truncated
+    assert long_text.strip() in result.output
+    # Should have the "--- Memory N (...) ---" header format
+    assert "--- Memory" in result.output
+    assert "importance:" in result.output
+    assert "created:" in result.output
+
+
+def test_recall_full_recent(tmp_path):
+    """recall --recent N --full shows untruncated recent memories."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "fullrecent-test.soul")
+
+    runner.invoke(cli, ["birth", "FullRecentBot", "-o", soul_path])
+    runner.invoke(cli, ["remember", soul_path, "Remember this specific fact"])
+
+    result = runner.invoke(cli, ["recall", soul_path, "--recent", "5", "--full"])
+
+    assert result.exit_code == 0
+    assert "--- Memory" in result.output
+
+
+def test_recall_json_flag(tmp_path):
+    """recall --json outputs valid JSON array."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "json-test.soul")
+
+    runner.invoke(cli, ["birth", "JsonBot", "-o", soul_path])
+    runner.invoke(cli, ["remember", soul_path, "User likes dark mode", "-i", "8"])
+
+    result = runner.invoke(cli, ["recall", soul_path, "dark mode", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert isinstance(data, list)
+    assert len(data) >= 1
+    item = data[0]
+    assert "type" in item
+    assert "content" in item
+    assert "importance" in item
+    assert "emotion" in item
+    assert "created" in item
+    assert "dark mode" in item["content"]
+
+
+def test_recall_json_empty(tmp_path):
+    """recall --json with no matches outputs empty JSON array."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "jsonempty-test.soul")
+
+    runner.invoke(cli, ["birth", "JsonEmptyBot", "-o", soul_path])
+
+    result = runner.invoke(cli, ["recall", soul_path, "xyznonexistent", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data == []
+
+
+def test_recall_json_recent(tmp_path):
+    """recall --recent N --json outputs valid JSON array."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "jsonrecent-test.soul")
+
+    runner.invoke(cli, ["birth", "JsonRecentBot", "-o", soul_path])
+    runner.invoke(cli, ["remember", soul_path, "A fact to recall"])
+
+    result = runner.invoke(cli, ["recall", soul_path, "--recent", "5", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert isinstance(data, list)
+
+
+def test_recall_default_table_unchanged(tmp_path):
+    """recall without --full or --json still uses Rich table (existing behavior)."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "table-test.soul")
+
+    runner.invoke(cli, ["birth", "TableBot", "-o", soul_path])
+    runner.invoke(cli, ["remember", soul_path, "Table test memory"])
+
+    result = runner.invoke(cli, ["recall", soul_path, "Table test"])
+
+    assert result.exit_code == 0
+    # Default output should have the "memor" count footer and not JSON
+    assert "found" in result.output.lower() or "memor" in result.output.lower()
+    # Should NOT be raw JSON
+    assert not result.output.strip().startswith("[")

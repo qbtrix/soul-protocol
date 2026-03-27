@@ -1,4 +1,6 @@
 # tests.test_mcp.test_server — MCP server integration tests
+# Updated: 2026-03-27 — Added tests for 4 new tools: soul_forget, soul_edit_core,
+#   soul_health, soul_cleanup (v0.2.8).
 # Updated: feat/mcp-sampling-engine — soul_reflect now returns "reflected" (not "skipped")
 #   because MCPSamplingEngine is lazily wired, which activates HeuristicEngine fallback.
 #   Updated test_soul_reflect to accept both outcomes.
@@ -839,3 +841,157 @@ class TestAutoDetectSoulDir:
             data = json.loads(result.data)
             names = [s["name"] for s in data["souls"]]
             assert "AutoHome" in names, f"Expected AutoHome in {names}"
+
+
+# --- Maintenance Tool Tests (v0.2.8) ---
+
+
+async def test_soul_forget_preview():
+    """soul_forget with confirm=false returns a preview without deleting."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        await client.call_tool(
+            "soul_remember",
+            {"content": "User credit card is 1234", "importance": 5},
+        )
+        result = await client.call_tool(
+            "soul_forget",
+            {"query": "credit card", "confirm": False},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "preview"
+        assert data["matching_count"] >= 1
+        assert "hint" in data
+
+
+async def test_soul_forget_confirmed():
+    """soul_forget with confirm=true actually deletes memories."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        await client.call_tool(
+            "soul_remember",
+            {"content": "Sensitive data to forget", "importance": 5},
+        )
+        result = await client.call_tool(
+            "soul_forget",
+            {"query": "Sensitive data", "confirm": True},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "deleted"
+        assert data["total_deleted"] >= 0
+
+
+async def test_soul_edit_core_read():
+    """soul_edit_core with no args returns current core memory."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool("soul_edit_core", {})
+        data = json.loads(result.data)
+        assert "persona" in data
+        assert "human" in data
+        assert "hint" in data
+
+
+async def test_soul_edit_core_update_persona():
+    """soul_edit_core updates persona text."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool(
+            "soul_edit_core",
+            {"persona": "I am a test assistant."},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "updated"
+        assert data["persona"] == "I am a test assistant."
+
+
+async def test_soul_edit_core_update_human():
+    """soul_edit_core updates human knowledge text."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool(
+            "soul_edit_core",
+            {"human": "User prefers Python and dark mode."},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "updated"
+        assert data["human"] == "User prefers Python and dark mode."
+
+
+async def test_soul_edit_core_update_both():
+    """soul_edit_core updates both persona and human."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool(
+            "soul_edit_core",
+            {"persona": "New persona", "human": "New human"},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "updated"
+        assert data["persona"] == "New persona"
+        assert data["human"] == "New human"
+
+
+async def test_soul_health():
+    """soul_health returns a structured health report."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool("soul_health", {})
+        data = json.loads(result.data)
+        assert "tiers" in data
+        assert "episodic" in data["tiers"]
+        assert "semantic" in data["tiers"]
+        assert "procedural" in data["tiers"]
+        assert "total" in data["tiers"]
+        assert "graph_nodes" in data
+        assert "skills" in data
+        assert "bond_strength" in data
+        assert "duplicates" in data
+        assert "issues" in data
+        assert "healthy" in data
+        assert isinstance(data["healthy"], bool)
+
+
+async def test_soul_health_with_memories():
+    """soul_health reports memory counts after storing some."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        await client.call_tool(
+            "soul_remember",
+            {"content": "Test memory for health", "importance": 7},
+        )
+        result = await client.call_tool("soul_health", {})
+        data = json.loads(result.data)
+        assert data["tiers"]["total"] >= 1
+
+
+async def test_soul_cleanup_dry_run():
+    """soul_cleanup with dry_run=true reports without changing anything."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool(
+            "soul_cleanup",
+            {"dry_run": True},
+        )
+        data = json.loads(result.data)
+        assert data["status"] in ("dry_run", "clean")
+        assert "total_items" in data
+        assert "actions" in data
+
+
+async def test_soul_cleanup_execute():
+    """soul_cleanup with dry_run=false actually cleans up."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        # Store a memory — even if there's nothing to clean, it should not error
+        await client.call_tool(
+            "soul_remember",
+            {"content": "Memory for cleanup test", "importance": 5},
+        )
+        result = await client.call_tool(
+            "soul_cleanup",
+            {"dry_run": False},
+        )
+        data = json.loads(result.data)
+        assert data["status"] in ("cleaned", "clean")
+        assert "soul" in data
