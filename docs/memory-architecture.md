@@ -7,7 +7,10 @@
      contradiction pipeline with ContradictionDetector in observe(),
      Long Context Memory (LCM) with ContextStore and 3-level compaction,
      real embedding providers (SentenceTransformer, OpenAI, Ollama).
-     Updated: 2026-03-24 — added v0.2.5 memory features documentation. -->
+     v0.2.9 additions: archival memory wiring (auto-compress old episodics),
+     auto-consolidation triggers, progressive recall (abstract overflow),
+     skill progression with significance-weighted XP and daily decay.
+     Updated: 2026-03-29 — added v0.2.9 features. -->
 
 # Memory Architecture
 
@@ -683,8 +686,86 @@ data = soul._memory.to_dict()
 #     "procedural": [...],
 #     "graph": {"entities": {...}, "edges": [...]},
 #     "self_model": {"self_images": {...}, "relationship_notes": {...}},
-#     "general_events": [...]
+#     "general_events": [...],
+#     "archives": [...]
 # }
 ```
 
-Reconstitution via `MemoryManager.from_dict(data, settings)` restores the full state, including superseded facts, access timestamps, and general events. This powers `.soul` file persistence and migration.
+Reconstitution via `MemoryManager.from_dict(data, settings)` restores the full state, including superseded facts, access timestamps, general events, and archives. This powers `.soul` file persistence and migration.
+
+---
+
+## Archival Memory (v0.2.9)
+
+Old episodic memories are compressed into `ConversationArchive` objects to prevent unbounded growth:
+
+```python
+archive = await soul._memory.archive_old_memories(max_age_hours=48.0)
+```
+
+**How it works:**
+1. Gathers episodic entries older than `max_age_hours` (default 48h)
+2. Skips if fewer than 3 entries (not enough to archive)
+3. Generates a heuristic summary (first sentence of each entry, capped at 10)
+4. Extracts key moments (entries with importance >= 7)
+5. Creates a `ConversationArchive` with provenance (memory_refs to original IDs)
+6. Marks original entries `archived=True` — these are filtered from recall
+
+Archives persist through `to_dict()`/`from_dict()` and survive export/awaken. Search archives via `soul._memory.archival.search_archives(query)`.
+
+---
+
+## Auto-Consolidation (v0.2.9)
+
+Memory hygiene runs automatically during `observe()`:
+
+```python
+# In MemorySettings:
+consolidation_interval: int = 20  # Every 20 interactions
+```
+
+Every `consolidation_interval` interactions, `observe()` auto-triggers:
+1. **Archive old memories** — compresses episodics older than 48h
+2. **Reflect + consolidate** — if a CognitiveEngine is available, runs reflection to extract themes, summaries, and self-insights into semantic memory
+
+The interaction count is persisted in `SoulConfig` so it survives across sessions.
+
+Set `consolidation_interval=0` to disable auto-consolidation.
+
+---
+
+## Progressive Recall (v0.2.9)
+
+When building context windows, you can request overflow entries with compressed content:
+
+```python
+results = await soul.recall("topic", limit=5, progressive=True)
+# results[0:5] — full content (primary)
+# results[5:10] — abstract-only content (overflow, marked is_summarized=True)
+```
+
+**How it works:**
+- Fetches `limit * 2` candidates from each store (more candidates = better ranking)
+- After ACT-R scoring, splits into primary (full content) and overflow (abstract)
+- Overflow entries use `model_copy()` to avoid mutating in-store objects
+- Entries without an abstract keep their full content in the overflow
+
+This lets callers build token-budgeted context: full content for the most relevant memories, L0 abstracts for "see more" context.
+
+---
+
+## Skill Progression and Decay (v0.2.9)
+
+Skills track domain expertise with XP and leveling:
+
+- **XP grants are significance-weighted**: `max(5, int(significance * 30))` — range 5-30 per interaction
+- **Daily decay**: dormant skills lose 1 XP per day inactive, floor at 0, never reduces level
+- **Decay runs at start of observe()**: stale skills shed XP before new XP is granted
+- **Leveling**: XP thresholds scale exponentially (100 → 150 → 225 → ...), level cap at 10
+
+```python
+soul.skills  # SkillRegistry with all learned skills
+soul.skills.get("python")  # Skill(id="python", level=3, xp=45, ...)
+```
+
+Skills persist through export/awaken via `SoulConfig.skills`.

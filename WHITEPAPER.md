@@ -1,9 +1,11 @@
-<!-- Updated: 2026-03-13 — Merged dev: SHS Tier 6, multi-soul MCP, soul inject CLI,
-     memory v2, updated stats (1189 tests, 12 MCP tools, 15 CLI commands). -->
+<!-- Updated: 2026-03-29 — v0.2.9: Moved skills/XP, archival memory, and Conway
+     hierarchy from "Not working yet" to "Working". Added auto-consolidation and
+     progressive recall to working features. Updated stats (2010 tests, 23 MCP tools,
+     37 CLI commands). -->
 
 # Soul Protocol: A Portable Standard for AI Companion Identity, Memory, Cognition, and Emotion
 
-**Version 0.2.3**
+**Version 0.2.9**
 **March 2026**
 
 ---
@@ -412,22 +414,21 @@ Python 3.12. Open source. MIT license.
 - Evolution (supervised mutations, approval workflow)
 - Reincarnation (`Soul.reincarnate()` — preserves memories, increments incarnation, tracks lineage)
 - Archival memory store (compressed conversation archives with keyword search and date-range queries)
+- Skills/XP system with significance-weighted grants (5-30 XP per interaction) and daily decay for dormant skills
+- Archival memory wiring — `observe()` auto-compresses old episodic memories into `ConversationArchive`, filtered from recall
+- Auto-consolidation — archive + reflect triggers every N interactions (default 20), interaction count persisted
+- Progressive recall — `recall(progressive=True)` returns primary entries with full content + overflow with L0 abstracts
+- Conway hierarchy — `GeneralEvent` grouping of episodic memories by theme, wired through `consolidate()`
+- Learning events — `evaluate()` scores interactions against rubrics, stores as procedural memory, feeds XP to skills
+- Soul.archive() method for eternal storage with mock providers (`EternalStorageManager.with_mocks()`)
 
 ### Not working yet
-
-**Skills/XP system.** The data models exist but the full leveling system (domain expertise with XP tracking and portable skill history) is not wired into the runtime. Planned.
-
-**Archival memory wiring.** `ArchivalMemoryStore` exists with search and date-range queries, but is not integrated into the observe() pipeline or auto-compression.
-
-**Learning events.** The system records what happened, not what was *learned*. No formalized feedback loop from experience to procedural knowledge. A soul that fails at a task and a soul that succeeds store the same kind of memory. They shouldn't.
 
 **Domain isolation.** Memory layers exist but aren't namespaced. A billing agent and a legal agent share the same pool. They shouldn't.
 
 **Trust chain.** No cryptographic verification of history. You can't prove what a soul learned or where it learned it.
 
-**Conway hierarchy.** The types for autobiographical event grouping exist. The wiring between episodic memories and lifetime narrative doesn't.
-
-**Production eternal storage.** Providers are mocks. Real IPFS/Arweave integration needs network dependencies that aren't in place.
+**Production eternal storage.** Providers are mocks. Real IPFS/Arweave integration needs network dependencies that aren't in place. `Soul.archive()` works end-to-end with mock providers.
 
 **Semantic precision.** Heuristic keyword recall hits ~13%. "Where does Jordan live?" fails when the stored memory says "I live in Austin Texas" because there's no keyword overlap. The LLM engine layer and BM25 search close this gap significantly, but without an LLM, retrieval is limited.
 

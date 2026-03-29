@@ -272,9 +272,16 @@ See the [CognitiveEngine Guide](cognitive-engine.md) for details.
 ## Next Steps
 
 - **[Core Concepts](core-concepts.md)** -- Identity, DNA, OCEAN personality, state management, evolution
-- **[Memory Architecture](memory-architecture.md)** -- Deep dive into 5-tier memory, ACT-R decay, LIDA gating, somatic markers
+- **[Memory Architecture](memory-architecture.md)** -- Deep dive into 5-tier memory, ACT-R decay, LIDA gating, somatic markers, archival compression, progressive recall, auto-consolidation, skill decay
 - **[CognitiveEngine Guide](cognitive-engine.md)** -- Plug in any LLM, custom search strategies, prompt templates
 - **[API Reference](api-reference.md)** -- Complete Soul class API, all types and models
 - **[MCP Server](mcp-server.md)** -- FastMCP server for agent integration
 - **[Integrations](integrations.md)** -- Give Claude Code, Cursor, or any agent a `.soul`
 - **[CLI Reference](cli-reference.md)** -- All 37 commands including `soul inject` for fast agent integration
+
+### What's new in v0.2.9
+
+- `soul skills` -- view learned skills with level, XP, and decay status
+- `soul reflect` -- trigger memory consolidation (also runs automatically every 20 interactions)
+- `recall(progressive=True)` -- get overflow entries with L0 abstracts for token-budgeted context
+- `Soul.archive(tiers=["ipfs"])` -- archive to eternal storage (mock providers included)
