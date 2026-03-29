@@ -1,7 +1,11 @@
 # test_skills.py — Tests for the Skills/XP progression system
 # Created: 2026-03-06 — Skill creation, XP, leveling, level cap, registry
+# Updated: 2026-03-29 — Added tests for Skill.decay(), SkillRegistry.decay_all(),
+#   and significance-weighted XP (F3: Skills XP).
 
 from __future__ import annotations
+
+from datetime import datetime
 
 from soul_protocol.runtime.skills import Skill, SkillRegistry
 
@@ -127,3 +131,46 @@ class TestSkillRegistry:
         registry.add(Skill(id="music", name="Music"))
         assert len(registry.skills) == 3
         assert registry.get("art").name == "Art"
+
+
+class TestSkillDecay:
+    """Tests for Skill.decay() and SkillRegistry.decay_all()."""
+
+    def test_decay_reduces_xp(self):
+        skill = Skill(id="python", name="Python", xp=50)
+        skill.decay(5)
+        assert skill.xp == 45
+
+    def test_decay_floors_at_zero(self):
+        skill = Skill(id="python", name="Python", xp=3)
+        skill.decay(10)
+        assert skill.xp == 0
+
+    def test_decay_never_reduces_level(self):
+        skill = Skill(id="python", name="Python", level=3, xp=5)
+        skill.decay(20)
+        assert skill.level == 3
+        assert skill.xp == 0
+
+    def test_decay_all_returns_count(self):
+        from datetime import timedelta
+
+        reg = SkillRegistry()
+        old = Skill(id="go", name="Go", xp=20, last_used=datetime.now() - timedelta(days=5))
+        fresh = Skill(id="rust", name="Rust", xp=20, last_used=datetime.now())
+        reg.add(old)
+        reg.add(fresh)
+        count = reg.decay_all()
+        assert count == 1  # only "go" decayed
+        assert old.xp == 15  # lost 5 XP (5 days)
+        assert fresh.xp == 20  # unchanged
+
+    def test_significance_weighted_xp_high(self):
+        """High significance (0.9) should grant ~27 XP."""
+        xp = max(5, int(0.9 * 30))
+        assert xp == 27
+
+    def test_significance_weighted_xp_low(self):
+        """Low significance (0.1) should grant minimum 5 XP."""
+        xp = max(5, int(0.1 * 30))
+        assert xp == 5

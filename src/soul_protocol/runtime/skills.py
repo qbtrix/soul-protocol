@@ -2,10 +2,13 @@
 # skills.py — Skills/XP progression system for souls
 # Created: 2026-03-06 — Implements Skill and SkillRegistry with XP/leveling
 # Updated: 2026-03-22 — Added grant_xp_from_learning().
+# Updated: 2026-03-29 — Added Skill.decay() and SkillRegistry.decay_all() for
+#   significance-weighted XP and time-based XP decay (F3: Skills XP).
 
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -34,6 +37,10 @@ class Skill(BaseModel):
             return True
         return False
 
+    def decay(self, days_inactive: int) -> None:
+        """Reduce XP by days_inactive (1 XP per day). Floors at 0. Never reduces level."""
+        self.xp = max(0, self.xp - days_inactive)
+
 
 class SkillRegistry(BaseModel):
     """Collection of skills for a soul."""
@@ -52,6 +59,24 @@ class SkillRegistry(BaseModel):
         if skill:
             return skill.add_xp(amount)
         return False
+
+    def decay_all(self, now: Optional[datetime] = None) -> int:
+        """Apply time-based XP decay to all skills.
+
+        For each skill, computes days since last_used and calls skill.decay(days).
+        Returns count of skills that had XP reduced.
+        """
+        if now is None:
+            now = datetime.now()
+        decayed = 0
+        for skill in self.skills:
+            days = (now - skill.last_used).days
+            if days > 0:
+                before = skill.xp
+                skill.decay(days)
+                if skill.xp < before:
+                    decayed += 1
+        return decayed
 
     def grant_xp_from_learning(self, event: LearningEvent) -> bool:
         """Grant XP to a skill based on a LearningEvent."""

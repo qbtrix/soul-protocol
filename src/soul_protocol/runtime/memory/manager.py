@@ -1,4 +1,9 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-03-29 — F2: Wired ArchivalMemoryStore into MemoryManager. Added
+#   archive_old_memories() to compress old episodic memories into ConversationArchive.
+#   Archives persist through to_dict/from_dict. Recall filters archived entries.
+# Updated: 2026-03-29 — Added progressive parameter to recall(), passed through
+#   to RecallEngine for F1 progressive disclosure support.
 # Updated: 2026-03-26 — Added _TOPIC_PATTERNS for richer entity extraction from
 #   natural speech ("I'm a data scientist", "I work on X", "we're building Y").
 #   Integrated topic extraction pass into extract_entities() before the existing
@@ -75,6 +80,7 @@ from soul_protocol.runtime.memory.attention import (
 )
 from soul_protocol.runtime.memory.core import CoreMemoryManager
 from soul_protocol.runtime.memory.contradiction import ContradictionDetector
+from soul_protocol.runtime.memory.archival import ArchivalMemoryStore, ConversationArchive
 from soul_protocol.runtime.memory.dedup import reconcile_fact
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
@@ -441,6 +447,9 @@ class MemoryManager:
         self._contradiction_detector = ContradictionDetector(engine=engine)
         self._general_events: dict[str, GeneralEvent] = {}
 
+        # F2 — Archival memory store for compressed conversation archives
+        self._archival = ArchivalMemoryStore()
+
         # v0.3.0 — GDPR deletion audit trail
         # TODO(#51): Persist audit trail through .soul pack/unpack cycle for GDPR compliance
         self._deletion_audit: list[dict] = []
@@ -748,6 +757,7 @@ class MemoryManager:
         requester_id: str | None = None,
         bond_strength: float = 100.0,
         bond_threshold: float = 30.0,
+        progressive: bool = False,
     ) -> list[MemoryEntry]:
         results = await self._recall_engine.recall(
             query=query,
@@ -757,6 +767,7 @@ class MemoryManager:
             requester_id=requester_id,
             bond_strength=bond_strength,
             bond_threshold=bond_threshold,
+            progressive=progressive,
         )
         logger.debug("Recall query_len=%d returned %d results", len(query), len(results))
         return results
@@ -769,6 +780,90 @@ class MemoryManager:
         if await self._procedural.remove(memory_id):
             return True
         return False
+
+    # ---- Archival memory (F2) ----
+
+    @property
+    def archival(self) -> ArchivalMemoryStore:
+        """Access the archival memory store."""
+        return self._archival
+
+    async def archive_old_memories(
+        self, max_age_hours: float = 48.0
+    ) -> ConversationArchive | None:
+        """Compress old episodic memories into a ConversationArchive.
+
+        Gathers episodic memories older than ``max_age_hours``, generates a
+        heuristic summary (first sentence of each), extracts key moments
+        (importance >= 7), and stores the archive. Archived entries are
+        marked with ``archived=True`` so recall can filter them.
+
+        Args:
+            max_age_hours: Age threshold in hours. Entries older than this
+                are candidates for archival.
+
+        Returns:
+            The created ConversationArchive, or None if too few entries to archive.
+        """
+        now = datetime.now()
+        cutoff = now.timestamp() - (max_age_hours * 3600)
+
+        # Gather old, non-archived episodic entries
+        old_entries = [
+            entry
+            for entry in self._episodic.entries()
+            if entry.created_at.timestamp() < cutoff and not entry.archived
+        ]
+
+        if len(old_entries) < 3:
+            logger.debug(
+                "archive_old_memories: only %d old entries, skipping (need >= 3)",
+                len(old_entries),
+            )
+            return None
+
+        # Sort by time for coherent summary
+        old_entries.sort(key=lambda e: e.created_at)
+
+        # Heuristic summary: first sentence of each entry
+        sentences = []
+        for entry in old_entries:
+            first_sentence = entry.content.split(".")[0].strip()
+            if first_sentence:
+                sentences.append(first_sentence)
+        summary = ". ".join(sentences[:10]) + "." if sentences else "Archived memories."
+
+        # Key moments: high-importance entries
+        key_moments = [
+            entry.content[:200]
+            for entry in old_entries
+            if entry.importance >= 7
+        ]
+
+        # Memory refs for provenance tracking
+        memory_refs = [entry.id for entry in old_entries]
+
+        archive = ConversationArchive(
+            id=uuid.uuid4().hex[:12],
+            start_time=old_entries[0].created_at,
+            end_time=old_entries[-1].created_at,
+            summary=summary,
+            key_moments=key_moments,
+            memory_refs=memory_refs,
+        )
+
+        self._archival.archive_conversation(archive)
+
+        # Mark entries as archived
+        for entry in old_entries:
+            entry.archived = True
+
+        logger.info(
+            "Archived %d episodic memories into archive %s",
+            len(old_entries),
+            archive.id,
+        )
+        return archive
 
     # ---- GDPR-compliant deletion (v0.3.0) ----
 
@@ -1304,6 +1399,10 @@ class MemoryManager:
             "general_events": [
                 ge.model_dump(mode="json") for ge in self._general_events.values()
             ],
+            "archives": [
+                archive.model_dump(mode="json")
+                for archive in self._archival.all_archives()
+            ],
         }
 
     @classmethod
@@ -1364,6 +1463,10 @@ class MemoryManager:
         for ge_data in data.get("general_events", []):
             ge = GeneralEvent.model_validate(ge_data)
             manager._general_events[ge.id] = ge
+
+        for archive_data in data.get("archives", []):
+            archive = ConversationArchive.model_validate(archive_data)
+            manager._archival._archives.append(archive)
 
         logger.debug(
             "MemoryManager restored: episodic=%d, semantic=%d, procedural=%d",

@@ -1,6 +1,7 @@
 # eternal/manager.py — Multi-tier eternal storage manager.
 # Created: 2026-03-06 — Manages registration, archiving, recovery,
 #   and verification across multiple EternalStorageProvider backends.
+# Updated: 2026-03-29 — Added with_mocks() classmethod factory for convenience.
 
 from __future__ import annotations
 
@@ -20,6 +21,17 @@ class EternalStorageManager:
         self._providers: dict[str, EternalStorageProvider] = {}
         # Track archives: soul_id -> list of RecoverySource
         self._archives: dict[str, list[RecoverySource]] = {}
+
+    @classmethod
+    def with_mocks(cls) -> "EternalStorageManager":
+        """Create an EternalStorageManager with all mock providers registered."""
+        from .providers.mock_arweave import MockArweaveProvider
+        from .providers.mock_ipfs import MockIPFSProvider
+
+        mgr = cls()
+        mgr.register(MockIPFSProvider())
+        mgr.register(MockArweaveProvider())
+        return mgr
 
     @property
     def providers(self) -> dict[str, EternalStorageProvider]:

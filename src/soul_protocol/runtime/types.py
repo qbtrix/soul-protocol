@@ -1,4 +1,10 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-03-29 — Added archived field to MemoryEntry for archival memory
+#   tier integration (F2). Added consolidation_interval to MemorySettings and
+#   interaction_count to SoulConfig for auto-consolidation (F5).
+#   Added is_summarized runtime marker to MemoryEntry for progressive disclosure
+#   in recall (F1). is_summarized=True signals that content was replaced with
+#   abstract for overflow entries. Never persisted to disk.
 # Updated: 2026-03-26 — Added skills and evaluation_history fields to SoulConfig so
 #   that learned skills and evaluation history persist through export/awaken cycles.
 # Updated: v0.4.0 — Added ingested_at (bi-temporal) and superseded (contradiction detection)
@@ -281,6 +287,10 @@ class MemoryEntry(BaseModel):
     # v0.4.0 — Contradiction detection
     superseded: bool = False  # True when a newer memory contradicts this one
     visibility: MemoryVisibility = MemoryVisibility.BONDED
+    # F2 archival memory — marks episodic memories that have been archived
+    archived: bool = False  # True when memory has been compressed into a ConversationArchive
+    # F1 progressive disclosure — runtime-only marker, never persisted
+    is_summarized: bool = False  # Runtime marker: True when content replaced with abstract
 
 
 class CoreMemory(BaseModel):
@@ -299,6 +309,8 @@ class MemorySettings(BaseModel):
     confidence_threshold: float = 0.7
     persona_tokens: int = 500
     human_tokens: int = 500
+    # F5 auto-consolidation — archive + reflect every N interactions
+    consolidation_interval: int = 20
 
 
 # ============ State / Feelings ============
@@ -428,6 +440,8 @@ class SoulConfig(BaseModel):
     lifecycle: LifecycleState = LifecycleState.BORN
     skills: list[dict] = Field(default_factory=list)
     evaluation_history: list[dict] = Field(default_factory=list)
+    # F5 auto-consolidation — tracks observe() call count for consolidation triggers
+    interaction_count: int = 0
 
 
 # ============ Interaction (input to observe()) ============

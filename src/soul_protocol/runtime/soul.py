@@ -1,4 +1,13 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: 2026-03-29 — F5 Auto-Consolidation: observe() now auto-triggers
+#   archive_old_memories() + reflect() every consolidation_interval interactions.
+#   interaction_count persisted through serialize/awaken via SoulConfig.
+# Updated: 2026-03-29 — F4 Eternal Storage: Added archive() method, _eternal instance
+#   variable, eternal= param on birth()/awaken(), and archive=/archive_tiers= on export().
+# Updated: 2026-03-29 — Added progressive parameter to recall() for F1 progressive
+#   disclosure support. Passes through to MemoryManager.recall().
+# Updated: 2026-03-29 — F3 Skills XP: observe() now calls decay_all() before
+#   memory pipeline, and XP grants are significance-weighted (5-30 XP range).
 # Updated: 2026-03-26 — Fixed 5 broken pipelines discovered in feature audit:
 #   1. context_for() now passes bond_strength to recall (was always defaulting to 100.0)
 #   2. observe() now calls evaluate() to build evaluation history, enabling evolution
@@ -72,6 +81,7 @@ from soul_protocol.spec.learning import LearningEvent
 from .bond import Bond
 from .cognitive.engine import CognitiveEngine
 from .dna.prompt import dna_to_system_prompt
+from .eternal.manager import EternalStorageManager
 from .evaluation import Evaluator
 from .evolution.manager import EvolutionManager
 from .export.pack import pack_soul
@@ -203,6 +213,10 @@ class Soul:
                 logger.warning("Skipping malformed evaluation entry: %s", eval_data)
 
         self._learning_events: list[LearningEvent] = []
+        self._eternal: EternalStorageManager | None = None
+
+        # F5: Interaction counter for auto-consolidation (persisted in SoulConfig)
+        self._interaction_count: int = getattr(config, "interaction_count", 0)
 
     # ============ Lifecycle ============
 
@@ -227,6 +241,8 @@ class Soul:
         use_dspy: bool = False,
         dspy_model: str | None = None,
         dspy_optimized_path: str | None = None,
+        # F4 — Eternal storage
+        eternal: EternalStorageManager | None = None,
         **kwargs,
     ) -> Soul:
         """Birth a new Soul.
@@ -319,6 +335,9 @@ class Soul:
             persona=persona_text,
             human="",
         )
+
+        # F4 — Wire eternal storage
+        soul._eternal = eternal
 
         logger.info("Soul born: name=%s, did=%s", name, identity.did)
         return soul
@@ -447,6 +466,7 @@ class Soul:
         engine: CognitiveEngine | Callable | str | None = None,
         search_strategy: SearchStrategy | None = None,
         password: str | None = None,
+        eternal: EternalStorageManager | None = None,
     ) -> Soul:
         """Awaken a Soul from a .soul file, directory, soul.json, soul.yaml, or soul.md.
 
@@ -529,6 +549,9 @@ class Soul:
                 search_strategy=search_strategy,
                 personality=config.dna.personality,
             )
+
+        # F4 — Wire eternal storage
+        soul._eternal = eternal
 
         logger.info(
             "Soul awakened: name=%s, did=%s, memories=%d",
@@ -715,6 +738,7 @@ class Soul:
         requester_id: str | None = None,
         bond_strength: float | None = None,
         bond_threshold: float = 30.0,
+        progressive: bool = False,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories with visibility filtering."""
         effective_bond = bond_strength if bond_strength is not None else self._identity.bond.bond_strength
@@ -726,6 +750,7 @@ class Soul:
             requester_id=requester_id,
             bond_strength=effective_bond,
             bond_threshold=bond_threshold,
+            progressive=progressive,
         )
         if not results:
             logger.debug("Recall returned no results: query_len=%d", len(query))
@@ -750,6 +775,9 @@ class Soul:
           9. Check evolution triggers
         """
         logger.debug("observe() started: input_len=%d", len(interaction.user_input))
+
+        # Decay skill XP for inactive skills before granting new XP
+        self._skills.decay_all()
 
         # Delegate to psychology-informed memory pipeline
         result = await self._memory.observe(interaction)
@@ -784,16 +812,24 @@ class Soul:
             self._identity.bond.strengthen(amount=0.5)
 
         # Grant XP to skills matching extracted entities/topics
+        # Significance-weighted XP: range 5-30 based on interaction significance
+        sig_score = result.get("significance")
+        if sig_score is not None:
+            sig_value = sig_score.overall if hasattr(sig_score, "overall") else float(sig_score)
+        else:
+            sig_value = 0.5
+        xp_amount = max(5, int(sig_value * 30))
+
         for entity in raw_entities:
             entity_name = entity["name"].lower().replace(" ", "_")
             skill = self._skills.get(entity_name)
             if skill:
-                skill.add_xp(10)
+                skill.add_xp(xp_amount)
             else:
                 from .skills import Skill
 
                 new_skill = Skill(id=entity_name, name=entity["name"])
-                new_skill.add_xp(10)
+                new_skill.add_xp(xp_amount)
                 self._skills.add(new_skill)
 
         # Evaluate the interaction to build evaluation history.
@@ -805,6 +841,24 @@ class Soul:
         # Check for evolution triggers (now has evaluation history to work with)
         evaluation_triggers = self._evaluator.check_evolution_triggers()
         await self._evolution.check_triggers(self._dna, interaction, evaluation_triggers)
+
+        # F5: Auto-consolidation — archive old memories + reflect every N interactions
+        self._interaction_count += 1
+        interval = self._memory.settings.consolidation_interval
+        if interval > 0 and self._interaction_count % interval == 0:
+            logger.info(
+                "Auto-consolidation triggered at interaction %d",
+                self._interaction_count,
+            )
+            await self._memory.archive_old_memories()
+            if self._engine is not None:
+                reflection = await self.reflect(apply=True)
+                if reflection:
+                    logger.info(
+                        "Auto-reflection applied: themes=%d, summaries=%d",
+                        len(reflection.themes),
+                        len(reflection.summaries),
+                    )
 
     async def forget_by_id(self, memory_id: str) -> bool:
         """Soul forgets a specific memory by ID.
@@ -1101,7 +1155,35 @@ class Soul:
         await save_soul_flat(config, memory_data, Path(path))
         logger.info("Soul saved locally: name=%s, path=%s", self.name, path)
 
-    async def export(self, path: str | Path, *, password: str | None = None) -> None:
+    async def archive(self, tiers: list[str] | None = None) -> list:
+        """Archive this soul to eternal storage (Arweave/IPFS).
+
+        Args:
+            tiers: Storage tiers to archive to. None = all registered tiers.
+
+        Returns:
+            List of ArchiveResult objects from each tier.
+
+        Raises:
+            RuntimeError: If no eternal storage manager is configured.
+        """
+        if self._eternal is None:
+            raise RuntimeError(
+                "No eternal storage configured. Pass eternal= to Soul.birth() or Soul.awaken()."
+            )
+        import json
+
+        soul_data = json.dumps(self.serialize().model_dump(mode="json")).encode("utf-8")
+        return await self._eternal.archive(soul_data, self.did, tiers=tiers)
+
+    async def export(
+        self,
+        path: str | Path,
+        *,
+        password: str | None = None,
+        archive: bool = False,
+        archive_tiers: list[str] | None = None,
+    ) -> None:
         """Export soul as a portable .soul file with full memory data.
 
         Args:
@@ -1129,6 +1211,10 @@ class Soul:
         except OSError as e:
             logger.error("Export failed: path=%s, error=%s", path, e)
             raise SoulExportError(str(path), str(e)) from e
+
+        # F4 — Optional archival after export
+        if archive and self._eternal is not None:
+            await self.archive(tiers=archive_tiers)
 
     async def retire(
         self, *, farewell: bool = False, preserve_memories: bool = True
@@ -1172,4 +1258,5 @@ class Soul:
             lifecycle=self._lifecycle,
             skills=[s.model_dump(mode="json") for s in self._skills.skills],
             evaluation_history=[r.model_dump(mode="json") for r in self._evaluator._history],
+            interaction_count=self._interaction_count,
         )

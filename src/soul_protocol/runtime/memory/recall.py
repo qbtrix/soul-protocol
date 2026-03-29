@@ -1,4 +1,7 @@
 # memory/recall.py — RecallEngine for cross-store memory retrieval.
+# Updated: 2026-03-29 — Added progressive parameter to recall(). When progressive=True,
+#   returns up to limit*2 entries: primary (full content) + overflow (abstract-only copies).
+#   Overflow entries with no abstract keep their original content unchanged.
 # Updated: v0.4.0 — Wire knowledge graph into recall pipeline. After ACT-R scoring,
 #   query graph for entities mentioned in the query via progressive_context(level=1).
 #   Graph-connected memories get a boost. Add use_graph parameter (default True).
@@ -117,6 +120,7 @@ class RecallEngine:
         requester_id: str | None = None,
         bond_strength: float = 100.0,
         bond_threshold: float = DEFAULT_BOND_THRESHOLD,
+        progressive: bool = False,
     ) -> list[MemoryEntry]:
         """Search across memory stores and return activation-ranked results.
 
@@ -144,19 +148,22 @@ class RecallEngine:
         results: list[MemoryEntry] = []
         search_all = types is None
 
+        # When progressive mode is on, fetch more candidates so we have overflow
+        fetch_limit = limit * 2 if progressive else limit
+
         # Query each store based on requested types
         if search_all or MemoryType.EPISODIC in types:
-            episodic_results = await self._episodic.search(query, limit=limit)
+            episodic_results = await self._episodic.search(query, limit=fetch_limit)
             results.extend(episodic_results)
 
         if search_all or MemoryType.SEMANTIC in types:
             semantic_results = await self._semantic.search(
-                query, limit=limit, min_importance=min_importance
+                query, limit=fetch_limit, min_importance=min_importance
             )
             results.extend(semantic_results)
 
         if search_all or MemoryType.PROCEDURAL in types:
-            procedural_results = await self._procedural.search(query, limit=limit)
+            procedural_results = await self._procedural.search(query, limit=fetch_limit)
             results.extend(procedural_results)
 
         # Apply importance filter to non-semantic results (semantic already filtered)
@@ -229,6 +236,24 @@ class RecallEngine:
             ),
         )
 
+        # Progressive disclosure: return primary (full) + overflow (abstract-only)
+        if progressive:
+            primary = results[:limit]
+            overflow_entries = results[limit:limit * 2]
+            # Create shallow copies for overflow with abstract content
+            summarized_overflow: list[MemoryEntry] = []
+            for entry in overflow_entries:
+                if entry.abstract:
+                    # Copy entry and replace content with abstract
+                    summarized = entry.model_copy()
+                    summarized.content = summarized.abstract
+                    summarized.is_summarized = True
+                    summarized_overflow.append(summarized)
+                else:
+                    # No abstract available — include with full content
+                    summarized_overflow.append(entry)
+            results = primary + summarized_overflow
+
         # Update access metadata on retrieved entries (strengthens future recall).
         # Cap timestamps to MAX_ACCESS_TIMESTAMPS to prevent unbounded growth.
         for entry in results[:limit]:
@@ -240,4 +265,6 @@ class RecallEngine:
 
         if not results:
             logger.debug("Recall found no matches: query_len=%d", len(query))
+        if progressive:
+            return results  # primary + overflow already sized correctly
         return results[:limit]
