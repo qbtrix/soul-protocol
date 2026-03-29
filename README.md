@@ -1,7 +1,7 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-03-27 (v0.2.8) — bumped test count to 1943, version to 0.2.8.
-     Added CLI table note linking to full cli-reference.md (37 commands).
-     Dev section test count updated to 1943. -->
+<!-- Updated: 2026-03-29 (v0.2.9) — bumped test count to 2010, version to 0.2.9.
+     5 new features: skills decay, progressive recall, archival memory,
+     auto-consolidation, eternal storage wiring. -->
 
 # Soul Protocol
 
@@ -9,7 +9,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 1943 passing](https://img.shields.io/badge/tests-1943%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 2010 passing](https://img.shields.io/badge/tests-2010%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 
@@ -402,7 +402,7 @@ await soul.observe(Interaction(
 git clone https://github.com/qbtrix/soul-protocol.git
 cd soul-protocol
 pip install -e ".[dev]"
-pytest tests/   # 1943 tests
+pytest tests/   # 2010 tests
 ```
 
 ---

@@ -1,7 +1,8 @@
 # soul-protocol — Portable AI identity and memory
-# Updated: 2026-03-27 — v0.2.8 release: Added soul health/cleanup/repair CLI, 5 new MCP
-#   psychology tools (23 total), --full/--json recall flags, biorhythms always-on defaults,
-#   evolution mutation persistence fix. Added httpx dep to ollama extra.
+# Updated: 2026-03-29 — v0.2.9 release: Wire 5 P1/P2 features — significance-weighted
+#   skills XP with decay, progressive recall (L0 abstracts), archival memory compression,
+#   auto-consolidation every N interactions, eternal storage Soul.archive() method.
+#   2010 tests passing.
 
 [build-system]
 requires = ["hatchling"]
@@ -9,7 +10,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soul-protocol"
-version = "0.2.8"
+version = "0.2.9"
 description = "The open standard for portable AI identity and memory"
 readme = "README.md"
 license = "MIT"

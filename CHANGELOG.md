@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.9] -- 2026-03-29
+
+### Added
+- **Progressive recall** — `recall(progressive=True)` returns primary entries with full content + overflow entries with L0 abstract. Uses `model_copy()` to avoid mutating store objects. `is_summarized` runtime marker on overflow entries
+- **Archival memory** — `MemoryManager.archive_old_memories()` compresses episodic entries older than 48h into `ConversationArchive`. Archived entries filtered from recall. Archives persist through export/awaken
+- **Auto-consolidation** — `observe()` auto-triggers archival + reflection every `consolidation_interval` (default 20) interactions. `interaction_count` persisted in `SoulConfig`
+- **Eternal storage wiring** — `Soul.archive()` method for IPFS/Arweave archival. `EternalStorageManager.with_mocks()` factory. `eternal=` param on `birth()`/`awaken()`. `export(archive=True)` flag
+- **Skill decay** — `Skill.decay(days)` reduces XP by 1 per day inactive, floor at 0, never reduces level. `SkillRegistry.decay_all()` runs at start of each `observe()`
+- 33 new tests (1977 → 2010)
+
+### Changed
+- Skills XP grants now significance-weighted (5-30 range) instead of flat +10 per entity extraction
+- Recall fetches `limit * 2` candidates in progressive mode for better overflow quality
+- `archived: bool` field on `MemoryEntry` for tracking compressed memories
+- `consolidation_interval: int` field on `MemorySettings` (default 20)
+- `interaction_count: int` field on `SoulConfig` for persistence
+
+---
+
 ## [0.2.8] -- 2026-03-27
 
 ### Added
