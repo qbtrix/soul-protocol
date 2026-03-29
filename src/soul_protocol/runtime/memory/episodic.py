@@ -1,4 +1,5 @@
 # memory/episodic.py — EpisodicStore for timestamped interaction memories.
+# Updated: 2026-03-29 — Filter archived entries from search() results (F2).
 # Updated: 2026-03-13 — Added update_entry() public method for updating fields
 #   on stored entries (replaces direct _memories dict access from manager.py).
 # Updated: 2026-03-10 — Added search_and_delete() and delete_before() for
@@ -146,6 +147,8 @@ class EpisodicStore:
         """
         scored: list[tuple[float, MemoryEntry]] = []
         for entry in self._memories.values():
+            if entry.archived:
+                continue
             score = relevance_score(query, entry.content)
             if score > 0.0:
                 scored.append((score, entry))

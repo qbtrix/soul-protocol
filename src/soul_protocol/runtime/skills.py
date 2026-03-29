@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -60,7 +59,7 @@ class SkillRegistry(BaseModel):
             return skill.add_xp(amount)
         return False
 
-    def decay_all(self, now: Optional[datetime] = None) -> int:
+    def decay_all(self, now: datetime | None = None) -> int:
         """Apply time-based XP decay to all skills.
 
         For each skill, computes days since last_used and calls skill.decay(days).

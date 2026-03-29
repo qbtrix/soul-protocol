@@ -122,6 +122,26 @@ class TestArchiveOldMemories:
         assert "Critical discovery" in archive.key_moments[0]
 
 
+class TestArchivalRecallFiltering:
+    @pytest.mark.asyncio
+    async def test_recall_excludes_archived_entries(self, manager: MemoryManager):
+        """Archived episodic entries should not appear in recall results."""
+        for i in range(4):
+            entry = _make_old_entry(f"Searchable alpha fact {i}. Details.", hours_ago=72)
+            manager._episodic._memories[entry.id] = entry
+
+        # Verify they show up before archival
+        pre_results = await manager.recall("alpha")
+        assert len(pre_results) >= 4
+
+        # Archive them
+        await manager.archive_old_memories(max_age_hours=48.0)
+
+        # Verify they no longer show up
+        post_results = await manager.recall("alpha")
+        assert len(post_results) == 0
+
+
 class TestArchivalPersistence:
     @pytest.mark.asyncio
     async def test_archives_persist_through_to_dict(self, manager: MemoryManager):

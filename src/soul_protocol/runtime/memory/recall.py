@@ -250,8 +250,8 @@ class RecallEngine:
                     summarized.is_summarized = True
                     summarized_overflow.append(summarized)
                 else:
-                    # No abstract available — include with full content
-                    summarized_overflow.append(entry)
+                    # No abstract available — copy to avoid mutating store
+                    summarized_overflow.append(entry.model_copy())
             results = primary + summarized_overflow
 
         # Update access metadata on retrieved entries (strengthens future recall).
