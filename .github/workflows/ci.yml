@@ -24,7 +24,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv sync --extra dev --extra mcp --extra graph --extra vector
+        run: uv sync --frozen --extra dev --extra mcp --extra graph --extra vector
 
       - name: Ruff check
         run: uv run ruff check .
@@ -47,7 +47,7 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --extra dev --extra mcp --extra graph --extra vector
+        run: uv sync --frozen --extra dev --extra mcp --extra graph --extra vector
 
       - name: Run tests
         run: uv run pytest tests/ -v
