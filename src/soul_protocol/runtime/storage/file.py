@@ -10,10 +10,10 @@ import tempfile
 import warnings
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 from soul_protocol.runtime.dna.prompt import dna_to_markdown
 from soul_protocol.runtime.types import SoulConfig
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SOUL_DIR: Path = Path.home() / ".soul"
 

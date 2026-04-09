@@ -95,7 +95,6 @@ class TestProgressiveContext:
 
     def test_level_two_expands_further(self, graph: KnowledgeGraph):
         results = graph.progressive_context("FastAPI", level=2)
-        depths = {r["depth"] for r in results}
         # At level 2, we should reach entities 2 hops away
         assert len(results) >= 2
 
@@ -201,8 +200,6 @@ class TestGraphRecall:
 
         # With use_graph=False, searching for FastAPI shouldn't find Python memory
         results = await engine.recall("FastAPI", limit=10, use_graph=False)
-        # FastAPI doesn't appear in the memory content, so without graph, no results
-        python_results = [r for r in results if "Python" in r.content]
         # Without graph augmentation, the Python memory might not surface for "FastAPI"
         # (depends on token overlap). The key is that graph code doesn't run.
         assert isinstance(results, list)

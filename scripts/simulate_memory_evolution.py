@@ -20,7 +20,6 @@ from datetime import datetime, timedelta
 from soul_protocol.runtime.memory.archival import ArchivalMemoryStore, ConversationArchive
 from soul_protocol.runtime.memory.compression import MemoryCompressor
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
-from soul_protocol.runtime.soul import Soul
 from soul_protocol.runtime.types import MemoryEntry, MemoryType
 
 # Simulated conversation topics for variety
@@ -46,11 +45,6 @@ async def run_simulation():
     print()
 
     # --- Setup ---
-    soul = await Soul.birth(
-        "Aria",
-        archetype="The Curious Companion",
-        personality="I am a thoughtful AI companion who remembers everything.",
-    )
     archival = ArchivalMemoryStore()
     compressor = MemoryCompressor()
     graph = KnowledgeGraph()
@@ -74,7 +68,6 @@ async def run_simulation():
         # Vary the message slightly each cycle
         cycle = i // len(TOPICS)
         user_input = f"{user_msg} (conversation {i + 1}, cycle {cycle})"
-        agent_output = f"That's interesting! Tell me more about {topic_name}."
 
         interaction_time = base_time + timedelta(hours=i)
 

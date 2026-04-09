@@ -251,7 +251,6 @@ class TestCleanupAuto:
 
     def test_cleanup_auto_saves_soul_file(self, tmp_path):
         """cleanup --auto writes the soul file after removing duplicates."""
-        import os
 
         soul_path = str(tmp_path / "cleanup-save.soul")
         _birth_soul_at(soul_path, "SaveBot")
@@ -259,8 +258,6 @@ class TestCleanupAuto:
         runner = CliRunner()
         runner.invoke(cli, ["remember", soul_path, "remember Python loves cats deeply", "-i", "5"])
         runner.invoke(cli, ["remember", soul_path, "remember Python loves cats deeply", "-i", "5"])
-
-        mtime_before = os.path.getmtime(soul_path)
 
         result = runner.invoke(cli, ["cleanup", "--auto", soul_path])
 

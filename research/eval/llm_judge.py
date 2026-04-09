@@ -292,7 +292,6 @@ async def judge_personality(engine: HaikuCognitiveEngine) -> JudgeDimensionResul
         },
     ]
 
-    verdicts: list[JudgeVerdict] = []
     scores: list[dict] = []
 
     for profile in profiles:

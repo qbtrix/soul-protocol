@@ -318,19 +318,17 @@ class TestEvolutionTriggers:
                 )
             )
 
-        # Check if evolution triggers fire
-        triggers = soul.evaluator.check_evolution_triggers()
+        # Check if evolution triggers fire (side effect — runs the pipeline)
+        soul.evaluator.check_evolution_triggers()
         history = soul.evaluator._history
 
         # Even if triggers don't fire (heuristic scoring may not reach 0.7),
         # we should at least have full evaluation history
         assert len(history) == 8, f"Expected 8 evaluations in history, got {len(history)}"
 
-        # Check evolution manager has received some trigger checks
-        # The key point: evolution pipeline is no longer dead code
-        evolution_history = soul.evolution_history
-        # Note: triggers may or may not fire depending on heuristic scores,
-        # but the pipeline is now WIRED (previously always returned [])
+        # The key point: evolution pipeline is no longer dead code.
+        # Triggers may or may not fire depending on heuristic scores,
+        # but the pipeline is now WIRED (previously always returned []).
 
 
 # ---------------------------------------------------------------------------
@@ -373,16 +371,11 @@ class TestSelfModelEmergence:
             await soul.observe(interaction)
 
         self_model = soul.self_model
-        active = self_model.get_active_self_images(limit=5)
+        self_model.get_active_self_images(limit=5)
 
-        # Self-model should have discovered at least some domain
-        # (even if heuristic, repeated technical keywords should register)
-        # Note: this depends on keyword density per interaction
-        all_domains = (
-            list(self_model.self_images.keys()) if hasattr(self_model, "self_images") else []
-        )
-        # The self-model may or may not have domains depending on keyword richness.
+        # Self-model may or may not have discovered domains depending on keyword richness.
         # What we CAN assert: the pipeline was called (no crash, no bypass).
+        _ = list(self_model.self_images.keys()) if hasattr(self_model, "self_images") else []
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +423,7 @@ class TestBondMemoryVisibility:
             "secret password hint",
             bond_strength=10.0,  # Very low bond
         )
-        private_found = any("sunshine" in m.content.lower() for m in memories)
+        _ = any("sunshine" in m.content.lower() for m in memories)
         # Note: whether this is filtered depends on the recall engine's
         # visibility logic. The key fix is that bond_strength IS now passed.
 

@@ -14,10 +14,10 @@ import logging
 import uuid
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
-
 from soul_protocol.runtime.memory.search import relevance_score
 from soul_protocol.runtime.types import MemoryEntry, MemoryType
+
+logger = logging.getLogger(__name__)
 
 
 class SemanticStore:

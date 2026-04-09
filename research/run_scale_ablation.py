@@ -30,13 +30,13 @@ _project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_project_root / "src"))
 
-from research.long_horizon.runner import (
+from research.long_horizon.runner import (  # noqa: E402  (sys.path tweak above)
     ALL_CONDITIONS,
     ConditionResult,
     ConditionType,
     LongHorizonRunner,
 )
-from research.long_horizon.scale_scenarios import generate_marathon_scenario
+from research.long_horizon.scale_scenarios import generate_marathon_scenario  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Output directory

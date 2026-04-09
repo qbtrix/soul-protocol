@@ -158,8 +158,7 @@ class LCMContext:
         nodes: list[ContextNode] = []
         total_tokens = 0
 
-        # Get covered ranges and all nodes
-        covered_ranges = await self._store.get_covered_seq_ranges()
+        # Get all nodes and messages (range coverage is derived from nodes below)
         all_nodes = await self._store.get_all_nodes()
         messages = await self._store.get_messages()
 

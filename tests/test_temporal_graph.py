@@ -126,7 +126,6 @@ class TestAsOfDate:
     def test_point_in_time_query(self, graph: KnowledgeGraph):
         t0 = datetime(2026, 1, 1)
         t1 = datetime(2026, 3, 1)
-        t2 = datetime(2026, 6, 1)
 
         # Alice used Python from Jan to Mar
         graph.add_relationship("Alice", "Python", "uses", valid_from=t0, valid_to=t1)

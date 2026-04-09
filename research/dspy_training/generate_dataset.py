@@ -22,8 +22,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from research.agents import UserProfile
-from research.scenarios import generate_scenarios
+from research.agents import UserProfile  # noqa: E402  (sys.path tweak above)
+from research.scenarios import generate_scenarios  # noqa: E402
 
 
 def generate_significance_dataset(

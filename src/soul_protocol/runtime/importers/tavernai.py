@@ -12,9 +12,12 @@ import logging
 import struct
 import zlib
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from soul_protocol.runtime.types import MemoryType
+
+if TYPE_CHECKING:
+    from soul_protocol.runtime.soul import Soul
 
 logger = logging.getLogger(__name__)
 

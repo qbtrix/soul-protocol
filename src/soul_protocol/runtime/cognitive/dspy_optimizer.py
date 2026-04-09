@@ -153,11 +153,6 @@ class SoulOptimizer:
             for e in trainset
             if not isinstance(e, dict) or e.get("type") != "recall"
         ]
-        val_examples = [
-            self._to_significance_example(e)
-            for e in valset
-            if not isinstance(e, dict) or e.get("type") != "recall"
-        ]
 
         optimizer = dspy.MIPROv2(
             metric=self._significance_metric,
@@ -193,11 +188,6 @@ class SoulOptimizer:
         recall_train = [
             self._to_recall_example(e)
             for e in trainset
-            if isinstance(e, dict) and e.get("type") == "recall"
-        ]
-        recall_val = [
-            self._to_recall_example(e)
-            for e in valset
             if isinstance(e, dict) and e.get("type") == "recall"
         ]
 

@@ -764,7 +764,7 @@ async def test_background_watcher_reloads_on_change(tmp_path):
         _env_context("SOUL_PATH", str(zip_path)),
         _env_context("SOUL_DIR", None),
     ):
-        async with Client(mcp) as client:
+        async with Client(mcp):
             # Verify initial soul has no extra memories
             initial_soul = server_module._registry.get("WatcherTest")
             initial_count = initial_soul.memory_count

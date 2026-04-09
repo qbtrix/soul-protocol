@@ -14,10 +14,10 @@ import logging
 import zipfile
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
-
 from soul_protocol.runtime.dna.prompt import dna_to_markdown
 from soul_protocol.runtime.types import SoulConfig, SoulManifest
+
+logger = logging.getLogger(__name__)
 
 
 async def pack_soul(

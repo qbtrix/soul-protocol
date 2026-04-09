@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class MemoryCondition(str, Enum):
+class MemoryCondition(StrEnum):
     """The 5 experimental conditions (independent variable)."""
 
     NONE = "none"  # No memory at all (stateless baseline)
@@ -17,7 +17,7 @@ class MemoryCondition(str, Enum):
     FULL_SOUL = "full_soul"  # Complete Soul Protocol stack
 
 
-class UseCase(str, Enum):
+class UseCase(StrEnum):
     """The 4 evaluation domains."""
 
     CUSTOMER_SUPPORT = "support"

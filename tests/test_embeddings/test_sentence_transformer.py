@@ -11,7 +11,7 @@ import pytest
 
 np = pytest.importorskip("numpy", reason="numpy required for sentence-transformer tests")
 
-from soul_protocol.runtime.embeddings.protocol import EmbeddingProvider
+from soul_protocol.runtime.embeddings.protocol import EmbeddingProvider  # noqa: E402
 
 
 def _make_mock_st_module(dim: int = 384):

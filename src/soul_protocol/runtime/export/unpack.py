@@ -15,9 +15,9 @@ import json
 import logging
 import zipfile
 
-logger = logging.getLogger(__name__)
-
 from soul_protocol.runtime.types import SoulConfig
+
+logger = logging.getLogger(__name__)
 
 
 async def unpack_soul(

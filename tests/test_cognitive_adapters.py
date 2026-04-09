@@ -26,7 +26,10 @@ class TestCallableEngine:
     @pytest.mark.asyncio
     async def test_callable_engine_sync(self):
         """Sync lambda is invoked and returns its value."""
-        fn = lambda prompt: f"echo:{prompt}"
+
+        def fn(prompt: str) -> str:
+            return f"echo:{prompt}"
+
         engine = CallableEngine(fn)
         result = await engine.think("hello")
         assert result == "echo:hello"
@@ -164,7 +167,10 @@ class TestSoulEngineIntegration:
     @pytest.mark.asyncio
     async def test_soul_birth_engine_callable(self):
         """Soul.birth() with a sync lambda wraps it in CallableEngine."""
-        fn = lambda p: '{"valence": 0.5, "arousal": 0.5, "label": "neutral"}'
+
+        def fn(_p: str) -> str:
+            return '{"valence": 0.5, "arousal": 0.5, "label": "neutral"}'
+
         soul = await Soul.birth(name="Aria", engine=fn)
         # The engine stored internally should be a CallableEngine
         from soul_protocol.runtime.cognitive.adapters._callable import CallableEngine
@@ -223,7 +229,9 @@ class TestSoulEngineIntegration:
         soul_path = tmp_path / "test.soul"
         await soul.export(str(soul_path))
 
-        fn = lambda p: '{"valence": 0.0, "arousal": 0.0, "label": "neutral"}'
+        def fn(_p: str) -> str:
+            return '{"valence": 0.0, "arousal": 0.0, "label": "neutral"}'
+
         awakened = await Soul.awaken(str(soul_path), engine=fn)
         assert isinstance(awakened._engine, CallableEngine)
 
@@ -325,7 +333,7 @@ class TestCognitiveProcessorWithRealEngine:
         processor = CognitiveProcessor(engine=engine, fact_extractor=dummy_extractor)
         interaction = Interaction(user_input="hello", agent_output="hi")
 
-        facts = await processor.extract_facts(interaction)
+        await processor.extract_facts(interaction)
         # Engine was called but parsing failed, fallback was used
         assert len(engine.calls) == 1
         assert fallback_called  # fallback extractor was invoked

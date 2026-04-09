@@ -209,7 +209,6 @@ async def _pe3_personality_contrast() -> float:
     lines_low = soul_low.to_system_prompt().splitlines()
 
     # Count lines that differ
-    max_len = max(len(lines_high), len(lines_low))
     diff_count = abs(len(lines_high) - len(lines_low))
     for lh, ll in zip(lines_high, lines_low):
         if lh != ll:

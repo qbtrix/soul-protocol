@@ -401,5 +401,7 @@ class TestProgressiveContext:
         ctx = graph.format_context("Center", level=2)
         # Count lines starting with "  N" in the Neighbors section
         lines = ctx.split("\n")
-        neighbor_lines = [l for l in lines if l.strip().startswith("N") and "relationships" in l]
+        neighbor_lines = [
+            line for line in lines if line.strip().startswith("N") and "relationships" in line
+        ]
         assert len(neighbor_lines) <= 10

@@ -224,7 +224,6 @@ class EvolutionManager:
 
         for trigger in evaluation_triggers:
             if trigger.get("trigger") == "high_performance_streak":
-                domain = trigger.get("domain", "unknown")
                 try:
                     mutation = await self.propose(
                         dna=dna,

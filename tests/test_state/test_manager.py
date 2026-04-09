@@ -498,7 +498,6 @@ class TestAutoRegen:
 
         # First interaction: social drops from 100 → 95
         manager.on_interaction(_make_interaction_at(t1))
-        battery_after_first = manager.current.social_battery  # 95
 
         # Second interaction: regen = 10/2 * 4 = +20 social, then drain -5 → 95 + 20 - 5 = 110 → clamped 100
         manager.on_interaction(_make_interaction_at(t2))

@@ -96,8 +96,7 @@ class TestEternalE2E:
         await soul.export(str(soul_path))
         data = soul_path.read_bytes()
 
-        results = await mgr.archive(data, soul.did, tiers=["ipfs"])
-        cid = results[0].reference
+        await mgr.archive(data, soul.did, tiers=["ipfs"])
 
         # Verify passes
         status = await mgr.verify_all(soul.did)
@@ -117,7 +116,7 @@ class TestEternalE2E:
         await soul.export(str(soul_path))
         data = soul_path.read_bytes()
 
-        results = await manager.archive(data, soul.did)
+        await manager.archive(data, soul.did)
 
         # Get sources and mark some as broken
         sources = await manager.get_recovery_sources(soul.did)
