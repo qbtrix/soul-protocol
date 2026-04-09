@@ -47,7 +47,13 @@ class SQLiteContextStore:
             self._seq_counter = row[0]
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path)
+        # check_same_thread=False is required because every store method routes
+        # the actual SQLite call through asyncio.to_thread(), which uses a shared
+        # ThreadPoolExecutor — the connection is created on one worker thread but
+        # subsequent reads/writes can land on any worker. Serialized access is
+        # guaranteed by the async call sites (one to_thread at a time), so the
+        # usual reason for keeping the check is not a concern here.
+        conn = sqlite3.connect(self._db_path, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
