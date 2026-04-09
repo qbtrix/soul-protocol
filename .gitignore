@@ -34,9 +34,6 @@ Thumbs.db
 .env
 .env.local
 
-# UV
-uv.lock
-
 # Soul files and directories (don't commit user souls)
 *.soul
 .soul/
