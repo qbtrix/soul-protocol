@@ -1,5 +1,10 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-04-06 — Added dream feature (offline batch consolidation).
+<!-- Updated: 2026-04-09 (v0.3.0) — bumped test count badge to 2105, noted the
+     four v0.3.0 features in this header block: dream cycle (offline batch
+     memory consolidation), smart recall (opt-in LLM reranking with prompt
+     injection defense and timeout), significance short-circuit (skip expensive
+     steps on trivial interactions), and soul remember --type flag fix.
+     Updated: 2026-04-06 — Added dream feature (offline batch consolidation).
      CLI: 37 → 38 commands. MCP: 23 → 24 tools.
      Updated: 2026-03-29 (v0.2.9) — bumped test count to 2010, version to 0.2.9.
      5 new features: skills decay, progressive recall, archival memory,
@@ -11,7 +16,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 2010 passing](https://img.shields.io/badge/tests-2010%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 2105 passing](https://img.shields.io/badge/tests-2105%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 
@@ -405,7 +410,7 @@ await soul.observe(Interaction(
 git clone https://github.com/qbtrix/soul-protocol.git
 cd soul-protocol
 pip install -e ".[dev]"
-pytest tests/   # 2010 tests
+pytest tests/   # 2105 tests
 ```
 
 ---
