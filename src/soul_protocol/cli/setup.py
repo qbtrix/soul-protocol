@@ -166,9 +166,7 @@ def get_platforms(cwd: Path) -> list[Platform]:
             Platform(
                 name="Claude Desktop",
                 slug="claude-desktop",
-                mcp_config_paths=[
-                    app_support / "Claude" / "claude_desktop_config.json"
-                ],
+                mcp_config_paths=[app_support / "Claude" / "claude_desktop_config.json"],
                 detect_paths=[app_support / "Claude"],
                 scope="global",
             ),
@@ -286,10 +284,10 @@ def _write_mcp_toml(config_path: Path, soul_path: Path) -> bool:
     uvx_cmd = Path(_resolve_uvx()).as_posix()  # forward slashes for TOML safety
     env_key = "SOUL_DIR" if _is_multi_soul(soul_path) else "SOUL_PATH"
     toml_section = (
-        f'\n[mcp_servers.soul]\n'
+        f"\n[mcp_servers.soul]\n"
         f'command = "{uvx_cmd}"\n'
         f'args = ["--from", "soul-protocol[mcp]", "soul-mcp"]\n'
-        f'\n[mcp_servers.soul.env]\n'
+        f"\n[mcp_servers.soul.env]\n"
         f"{env_key} = '{safe_path}'\n"  # single-quoted TOML literal string
     )
 
@@ -341,9 +339,7 @@ def _update_gitignore(cwd: Path) -> bool:
         content = gitignore.read_text()
         if pattern in content:
             return False
-        gitignore.write_text(
-            content.rstrip() + f"\n\n# Soul state (local)\n{pattern}\n"
-        )
+        gitignore.write_text(content.rstrip() + f"\n\n# Soul state (local)\n{pattern}\n")
     else:
         gitignore.write_text(f"# Soul state (local)\n{pattern}\n")
     return True
@@ -377,9 +373,7 @@ def setup_integrations(
     if platforms:
         unknowns = [s for s in platforms if s not in all_platforms]
         if unknowns:
-            messages.append(
-                f"  [yellow]Unknown platforms ignored: {', '.join(unknowns)}[/yellow]"
-            )
+            messages.append(f"  [yellow]Unknown platforms ignored: {', '.join(unknowns)}[/yellow]")
         targets = [all_platforms[s] for s in platforms if s in all_platforms]
         if not targets:
             messages.append("[yellow]No recognized platforms specified.[/yellow]")
@@ -395,9 +389,7 @@ def setup_integrations(
             "(universal — Codex, Copilot, Claude, Cursor, Cline)"
         )
     else:
-        messages.append(
-            "  [dim]⊘[/dim] [bold]AGENTS.md[/bold] already has soul instructions"
-        )
+        messages.append("  [dim]⊘[/dim] [bold]AGENTS.md[/bold] already has soul instructions")
 
     # Write MCP configs for each target platform
     for plat in targets:
@@ -409,9 +401,7 @@ def setup_integrations(
 
             if written:
                 rel = _rel_path(config_path, cwd)
-                messages.append(
-                    f"  [green]✓[/green] Configured [bold]{rel}[/bold] ({plat.name})"
-                )
+                messages.append(f"  [green]✓[/green] Configured [bold]{rel}[/bold] ({plat.name})")
             else:
                 rel = _rel_path(config_path, cwd)
                 messages.append(
@@ -424,17 +414,13 @@ def setup_integrations(
                 continue  # already handled
             if _append_instructions(inst_path, header=soul_name):
                 rel = _rel_path(inst_path, cwd)
-                messages.append(
-                    f"  [green]✓[/green] Created [bold]{rel}[/bold] ({plat.name})"
-                )
+                messages.append(f"  [green]✓[/green] Created [bold]{rel}[/bold] ({plat.name})")
 
     # Gitignore
     if _update_gitignore(cwd):
         messages.append("  [green]✓[/green] Added .soul/ to [bold].gitignore[/bold]")
     else:
-        messages.append(
-            "  [dim]⊘[/dim] [bold].gitignore[/bold] already excludes .soul/"
-        )
+        messages.append("  [dim]⊘[/dim] [bold].gitignore[/bold] already excludes .soul/")
 
     if not targets:
         messages.append(

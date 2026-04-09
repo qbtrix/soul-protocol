@@ -15,7 +15,6 @@ import pytest
 from soul_protocol.runtime.memory.rerank import _parse_indices, rerank_memories
 from soul_protocol.spec.memory import MemoryEntry
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

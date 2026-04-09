@@ -24,7 +24,6 @@ from soul_protocol import Interaction, Soul
 
 from ..suite import DimensionResult
 
-
 # --- Shared interaction corpus ---
 
 _TEST_INTERACTIONS: list[tuple[str, str]] = [
@@ -36,13 +35,28 @@ _TEST_INTERACTIONS: list[tuple[str, str]] = [
     ("I am trying to eat healthier this year.", "Small changes add up over time."),
     ("I used to play basketball in high school.", "Do you still play recreationally?"),
     ("My sister just had a baby.", "Congratulations to your sister and the family!"),
-    ("I am thinking about moving to Denver.", "Denver has great outdoor access. What draws you there?"),
-    ("I built a small bookshelf this weekend.", "Woodworking is so satisfying. How did it turn out?"),
-    ("I have been journaling every night.", "Journaling helps process the day. Noticing any patterns?"),
+    (
+        "I am thinking about moving to Denver.",
+        "Denver has great outdoor access. What draws you there?",
+    ),
+    (
+        "I built a small bookshelf this weekend.",
+        "Woodworking is so satisfying. How did it turn out?",
+    ),
+    (
+        "I have been journaling every night.",
+        "Journaling helps process the day. Noticing any patterns?",
+    ),
     ("My favorite season is winter.", "There is something peaceful about winter."),
-    ("I started a small herb garden on my balcony.", "Fresh herbs make a huge difference in cooking."),
+    (
+        "I started a small herb garden on my balcony.",
+        "Fresh herbs make a huge difference in cooking.",
+    ),
     ("I am learning to play the piano.", "Piano is great for the mind. What are you practicing?"),
-    ("I just got back from a trip to the coast.", "The coast is always restorative. Did you enjoy it?"),
+    (
+        "I just got back from a trip to the coast.",
+        "The coast is always restorative. Did you enjoy it?",
+    ),
     ("My coworker recommended a great podcast.", "What is the podcast about?"),
     ("I have been sleeping better since I cut caffeine.", "Sleep quality makes such a difference."),
     ("I adopted Bruno from a shelter two years ago.", "Shelter dogs are the best. Bruno is lucky."),
@@ -97,12 +111,8 @@ async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
     prompt_b = soul_b.to_system_prompt()
 
     system_prompt_independence = prompt_a == prompt_b
-    metrics["system_prompt_engine_independence"] = (
-        1.0 if system_prompt_independence else 0.0
-    )
-    (passed if system_prompt_independence else failed).append(
-        "system_prompt_engine_independence"
-    )
+    metrics["system_prompt_engine_independence"] = 1.0 if system_prompt_independence else 0.0
+    (passed if system_prompt_independence else failed).append("system_prompt_engine_independence")
 
     if not system_prompt_independence:
         # Find first differing line for diagnostics
@@ -115,9 +125,7 @@ async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
                 break
         if diff_line is None and len(lines_a) != len(lines_b):
             diff_line = min(len(lines_a), len(lines_b))
-        notes_parts.append(
-            f"PT-1: System prompts differ at line {diff_line}"
-        )
+        notes_parts.append(f"PT-1: System prompts differ at line {diff_line}")
 
     # ---- PT-2: Recall Independence ----
 
@@ -151,14 +159,10 @@ async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
     # Treat as binary: all queries must match for full credit
     recall_engine_independence = recall_independence == 1.0
     metrics["recall_engine_independence"] = 1.0 if recall_engine_independence else 0.0
-    (passed if recall_engine_independence else failed).append(
-        "recall_engine_independence"
-    )
+    (passed if recall_engine_independence else failed).append("recall_engine_independence")
 
     if not recall_engine_independence:
-        notes_parts.append(
-            f"PT-2: Recall matched {matching}/{len(_RECALL_QUERIES)} queries"
-        )
+        notes_parts.append(f"PT-2: Recall matched {matching}/{len(_RECALL_QUERIES)} queries")
 
     # ---- PT-3: Engine Swap Continuity (skip if quick) ----
 
@@ -198,8 +202,7 @@ async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
             details = []
             if not memory_ok:
                 details.append(
-                    f"memory_count: expected={v2_memory_count}, "
-                    f"got={swap_v3.memory_count}"
+                    f"memory_count: expected={v2_memory_count}, got={swap_v3.memory_count}"
                 )
             if not bond_ok:
                 details.append(

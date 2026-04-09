@@ -23,40 +23,96 @@ from soul_protocol import Interaction, Soul
 
 from ..suite import DimensionResult
 
-
 # --- Test interaction corpus for observe() calls ---
 
 _TEST_INTERACTIONS: list[tuple[str, str]] = [
-    ("My name is Alex and I live in Portland.", "Nice to meet you, Alex! Portland is a great city."),
-    ("I work as a data engineer at a startup.", "That sounds like an exciting role — startups move fast."),
-    ("My favorite programming language is Python.", "Python is wonderfully versatile for data work."),
-    ("I adopted a cat named Mochi last month.", "Mochi is an adorable name! How is the cat settling in?"),
-    ("I love hiking in the Columbia River Gorge.", "The Gorge has some of the best trails in Oregon."),
+    (
+        "My name is Alex and I live in Portland.",
+        "Nice to meet you, Alex! Portland is a great city.",
+    ),
+    (
+        "I work as a data engineer at a startup.",
+        "That sounds like an exciting role — startups move fast.",
+    ),
+    (
+        "My favorite programming language is Python.",
+        "Python is wonderfully versatile for data work.",
+    ),
+    (
+        "I adopted a cat named Mochi last month.",
+        "Mochi is an adorable name! How is the cat settling in?",
+    ),
+    (
+        "I love hiking in the Columbia River Gorge.",
+        "The Gorge has some of the best trails in Oregon.",
+    ),
     ("My birthday is on March 15th.", "I will remember that — March 15th, noted!"),
-    ("I am learning Rust in my spare time.", "Rust is a great complement to Python for performance."),
+    (
+        "I am learning Rust in my spare time.",
+        "Rust is a great complement to Python for performance.",
+    ),
     ("My partner's name is Jordan.", "Good to know — say hi to Jordan for me."),
-    ("I am training for a half marathon.", "That is an impressive goal. How is the training going?"),
-    ("I just finished reading Dune for the first time.", "Dune is a masterpiece — what did you think of it?"),
-    ("I have been feeling stressed about a deadline at work.", "Deadlines can be tough. Is there anything I can help with?"),
+    (
+        "I am training for a half marathon.",
+        "That is an impressive goal. How is the training going?",
+    ),
+    (
+        "I just finished reading Dune for the first time.",
+        "Dune is a masterpiece — what did you think of it?",
+    ),
+    (
+        "I have been feeling stressed about a deadline at work.",
+        "Deadlines can be tough. Is there anything I can help with?",
+    ),
     ("My favorite food is ramen.", "A good bowl of ramen is hard to beat."),
     ("I am planning a trip to Japan next year.", "Japan is incredible — any cities on your list?"),
     ("I play guitar on weekends.", "Music is a great creative outlet. What genres do you play?"),
-    ("My team just shipped a big feature at work.", "Congrats on the launch! That must feel great."),
+    (
+        "My team just shipped a big feature at work.",
+        "Congrats on the launch! That must feel great.",
+    ),
     ("I grew up in a small town in Ohio.", "Small-town roots can shape you in lasting ways."),
-    ("I have been meditating every morning for a month.", "A month of daily meditation — that takes real discipline."),
+    (
+        "I have been meditating every morning for a month.",
+        "A month of daily meditation — that takes real discipline.",
+    ),
     ("My favorite season is autumn.", "Autumn in the Pacific Northwest must be stunning."),
-    ("I am thinking about getting a second cat.", "Mochi might enjoy a friend! Have you found one yet?"),
-    ("I volunteer at a local food bank on Saturdays.", "That is really admirable. Community work matters."),
+    (
+        "I am thinking about getting a second cat.",
+        "Mochi might enjoy a friend! Have you found one yet?",
+    ),
+    (
+        "I volunteer at a local food bank on Saturdays.",
+        "That is really admirable. Community work matters.",
+    ),
     ("I just got promoted to senior engineer.", "Congratulations on the promotion, Alex!"),
     ("My mom is visiting next week.", "That will be nice — are you planning anything special?"),
-    ("I have been watching a lot of sci-fi shows lately.", "Any recommendations? I enjoy good sci-fi."),
-    ("I switched to using Neovim this week.", "Neovim has a loyal following — how do you like it so far?"),
-    ("I am considering going back to school for a masters.", "A masters could open doors. What field are you thinking?"),
+    (
+        "I have been watching a lot of sci-fi shows lately.",
+        "Any recommendations? I enjoy good sci-fi.",
+    ),
+    (
+        "I switched to using Neovim this week.",
+        "Neovim has a loyal following — how do you like it so far?",
+    ),
+    (
+        "I am considering going back to school for a masters.",
+        "A masters could open doors. What field are you thinking?",
+    ),
     ("My cat Mochi learned to open doors.", "That is both impressive and a little concerning!"),
     ("I ran my first 10K last weekend.", "Great milestone on the way to your half marathon!"),
-    ("I cooked a new ramen recipe and it turned out great.", "Homemade ramen is next level. What was the recipe?"),
-    ("I have been feeling really happy lately.", "That is wonderful to hear, Alex. You deserve it."),
-    ("Thank you for always remembering things about me.", "Of course — that is what I am here for."),
+    (
+        "I cooked a new ramen recipe and it turned out great.",
+        "Homemade ramen is next level. What was the recipe?",
+    ),
+    (
+        "I have been feeling really happy lately.",
+        "That is wonderful to hear, Alex. You deserve it.",
+    ),
+    (
+        "Thank you for always remembering things about me.",
+        "Of course — that is what I am here for.",
+    ),
 ]
 
 _RECALL_QUERIES: list[str] = [
@@ -98,10 +154,7 @@ async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
         persona="I remember everything.",
     )
 
-    interactions = [
-        Interaction(user_input=u, agent_output=a)
-        for u, a in _TEST_INTERACTIONS[:30]
-    ]
+    interactions = [Interaction(user_input=u, agent_output=a) for u, a in _TEST_INTERACTIONS[:30]]
     for interaction in interactions:
         await soul.observe(interaction)
 
@@ -122,9 +175,7 @@ async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
 
     # Compare identity fields
     identity_hash_match = (
-        reloaded.did == pre_did
-        and reloaded.name == pre_name
-        and reloaded.born == pre_born
+        reloaded.did == pre_did and reloaded.name == pre_name and reloaded.born == pre_born
     )
     metrics["identity_hash_match"] = 1.0 if identity_hash_match else 0.0
     (passed if identity_hash_match else failed).append("identity_hash_match")
@@ -156,13 +207,10 @@ async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
     (passed if memory_count_fidelity else failed).append("memory_count_fidelity")
 
     if not identity_hash_match:
-        notes_parts.append(
-            f"IC-1: DID mismatch — pre={pre_did}, post={reloaded.did}"
-        )
+        notes_parts.append(f"IC-1: DID mismatch — pre={pre_did}, post={reloaded.did}")
     if not memory_count_fidelity:
         notes_parts.append(
-            f"IC-1: Memory count mismatch — pre={pre_memory_count}, "
-            f"post={reloaded.memory_count}"
+            f"IC-1: Memory count mismatch — pre={pre_memory_count}, post={reloaded.memory_count}"
         )
 
     # ---- IC-2: Recall Consistency ----
@@ -220,16 +268,12 @@ async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
         incarnation_ok = reincarnated.identity.incarnation == 2
         previous_lives_ok = old_did in reincarnated.identity.previous_lives
         did_different = reincarnated.did != old_did
-        incarnation_chain_integrity = (
-            incarnation_ok and previous_lives_ok and did_different
-        )
+        incarnation_chain_integrity = incarnation_ok and previous_lives_ok and did_different
 
         if not incarnation_chain_integrity:
             details = []
             if not incarnation_ok:
-                details.append(
-                    f"incarnation={reincarnated.identity.incarnation}, expected=2"
-                )
+                details.append(f"incarnation={reincarnated.identity.incarnation}, expected=2")
             if not previous_lives_ok:
                 details.append(
                     f"old DID not in previous_lives: {reincarnated.identity.previous_lives}"
@@ -239,9 +283,7 @@ async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
             notes_parts.append(f"IC-3: Chain broken — {'; '.join(details)}")
 
     metrics["incarnation_chain_integrity"] = 1.0 if incarnation_chain_integrity else 0.0
-    (passed if incarnation_chain_integrity else failed).append(
-        "incarnation_chain_integrity"
-    )
+    (passed if incarnation_chain_integrity else failed).append("incarnation_chain_integrity")
 
     # ---- Compute composite score ----
 

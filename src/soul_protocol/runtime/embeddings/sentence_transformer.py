@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-import math
-
 
 class SentenceTransformerProvider:
     """Embedding provider using the sentence-transformers library.

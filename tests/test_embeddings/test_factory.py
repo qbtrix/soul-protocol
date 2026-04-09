@@ -54,6 +54,7 @@ class TestFactoryExternalProviders:
             from soul_protocol.runtime.embeddings.sentence_transformer import (
                 SentenceTransformerProvider,
             )
+
             assert isinstance(provider, SentenceTransformerProvider)
 
     def test_openai_provider(self) -> None:
@@ -61,6 +62,7 @@ class TestFactoryExternalProviders:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
+
         assert isinstance(provider, OpenAIEmbeddingProvider)
 
     def test_ollama_provider(self) -> None:
@@ -68,18 +70,15 @@ class TestFactoryExternalProviders:
         from soul_protocol.runtime.embeddings.ollama_embeddings import (
             OllamaEmbeddingProvider,
         )
+
         assert isinstance(provider, OllamaEmbeddingProvider)
 
     def test_ollama_provider_with_custom_url(self) -> None:
-        provider = get_embedding_provider(
-            "ollama", base_url="http://gpu-box:11434"
-        )
+        provider = get_embedding_provider("ollama", base_url="http://gpu-box:11434")
         assert provider._base_url == "http://gpu-box:11434"
 
     def test_openai_provider_with_custom_model(self) -> None:
-        provider = get_embedding_provider(
-            "openai", model="text-embedding-3-large", api_key="test"
-        )
+        provider = get_embedding_provider("openai", model="text-embedding-3-large", api_key="test")
         assert provider._model == "text-embedding-3-large"
 
 

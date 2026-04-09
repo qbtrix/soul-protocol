@@ -24,13 +24,11 @@ from soul_protocol.runtime.memory.dedup import reconcile_fact
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import TemporalEdge
 from soul_protocol.runtime.types import (
-    Interaction,
     MemoryCategory,
     MemoryEntry,
     MemoryType,
     SignificanceScore,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -386,9 +384,7 @@ class TestReconcileFact:
 
     def test_medium_similarity_returns_merge(self):
         # Jaccard between 0.6 and 0.85: 4 shared / 6 total = 0.667
-        existing = [
-            _make_entry("User prefers coffee in the morning", eid="coffee1")
-        ]
+        existing = [_make_entry("User prefers coffee in the morning", eid="coffee1")]
         new_fact = "User prefers tea in the morning"
         action, target = reconcile_fact(new_fact, existing)
         assert action == "MERGE"

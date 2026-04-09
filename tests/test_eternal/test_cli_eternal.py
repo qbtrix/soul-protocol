@@ -57,9 +57,7 @@ def test_recover_missing_reference(tmp_path):
     runner = CliRunner()
     output_path = str(tmp_path / "recovered.soul")
 
-    result = runner.invoke(
-        cli, ["recover", "nonexistent-ref", "-t", "ipfs", "-o", output_path]
-    )
+    result = runner.invoke(cli, ["recover", "nonexistent-ref", "-t", "ipfs", "-o", output_path])
 
     assert result.exit_code == 0
     assert "failed" in result.output.lower() or "Recovery failed" in result.output

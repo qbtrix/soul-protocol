@@ -14,10 +14,10 @@ from soul_protocol.runtime.memory.dedup import (
 )
 from soul_protocol.runtime.types import MemoryEntry, MemoryType
 
-
 # ===========================================================================
 # Helpers
 # ===========================================================================
+
 
 def _make_entry(content: str, entry_id: str = "existing-1") -> MemoryEntry:
     """Create a minimal MemoryEntry for testing."""
@@ -80,7 +80,6 @@ class TestDedupTokenize:
 
 
 class TestJaccardSimilarity:
-
     def test_identical_strings(self):
         assert _jaccard_similarity("user likes python", "user likes python") == 1.0
 
@@ -151,7 +150,6 @@ class TestShortTokenFalsePositives:
 
 
 class TestReconcileFact:
-
     def test_create_when_no_existing_facts(self):
         action, target = reconcile_fact("User knows Python", [])
         assert action == "CREATE"

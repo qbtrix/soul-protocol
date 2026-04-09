@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from soul_protocol.cli.setup import (
+    Platform,
     _append_instructions,
     _mcp_server_entry,
     _rel_path,
@@ -19,7 +20,6 @@ from soul_protocol.cli.setup import (
     detect_platforms,
     get_platforms,
     setup_integrations,
-    Platform,
 )
 
 
@@ -95,9 +95,7 @@ def test_write_mcp_json_merges_existing(tmp_path):
     soul_path = tmp_path / ".soul"
     soul_path.mkdir()
     config_path = tmp_path / ".mcp.json"
-    config_path.write_text(json.dumps({
-        "mcpServers": {"other-server": {"command": "node"}}
-    }))
+    config_path.write_text(json.dumps({"mcpServers": {"other-server": {"command": "node"}}}))
     plat = Platform(name="Test", slug="test", mcp_config_paths=[config_path])
 
     _write_mcp_json(config_path, soul_path, plat)
@@ -112,8 +110,10 @@ def test_write_mcp_json_vscode_uses_servers_key(tmp_path):
     soul_path.mkdir()
     config_path = tmp_path / ".vscode" / "mcp.json"
     plat = Platform(
-        name="VS Code", slug="vscode",
-        mcp_config_paths=[config_path], mcp_key="servers",
+        name="VS Code",
+        slug="vscode",
+        mcp_config_paths=[config_path],
+        mcp_key="servers",
     )
 
     _write_mcp_json(config_path, soul_path, plat)
@@ -146,8 +146,8 @@ def test_write_mcp_toml_appends_to_existing(tmp_path):
     _write_mcp_toml(config_path, soul_path)
 
     content = config_path.read_text()
-    assert '[model]' in content  # existing preserved
-    assert '[mcp_servers.soul]' in content  # new appended
+    assert "[model]" in content  # existing preserved
+    assert "[mcp_servers.soul]" in content  # new appended
 
 
 def test_write_mcp_toml_idempotent(tmp_path):
@@ -281,7 +281,8 @@ def test_setup_continue_dropin_format(tmp_path):
     continue_dir.mkdir(parents=True)
 
     plat = Platform(
-        name="Continue", slug="continue",
+        name="Continue",
+        slug="continue",
         mcp_config_paths=[continue_dir / "soul.json"],
     )
 

@@ -33,9 +33,7 @@ class MockIPFSProvider:
         # Mimic CIDv1 base32 format prefix
         return f"bafybeig{digest[:48]}"
 
-    async def archive(
-        self, soul_data: bytes, soul_id: str, **kwargs: Any
-    ) -> ArchiveResult:
+    async def archive(self, soul_data: bytes, soul_id: str, **kwargs: Any) -> ArchiveResult:
         """Archive soul data to mock IPFS."""
         cid = self._generate_cid(soul_data)
         self._store[cid] = soul_data
@@ -59,9 +57,7 @@ class MockIPFSProvider:
         """Retrieve soul data from mock IPFS by CID."""
         data = self._store.get(reference)
         if data is None:
-            raise KeyError(
-                f"CID '{reference}' not found in mock IPFS store"
-            )
+            raise KeyError(f"CID '{reference}' not found in mock IPFS store")
         return data
 
     async def verify(self, reference: str) -> bool:

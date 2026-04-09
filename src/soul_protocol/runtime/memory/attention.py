@@ -28,15 +28,47 @@ SHORT_MESSAGE_PENALTY: float = 0.15
 
 # Content richness indicators — proper nouns, numbers, specificity signals
 
-_PROPER_NOUN_PATTERN = re.compile(r'\b[A-Z][a-z]{2,}\b')
-_NUMBER_PATTERN = re.compile(r'\b\d+\b')
+_PROPER_NOUN_PATTERN = re.compile(r"\b[A-Z][a-z]{2,}\b")
+_NUMBER_PATTERN = re.compile(r"\b\d+\b")
 _SPECIFICITY_MARKERS = {
-    'named', 'called', 'name', 'birthday', 'born', 'started', 'began',
-    'moved', 'married', 'divorced', 'hired', 'fired', 'promoted',
-    'allergic', 'allergy', 'diagnosed', 'died', 'passed', 'killed',
-    'bought', 'sold', 'paid', 'earned', 'salary', 'address', 'phone',
-    'email', 'manager', 'director', 'engineer', 'doctor', 'teacher',
-    'university', 'college', 'school', 'company', 'team', 'project',
+    "named",
+    "called",
+    "name",
+    "birthday",
+    "born",
+    "started",
+    "began",
+    "moved",
+    "married",
+    "divorced",
+    "hired",
+    "fired",
+    "promoted",
+    "allergic",
+    "allergy",
+    "diagnosed",
+    "died",
+    "passed",
+    "killed",
+    "bought",
+    "sold",
+    "paid",
+    "earned",
+    "salary",
+    "address",
+    "phone",
+    "email",
+    "manager",
+    "director",
+    "engineer",
+    "doctor",
+    "teacher",
+    "university",
+    "college",
+    "school",
+    "company",
+    "team",
+    "project",
 }
 
 
@@ -152,11 +184,13 @@ def overall_significance(
     Returns:
         A single float (0.0 to 1.0) representing overall significance.
     """
-    richness = getattr(score, 'content_richness', 0.0)
-    raw = (0.3 * score.novelty
-           + 0.2 * score.emotional_intensity
-           + 0.2 * score.goal_relevance
-           + 0.3 * richness)
+    richness = getattr(score, "content_richness", 0.0)
+    raw = (
+        0.3 * score.novelty
+        + 0.2 * score.emotional_intensity
+        + 0.2 * score.goal_relevance
+        + 0.3 * richness
+    )
 
     # Penalize short messages — greetings and one-word responses are not significant
     if token_count is not None and token_count < SHORT_MESSAGE_TOKEN_LIMIT:

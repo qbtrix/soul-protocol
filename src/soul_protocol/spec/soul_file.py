@@ -45,9 +45,7 @@ def pack_soul(
     layer_data: dict[str, list[dict[str, Any]]] = {}
     for layer_name in layer_names:
         entries = memory_store.recall(layer_name, limit=999_999)
-        layer_data[layer_name] = [
-            entry.model_dump(mode="json") for entry in entries
-        ]
+        layer_data[layer_name] = [entry.model_dump(mode="json") for entry in entries]
 
     # Build manifest
     manifest_model = Manifest(
@@ -118,7 +116,7 @@ def unpack_soul(data: bytes) -> tuple[Identity, dict[str, list[dict[str, Any]]]]
         # Read all memory/{layer}.json files
         for name in names:
             if name.startswith("memory/") and name.endswith(".json"):
-                layer_name = name[len("memory/"):-len(".json")]
+                layer_name = name[len("memory/") : -len(".json")]
                 if layer_name:
                     layer_raw = json.loads(zf.read(name))
                     if isinstance(layer_raw, list):

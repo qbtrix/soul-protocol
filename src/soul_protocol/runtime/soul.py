@@ -81,9 +81,9 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import datetime
-import logging
 from pathlib import Path
 from typing import Any
 
@@ -92,9 +92,9 @@ from soul_protocol.spec.learning import LearningEvent
 from .bond import Bond
 from .cognitive.engine import CognitiveEngine
 from .dna.prompt import dna_to_system_prompt
+from .dream import Dreamer, DreamReport
 from .eternal.manager import EternalStorageManager
 from .evaluation import Evaluator
-from .dream import DreamReport, Dreamer
 from .evolution.manager import EvolutionManager
 from .export.pack import pack_soul
 from .export.unpack import unpack_soul
@@ -148,11 +148,13 @@ def _resolve_engine(engine: Any) -> CognitiveEngine | None:
 
     if engine == "auto":
         from soul_protocol.runtime.cognitive.adapters._auto import engine_from_env
+
         return engine_from_env()
 
     # Plain callable that doesn't implement the CognitiveEngine protocol
     if callable(engine) and not isinstance(engine, CognitiveEngine):
         from soul_protocol.runtime.cognitive.adapters._callable import CallableEngine
+
         return CallableEngine(engine)
 
     # Already a CognitiveEngine — pass through
@@ -489,7 +491,12 @@ class Soul:
             search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
             password: Optional password for decrypting encrypted .soul archives.
         """
-        from .exceptions import SoulCorruptError, SoulDecryptionError, SoulEncryptedError, SoulFileNotFoundError
+        from .exceptions import (
+            SoulCorruptError,
+            SoulDecryptionError,
+            SoulEncryptedError,
+            SoulFileNotFoundError,
+        )
 
         memory_data: dict = {}
 
@@ -521,9 +528,7 @@ class Soul:
                     except (SoulEncryptedError, SoulDecryptionError):
                         raise
                     except Exception as e:
-                        logger.error(
-                            "Corrupt .soul archive: path=%s, error=%s", path, e
-                        )
+                        logger.error("Corrupt .soul archive: path=%s, error=%s", path, e)
                         raise SoulCorruptError(str(path), str(e)) from e
                 elif path.suffix == ".json":
                     config = SoulConfig.model_validate_json(path.read_text())
@@ -542,7 +547,12 @@ class Soul:
                     )
                 else:
                     raise ValueError(f"Unknown soul format: {path.suffix}")
-            except (SoulFileNotFoundError, SoulCorruptError, SoulEncryptedError, SoulDecryptionError):
+            except (
+                SoulFileNotFoundError,
+                SoulCorruptError,
+                SoulEncryptedError,
+                SoulDecryptionError,
+            ):
                 raise
             except PermissionError as e:
                 raise SoulFileNotFoundError(str(path)) from e
@@ -753,7 +763,9 @@ class Soul:
         progressive: bool = False,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories with visibility filtering."""
-        effective_bond = bond_strength if bond_strength is not None else self._identity.bond.bond_strength
+        effective_bond = (
+            bond_strength if bond_strength is not None else self._identity.bond.bond_strength
+        )
         results = await self._memory.recall(
             query=query,
             limit=limit,
@@ -847,9 +859,7 @@ class Soul:
                 }
                 relation = ent.get("relation")
                 if relation:
-                    graph_ent["relationships"].append(
-                        {"target": "user", "relation": relation}
-                    )
+                    graph_ent["relationships"].append({"target": "user", "relation": relation})
                 graph_entities.append(graph_ent)
 
             await self._memory.update_graph(graph_entities)
@@ -983,9 +993,7 @@ class Soul:
         """Get the always-loaded core memory."""
         return self._memory.get_core()
 
-    async def edit_core_memory(
-        self, *, persona: str | None = None, human: str | None = None
-    ):
+    async def edit_core_memory(self, *, persona: str | None = None, human: str | None = None):
         """Edit core memory."""
         await self._memory.edit_core(persona=persona, human=human)
 
@@ -1188,8 +1196,11 @@ class Soul:
         )
         self._skills.grant_xp_from_learning(event)
         self._learning_events.append(event)
-        logger.debug("Learning event created: domain=%s, score=%.2f",
-                      event.domain, event.evaluation_score or 0.0)
+        logger.debug(
+            "Learning event created: domain=%s, score=%.2f",
+            event.domain,
+            event.evaluation_score or 0.0,
+        )
         return event
 
     @property
@@ -1208,9 +1219,7 @@ class Soul:
 
     # ============ Evolution ============
 
-    async def propose_evolution(
-        self, trait: str, new_value: str, reason: str
-    ) -> Mutation:
+    async def propose_evolution(self, trait: str, new_value: str, reason: str) -> Mutation:
         """Propose a trait mutation."""
         return await self._evolution.propose(
             dna=self._dna,
@@ -1224,9 +1233,7 @@ class Soul:
         result = await self._evolution.approve(mutation_id)
         if result:
             self._dna = self._evolution.apply(self._dna, mutation_id)
-            logger.info(
-                "Evolution approved and applied: mutation_id=%s", mutation_id
-            )
+            logger.info("Evolution approved and applied: mutation_id=%s", mutation_id)
         return result
 
     async def reject_evolution(self, mutation_id: str) -> bool:
@@ -1307,9 +1314,7 @@ class Soul:
 
         try:
             memory_data = self._memory.to_dict()
-            data = await pack_soul(
-                self.serialize(), memory_data=memory_data, password=password
-            )
+            data = await pack_soul(self.serialize(), memory_data=memory_data, password=password)
             Path(path).write_bytes(data)
             logger.info(
                 "Soul exported: name=%s, path=%s, size=%d bytes",
@@ -1328,9 +1333,7 @@ class Soul:
         if archive and self._eternal is not None:
             await self.archive(tiers=archive_tiers)
 
-    async def retire(
-        self, *, farewell: bool = False, preserve_memories: bool = True
-    ) -> None:
+    async def retire(self, *, farewell: bool = False, preserve_memories: bool = True) -> None:
         """Retire this soul with dignity.
 
         If preserve_memories is True (default), saves all memories before

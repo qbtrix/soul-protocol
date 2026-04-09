@@ -248,16 +248,65 @@ def _clamp(value: float, low: float, high: float) -> float:
 # ---------------------------------------------------------------------------
 
 # Keyword sets for heuristic category classification
-_PREFERENCE_KEYWORDS = {"likes", "prefers", "favorite", "favourite", "love", "loves",
-                        "prefer", "dislikes", "hates", "hate", "dislike"}
-_EVENT_KEYWORDS = {"yesterday", "today", "tomorrow", "last week", "next week",
-                   "last month", "next month", "monday", "tuesday", "wednesday",
-                   "thursday", "friday", "saturday", "sunday", "january", "february",
-                   "march", "april", "june", "july", "august", "september",
-                   "october", "november", "december", "morning", "evening",
-                   "afternoon", "meeting", "event", "scheduled", "deadline"}
-_PROFILE_KEYWORDS = {"name is", "works at", "work for", "lives in",
-                     "is a", "is an", "age", "born", "occupation", "role"}
+_PREFERENCE_KEYWORDS = {
+    "likes",
+    "prefers",
+    "favorite",
+    "favourite",
+    "love",
+    "loves",
+    "prefer",
+    "dislikes",
+    "hates",
+    "hate",
+    "dislike",
+}
+_EVENT_KEYWORDS = {
+    "yesterday",
+    "today",
+    "tomorrow",
+    "last week",
+    "next week",
+    "last month",
+    "next month",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+    "january",
+    "february",
+    "march",
+    "april",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+    "morning",
+    "evening",
+    "afternoon",
+    "meeting",
+    "event",
+    "scheduled",
+    "deadline",
+}
+_PROFILE_KEYWORDS = {
+    "name is",
+    "works at",
+    "work for",
+    "lives in",
+    "is a",
+    "is an",
+    "age",
+    "born",
+    "occupation",
+    "role",
+}
 
 
 def classify_memory_category(content: str) -> MemoryCategory | None:
@@ -419,9 +468,7 @@ class CognitiveProcessor:
                 goal_relevance=_clamp(data["goal_relevance"], 0.0, 1.0),
             )
         except Exception:
-            logger.warning(
-                "LLM significance assessment failed, falling back to heuristic"
-            )
+            logger.warning("LLM significance assessment failed, falling back to heuristic")
             if self._fallback:
                 return _heuristic_significance(interaction, core_values, recent_contents)
             return SignificanceScore()
@@ -467,9 +514,7 @@ class CognitiveProcessor:
             self._enrich_facts(entries, significance)
             return entries
         except Exception:
-            logger.warning(
-                "LLM fact extraction failed, falling back to heuristic"
-            )
+            logger.warning("LLM fact extraction failed, falling back to heuristic")
             if self._fact_extractor:
                 entries = self._fact_extractor(interaction)
                 self._enrich_facts(entries, significance)
@@ -545,9 +590,7 @@ class CognitiveProcessor:
                 )
             return entities
         except Exception:
-            logger.warning(
-                "LLM entity extraction failed, falling back to heuristic"
-            )
+            logger.warning("LLM entity extraction failed, falling back to heuristic")
             if self._entity_extractor:
                 entities = self._entity_extractor(interaction)
                 for e in entities:
@@ -604,9 +647,7 @@ class CognitiveProcessor:
                     self_model._relationship_notes[entity] = note
 
         except Exception:
-            logger.warning(
-                "LLM self-model update failed, falling back to heuristic"
-            )
+            logger.warning("LLM self-model update failed, falling back to heuristic")
             self_model.update_from_interaction(interaction, facts)
 
     async def reflect(

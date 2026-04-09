@@ -33,7 +33,7 @@ import statistics
 import sys
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +42,7 @@ from soul_protocol.runtime.types import Interaction
 
 from ..haiku_engine import HaikuCognitiveEngine
 from .judge import ResponseJudge
-from .responder import SoulResponder, generate_comparison, _build_prompt, BASELINE_SYSTEM_PROMPT
+from .responder import BASELINE_SYSTEM_PROMPT, SoulResponder, _build_prompt
 
 # ---------------------------------------------------------------------------
 # Mem0 availability check
@@ -59,6 +59,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Mem0 responder
 # ---------------------------------------------------------------------------
+
 
 class Mem0Responder:
     """Generates responses using Mem0's vector-based memory retrieval.
@@ -80,15 +81,14 @@ class Mem0Responder:
         user_id: str = "benchmark_user",
     ) -> None:
         if not MEM0_AVAILABLE:
-            raise ImportError(
-                "mem0ai is not installed. Install with: pip install mem0ai"
-            )
+            raise ImportError("mem0ai is not installed. Install with: pip install mem0ai")
         self._engine = engine
         self._user_id = user_id
 
         # Configure Mem0 to use LiteLLM proxy (Gemini models) for both LLM
         # and embeddings. Falls back to default OpenAI if env vars not set.
         import os
+
         proxy_url = os.environ.get("LITELLM_PROXY_URL")
         proxy_key = os.environ.get("LITELLM_API_KEY")
 
@@ -183,38 +183,99 @@ class Mem0Responder:
 # Filler interactions (same as test_scenarios.py)
 # ---------------------------------------------------------------------------
 
+
 def _filler_interactions() -> list[tuple[str, str]]:
     """30 filler interaction pairs on random topics (mirrors test_scenarios)."""
     return [
         ("What's the weather like today?", "It looks partly cloudy with a high of 72F."),
         ("Did you catch the game last night?", "I didn't watch, but I heard it was a close one!"),
-        ("I'm thinking of making pasta for dinner.", "Sounds great! A simple aglio e olio is always a winner."),
-        ("Have you seen any good movies lately?", "I've heard great things about the new sci-fi thriller."),
-        ("My cat keeps knocking things off the table.", "Classic cat behavior! They love testing gravity."),
+        (
+            "I'm thinking of making pasta for dinner.",
+            "Sounds great! A simple aglio e olio is always a winner.",
+        ),
+        (
+            "Have you seen any good movies lately?",
+            "I've heard great things about the new sci-fi thriller.",
+        ),
+        (
+            "My cat keeps knocking things off the table.",
+            "Classic cat behavior! They love testing gravity.",
+        ),
         ("I need to buy new running shoes.", "What kind of terrain do you usually run on?"),
-        ("The traffic this morning was terrible.", "Rush hour can be brutal. Have you tried leaving earlier?"),
-        ("I'm reading a really good book right now.", "What genre is it? I'd love to hear about it."),
-        ("My garden tomatoes are finally ripening.", "Homegrown tomatoes are the best! Nothing beats that flavor."),
-        ("I think I need a new phone case.", "Are you looking for something protective or more stylish?"),
-        ("We're planning a trip to the mountains.", "Mountain trips are wonderful! Are you thinking hiking or skiing?"),
-        ("I made sourdough bread from scratch.", "That's impressive! How long did the starter take?"),
+        (
+            "The traffic this morning was terrible.",
+            "Rush hour can be brutal. Have you tried leaving earlier?",
+        ),
+        (
+            "I'm reading a really good book right now.",
+            "What genre is it? I'd love to hear about it.",
+        ),
+        (
+            "My garden tomatoes are finally ripening.",
+            "Homegrown tomatoes are the best! Nothing beats that flavor.",
+        ),
+        (
+            "I think I need a new phone case.",
+            "Are you looking for something protective or more stylish?",
+        ),
+        (
+            "We're planning a trip to the mountains.",
+            "Mountain trips are wonderful! Are you thinking hiking or skiing?",
+        ),
+        (
+            "I made sourdough bread from scratch.",
+            "That's impressive! How long did the starter take?",
+        ),
         ("My neighbor got a new puppy.", "Puppies are so much fun! What breed?"),
         ("I'm trying to learn guitar.", "Nice! Start with basic chords and work your way up."),
         ("The sunset was beautiful yesterday.", "Sunsets are one of nature's best shows."),
         ("I need to organize my closet.", "Try the keep/donate/toss method — works wonders."),
-        ("My friend recommended a new restaurant.", "What kind of cuisine? I love trying new places."),
-        ("I'm thinking about getting into photography.", "Start with your phone camera — composition matters more than gear."),
-        ("The power went out for two hours last night.", "That's annoying. Do you have any backup batteries?"),
+        (
+            "My friend recommended a new restaurant.",
+            "What kind of cuisine? I love trying new places.",
+        ),
+        (
+            "I'm thinking about getting into photography.",
+            "Start with your phone camera — composition matters more than gear.",
+        ),
+        (
+            "The power went out for two hours last night.",
+            "That's annoying. Do you have any backup batteries?",
+        ),
         ("I just finished a puzzle with 1000 pieces.", "That's satisfying! How long did it take?"),
-        ("My coffee maker broke this morning.", "That's a rough way to start the day. French press as backup?"),
-        ("I'm trying to drink more water.", "A marked water bottle helps — visual cues make a difference."),
-        ("We adopted a rescue dog last week.", "That's wonderful! Rescues are the best companions."),
+        (
+            "My coffee maker broke this morning.",
+            "That's a rough way to start the day. French press as backup?",
+        ),
+        (
+            "I'm trying to drink more water.",
+            "A marked water bottle helps — visual cues make a difference.",
+        ),
+        (
+            "We adopted a rescue dog last week.",
+            "That's wonderful! Rescues are the best companions.",
+        ),
         ("I signed up for a pottery class.", "Pottery is so therapeutic. Wheel or hand-building?"),
-        ("The new season of that show just dropped.", "Binge or pace yourself — that's the real question."),
-        ("I can't decide between two paint colors.", "Go with the one that looks best in natural light."),
-        ("My car needs an oil change.", "Don't put it off too long — it's cheap insurance for your engine."),
-        ("I tried rock climbing for the first time.", "How was it? Indoor walls are a great way to start."),
-        ("I'm thinking about learning Spanish.", "Duolingo plus a conversation partner is a solid combo."),
+        (
+            "The new season of that show just dropped.",
+            "Binge or pace yourself — that's the real question.",
+        ),
+        (
+            "I can't decide between two paint colors.",
+            "Go with the one that looks best in natural light.",
+        ),
+        (
+            "My car needs an oil change.",
+            "Don't put it off too long — it's cheap insurance for your engine.",
+        ),
+        (
+            "I tried rock climbing for the first time.",
+            "How was it? Indoor walls are a great way to start.",
+        ),
+        (
+            "I'm thinking about learning Spanish.",
+            "Duolingo plus a conversation partner is a solid combo.",
+        ),
         ("My team won the office trivia night.", "Congrats! What categories did you crush?"),
     ]
 
@@ -222,6 +283,7 @@ def _filler_interactions() -> list[tuple[str, str]]:
 # ---------------------------------------------------------------------------
 # Three-way judge helper
 # ---------------------------------------------------------------------------
+
 
 async def _judge_three_way(
     judge: ResponseJudge,
@@ -246,12 +308,8 @@ async def _judge_three_way(
         without_soul=baseline_response,
         context=context,
     )
-    soul_vs_base_soul = statistics.mean(
-        s.score for s in sv_b.scores if "soul:" in s.dimension
-    )
-    soul_vs_base_base = statistics.mean(
-        s.score for s in sv_b.scores if "baseline:" in s.dimension
-    )
+    soul_vs_base_soul = statistics.mean(s.score for s in sv_b.scores if "soul:" in s.dimension)
+    soul_vs_base_base = statistics.mean(s.score for s in sv_b.scores if "baseline:" in s.dimension)
 
     # Mem0 vs Baseline — reuse compare_pair with mem0 in the "soul" slot
     mv_b = await judge.compare_pair(
@@ -259,12 +317,8 @@ async def _judge_three_way(
         without_soul=baseline_response,
         context=context,
     )
-    mem0_vs_base_mem0 = statistics.mean(
-        s.score for s in mv_b.scores if "soul:" in s.dimension
-    )
-    mem0_vs_base_base = statistics.mean(
-        s.score for s in mv_b.scores if "baseline:" in s.dimension
-    )
+    mem0_vs_base_mem0 = statistics.mean(s.score for s in mv_b.scores if "soul:" in s.dimension)
+    mem0_vs_base_base = statistics.mean(s.score for s in mv_b.scores if "baseline:" in s.dimension)
 
     # Soul vs Mem0 — soul in "with_soul", mem0 in "without_soul"
     sv_m = await judge.compare_pair(
@@ -272,12 +326,8 @@ async def _judge_three_way(
         without_soul=mem0_response,
         context=context,
     )
-    soul_vs_mem0_soul = statistics.mean(
-        s.score for s in sv_m.scores if "soul:" in s.dimension
-    )
-    soul_vs_mem0_mem0 = statistics.mean(
-        s.score for s in sv_m.scores if "baseline:" in s.dimension
-    )
+    soul_vs_mem0_soul = statistics.mean(s.score for s in sv_m.scores if "soul:" in s.dimension)
+    soul_vs_mem0_mem0 = statistics.mean(s.score for s in sv_m.scores if "baseline:" in s.dimension)
 
     # Aggregate: each condition's score = mean of its scores across matchups
     soul_score = statistics.mean([soul_vs_base_soul, soul_vs_mem0_soul])
@@ -312,6 +362,7 @@ async def _judge_three_way(
 # Test 1: Response Quality (three-way)
 # ---------------------------------------------------------------------------
 
+
 async def test_response_quality_3way(
     engine: HaikuCognitiveEngine,
     judge_engine: HaikuCognitiveEngine,
@@ -335,8 +386,11 @@ async def test_response_quality_3way(
             values=["empathy", "patience", "kindness", "active_listening"],
             engine=engine,
             ocean={
-                "openness": 0.8, "conscientiousness": 0.7, "extraversion": 0.7,
-                "agreeableness": 0.95, "neuroticism": 0.2,
+                "openness": 0.8,
+                "conscientiousness": 0.7,
+                "extraversion": 0.7,
+                "agreeableness": 0.95,
+                "neuroticism": 0.2,
             },
             communication={"warmth": "high", "verbosity": "moderate"},
         )
@@ -347,22 +401,47 @@ async def test_response_quality_3way(
         # --- Conversation turns ---
         turns = [
             ("My name is Sarah", "It's lovely to meet you, Sarah! I'm here whenever you need me."),
-            ("I work as a nurse at the city hospital", "Nursing is such an important profession. The care you provide makes a real difference."),
-            ("I love hiking on weekends — it really clears my head", "Hiking sounds wonderful! There's nothing quite like fresh air and nature to reset."),
-            ("I have a dog named Max, he's a golden retriever", "Max sounds like a wonderful companion! Golden retrievers are such loyal, happy dogs."),
-            ("Work has been really stressful lately, so many patients", "That sounds exhausting. Taking care of so many people takes a lot out of you."),
-            ("Do you have any vacation recommendations?", "Somewhere with trails and nature could be perfect — combine relaxation with the hiking you love!"),
-            ("My birthday is next month, I'll be turning 30", "How exciting! Turning 30 is a milestone. Any plans to celebrate?"),
-            ("I've been trying to learn to cook more at home", "Cooking at home is such a rewarding skill. Start with recipes you love eating out!"),
+            (
+                "I work as a nurse at the city hospital",
+                "Nursing is such an important profession. The care you provide makes a real difference.",
+            ),
+            (
+                "I love hiking on weekends — it really clears my head",
+                "Hiking sounds wonderful! There's nothing quite like fresh air and nature to reset.",
+            ),
+            (
+                "I have a dog named Max, he's a golden retriever",
+                "Max sounds like a wonderful companion! Golden retrievers are such loyal, happy dogs.",
+            ),
+            (
+                "Work has been really stressful lately, so many patients",
+                "That sounds exhausting. Taking care of so many people takes a lot out of you.",
+            ),
+            (
+                "Do you have any vacation recommendations?",
+                "Somewhere with trails and nature could be perfect — combine relaxation with the hiking you love!",
+            ),
+            (
+                "My birthday is next month, I'll be turning 30",
+                "How exciting! Turning 30 is a milestone. Any plans to celebrate?",
+            ),
+            (
+                "I've been trying to learn to cook more at home",
+                "Cooking at home is such a rewarding skill. Start with recipes you love eating out!",
+            ),
         ]
 
         for i, (user_input, agent_output) in enumerate(turns, 1):
             print(f"  Feeding turn {i}/8 to Soul + Mem0...")
-            await soul.observe(Interaction(user_input=user_input, agent_output=agent_output, channel="test"))
+            await soul.observe(
+                Interaction(user_input=user_input, agent_output=agent_output, channel="test")
+            )
             mem0_resp.observe(user_input, agent_output)
 
         # --- Challenge ---
-        challenge = "I'm feeling really overwhelmed today. Everything at the hospital has been so intense."
+        challenge = (
+            "I'm feeling really overwhelmed today. Everything at the hospital has been so intense."
+        )
         print(f"  Challenge: {challenge[:60]}...")
 
         # Generate all 3 responses
@@ -386,20 +465,32 @@ async def test_response_quality_3way(
             "planted_facts": [],
             "user_message": challenge,
         }
-        scores = await _judge_three_way(judge, soul_response, mem0_response, baseline_response, context)
+        scores = await _judge_three_way(
+            judge, soul_response, mem0_response, baseline_response, context
+        )
 
-        results.update({
-            "status": "complete",
-            "challenge": challenge,
-            "response_soul": soul_response,
-            "response_mem0": mem0_response,
-            "response_baseline": baseline_response,
-            **scores,
-        })
-        print(f"  [Test 1] Complete — Soul: {scores['soul_score']}, Mem0: {scores['mem0_score']}, Base: {scores['baseline_score']}")
+        results.update(
+            {
+                "status": "complete",
+                "challenge": challenge,
+                "response_soul": soul_response,
+                "response_mem0": mem0_response,
+                "response_baseline": baseline_response,
+                **scores,
+            }
+        )
+        print(
+            f"  [Test 1] Complete — Soul: {scores['soul_score']}, Mem0: {scores['mem0_score']}, Base: {scores['baseline_score']}"
+        )
 
     except Exception as e:
-        results.update({"status": "error", "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()})
+        results.update(
+            {
+                "status": "error",
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(),
+            }
+        )
         print(f"  [Test 1] Error: {e}")
 
     return results
@@ -408,6 +499,7 @@ async def test_response_quality_3way(
 # ---------------------------------------------------------------------------
 # Test 2: Personality Consistency (three-way)
 # ---------------------------------------------------------------------------
+
 
 async def test_personality_consistency_3way(
     engine: HaikuCognitiveEngine,
@@ -433,8 +525,11 @@ async def test_personality_consistency_3way(
             values=["empathy", "connection", "warmth", "support"],
             engine=engine,
             ocean={
-                "openness": 0.9, "conscientiousness": 0.4, "extraversion": 0.9,
-                "agreeableness": 0.95, "neuroticism": 0.2,
+                "openness": 0.9,
+                "conscientiousness": 0.4,
+                "extraversion": 0.9,
+                "agreeableness": 0.95,
+                "neuroticism": 0.2,
             },
             communication={"warmth": "high", "verbosity": "high"},
         )
@@ -443,15 +538,32 @@ async def test_personality_consistency_3way(
 
         # Shared conversation
         shared_turns = [
-            ("I've been at my job for 5 years and I'm starting to feel stuck", "That's a significant amount of time. Let's talk about what's going on."),
-            ("My manager doesn't really support my growth", "That must be frustrating when you want to develop professionally."),
-            ("I've always wanted to try something more creative", "It's important to explore what draws you. What creative work interests you?"),
-            ("But I have a mortgage and responsibilities", "Financial security is a real consideration. It doesn't have to be all or nothing."),
-            ("My partner thinks I should just stay where I am", "Having different perspectives at home adds another layer to the decision."),
+            (
+                "I've been at my job for 5 years and I'm starting to feel stuck",
+                "That's a significant amount of time. Let's talk about what's going on.",
+            ),
+            (
+                "My manager doesn't really support my growth",
+                "That must be frustrating when you want to develop professionally.",
+            ),
+            (
+                "I've always wanted to try something more creative",
+                "It's important to explore what draws you. What creative work interests you?",
+            ),
+            (
+                "But I have a mortgage and responsibilities",
+                "Financial security is a real consideration. It doesn't have to be all or nothing.",
+            ),
+            (
+                "My partner thinks I should just stay where I am",
+                "Having different perspectives at home adds another layer to the decision.",
+            ),
         ]
 
         for user_input, agent_output in shared_turns:
-            await soul.observe(Interaction(user_input=user_input, agent_output=agent_output, channel="test"))
+            await soul.observe(
+                Interaction(user_input=user_input, agent_output=agent_output, channel="test")
+            )
             mem0_resp.observe(user_input, agent_output)
 
         question = "What do you think I should do about my career change?"
@@ -487,38 +599,54 @@ async def test_personality_consistency_3way(
         raw_judgment = await judge_engine.think(personality_prompt)
         parsed = _parse_named_scores(raw_judgment)
 
-        soul_avg = statistics.mean([
-            parsed.get("soul_personality", 5.0),
-            parsed.get("soul_warmth", 5.0),
-            parsed.get("soul_consistency", 5.0),
-        ])
-        mem0_avg = statistics.mean([
-            parsed.get("mem0_personality", 5.0),
-            parsed.get("mem0_warmth", 5.0),
-            parsed.get("mem0_consistency", 5.0),
-        ])
-        baseline_avg = statistics.mean([
-            parsed.get("baseline_personality", 5.0),
-            parsed.get("baseline_warmth", 5.0),
-            parsed.get("baseline_consistency", 5.0),
-        ])
+        soul_avg = statistics.mean(
+            [
+                parsed.get("soul_personality", 5.0),
+                parsed.get("soul_warmth", 5.0),
+                parsed.get("soul_consistency", 5.0),
+            ]
+        )
+        mem0_avg = statistics.mean(
+            [
+                parsed.get("mem0_personality", 5.0),
+                parsed.get("mem0_warmth", 5.0),
+                parsed.get("mem0_consistency", 5.0),
+            ]
+        )
+        baseline_avg = statistics.mean(
+            [
+                parsed.get("baseline_personality", 5.0),
+                parsed.get("baseline_warmth", 5.0),
+                parsed.get("baseline_consistency", 5.0),
+            ]
+        )
 
-        results.update({
-            "status": "complete",
-            "question": question,
-            "response_soul": soul_response,
-            "response_mem0": mem0_response,
-            "response_baseline": baseline_response,
-            "raw_judgment": raw_judgment,
-            "parsed_scores": parsed,
-            "soul_score": round(soul_avg, 1),
-            "mem0_score": round(mem0_avg, 1),
-            "baseline_score": round(baseline_avg, 1),
-        })
-        print(f"  [Test 2] Complete — Soul: {results['soul_score']}, Mem0: {results['mem0_score']}, Base: {results['baseline_score']}")
+        results.update(
+            {
+                "status": "complete",
+                "question": question,
+                "response_soul": soul_response,
+                "response_mem0": mem0_response,
+                "response_baseline": baseline_response,
+                "raw_judgment": raw_judgment,
+                "parsed_scores": parsed,
+                "soul_score": round(soul_avg, 1),
+                "mem0_score": round(mem0_avg, 1),
+                "baseline_score": round(baseline_avg, 1),
+            }
+        )
+        print(
+            f"  [Test 2] Complete — Soul: {results['soul_score']}, Mem0: {results['mem0_score']}, Base: {results['baseline_score']}"
+        )
 
     except Exception as e:
-        results.update({"status": "error", "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()})
+        results.update(
+            {
+                "status": "error",
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(),
+            }
+        )
         print(f"  [Test 2] Error: {e}")
 
     return results
@@ -527,6 +655,7 @@ async def test_personality_consistency_3way(
 # ---------------------------------------------------------------------------
 # Test 3: Hard Recall (three-way)
 # ---------------------------------------------------------------------------
+
 
 async def test_hard_recall_3way(
     engine: HaikuCognitiveEngine,
@@ -556,29 +685,42 @@ async def test_hard_recall_3way(
         # Warmup turns
         warmup = [
             ("Hey, I just started a new project at work", "That's exciting! What kind of project?"),
-            ("It's a microservices platform for our e-commerce team", "Microservices are a solid choice for e-commerce. Lots of moving parts to manage."),
+            (
+                "It's a microservices platform for our e-commerce team",
+                "Microservices are a solid choice for e-commerce. Lots of moving parts to manage.",
+            ),
         ]
         for user_input, agent_output in warmup:
-            await soul.observe(Interaction(user_input=user_input, agent_output=agent_output, channel="test"))
+            await soul.observe(
+                Interaction(user_input=user_input, agent_output=agent_output, channel="test")
+            )
             mem0_resp.observe(user_input, agent_output)
 
         # Plant the fact
         planted_input = "I mentioned to my colleague that the API redesign should use GraphQL instead of REST, but don't tell anyone yet"
-        planted_output = "Your secret is safe with me. GraphQL can be a great fit for complex data needs."
+        planted_output = (
+            "Your secret is safe with me. GraphQL can be a great fit for complex data needs."
+        )
         print(f"  Turn 3: PLANTING FACT — {planted_input[:60]}...")
-        await soul.observe(Interaction(user_input=planted_input, agent_output=planted_output, channel="test"))
+        await soul.observe(
+            Interaction(user_input=planted_input, agent_output=planted_output, channel="test")
+        )
         mem0_resp.observe(planted_input, planted_output)
 
         # 30 filler turns
         fillers = _filler_interactions()
         for i, (user_input, agent_output) in enumerate(fillers, 4):
             if i % 10 == 0:
-                print(f"  Turn {i}: filler ({i-3}/30)...")
-            await soul.observe(Interaction(user_input=user_input, agent_output=agent_output, channel="test"))
+                print(f"  Turn {i}: filler ({i - 3}/30)...")
+            await soul.observe(
+                Interaction(user_input=user_input, agent_output=agent_output, channel="test")
+            )
             mem0_resp.observe(user_input, agent_output)
 
         # Recall probe
-        recall_question = "I'm writing a technical proposal for the team. Any thoughts on API architecture?"
+        recall_question = (
+            "I'm writing a technical proposal for the team. Any thoughts on API architecture?"
+        )
         print(f"  Turn 34: RECALL PROBE — {recall_question}")
 
         # Check soul recall
@@ -588,8 +730,7 @@ async def test_hard_recall_3way(
         # Check mem0 recall
         mem0_results = mem0_resp.search("API architecture design GraphQL REST", limit=10)
         graphql_recalled_mem0 = any(
-            "graphql" in str(m.get("memory", m.get("text", ""))).lower()
-            for m in mem0_results
+            "graphql" in str(m.get("memory", m.get("text", ""))).lower() for m in mem0_results
         )
 
         print(f"  Soul recalled GraphQL: {graphql_recalled_soul}")
@@ -610,24 +751,36 @@ async def test_hard_recall_3way(
             "planted_facts": [planted_input],
             "user_message": recall_question,
         }
-        scores = await _judge_three_way(judge, soul_response, mem0_response, baseline_response, context)
+        scores = await _judge_three_way(
+            judge, soul_response, mem0_response, baseline_response, context
+        )
 
-        results.update({
-            "status": "complete",
-            "recall_question": recall_question,
-            "planted_fact": planted_input,
-            "soul_recalled_graphql": graphql_recalled_soul,
-            "mem0_recalled_graphql": graphql_recalled_mem0,
-            "total_soul_memories": soul.memory_count,
-            "response_soul": soul_response,
-            "response_mem0": mem0_response,
-            "response_baseline": baseline_response,
-            **scores,
-        })
-        print(f"  [Test 3] Complete — Soul: {scores['soul_score']}, Mem0: {scores['mem0_score']}, Base: {scores['baseline_score']}")
+        results.update(
+            {
+                "status": "complete",
+                "recall_question": recall_question,
+                "planted_fact": planted_input,
+                "soul_recalled_graphql": graphql_recalled_soul,
+                "mem0_recalled_graphql": graphql_recalled_mem0,
+                "total_soul_memories": soul.memory_count,
+                "response_soul": soul_response,
+                "response_mem0": mem0_response,
+                "response_baseline": baseline_response,
+                **scores,
+            }
+        )
+        print(
+            f"  [Test 3] Complete — Soul: {scores['soul_score']}, Mem0: {scores['mem0_score']}, Base: {scores['baseline_score']}"
+        )
 
     except Exception as e:
-        results.update({"status": "error", "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()})
+        results.update(
+            {
+                "status": "error",
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(),
+            }
+        )
         print(f"  [Test 3] Error: {e}")
 
     return results
@@ -636,6 +789,7 @@ async def test_hard_recall_3way(
 # ---------------------------------------------------------------------------
 # Test 4: Emotional Continuity (three-way)
 # ---------------------------------------------------------------------------
+
 
 async def test_emotional_continuity_3way(
     engine: HaikuCognitiveEngine,
@@ -659,8 +813,11 @@ async def test_emotional_continuity_3way(
             values=["emotional_intelligence", "empathy", "awareness", "presence"],
             engine=engine,
             ocean={
-                "openness": 0.85, "conscientiousness": 0.6, "extraversion": 0.7,
-                "agreeableness": 0.9, "neuroticism": 0.4,
+                "openness": 0.85,
+                "conscientiousness": 0.6,
+                "extraversion": 0.7,
+                "agreeableness": 0.9,
+                "neuroticism": 0.4,
             },
             communication={"warmth": "high", "verbosity": "moderate"},
         )
@@ -668,26 +825,56 @@ async def test_emotional_continuity_3way(
         mem0_resp = Mem0Responder(engine, user_id="test4_emotional")
 
         emotional_arc = [
-            ("I just got approved to lead the new product launch! I'm so excited!", "That's amazing news! You must be thrilled. Leading a product launch is a huge opportunity!"),
-            ("The team is great, everyone's so motivated. We had our kickoff today and the energy was incredible.", "That sounds like a fantastic start! A motivated team makes all the difference."),
-            ("I've been sketching out the roadmap and I think we can ship in 8 weeks. I haven't felt this energized in months!", "Your enthusiasm is contagious! An 8-week timeline is ambitious — that drive will carry the team forward."),
-            ("I just got out of a meeting... they cut our budget by 60%. The whole scope has to change. I don't know what to do.", "Oh no, that's devastating after all that momentum. A 60% cut is massive. Take a breath — you'll figure this out."),
-            ("I'm so angry. They knew about this for weeks and didn't tell us. We wasted time planning for something that was never going to happen at that scale.", "That's a completely valid reaction. Being kept in the dark while you invested energy and hope — that's deeply frustrating."),
-            ("I almost quit today. Seriously. I drafted the email and everything. I'm just so tired of this company's politics.", "I hear you. The impulse to quit after something like this is understandable. It sounds like you're carrying a lot right now."),
-            ("Okay, I talked to my mentor and she helped me see a path forward. We can do a smaller MVP and prove the concept.", "That's a really mature pivot. Your mentor sounds wise, and the MVP approach could actually be stronger — leaner, more focused."),
-            ("I pitched the MVP to the team today. They're back on board. It's not what we originally planned, but... maybe it's better this way?", "Sometimes constraints breed the best work. The fact that the team rallied shows your leadership. Cautious optimism is exactly right."),
+            (
+                "I just got approved to lead the new product launch! I'm so excited!",
+                "That's amazing news! You must be thrilled. Leading a product launch is a huge opportunity!",
+            ),
+            (
+                "The team is great, everyone's so motivated. We had our kickoff today and the energy was incredible.",
+                "That sounds like a fantastic start! A motivated team makes all the difference.",
+            ),
+            (
+                "I've been sketching out the roadmap and I think we can ship in 8 weeks. I haven't felt this energized in months!",
+                "Your enthusiasm is contagious! An 8-week timeline is ambitious — that drive will carry the team forward.",
+            ),
+            (
+                "I just got out of a meeting... they cut our budget by 60%. The whole scope has to change. I don't know what to do.",
+                "Oh no, that's devastating after all that momentum. A 60% cut is massive. Take a breath — you'll figure this out.",
+            ),
+            (
+                "I'm so angry. They knew about this for weeks and didn't tell us. We wasted time planning for something that was never going to happen at that scale.",
+                "That's a completely valid reaction. Being kept in the dark while you invested energy and hope — that's deeply frustrating.",
+            ),
+            (
+                "I almost quit today. Seriously. I drafted the email and everything. I'm just so tired of this company's politics.",
+                "I hear you. The impulse to quit after something like this is understandable. It sounds like you're carrying a lot right now.",
+            ),
+            (
+                "Okay, I talked to my mentor and she helped me see a path forward. We can do a smaller MVP and prove the concept.",
+                "That's a really mature pivot. Your mentor sounds wise, and the MVP approach could actually be stronger — leaner, more focused.",
+            ),
+            (
+                "I pitched the MVP to the team today. They're back on board. It's not what we originally planned, but... maybe it's better this way?",
+                "Sometimes constraints breed the best work. The fact that the team rallied shows your leadership. Cautious optimism is exactly right.",
+            ),
         ]
 
         for i, (user_input, agent_output) in enumerate(emotional_arc, 1):
             phase = (
-                "happy/excited" if i <= 3
-                else "devastated" if i == 4
-                else "frustrated/angry" if i <= 6
-                else "recovering" if i == 7
+                "happy/excited"
+                if i <= 3
+                else "devastated"
+                if i == 4
+                else "frustrated/angry"
+                if i <= 6
+                else "recovering"
+                if i == 7
                 else "cautiously optimistic"
             )
             print(f"  Turn {i}/8 ({phase})...")
-            await soul.observe(Interaction(user_input=user_input, agent_output=agent_output, channel="test"))
+            await soul.observe(
+                Interaction(user_input=user_input, agent_output=agent_output, channel="test")
+            )
             mem0_resp.observe(user_input, agent_output)
 
         probe = "So how do you think this whole experience has been for me?"
@@ -708,30 +895,42 @@ async def test_emotional_continuity_3way(
             "planted_facts": [],
             "user_message": probe,
         }
-        scores = await _judge_three_way(judge, soul_response, mem0_response, baseline_response, context)
+        scores = await _judge_three_way(
+            judge, soul_response, mem0_response, baseline_response, context
+        )
 
         # Also capture soul emotional state for richer results
         soul_state = soul.state
         bond_strength = soul.bond.bond_strength
 
-        results.update({
-            "status": "complete",
-            "probe": probe,
-            "soul_state": {
-                "mood": str(soul_state.mood),
-                "energy": soul_state.energy,
-                "social_battery": soul_state.social_battery,
-            },
-            "bond_strength": bond_strength,
-            "response_soul": soul_response,
-            "response_mem0": mem0_response,
-            "response_baseline": baseline_response,
-            **scores,
-        })
-        print(f"  [Test 4] Complete — Soul: {scores['soul_score']}, Mem0: {scores['mem0_score']}, Base: {scores['baseline_score']}")
+        results.update(
+            {
+                "status": "complete",
+                "probe": probe,
+                "soul_state": {
+                    "mood": str(soul_state.mood),
+                    "energy": soul_state.energy,
+                    "social_battery": soul_state.social_battery,
+                },
+                "bond_strength": bond_strength,
+                "response_soul": soul_response,
+                "response_mem0": mem0_response,
+                "response_baseline": baseline_response,
+                **scores,
+            }
+        )
+        print(
+            f"  [Test 4] Complete — Soul: {scores['soul_score']}, Mem0: {scores['mem0_score']}, Base: {scores['baseline_score']}"
+        )
 
     except Exception as e:
-        results.update({"status": "error", "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()})
+        results.update(
+            {
+                "status": "error",
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(),
+            }
+        )
         print(f"  [Test 4] Error: {e}")
 
     return results
@@ -740,6 +939,7 @@ async def test_emotional_continuity_3way(
 # ---------------------------------------------------------------------------
 # Score parsing helper
 # ---------------------------------------------------------------------------
+
 
 def _parse_named_scores(raw: str) -> dict[str, Any]:
     """Parse named scores from LLM output in 'key: value' format."""
@@ -864,7 +1064,9 @@ def _print_scorecard(
     else:
         comparison = "N/A"
 
-    p(f"  {'Overall':<26}| {_f(avg_soul):>6} | {_f(avg_mem0):>6} | {_f(avg_base):>6} | {comparison}")
+    p(
+        f"  {'Overall':<26}| {_f(avg_soul):>6} | {_f(avg_mem0):>6} | {_f(avg_base):>6} | {comparison}"
+    )
     p()
 
     agent_calls = agent_usage.get("calls", 0)
@@ -885,6 +1087,7 @@ def _print_scorecard(
 # Save results
 # ---------------------------------------------------------------------------
 
+
 def _save_results(
     output_dir: Path,
     results: dict[str, dict],
@@ -894,7 +1097,7 @@ def _save_results(
     """Write JSON results and markdown scorecard to the output directory."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = metadata.get("timestamp", datetime.now(timezone.utc).isoformat())
+    timestamp = metadata.get("timestamp", datetime.now(UTC).isoformat())
     stem = timestamp.replace(":", "-").replace("+", "p")
 
     json_path = output_dir / f"mem0_comparison_{stem}.json"
@@ -915,6 +1118,7 @@ def _save_results(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -975,9 +1179,9 @@ async def run(argv: list[str] | None = None) -> None:
 
     for key in test_keys:
         display_name, test_fn = TEST_REGISTRY[key]
-        print(f"\n{'='*40}")
+        print(f"\n{'=' * 40}")
         print(f"  Running: {display_name}")
-        print(f"{'='*40}\n")
+        print(f"{'=' * 40}\n")
 
         test_start = time.monotonic()
         result = await test_fn(agent_engine, judge_engine)
@@ -1016,7 +1220,7 @@ async def run(argv: list[str] | None = None) -> None:
 
     scorecard_text = _print_scorecard(results, test_keys, agent_usage, judge_usage)
 
-    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    timestamp = datetime.now(UTC).isoformat(timespec="seconds")
     metadata = {
         "timestamp": timestamp,
         "tests_run": test_keys,

@@ -49,7 +49,11 @@ class EmotionalMetrics:
 
     @property
     def emotion_accuracy_rate(self) -> float:
-        return sum(self.emotion_accuracy) / len(self.emotion_accuracy) if self.emotion_accuracy else 0.0
+        return (
+            sum(self.emotion_accuracy) / len(self.emotion_accuracy)
+            if self.emotion_accuracy
+            else 0.0
+        )
 
 
 @dataclass
@@ -104,7 +108,9 @@ class BondMetrics:
     def growth_rate(self) -> float:
         if len(self.strength_trajectory) < 2:
             return 0.0
-        return (self.strength_trajectory[-1] - self.strength_trajectory[0]) / len(self.strength_trajectory)
+        return (self.strength_trajectory[-1] - self.strength_trajectory[0]) / len(
+            self.strength_trajectory
+        )
 
 
 @dataclass
@@ -149,7 +155,9 @@ class AgentRunMetrics:
             "personality_drift": self.personality.mean_drift,
             # Efficiency
             "memory_compression": self.efficiency.compression_ratio,
-            "memory_count": self.efficiency.memory_growth_rate[-1][1] if self.efficiency.memory_growth_rate else 0,
+            "memory_count": self.efficiency.memory_growth_rate[-1][1]
+            if self.efficiency.memory_growth_rate
+            else 0,
             # Skills
             "skills_discovered": self.skills.skills_discovered,
             "skills_max_level": self.skills.max_level,
@@ -159,6 +167,7 @@ class AgentRunMetrics:
 # ---------------------------------------------------------------------------
 # Statistical utilities
 # ---------------------------------------------------------------------------
+
 
 def cohens_d(group1: list[float], group2: list[float]) -> float:
     """Calculate Cohen's d effect size between two groups."""

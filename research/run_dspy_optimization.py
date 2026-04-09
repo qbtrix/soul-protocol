@@ -28,6 +28,7 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 # Training data generation from long-horizon scenarios
 # ---------------------------------------------------------------------------
 
+
 def generate_training_data() -> list[dict]:
     """Create labeled training data from long-horizon scenarios."""
     from research.long_horizon.scenarios import generate_all_scenarios
@@ -50,35 +51,55 @@ def generate_training_data() -> list[dict]:
 
             # Simple emotional keyword check for labeling
             emotional_words = {
-                "love", "hate", "thrilled", "devastated", "excited", "scared",
-                "angry", "furious", "heartbroken", "ecstatic", "anxious",
-                "proud", "ashamed", "grateful", "miserable", "depressed",
-                "overwhelmed", "elated", "terrified", "disgusted",
+                "love",
+                "hate",
+                "thrilled",
+                "devastated",
+                "excited",
+                "scared",
+                "angry",
+                "furious",
+                "heartbroken",
+                "ecstatic",
+                "anxious",
+                "proud",
+                "ashamed",
+                "grateful",
+                "miserable",
+                "depressed",
+                "overwhelmed",
+                "elated",
+                "terrified",
+                "disgusted",
             }
             text_lower = f"{user_input} {agent_output}".lower()
             has_emotion = bool(set(text_lower.split()) & emotional_words)
 
             should_store = is_fact_turn or is_near_fact or has_emotion
 
-            examples.append({
-                "user_input": user_input,
-                "agent_output": agent_output,
-                "core_values": ["empathy", "curiosity", "reliability"],
-                "should_store": should_store,
-                "is_fact_turn": is_fact_turn,
-                "scenario_id": scenario.scenario_id,
-                "turn_index": i,
-            })
+            examples.append(
+                {
+                    "user_input": user_input,
+                    "agent_output": agent_output,
+                    "core_values": ["empathy", "curiosity", "reliability"],
+                    "should_store": should_store,
+                    "is_fact_turn": is_fact_turn,
+                    "scenario_id": scenario.scenario_id,
+                    "turn_index": i,
+                }
+            )
 
         # Add recall examples from test points
         for tp in scenario.test_points:
             if tp.test_type == "recall":
-                examples.append({
-                    "type": "recall",
-                    "query": tp.query,
-                    "expected_fact": tp.expected_content,
-                    "planted_facts": [fact for _, fact in scenario.planted_facts],
-                })
+                examples.append(
+                    {
+                        "type": "recall",
+                        "query": tp.query,
+                        "expected_fact": tp.expected_content,
+                        "planted_facts": [fact for _, fact in scenario.planted_facts],
+                    }
+                )
 
     return examples
 
@@ -86,6 +107,7 @@ def generate_training_data() -> list[dict]:
 # ---------------------------------------------------------------------------
 # Run heuristic ablation (no LLM)
 # ---------------------------------------------------------------------------
+
 
 async def run_ablation(
     label: str,
@@ -112,10 +134,18 @@ async def run_ablation(
         "overall": {},
     }
 
-    cond_totals = defaultdict(lambda: {
-        "hits": 0, "total": 0, "mems": 0, "turns": 0,
-        "bond": 0.0, "count": 0, "episodic": 0, "semantic": 0,
-    })
+    cond_totals = defaultdict(
+        lambda: {
+            "hits": 0,
+            "total": 0,
+            "mems": 0,
+            "turns": 0,
+            "bond": 0.0,
+            "count": 0,
+            "episodic": 0,
+            "semantic": 0,
+        }
+    )
 
     for sr in results.scenario_results:
         scenario_data = {"id": sr.scenario_id, "name": sr.scenario_name, "conditions": {}}
@@ -165,6 +195,7 @@ async def run_ablation(
 # ---------------------------------------------------------------------------
 # DSPy optimization
 # ---------------------------------------------------------------------------
+
 
 def run_dspy_optimization(training_data: list[dict]) -> dict:
     """Run MIPROv2 optimization on significance gate and query expander."""
@@ -216,7 +247,9 @@ def run_dspy_optimization(training_data: list[dict]) -> dict:
         train_sig = sig_dspy[:split]
         val_sig = sig_dspy[split:]
 
-        print(f"\n[DSPy] Optimizing SignificanceGate with {len(train_sig)} train, {len(val_sig)} val examples...")
+        print(
+            f"\n[DSPy] Optimizing SignificanceGate with {len(train_sig)} train, {len(val_sig)} val examples..."
+        )
 
         def sig_metric(example, prediction, trace=None):
             expected = bool(example.should_store)
@@ -274,7 +307,9 @@ def run_dspy_optimization(training_data: list[dict]) -> dict:
         train_recall = recall_dspy[:split]
         val_recall = recall_dspy[split:]
 
-        print(f"\n[DSPy] Optimizing QueryExpander with {len(train_recall)} train, {len(val_recall)} val examples...")
+        print(
+            f"\n[DSPy] Optimizing QueryExpander with {len(train_recall)} train, {len(val_recall)} val examples..."
+        )
 
         def recall_metric(example, prediction, trace=None):
             expected = str(getattr(example, "expected_fact", "")).lower()
@@ -313,6 +348,7 @@ def run_dspy_optimization(training_data: list[dict]) -> dict:
 # Report generation
 # ---------------------------------------------------------------------------
 
+
 def save_reports(baseline: dict, optimized: dict | None, dspy_results: dict | None):
     """Save JSON + Markdown reports to research/results/."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -350,7 +386,7 @@ def generate_markdown_report(
     lines = [
         "# Soul Protocol — Ablation & DSPy Optimization Report",
         f"\n**Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"**Branch**: feat/dspy-integration (Phase 1 + Phase 2)",
+        "**Branch**: feat/dspy-integration (Phase 1 + Phase 2)",
         "",
         "## 1. Baseline (Heuristic Pipeline — Phase 1 Fixes)",
         "",
@@ -363,7 +399,7 @@ def generate_markdown_report(
         recall_pct = d["recall_precision"] * 100
         lines.append(
             f"| {cond} | {d['recall_hits']}/{d['recall_total']} ({recall_pct:.1f}%) | "
-            f"{d['total_memories']} | {d['storage_rate']*100:.1f}% | {d['avg_bond']:.1f} |"
+            f"{d['total_memories']} | {d['storage_rate'] * 100:.1f}% | {d['avg_bond']:.1f} |"
         )
 
     # Per-scenario breakdown
@@ -383,7 +419,7 @@ def generate_markdown_report(
         # Recall detail for full_soul
         fs = sc["conditions"].get("full_soul", {})
         if fs.get("recall_results"):
-            lines.append(f"\n**Full Soul Recall Detail:**\n")
+            lines.append("\n**Full Soul Recall Detail:**\n")
             for rr in fs["recall_results"]:
                 status = "HIT" if rr["hit"] else "MISS"
                 lines.append(f"- [{status}] `{rr['query']}` → expected: `{rr['expected']}`")
@@ -410,7 +446,7 @@ def generate_markdown_report(
             recall_pct = d["recall_precision"] * 100
             lines.append(
                 f"| {cond} | {d['recall_hits']}/{d['recall_total']} ({recall_pct:.1f}%) | "
-                f"{d['total_memories']} | {d['storage_rate']*100:.1f}% | {d['avg_bond']:.1f} |"
+                f"{d['total_memories']} | {d['storage_rate'] * 100:.1f}% | {d['avg_bond']:.1f} |"
             )
 
     # Comparison
@@ -421,15 +457,15 @@ def generate_markdown_report(
         if b_fs and o_fs:
             recall_delta = (o_fs["recall_precision"] - b_fs["recall_precision"]) * 100
             storage_delta = (o_fs["storage_rate"] - b_fs["storage_rate"]) * 100
-            lines.append(f"| Metric | Baseline | Optimized | Delta |")
-            lines.append(f"|--------|----------|-----------|-------|")
+            lines.append("| Metric | Baseline | Optimized | Delta |")
+            lines.append("|--------|----------|-----------|-------|")
             lines.append(
-                f"| Recall | {b_fs['recall_precision']*100:.1f}% | "
-                f"{o_fs['recall_precision']*100:.1f}% | {recall_delta:+.1f}% |"
+                f"| Recall | {b_fs['recall_precision'] * 100:.1f}% | "
+                f"{o_fs['recall_precision'] * 100:.1f}% | {recall_delta:+.1f}% |"
             )
             lines.append(
-                f"| Storage | {b_fs['storage_rate']*100:.1f}% | "
-                f"{o_fs['storage_rate']*100:.1f}% | {storage_delta:+.1f}% |"
+                f"| Storage | {b_fs['storage_rate'] * 100:.1f}% | "
+                f"{o_fs['storage_rate'] * 100:.1f}% | {storage_delta:+.1f}% |"
             )
             lines.append(
                 f"| Bond | {b_fs['avg_bond']:.1f} | {o_fs['avg_bond']:.1f} | "
@@ -443,6 +479,7 @@ def generate_markdown_report(
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 async def main():
     print("=" * 80)
@@ -458,9 +495,11 @@ async def main():
     print(f"  Done in {time.monotonic() - t0:.1f}s")
 
     b_fs = baseline["overall"].get("full_soul", {})
-    print(f"  Full Soul: {b_fs['recall_hits']}/{b_fs['recall_total']} recall "
-          f"({b_fs['recall_precision']*100:.1f}%), "
-          f"{b_fs['total_memories']} memories ({b_fs['storage_rate']*100:.1f}% stored)")
+    print(
+        f"  Full Soul: {b_fs['recall_hits']}/{b_fs['recall_total']} recall "
+        f"({b_fs['recall_precision'] * 100:.1f}%), "
+        f"{b_fs['total_memories']} memories ({b_fs['storage_rate'] * 100:.1f}% stored)"
+    )
 
     # Step 2: Generate training data
     print("\n[2/5] Generating training data from scenarios...")
@@ -489,9 +528,11 @@ async def main():
     print(f"  Done in {time.monotonic() - t0:.1f}s")
 
     o_fs = post_opt["overall"].get("full_soul", {})
-    print(f"  Full Soul: {o_fs['recall_hits']}/{o_fs['recall_total']} recall "
-          f"({o_fs['recall_precision']*100:.1f}%), "
-          f"{o_fs['total_memories']} memories ({o_fs['storage_rate']*100:.1f}% stored)")
+    print(
+        f"  Full Soul: {o_fs['recall_hits']}/{o_fs['recall_total']} recall "
+        f"({o_fs['recall_precision'] * 100:.1f}%), "
+        f"{o_fs['total_memories']} memories ({o_fs['storage_rate'] * 100:.1f}% stored)"
+    )
 
     # Step 5: Save reports
     print("\n[5/5] Saving reports...")
@@ -502,8 +543,10 @@ async def main():
     print("PIPELINE COMPLETE")
     print("=" * 80)
     recall_delta = (o_fs["recall_precision"] - b_fs["recall_precision"]) * 100
-    print(f"  Recall:  {b_fs['recall_precision']*100:.1f}% → {o_fs['recall_precision']*100:.1f}% ({recall_delta:+.1f}%)")
-    print(f"  Storage: {b_fs['storage_rate']*100:.1f}% → {o_fs['storage_rate']*100:.1f}%")
+    print(
+        f"  Recall:  {b_fs['recall_precision'] * 100:.1f}% → {o_fs['recall_precision'] * 100:.1f}% ({recall_delta:+.1f}%)"
+    )
+    print(f"  Storage: {b_fs['storage_rate'] * 100:.1f}% → {o_fs['storage_rate'] * 100:.1f}%")
     print(f"  Reports: {json_path}")
     print(f"           {md_path}")
 

@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Quick ablation runner — no API key needed."""
+
 import asyncio
 import sys
+
 sys.path.insert(0, "src")
 
-from research.long_horizon.scenarios import build_all_scenarios
 from research.long_horizon.runner import LongHorizonRunner
+from research.long_horizon.scenarios import build_all_scenarios
+
 
 async def main():
     scenarios = build_all_scenarios(seed=42)
@@ -16,9 +19,9 @@ async def main():
     runner = LongHorizonRunner()
     results = await runner.run_all(scenarios)
 
-    print(f"\n{'='*80}")
-    print(f"ABLATION RESULTS (Phase 1 — heuristic pipeline)")
-    print(f"{'='*80}")
+    print(f"\n{'=' * 80}")
+    print("ABLATION RESULTS (Phase 1 — heuristic pipeline)")
+    print(f"{'=' * 80}")
 
     for sr in results.scenario_results:
         print(f"\n--- {sr.scenario_name} ({sr.scenario_id}) ---")
@@ -33,12 +36,15 @@ async def main():
             )
 
     # Overall summary
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print("OVERALL AVERAGES")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
 
     from collections import defaultdict
-    cond_totals = defaultdict(lambda: {"hits": 0, "total": 0, "mems": 0, "turns": 0, "bond": 0.0, "count": 0})
+
+    cond_totals = defaultdict(
+        lambda: {"hits": 0, "total": 0, "mems": 0, "turns": 0, "bond": 0.0, "count": 0}
+    )
     for sr in results.scenario_results:
         for cond, cr in sr.condition_results.items():
             d = cond_totals[cond]
@@ -60,5 +66,6 @@ async def main():
         )
 
     print(f"\nTotal duration: {results.total_duration:.1f}s")
+
 
 asyncio.run(main())

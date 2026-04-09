@@ -40,9 +40,7 @@ class ContextEngine(Protocol):
         """
         ...
 
-    async def assemble(
-        self, max_tokens: int, *, system_reserve: int = 0
-    ) -> AssembleResult:
+    async def assemble(self, max_tokens: int, *, system_reserve: int = 0) -> AssembleResult:
         """Assemble a context window that fits within max_tokens.
 
         Applies compaction as needed. system_reserve tokens are subtracted

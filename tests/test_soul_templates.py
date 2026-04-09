@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import pytest
 
-from soul_protocol.spec.template import SoulTemplate
 from soul_protocol.runtime.templates import SoulFactory
-
+from soul_protocol.spec.template import SoulTemplate
 
 # ---------------------------------------------------------------------------
 # SoulTemplate model
 # ---------------------------------------------------------------------------
+
 
 class TestSoulTemplate:
     def test_minimal_template(self):
@@ -84,6 +84,7 @@ class TestSoulTemplate:
 # SoulFactory.from_template()
 # ---------------------------------------------------------------------------
 
+
 class TestSoulFactoryFromTemplate:
     @pytest.mark.asyncio
     async def test_basic_creation(self):
@@ -139,9 +140,7 @@ class TestSoulFactoryFromTemplate:
     async def test_overrides(self):
         """Keyword overrides take precedence over template values."""
         t = SoulTemplate(name="Base", archetype="helper")
-        soul = await SoulFactory.from_template(
-            t, archetype="researcher"
-        )
+        soul = await SoulFactory.from_template(t, archetype="researcher")
         assert soul.archetype == "researcher"
 
     @pytest.mark.asyncio
@@ -155,6 +154,7 @@ class TestSoulFactoryFromTemplate:
 # ---------------------------------------------------------------------------
 # SoulFactory.batch_spawn()
 # ---------------------------------------------------------------------------
+
 
 class TestSoulFactoryBatchSpawn:
     @pytest.mark.asyncio
@@ -275,6 +275,7 @@ class TestSoulFactoryBatchSpawn:
 # SoulFactory instance methods
 # ---------------------------------------------------------------------------
 
+
 class TestSoulFactoryRegistry:
     def test_register_and_list(self):
         factory = SoulFactory()
@@ -293,21 +294,26 @@ class TestSoulFactoryRegistry:
 # Public API exports
 # ---------------------------------------------------------------------------
 
+
 class TestPublicExports:
     def test_soul_template_from_spec(self):
         from soul_protocol.spec import SoulTemplate as SpecTemplate
+
         t = SpecTemplate(name="test")
         assert t.name == "test"
 
     def test_soul_factory_from_package(self):
         from soul_protocol import SoulFactory as PkgFactory
+
         assert PkgFactory is not None
 
     def test_soul_template_from_package(self):
         from soul_protocol import SoulTemplate as PkgTemplate
+
         t = PkgTemplate(name="pkg")
         assert t.name == "pkg"
 
     def test_memory_visibility_from_package(self):
         from soul_protocol import MemoryVisibility as PkgVis
+
         assert PkgVis.PUBLIC == "public"

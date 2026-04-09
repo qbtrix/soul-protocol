@@ -9,7 +9,11 @@ from __future__ import annotations
 
 from soul_protocol.runtime.embeddings.hash_embedder import HashEmbedder
 from soul_protocol.runtime.embeddings.protocol import EmbeddingProvider
-from soul_protocol.runtime.embeddings.similarity import cosine_similarity, dot_product, euclidean_distance
+from soul_protocol.runtime.embeddings.similarity import (
+    cosine_similarity,
+    dot_product,
+    euclidean_distance,
+)
 from soul_protocol.runtime.embeddings.tfidf_embedder import TFIDFEmbedder
 from soul_protocol.runtime.embeddings.vector_strategy import VectorSearchStrategy
 
@@ -48,23 +52,23 @@ def get_embedding_provider(name: str = "hash", **kwargs: object) -> EmbeddingPro
         from soul_protocol.runtime.embeddings.sentence_transformer import (
             SentenceTransformerProvider,
         )
+
         return SentenceTransformerProvider(**kwargs)  # type: ignore[arg-type]
     elif name == "openai":
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
+
         return OpenAIEmbeddingProvider(**kwargs)  # type: ignore[arg-type]
     elif name == "ollama":
         from soul_protocol.runtime.embeddings.ollama_embeddings import (
             OllamaEmbeddingProvider,
         )
+
         return OllamaEmbeddingProvider(**kwargs)  # type: ignore[arg-type]
     else:
         available = ["hash", "tfidf", "sentence-transformer", "openai", "ollama"]
-        raise ValueError(
-            f"Unknown embedding provider: {name!r}. "
-            f"Available: {', '.join(available)}"
-        )
+        raise ValueError(f"Unknown embedding provider: {name!r}. Available: {', '.join(available)}")
 
 
 __all__ = [

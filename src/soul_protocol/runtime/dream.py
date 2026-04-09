@@ -28,7 +28,7 @@ from __future__ import annotations
 import logging
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 from soul_protocol.runtime.memory.search import relevance_score, tokenize
 
@@ -85,7 +85,7 @@ class EvolutionInsight:
 class DreamReport:
     """Complete output of a dream() cycle."""
 
-    dreamed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    dreamed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     episodes_reviewed: int = 0
     # Phase 2: Pattern detection
     topic_clusters: list[TopicCluster] = field(default_factory=list)
@@ -173,11 +173,11 @@ class Dreamer:
 
     def __init__(
         self,
-        memory: "MemoryManager",  # noqa: F821
-        graph: "KnowledgeGraph | None" = None,  # noqa: F821
-        skills: "SkillRegistry | None" = None,  # noqa: F821
-        evolution: "EvolutionManager | None" = None,  # noqa: F821
-        dna: "DNA | None" = None,  # noqa: F821
+        memory: MemoryManager,  # noqa: F821
+        graph: KnowledgeGraph | None = None,  # noqa: F821
+        skills: SkillRegistry | None = None,  # noqa: F821
+        evolution: EvolutionManager | None = None,  # noqa: F821
+        dna: DNA | None = None,  # noqa: F821
     ) -> None:
         self._memory = memory
         self._graph = graph or memory._graph
@@ -214,7 +214,7 @@ class Dreamer:
             DreamReport with all findings and actions taken (or the no-op
             result shape when dry_run=True).
         """
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         report = DreamReport()
         report.dry_run = dry_run
 
@@ -223,7 +223,7 @@ class Dreamer:
         report.episodes_reviewed = len(episodes)
 
         if not episodes:
-            report.duration_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+            report.duration_ms = int((datetime.now(UTC) - start).total_seconds() * 1000)
             return report
 
         # Phase 2: Pattern Detection (read-only)
@@ -258,11 +258,9 @@ class Dreamer:
                     report.detected_procedures
                 )
             # Evolution analysis is read-only, run it either way
-            report.evolution_insights = self._analyze_evolution(
-                episodes, report.topic_clusters
-            )
+            report.evolution_insights = self._analyze_evolution(episodes, report.topic_clusters)
 
-        report.duration_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+        report.duration_ms = int((datetime.now(UTC) - start).total_seconds() * 1000)
         logger.info(
             "Dream cycle %scomplete: episodes=%d, clusters=%d, procedures=%d, archived=%d, duration=%dms",
             "(dry run) " if dry_run else "",
@@ -295,8 +293,14 @@ class Dreamer:
         # TypeError on mixed comparison.
         since_naive = since.replace(tzinfo=None) if since.tzinfo is not None else since
         return [
-            ep for ep in all_episodes
-            if (ep.created_at.replace(tzinfo=None) if ep.created_at.tzinfo is not None else ep.created_at) >= since_naive
+            ep
+            for ep in all_episodes
+            if (
+                ep.created_at.replace(tzinfo=None)
+                if ep.created_at.tzinfo is not None
+                else ep.created_at
+            )
+            >= since_naive
         ]
 
     # ======================================================================
@@ -335,10 +339,12 @@ class Dreamer:
                 cluster["episodes"].append(ep)
                 cluster["tokens"] |= ep_tokens
             else:
-                clusters.append({
-                    "tokens": set(ep_tokens),
-                    "episodes": [ep],
-                })
+                clusters.append(
+                    {
+                        "tokens": set(ep_tokens),
+                        "episodes": [ep],
+                    }
+                )
 
         # Convert to TopicCluster, filter by minimum size
         result: list[TopicCluster] = []
@@ -357,14 +363,16 @@ class Dreamer:
             topic_label = " ".join(top_tokens[:3])
 
             timestamps = [ep.created_at for ep in eps]
-            result.append(TopicCluster(
-                topic=topic_label,
-                episode_ids=[ep.id for ep in eps],
-                episode_count=len(eps),
-                first_seen=min(timestamps) if timestamps else None,
-                last_seen=max(timestamps) if timestamps else None,
-                representative_content=eps[0].content[:200] if eps else "",
-            ))
+            result.append(
+                TopicCluster(
+                    topic=topic_label,
+                    episode_ids=[ep.id for ep in eps],
+                    episode_count=len(eps),
+                    first_seen=min(timestamps) if timestamps else None,
+                    last_seen=max(timestamps) if timestamps else None,
+                    representative_content=eps[0].content[:200] if eps else "",
+                )
+            )
 
         # Sort by episode count descending
         result.sort(key=lambda tc: -tc.episode_count)
@@ -413,12 +421,14 @@ class Dreamer:
             # Build a human-readable description from the common tokens
             description = f"Recurring pattern ({count}x): {signature}"
 
-            result.append(DetectedProcedure(
-                description=description,
-                source_episode_ids=ep_ids[:10],
-                confidence=min(1.0, count / 10.0),
-                frequency=count,
-            ))
+            result.append(
+                DetectedProcedure(
+                    description=description,
+                    source_episode_ids=ep_ids[:10],
+                    confidence=min(1.0, count / 10.0),
+                    frequency=count,
+                )
+            )
 
         return result
 
@@ -460,11 +470,15 @@ class Dreamer:
 
             # Significant increase (appeared in >30% of second half but <10% of first)
             if second_rate > 0.3 and first_rate < 0.1:
-                trends.append(f"Emerging topic: '{token}' (appeared in {second_count}/{len(second_half)} recent episodes)")
+                trends.append(
+                    f"Emerging topic: '{token}' (appeared in {second_count}/{len(second_half)} recent episodes)"
+                )
 
             # Significant decrease
             if first_rate > 0.3 and second_rate < 0.1:
-                trends.append(f"Declining topic: '{token}' (dropped from {first_count}/{len(first_half)} to {second_count}/{len(second_half)})")
+                trends.append(
+                    f"Declining topic: '{token}' (dropped from {first_count}/{len(first_half)} to {second_count}/{len(second_half)})"
+                )
 
         # Cap at 10 trends
         return trends[:10]
@@ -480,13 +494,11 @@ class Dreamer:
         """
         try:
             before = sum(
-                1 for ep in self._memory._episodic.entries()
-                if getattr(ep, "archived", False)
+                1 for ep in self._memory._episodic.entries() if getattr(ep, "archived", False)
             )
             await self._memory.archive_old_memories()
             after = sum(
-                1 for ep in self._memory._episodic.entries()
-                if getattr(ep, "archived", False)
+                1 for ep in self._memory._episodic.entries() if getattr(ep, "archived", False)
             )
             return max(0, after - before)
         except Exception as e:
@@ -583,9 +595,9 @@ class Dreamer:
         cutoff = now.timestamp() - (max_age_hours * 3600)
 
         candidates = [
-            ep for ep in episodes
-            if ep.created_at.timestamp() < cutoff
-            and not getattr(ep, "archived", False)
+            ep
+            for ep in episodes
+            if ep.created_at.timestamp() < cutoff and not getattr(ep, "archived", False)
         ]
 
         # archive_old_memories requires at least 3 entries or it no-ops
@@ -617,8 +629,7 @@ class Dreamer:
             edge_counts: dict[str, int] = {}
             for v in variants:
                 edge_counts[v] = sum(
-                    1 for e in self._graph._edges
-                    if e.source == v or e.target == v
+                    1 for e in self._graph._edges if e.source == v or e.target == v
                 )
             keeper = max(edge_counts, key=lambda k: edge_counts[k])
             for v in variants:
@@ -672,7 +683,8 @@ class Dreamer:
         original_edge_count = len(self._graph._edges)
         # Remove edges that have been expired for over 30 days
         self._graph._edges = [
-            edge for edge in self._graph._edges
+            edge
+            for edge in self._graph._edges
             if edge.valid_to is None or (now - edge.valid_to).days < 30
         ]
         result.pruned_edges = original_edge_count - len(self._graph._edges)
@@ -695,7 +707,7 @@ class Dreamer:
         for ep in episodes:
             ep_entities = [e for e in ep.entities if e in set(self._graph.entities())]
             for i, e1 in enumerate(ep_entities):
-                for e2 in ep_entities[i + 1:]:
+                for e2 in ep_entities[i + 1 :]:
                     pair = tuple(sorted([e1, e2]))
                     entity_cooccurrence[pair] += 1
 
@@ -709,9 +721,7 @@ class Dreamer:
     # Phase 4: Synthesize
     # ======================================================================
 
-    async def _synthesize_procedures(
-        self, detected: list[DetectedProcedure]
-    ) -> int:
+    async def _synthesize_procedures(self, detected: list[DetectedProcedure]) -> int:
         """Convert detected patterns into procedural memories.
 
         Only creates procedures that don't already exist in the procedural store.
@@ -769,22 +779,36 @@ class Dreamer:
         unique_topics = len(clusters)
         topic_ratio = unique_topics / max(len(episodes), 1)
         if topic_ratio > 0.3:
-            insights.append(EvolutionInsight(
-                trait="personality.openness",
-                direction="increase",
-                evidence=f"High topic diversity: {unique_topics} distinct clusters across {len(episodes)} episodes",
-                magnitude=min(0.05, topic_ratio * 0.1),
-            ))
+            insights.append(
+                EvolutionInsight(
+                    trait="personality.openness",
+                    direction="increase",
+                    evidence=f"High topic diversity: {unique_topics} distinct clusters across {len(episodes)} episodes",
+                    magnitude=min(0.05, topic_ratio * 0.1),
+                )
+            )
         elif topic_ratio < 0.05 and len(episodes) > 20:
-            insights.append(EvolutionInsight(
-                trait="personality.openness",
-                direction="decrease",
-                evidence=f"Low topic diversity: only {unique_topics} clusters across {len(episodes)} episodes",
-                magnitude=0.02,
-            ))
+            insights.append(
+                EvolutionInsight(
+                    trait="personality.openness",
+                    direction="decrease",
+                    evidence=f"Low topic diversity: only {unique_topics} clusters across {len(episodes)} episodes",
+                    magnitude=0.02,
+                )
+            )
 
         # --- Conscientiousness: structured/planning keywords ---
-        planning_keywords = {"plan", "step", "first", "then", "next", "organize", "schedule", "review", "test"}
+        planning_keywords = {
+            "plan",
+            "step",
+            "first",
+            "then",
+            "next",
+            "organize",
+            "schedule",
+            "review",
+            "test",
+        }
         planning_count = 0
         for ep in episodes:
             ep_tokens = tokenize(ep.content, min_length=2)
@@ -793,12 +817,14 @@ class Dreamer:
 
         planning_ratio = planning_count / max(len(episodes), 1)
         if planning_ratio > 0.4:
-            insights.append(EvolutionInsight(
-                trait="personality.conscientiousness",
-                direction="increase",
-                evidence=f"Frequent structured/planning behavior: {planning_count}/{len(episodes)} episodes",
-                magnitude=min(0.05, planning_ratio * 0.08),
-            ))
+            insights.append(
+                EvolutionInsight(
+                    trait="personality.conscientiousness",
+                    direction="increase",
+                    evidence=f"Frequent structured/planning behavior: {planning_count}/{len(episodes)} episodes",
+                    magnitude=min(0.05, planning_ratio * 0.08),
+                )
+            )
 
         # --- Extraversion: interaction density ---
         if len(episodes) >= 2:
@@ -807,11 +833,13 @@ class Dreamer:
             if time_span > 0:
                 interactions_per_hour = len(episodes) / (time_span / 3600)
                 if interactions_per_hour > 10:
-                    insights.append(EvolutionInsight(
-                        trait="personality.extraversion",
-                        direction="increase",
-                        evidence=f"High interaction density: {interactions_per_hour:.1f}/hour",
-                        magnitude=0.03,
-                    ))
+                    insights.append(
+                        EvolutionInsight(
+                            trait="personality.extraversion",
+                            direction="increase",
+                            evidence=f"High interaction density: {interactions_per_hour:.1f}/hour",
+                            magnitude=0.03,
+                        )
+                    )
 
         return insights

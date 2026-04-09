@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
@@ -48,9 +48,7 @@ class TestIngestedAtField:
     async def test_add_sets_ingested_at(self, manager: MemoryManager):
         """MemoryManager.add() should auto-stamp ingested_at."""
         before = datetime.now()
-        entry = MemoryEntry(
-            type=MemoryType.SEMANTIC, content="auto stamped", importance=5
-        )
+        entry = MemoryEntry(type=MemoryType.SEMANTIC, content="auto stamped", importance=5)
         assert entry.ingested_at is None
         await manager.add(entry)
         assert entry.ingested_at is not None
@@ -67,17 +65,13 @@ class TestIngestedAtField:
 
     async def test_ingested_at_set_for_procedural(self, manager: MemoryManager):
         """Procedural memories also get ingested_at stamped."""
-        entry = MemoryEntry(
-            type=MemoryType.PROCEDURAL, content="how to deploy", importance=5
-        )
+        entry = MemoryEntry(type=MemoryType.PROCEDURAL, content="how to deploy", importance=5)
         await manager.add(entry)
         assert entry.ingested_at is not None
 
     def test_serialization_roundtrip(self):
         ts = datetime(2025, 6, 15, 12, 0, 0)
-        entry = MemoryEntry(
-            type=MemoryType.SEMANTIC, content="roundtrip", ingested_at=ts
-        )
+        entry = MemoryEntry(type=MemoryType.SEMANTIC, content="roundtrip", ingested_at=ts)
         data = entry.model_dump(mode="json")
         restored = MemoryEntry.model_validate(data)
         assert restored.ingested_at is not None

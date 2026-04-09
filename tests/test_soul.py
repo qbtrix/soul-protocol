@@ -466,10 +466,12 @@ async def test_bond_strengthens_on_observe():
     initial_strength = soul.bond.bond_strength
     initial_count = soul.bond.interaction_count
 
-    await soul.observe(Interaction(
-        user_input="Help me with Python",
-        agent_output="Sure, here's how to use list comprehensions.",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="Help me with Python",
+            agent_output="Sure, here's how to use list comprehensions.",
+        )
+    )
 
     assert soul.bond.bond_strength > initial_strength
     assert soul.bond.interaction_count > initial_count
@@ -480,10 +482,12 @@ async def test_skills_created_from_entities():
     soul = await Soul.birth("Aria", values=["coding"])
     assert len(soul.skills.skills) == 0
 
-    await soul.observe(Interaction(
-        user_input="I love Python programming",
-        agent_output="Python is great for data science and web dev.",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="I love Python programming",
+            agent_output="Python is great for data science and web dev.",
+        )
+    )
 
     # observe() extracts entities and creates skills from them
     assert len(soul.skills.skills) > 0
@@ -494,10 +498,12 @@ async def test_skills_accumulate_xp():
     soul = await Soul.birth("Aria", values=["coding"])
 
     for _ in range(5):
-        await soul.observe(Interaction(
-            user_input="Tell me about Python",
-            agent_output="Python is a versatile language.",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input="Tell me about Python",
+                agent_output="Python is a versatile language.",
+            )
+        )
 
     # Find a skill that was created (entity extraction is heuristic-based)
     if soul.skills.skills:

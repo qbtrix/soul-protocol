@@ -10,7 +10,7 @@ import json
 import math
 import statistics
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,16 +19,14 @@ from soul_protocol.runtime.types import Interaction
 
 from ..haiku_engine import HaikuCognitiveEngine
 from ..litellm_engine import LiteLLMEngine
-from .conditions import Condition, ConditionResponse, MultiConditionResponder, CONDITION_LABELS
+from .conditions import CONDITION_LABELS, Condition, ConditionResponse, MultiConditionResponder
 from .judge import ResponseJudge
 from .scenario_generator import (
     EmotionalContinuityScenario,
     HardRecallScenario,
-    PersonalityScenario,
     ResponseQualityScenario,
     generate_emotional_continuity_scenarios,
     generate_hard_recall_scenarios,
-    generate_personality_scenarios,
     generate_response_quality_scenarios,
 )
 
@@ -55,6 +53,7 @@ def _make_engine(cfg: dict) -> HaikuCognitiveEngine | LiteLLMEngine:
 # Test runners (one per test type, supports multi-condition)
 # ---------------------------------------------------------------------------
 
+
 async def _run_response_quality_variation(
     scenario: ResponseQualityScenario,
     agent_engine: HaikuCognitiveEngine,
@@ -74,11 +73,13 @@ async def _run_response_quality_variation(
     )
 
     for user_input, agent_output in scenario.conversation_turns:
-        await soul.observe(Interaction(
-            user_input=user_input,
-            agent_output=agent_output,
-            channel="test",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input=user_input,
+                agent_output=agent_output,
+                channel="test",
+            )
+        )
 
     # Generate responses under each condition
     responder = MultiConditionResponder(soul, agent_engine)
@@ -141,20 +142,30 @@ async def _run_hard_recall_variation(
 
     # Warmup + planted fact + fillers
     for user_input, agent_output in scenario.warmup_turns:
-        await soul.observe(Interaction(
-            user_input=user_input, agent_output=agent_output, channel="test",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input=user_input,
+                agent_output=agent_output,
+                channel="test",
+            )
+        )
 
-    await soul.observe(Interaction(
-        user_input=scenario.planted_fact_input,
-        agent_output=scenario.planted_fact_output,
-        channel="test",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input=scenario.planted_fact_input,
+            agent_output=scenario.planted_fact_output,
+            channel="test",
+        )
+    )
 
     for user_input, agent_output in scenario.filler_turns:
-        await soul.observe(Interaction(
-            user_input=user_input, agent_output=agent_output, channel="test",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input=user_input,
+                agent_output=agent_output,
+                channel="test",
+            )
+        )
 
     # Check recall
     query = " ".join(scenario.planted_fact_keywords)
@@ -231,9 +242,13 @@ async def _run_emotional_continuity_variation(
     )
 
     for user_input, agent_output in scenario.emotional_arc:
-        await soul.observe(Interaction(
-            user_input=user_input, agent_output=agent_output, channel="test",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input=user_input,
+                agent_output=agent_output,
+                channel="test",
+            )
+        )
 
     # Generate responses under each condition
     responder = MultiConditionResponder(soul, agent_engine)
@@ -246,9 +261,7 @@ async def _run_emotional_continuity_variation(
     context = {
         "agent_name": scenario.soul_name,
         "personality_description": soul.to_system_prompt(),
-        "conversation_history": [
-            {"role": "user", "content": u} for u, _ in scenario.emotional_arc
-        ],
+        "conversation_history": [{"role": "user", "content": u} for u, _ in scenario.emotional_arc],
         "planted_facts": [],
         "user_message": scenario.probe_message,
     }
@@ -284,6 +297,7 @@ async def _run_emotional_continuity_variation(
 # ---------------------------------------------------------------------------
 # Aggregation helpers
 # ---------------------------------------------------------------------------
+
 
 def _aggregate_test_results(
     variations: list[dict[str, Any]],
@@ -340,11 +354,17 @@ def _save_checkpoint(
     """Save progress after each test-judge combo so we can resume on crash."""
     cp_path = Path(CHECKPOINT_FILE)
     cp_path.parent.mkdir(parents=True, exist_ok=True)
-    cp_path.write_text(json.dumps({
-        "metadata": metadata,
-        "completed_keys": completed_keys,
-        "results": all_results,
-    }, indent=2, default=str))
+    cp_path.write_text(
+        json.dumps(
+            {
+                "metadata": metadata,
+                "completed_keys": completed_keys,
+                "results": all_results,
+            },
+            indent=2,
+            default=str,
+        )
+    )
 
 
 def _load_checkpoint() -> tuple[dict[str, dict], list[str]] | None:
@@ -369,6 +389,7 @@ def _clear_checkpoint() -> None:
 # ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
+
 
 async def run_enhanced_validation(
     n_variations: int = 10,
@@ -438,48 +459,79 @@ async def run_enhanced_validation(
             if test_key == "response":
                 scenarios = generate_response_quality_scenarios(n_variations)
                 for i, scenario in enumerate(scenarios, 1):
-                    print(f"    Variation {i}/{n_variations}: {scenario.user_name}...", end=" ", flush=True)
+                    print(
+                        f"    Variation {i}/{n_variations}: {scenario.user_name}...",
+                        end=" ",
+                        flush=True,
+                    )
                     t0 = time.monotonic()
                     try:
                         result = await _run_response_quality_variation(
-                            scenario, agent_engine, judge_engine, conditions,
+                            scenario,
+                            agent_engine,
+                            judge_engine,
+                            conditions,
                         )
                         variations.append(result)
                         print(f"done ({time.monotonic() - t0:.1f}s)")
                     except Exception as e:
                         print(f"ERROR: {e}")
-                        variations.append({"scenario": scenario.user_name, "error": str(e), "scores": {}})
+                        variations.append(
+                            {"scenario": scenario.user_name, "error": str(e), "scores": {}}
+                        )
 
             elif test_key == "recall":
                 scenarios = generate_hard_recall_scenarios(n_variations)
                 for i, scenario in enumerate(scenarios, 1):
-                    print(f"    Variation {i}/{n_variations}: {scenario.soul_name}...", end=" ", flush=True)
+                    print(
+                        f"    Variation {i}/{n_variations}: {scenario.soul_name}...",
+                        end=" ",
+                        flush=True,
+                    )
                     t0 = time.monotonic()
                     try:
                         result = await _run_hard_recall_variation(
-                            scenario, agent_engine, judge_engine, conditions,
+                            scenario,
+                            agent_engine,
+                            judge_engine,
+                            conditions,
                         )
                         variations.append(result)
                         recalled = "Y" if result.get("fact_recalled") else "N"
                         print(f"done (recalled={recalled}, {time.monotonic() - t0:.1f}s)")
                     except Exception as e:
                         print(f"ERROR: {e}")
-                        variations.append({"scenario": scenario.soul_name, "error": str(e), "scores": {}})
+                        variations.append(
+                            {"scenario": scenario.soul_name, "error": str(e), "scores": {}}
+                        )
 
             elif test_key == "emotional":
                 scenarios = generate_emotional_continuity_scenarios(n_variations)
                 for i, scenario in enumerate(scenarios, 1):
-                    print(f"    Variation {i}/{n_variations}: {scenario.arc_description}...", end=" ", flush=True)
+                    print(
+                        f"    Variation {i}/{n_variations}: {scenario.arc_description}...",
+                        end=" ",
+                        flush=True,
+                    )
                     t0 = time.monotonic()
                     try:
                         result = await _run_emotional_continuity_variation(
-                            scenario, agent_engine, judge_engine, conditions,
+                            scenario,
+                            agent_engine,
+                            judge_engine,
+                            conditions,
                         )
                         variations.append(result)
                         print(f"done ({time.monotonic() - t0:.1f}s)")
                     except Exception as e:
                         print(f"ERROR: {e}")
-                        variations.append({"scenario": str(scenario.arc_description), "error": str(e), "scores": {}})
+                        variations.append(
+                            {
+                                "scenario": str(scenario.arc_description),
+                                "error": str(e),
+                                "scores": {},
+                            }
+                        )
 
             else:
                 print(f"    Skipping unknown test: {test_key}")
@@ -508,11 +560,11 @@ async def run_enhanced_validation(
     # --- Save final results ---
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).isoformat(timespec="seconds").replace(":", "-").replace("+", "p")
+    ts = datetime.now(UTC).isoformat(timespec="seconds").replace(":", "-").replace("+", "p")
 
     payload = {
         "metadata": {
-            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
             "n_variations": n_variations,
             "tests": test_keys,
             "judges": judge_keys,
@@ -576,12 +628,22 @@ def _print_results_table(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 async def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Enhanced quality validation with N variations × 4 conditions")
-    parser.add_argument("--variations", "-n", type=int, default=10, help="Number of scenario variations per test")
-    parser.add_argument("--tests", type=str, default=None, help="Comma-separated test names (response,recall,emotional)")
+    parser = argparse.ArgumentParser(
+        description="Enhanced quality validation with N variations × 4 conditions"
+    )
+    parser.add_argument(
+        "--variations", "-n", type=int, default=10, help="Number of scenario variations per test"
+    )
+    parser.add_argument(
+        "--tests",
+        type=str,
+        default=None,
+        help="Comma-separated test names (response,recall,emotional)",
+    )
     parser.add_argument("--judges", type=str, default=None, help="Comma-separated judge names")
     parser.add_argument("--output", type=str, default="research/results/enhanced")
     args = parser.parse_args()

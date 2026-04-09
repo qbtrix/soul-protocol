@@ -91,7 +91,7 @@ class HaikuCognitiveEngine:
                     self.usage.output_tokens += response.usage.output_tokens
                     return response.content[0].text
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     if attempt < 2:
                         continue
                     self.usage.errors += 1

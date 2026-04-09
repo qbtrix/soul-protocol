@@ -158,9 +158,7 @@ async def soul_remember(args: dict[str, Any]) -> dict[str, Any]:
     memory_id = await soul.remember(
         content, type=memory_type, importance=importance, emotion=emotion, entities=entities
     )
-    text = json.dumps(
-        {"memory_id": memory_id, "type": memory_type.value, "importance": importance}
-    )
+    text = json.dumps({"memory_id": memory_id, "type": memory_type.value, "importance": importance})
     return {"content": [{"type": "text", "text": text}]}
 
 
@@ -261,9 +259,7 @@ async def soul_edit_core_memory(args: dict[str, Any]) -> dict[str, Any]:
     human = args.get("human")
     await soul.edit_core_memory(persona=persona, human=human)
     core = soul.get_core_memory()
-    text = json.dumps(
-        {"status": "updated", "persona": core.persona, "human": core.human}, indent=2
-    )
+    text = json.dumps({"status": "updated", "persona": core.persona, "human": core.human}, indent=2)
     return {"content": [{"type": "text", "text": text}]}
 
 
@@ -308,8 +304,14 @@ async def soul_state(args: dict[str, Any]) -> dict[str, Any]:
                 "type": "string",
                 "description": "New mood",
                 "enum": [
-                    "neutral", "curious", "focused", "tired",
-                    "excited", "contemplative", "satisfied", "concerned",
+                    "neutral",
+                    "curious",
+                    "focused",
+                    "tired",
+                    "excited",
+                    "contemplative",
+                    "satisfied",
+                    "concerned",
                 ],
             },
             "energy": {
@@ -440,8 +442,14 @@ async def soul_skills(args: dict[str, Any]) -> dict[str, Any]:
     {
         "type": "object",
         "properties": {
-            "skill_id": {"type": "string", "description": "Skill identifier (e.g. 'python', 'debugging')"},
-            "skill_name": {"type": "string", "description": "Human-readable name (only needed for new skills)"},
+            "skill_id": {
+                "type": "string",
+                "description": "Skill identifier (e.g. 'python', 'debugging')",
+            },
+            "skill_name": {
+                "type": "string",
+                "description": "Human-readable name (only needed for new skills)",
+            },
             "amount": {"type": "integer", "description": "XP amount to grant (default 10)"},
         },
         "required": ["skill_id"],
@@ -584,12 +592,20 @@ ALL_TOOLS = [
 ]
 
 TOOL_NAMES = [
-    "soul_recall", "soul_remember", "soul_forget", "soul_forget_entity",
-    "soul_core_memory", "soul_edit_core_memory",
-    "soul_state", "soul_feel",
-    "soul_reflect", "soul_self_model",
-    "soul_skills", "soul_grant_xp",
-    "soul_propose_evolution", "soul_approve_evolution",
+    "soul_recall",
+    "soul_remember",
+    "soul_forget",
+    "soul_forget_entity",
+    "soul_core_memory",
+    "soul_edit_core_memory",
+    "soul_state",
+    "soul_feel",
+    "soul_reflect",
+    "soul_self_model",
+    "soul_skills",
+    "soul_grant_xp",
+    "soul_propose_evolution",
+    "soul_approve_evolution",
     "soul_prompt",
 ]
 
@@ -800,12 +816,15 @@ async def main() -> None:
                 if user_input == "/reincarnate":
                     print(dim("  Reincarnating..."))
                     new_name = input(f"  New name (Enter to keep '{soul.name}'): ").strip()
-                    new_soul = await Soul.reincarnate(
-                        soul, name=new_name if new_name else None
-                    )
+                    new_soul = await Soul.reincarnate(soul, name=new_name if new_name else None)
                     _soul = new_soul
                     soul = new_soul
-                    print(col(f"  Reincarnated as {soul.name} (incarnation #{soul.identity.incarnation})", GREEN))
+                    print(
+                        col(
+                            f"  Reincarnated as {soul.name} (incarnation #{soul.identity.incarnation})",
+                            GREEN,
+                        )
+                    )
                     print(f"  New DID: {dim(soul.did)}")
                     print(f"  Memories preserved: {soul.memory_count}")
                     # Rebuild system prompt with new identity
@@ -821,7 +840,9 @@ async def main() -> None:
                     continue
 
                 if user_input.startswith("/"):
-                    print(dim("  Unknown command. Try: /quit /reincarnate /bond /skills /evolution\n"))
+                    print(
+                        dim("  Unknown command. Try: /quit /reincarnate /bond /skills /evolution\n")
+                    )
                     continue
 
                 # -- Build context-enriched query

@@ -19,7 +19,6 @@ from soul_protocol.runtime.export.pack import pack_soul
 from soul_protocol.runtime.export.unpack import unpack_soul
 from soul_protocol.runtime.types import Identity, SoulConfig
 
-
 # ============ Fixtures ============
 
 
@@ -149,9 +148,7 @@ class TestPackUnpackEncryption:
         assert restored.identity.archetype == "The Compassionate Creator"
         assert restored.identity.core_values == ["empathy", "creativity"]
 
-    async def test_encrypted_roundtrip_with_memory(
-        self, config: SoulConfig, memory_data: dict
-    ):
+    async def test_encrypted_roundtrip_with_memory(self, config: SoulConfig, memory_data: dict):
         """Encrypted roundtrip preserves full memory data."""
         password = "memory-password"
 

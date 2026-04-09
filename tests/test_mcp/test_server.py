@@ -18,7 +18,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("fastmcp", reason="fastmcp required for MCP server tests — pip install soul-protocol[mcp]")
+pytest.importorskip(
+    "fastmcp", reason="fastmcp required for MCP server tests — pip install soul-protocol[mcp]"
+)
 
 from fastmcp import Client  # noqa: E402
 
@@ -54,21 +56,25 @@ async def _birth(client: Client, name: str = "TestBot") -> dict:
 
 def _env_context(key: str, value: str | None):
     """Helper to set/unset env vars with cleanup."""
+
     class _Ctx:
         def __init__(self):
             self.old = os.environ.get(key)
+
         def __enter__(self):
             if value is not None:
                 os.environ[key] = value
             else:
                 os.environ.pop(key, None)
             return self
+
         def __exit__(self, *_):
             if self.old is None:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = self.old
             server_module._registry.clear()
+
     return _Ctx()
 
 
@@ -410,8 +416,7 @@ async def test_multi_soul_autosave(tmp_path):
     dir_b = tmp_path / "beta"
     await soul_b.save_local(str(dir_b))
 
-    with _env_context("SOUL_DIR", str(tmp_path)), \
-         _env_context("SOUL_PATH", None):
+    with _env_context("SOUL_DIR", str(tmp_path)), _env_context("SOUL_PATH", None):
         async with Client(mcp) as client:
             # Only modify Alpha
             await client.call_tool(
@@ -440,8 +445,7 @@ async def test_soul_dir_loads_mixed_formats(tmp_path):
     zip_path = tmp_path / "zipsoul.soul"
     await soul_zip.export(str(zip_path))
 
-    with _env_context("SOUL_DIR", str(tmp_path)), \
-         _env_context("SOUL_PATH", None):
+    with _env_context("SOUL_DIR", str(tmp_path)), _env_context("SOUL_PATH", None):
         async with Client(mcp) as client:
             result = await client.call_tool("soul_list", {})
             data = json.loads(result.data)
@@ -595,8 +599,7 @@ async def test_lifespan_loads_soul_from_path(tmp_path):
     soul_file = tmp_path / "test.soul"
     await soul.export(str(soul_file))
 
-    with _env_context("SOUL_PATH", str(soul_file)), \
-         _env_context("SOUL_DIR", None):
+    with _env_context("SOUL_PATH", str(soul_file)), _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             result = await client.call_tool("soul_state", {})
             data = json.loads(result.data)
@@ -606,8 +609,10 @@ async def test_lifespan_loads_soul_from_path(tmp_path):
 
 async def test_lifespan_handles_bad_path(tmp_path):
     """Bad SOUL_PATH degrades gracefully — server starts without soul."""
-    with _env_context("SOUL_PATH", str(tmp_path / "nonexistent.soul")), \
-         _env_context("SOUL_DIR", None):
+    with (
+        _env_context("SOUL_PATH", str(tmp_path / "nonexistent.soul")),
+        _env_context("SOUL_DIR", None),
+    ):
         async with Client(mcp) as client:
             with pytest.raises(Exception):
                 await client.call_tool("soul_state", {})
@@ -622,8 +627,7 @@ async def test_lifespan_loads_from_directory(tmp_path):
     soul_dir = tmp_path / "dir_soul"
     await soul.save_local(str(soul_dir))
 
-    with _env_context("SOUL_PATH", str(soul_dir)), \
-         _env_context("SOUL_DIR", None):
+    with _env_context("SOUL_PATH", str(soul_dir)), _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             result = await client.call_tool("soul_state", {})
             data = json.loads(result.data)
@@ -647,8 +651,7 @@ async def test_autosave_to_soul_file(tmp_path):
     soul_file = tmp_path / "autosave.soul"
     await soul.export(str(soul_file))
 
-    with _env_context("SOUL_PATH", str(soul_file)), \
-         _env_context("SOUL_DIR", None):
+    with _env_context("SOUL_PATH", str(soul_file)), _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             await client.call_tool(
                 "soul_remember",
@@ -668,8 +671,7 @@ async def test_autosave_to_directory(tmp_path):
     soul_dir = tmp_path / "guardian"
     await soul.save_local(str(soul_dir))
 
-    with _env_context("SOUL_PATH", str(soul_dir)), \
-         _env_context("SOUL_DIR", None):
+    with _env_context("SOUL_PATH", str(soul_dir)), _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             await client.call_tool(
                 "soul_remember",
@@ -689,8 +691,7 @@ async def test_soul_dir_autosave_zip(tmp_path):
     zip_path = tmp_path / "zipsoul.soul"
     await soul.export(str(zip_path))
 
-    with _env_context("SOUL_DIR", str(tmp_path)), \
-         _env_context("SOUL_PATH", None):
+    with _env_context("SOUL_DIR", str(tmp_path)), _env_context("SOUL_PATH", None):
         async with Client(mcp) as client:
             await client.call_tool(
                 "soul_remember",
@@ -717,8 +718,7 @@ async def test_auto_reload_on_external_change(tmp_path):
     zip_path = tmp_path / "autoreload.soul"
     await soul.export(str(zip_path))
 
-    with _env_context("SOUL_PATH", str(zip_path)), \
-         _env_context("SOUL_DIR", None):
+    with _env_context("SOUL_PATH", str(zip_path)), _env_context("SOUL_DIR", None):
         async with Client(mcp) as client:
             # Recall should return nothing initially
             result = await client.call_tool(
@@ -759,9 +759,11 @@ async def test_background_watcher_reloads_on_change(tmp_path):
     zip_path = tmp_path / "watcher.soul"
     await soul.export(str(zip_path))
 
-    with _env_context("SOUL_POLL_INTERVAL", "0.1"), \
-         _env_context("SOUL_PATH", str(zip_path)), \
-         _env_context("SOUL_DIR", None):
+    with (
+        _env_context("SOUL_POLL_INTERVAL", "0.1"),
+        _env_context("SOUL_PATH", str(zip_path)),
+        _env_context("SOUL_DIR", None),
+    ):
         async with Client(mcp) as client:
             # Verify initial soul has no extra memories
             initial_soul = server_module._registry.get("WatcherTest")

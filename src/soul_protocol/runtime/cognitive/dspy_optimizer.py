@@ -95,9 +95,7 @@ class SoulOptimizer:
                         # Label: should_store if contains fact, strong emotion,
                         # or is within 2 turns of a planted fact
                         near_fact = any(
-                            abs(i - j) <= 2
-                            for j, t in enumerate(scenario.turns)
-                            if t.contains_fact
+                            abs(i - j) <= 2 for j, t in enumerate(scenario.turns) if t.contains_fact
                         )
                         should_store = (
                             turn.contains_fact
@@ -120,12 +118,14 @@ class SoulOptimizer:
 
                     # Add recall query expansion examples
                     for query, expected in scenario.recall_queries:
-                        examples.append({
-                            "type": "recall",
-                            "query": query,
-                            "expected_fact": expected,
-                            "planted_facts": scenario.planted_facts,
-                        })
+                        examples.append(
+                            {
+                                "type": "recall",
+                                "query": query,
+                                "expected_fact": expected,
+                                "planted_facts": scenario.planted_facts,
+                            }
+                        )
 
         return examples
 
@@ -149,11 +149,13 @@ class SoulOptimizer:
 
         # Convert dicts to dspy.Example if needed
         train_examples = [
-            self._to_significance_example(e) for e in trainset
+            self._to_significance_example(e)
+            for e in trainset
             if not isinstance(e, dict) or e.get("type") != "recall"
         ]
         val_examples = [
-            self._to_significance_example(e) for e in valset
+            self._to_significance_example(e)
+            for e in valset
             if not isinstance(e, dict) or e.get("type") != "recall"
         ]
 
@@ -189,11 +191,13 @@ class SoulOptimizer:
         import dspy
 
         recall_train = [
-            self._to_recall_example(e) for e in trainset
+            self._to_recall_example(e)
+            for e in trainset
             if isinstance(e, dict) and e.get("type") == "recall"
         ]
         recall_val = [
-            self._to_recall_example(e) for e in valset
+            self._to_recall_example(e)
+            for e in valset
             if isinstance(e, dict) and e.get("type") == "recall"
         ]
 

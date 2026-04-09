@@ -21,10 +21,10 @@ from soul_protocol.cli.inject import (
 )
 from soul_protocol.cli.main import cli
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_soul_dir(tmp_path: Path, name: str = "Aria") -> Path:
     """Birth a soul and save it as a directory under tmp_path. Returns the soul dir path."""
@@ -41,7 +41,9 @@ def _make_soul_dir(tmp_path: Path, name: str = "Aria") -> Path:
     return soul_dir
 
 
-def _make_soul_dir_with_memories(tmp_path: Path, name: str = "Aria", memories: list[str] | None = None) -> Path:
+def _make_soul_dir_with_memories(
+    tmp_path: Path, name: str = "Aria", memories: list[str] | None = None
+) -> Path:
     """Birth a soul, add episodic memories, save as directory, return path.
 
     Uses _memory.add_episodic() directly to bypass significance gating so memories
@@ -54,11 +56,13 @@ def _make_soul_dir_with_memories(tmp_path: Path, name: str = "Aria", memories: l
 
     async def _setup():
         soul = await Soul.birth(name=name, archetype="The Companion")
-        for mem in (memories or []):
-            await soul._memory.add_episodic(Interaction(
-                user_input=mem,
-                agent_output="Acknowledged.",
-            ))
+        for mem in memories or []:
+            await soul._memory.add_episodic(
+                Interaction(
+                    user_input=mem,
+                    agent_output="Acknowledged.",
+                )
+            )
         await soul.save_local(str(soul_dir))
 
     asyncio.run(_setup())
@@ -68,6 +72,7 @@ def _make_soul_dir_with_memories(tmp_path: Path, name: str = "Aria", memories: l
 # ---------------------------------------------------------------------------
 # Unit tests: resolve_target_path
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_target_path_claude_code(tmp_path):
     """claude-code target maps to .claude/CLAUDE.md."""
@@ -123,6 +128,7 @@ def test_resolve_target_path_invalid_message_includes_supported(tmp_path):
 # ---------------------------------------------------------------------------
 # Unit tests: inject_context_block (pure file I/O, no Soul loading)
 # ---------------------------------------------------------------------------
+
 
 def test_inject_creates_file_if_missing(tmp_path):
     """inject_context_block creates the config file and parent dirs when they don't exist."""
@@ -199,6 +205,7 @@ def test_inject_creates_nested_parent_dirs(tmp_path):
 # ---------------------------------------------------------------------------
 # Unit tests: build_context_block (requires live Soul)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_format_soul_context(tmp_path):
@@ -316,6 +323,7 @@ async def test_format_soul_context_long_memory_truncated(tmp_path):
 # Unit tests: find_soul
 # ---------------------------------------------------------------------------
 
+
 def test_find_soul_returns_dir_with_soul_json(tmp_path):
     """find_soul returns the soul dir itself when soul.json exists inside it."""
     soul_dir = _make_soul_dir(tmp_path, name="Finder")
@@ -368,15 +376,14 @@ def test_find_soul_raises_for_named_soul_not_found(tmp_path):
 # CLI integration tests (via CliRunner)
 # ---------------------------------------------------------------------------
 
+
 def test_inject_claude_code_creates_file(tmp_path, monkeypatch):
     """soul inject claude-code creates .claude/CLAUDE.md in the cwd."""
     monkeypatch.chdir(tmp_path)
     soul_dir = _make_soul_dir(tmp_path, name="Aria")
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["inject", "claude-code", "--dir", str(soul_dir)]
-    )
+    result = runner.invoke(cli, ["inject", "claude-code", "--dir", str(soul_dir)])
 
     assert result.exit_code == 0, result.output
     target = tmp_path / ".claude" / "CLAUDE.md"
@@ -430,9 +437,7 @@ def test_inject_with_dir_option(tmp_path, monkeypatch):
     asyncio.run(_setup())
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["inject", "windsurf", "--dir", str(custom_dir)]
-    )
+    result = runner.invoke(cli, ["inject", "windsurf", "--dir", str(custom_dir)])
 
     assert result.exit_code == 0, result.output
     assert (tmp_path / ".windsurfrules").exists()
@@ -448,9 +453,7 @@ def test_inject_with_memories_limit(tmp_path, monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["inject", "cline", "--dir", str(soul_dir), "--memories", "3"]
-    )
+    result = runner.invoke(cli, ["inject", "cline", "--dir", str(soul_dir), "--memories", "3"])
 
     assert result.exit_code == 0, result.output
     content = (tmp_path / ".clinerules").read_text()
@@ -467,9 +470,7 @@ def test_inject_quiet_mode(tmp_path, monkeypatch):
     soul_dir = _make_soul_dir(tmp_path, name="Quiet")
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["inject", "cursor", "--dir", str(soul_dir), "--quiet"]
-    )
+    result = runner.invoke(cli, ["inject", "cursor", "--dir", str(soul_dir), "--quiet"])
 
     assert result.exit_code == 0
     # Output should be empty (or near-empty) in quiet mode
@@ -482,9 +483,7 @@ def test_inject_non_quiet_mode_prints_confirmation(tmp_path, monkeypatch):
     soul_dir = _make_soul_dir(tmp_path, name="Noisy")
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["inject", "cursor", "--dir", str(soul_dir)]
-    )
+    result = runner.invoke(cli, ["inject", "cursor", "--dir", str(soul_dir)])
 
     assert result.exit_code == 0
     assert "Injected" in result.output
@@ -495,9 +494,7 @@ def test_inject_missing_soul_dir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["inject", "cursor", "--dir", str(tmp_path / "ghost_souls")]
-    )
+    result = runner.invoke(cli, ["inject", "cursor", "--dir", str(tmp_path / "ghost_souls")])
 
     assert result.exit_code != 0
     assert "Error" in result.output or "not found" in result.output.lower()
@@ -510,21 +507,22 @@ def test_inject_no_soul_in_dir(tmp_path, monkeypatch):
     empty_soul_dir.mkdir()
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["inject", "cursor", "--dir", str(empty_soul_dir)]
-    )
+    result = runner.invoke(cli, ["inject", "cursor", "--dir", str(empty_soul_dir)])
 
     assert result.exit_code != 0
 
 
-@pytest.mark.parametrize("target,expected_rel_path", [
-    ("claude-code", ".claude/CLAUDE.md"),
-    ("cursor", ".cursorrules"),
-    ("vscode", ".github/copilot-instructions.md"),
-    ("windsurf", ".windsurfrules"),
-    ("cline", ".clinerules"),
-    ("continue", ".continuerules"),
-])
+@pytest.mark.parametrize(
+    "target,expected_rel_path",
+    [
+        ("claude-code", ".claude/CLAUDE.md"),
+        ("cursor", ".cursorrules"),
+        ("vscode", ".github/copilot-instructions.md"),
+        ("windsurf", ".windsurfrules"),
+        ("cline", ".clinerules"),
+        ("continue", ".continuerules"),
+    ],
+)
 def test_inject_all_targets(tmp_path, monkeypatch, target, expected_rel_path):
     """Each target creates its corresponding config file."""
     monkeypatch.chdir(tmp_path)
@@ -552,6 +550,7 @@ def test_inject_invalid_target_is_rejected(tmp_path, monkeypatch):
 # E2E-style tests
 # ---------------------------------------------------------------------------
 
+
 def test_inject_roundtrip(tmp_path, monkeypatch):
     """birth soul, add episodic memories, inject, verify file contains soul identity and memories."""
     monkeypatch.chdir(tmp_path)
@@ -563,14 +562,18 @@ def test_inject_roundtrip(tmp_path, monkeypatch):
     async def _setup():
         soul = await Soul.birth(name="RoundTrip", archetype="The Companion")
         # Use add_episodic directly to bypass significance gating in tests
-        await soul._memory.add_episodic(Interaction(
-            user_input="User loves async Python",
-            agent_output="Great, will use async Python.",
-        ))
-        await soul._memory.add_episodic(Interaction(
-            user_input="Prefers dark mode in all editors",
-            agent_output="Understood, dark mode noted.",
-        ))
+        await soul._memory.add_episodic(
+            Interaction(
+                user_input="User loves async Python",
+                agent_output="Great, will use async Python.",
+            )
+        )
+        await soul._memory.add_episodic(
+            Interaction(
+                user_input="Prefers dark mode in all editors",
+                agent_output="Understood, dark mode noted.",
+            )
+        )
         await soul.save_local(str(soul_dir))
 
     asyncio.run(_setup())
@@ -598,20 +601,26 @@ def test_inject_idempotent_e2e(tmp_path, monkeypatch):
 
     async def _setup():
         from soul_protocol.runtime.types import Interaction
+
         soul = await Soul.birth(name="Idempotent", archetype="The Companion")
-        await soul._memory.add_episodic(Interaction(
-            user_input="First memory",
-            agent_output="Noted.",
-        ))
+        await soul._memory.add_episodic(
+            Interaction(
+                user_input="First memory",
+                agent_output="Noted.",
+            )
+        )
         await soul.save_local(str(soul_dir))
 
     async def _update():
         from soul_protocol.runtime.types import Interaction
+
         soul = await Soul.awaken(str(soul_dir))
-        await soul._memory.add_episodic(Interaction(
-            user_input="Second memory added later",
-            agent_output="Also noted.",
-        ))
+        await soul._memory.add_episodic(
+            Interaction(
+                user_input="Second memory added later",
+                agent_output="Also noted.",
+            )
+        )
         await soul.save_local(str(soul_dir))
 
     asyncio.run(_setup())

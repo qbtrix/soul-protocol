@@ -86,9 +86,7 @@ class MultiConditionResponder:
         self._soul = soul
         self._engine = engine
 
-    async def generate(
-        self, user_message: str, condition: Condition
-    ) -> ConditionResponse:
+    async def generate(self, user_message: str, condition: Condition) -> ConditionResponse:
         """Generate a response under the specified condition."""
         if condition is Condition.FULL_SOUL:
             return await self._generate_full_soul(user_message)
@@ -101,19 +99,14 @@ class MultiConditionResponder:
         else:
             raise ValueError(f"Unknown condition: {condition}")
 
-    async def generate_all(
-        self, user_message: str
-    ) -> dict[Condition, ConditionResponse]:
+    async def generate_all(self, user_message: str) -> dict[Condition, ConditionResponse]:
         """Generate responses under all 4 conditions concurrently.
 
         Runs all conditions in parallel since they are independent reads
         against the same soul state. This keeps latency close to a single
         call rather than 4x sequential.
         """
-        tasks = {
-            cond: asyncio.create_task(self.generate(user_message, cond))
-            for cond in Condition
-        }
+        tasks = {cond: asyncio.create_task(self.generate(user_message, cond)) for cond in Condition}
         results: dict[Condition, ConditionResponse] = {}
         for cond, task in tasks.items():
             results[cond] = await task
@@ -160,9 +153,7 @@ class MultiConditionResponder:
             context=context,
         )
 
-    async def _generate_prompt_personality(
-        self, user_message: str
-    ) -> ConditionResponse:
+    async def _generate_prompt_personality(self, user_message: str) -> ConditionResponse:
         """Condition 3: Personality only — OCEAN-modulated prompt, no memories.
 
         Uses the full personality system prompt (same as full soul) but passes

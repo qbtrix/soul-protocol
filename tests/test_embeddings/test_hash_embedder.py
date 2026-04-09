@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import math
 
-import pytest
-
 from soul_protocol.runtime.embeddings.hash_embedder import HashEmbedder
 
 

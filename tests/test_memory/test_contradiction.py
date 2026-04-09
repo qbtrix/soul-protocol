@@ -13,12 +13,8 @@ from soul_protocol.runtime.memory.contradiction import (
     ContradictionDetector,
     ContradictionResult,
 )
-from soul_protocol.runtime.memory.manager import MemoryManager
 from soul_protocol.runtime.types import (
-    CoreMemory,
-    Interaction,
     MemoryEntry,
-    MemorySettings,
     MemoryType,
 )
 
@@ -42,9 +38,7 @@ class TestHeuristicNegation:
     async def test_likes_vs_dislikes(self):
         detector = ContradictionDetector()
         old = _make_memory("User likes Python programming", mem_id="old1")
-        results = await detector.detect_heuristic(
-            "User dislikes Python programming", [old]
-        )
+        results = await detector.detect_heuristic("User dislikes Python programming", [old])
         assert len(results) >= 1
         assert results[0].is_contradiction
         assert results[0].old_memory_id == "old1"
@@ -52,45 +46,35 @@ class TestHeuristicNegation:
     async def test_is_vs_is_not(self):
         detector = ContradictionDetector()
         old = _make_memory("User is a developer", mem_id="old2")
-        results = await detector.detect_heuristic(
-            "User is not a developer", [old]
-        )
+        results = await detector.detect_heuristic("User is not a developer", [old])
         assert len(results) >= 1
         assert results[0].is_contradiction
 
     async def test_can_vs_cannot(self):
         detector = ContradictionDetector()
         old = _make_memory("User can speak French fluently", mem_id="old3")
-        results = await detector.detect_heuristic(
-            "User can't speak French fluently", [old]
-        )
+        results = await detector.detect_heuristic("User can't speak French fluently", [old])
         assert len(results) >= 1
         assert results[0].is_contradiction
 
     async def test_has_vs_hasnt(self):
         detector = ContradictionDetector()
         old = _make_memory("User has a dog named Rex", mem_id="old4")
-        results = await detector.detect_heuristic(
-            "User hasn't a dog named Rex", [old]
-        )
+        results = await detector.detect_heuristic("User hasn't a dog named Rex", [old])
         assert len(results) >= 1
         assert results[0].is_contradiction
 
     async def test_true_vs_false(self):
         detector = ContradictionDetector()
         old = _make_memory("The statement is true about the user", mem_id="old5")
-        results = await detector.detect_heuristic(
-            "The statement is false about the user", [old]
-        )
+        results = await detector.detect_heuristic("The statement is false about the user", [old])
         assert len(results) >= 1
         assert results[0].is_contradiction
 
     async def test_works_at_vs_left(self):
         detector = ContradictionDetector()
         old = _make_memory("User works at Google as an engineer", mem_id="old6")
-        results = await detector.detect_heuristic(
-            "User left Google as an engineer", [old]
-        )
+        results = await detector.detect_heuristic("User left Google as an engineer", [old])
         assert len(results) >= 1
         assert results[0].is_contradiction
 
@@ -104,9 +88,7 @@ class TestHeuristicEntityAttribute:
     async def test_different_values_same_attribute(self):
         detector = ContradictionDetector()
         old = _make_memory("User's language is Python", mem_id="attr1")
-        results = await detector.detect_heuristic(
-            "User's language is Rust", [old]
-        )
+        results = await detector.detect_heuristic("User's language is Rust", [old])
         assert len(results) >= 1
         assert results[0].is_contradiction
         assert "language" in results[0].reason.lower()
@@ -114,9 +96,7 @@ class TestHeuristicEntityAttribute:
     async def test_same_values_no_conflict(self):
         detector = ContradictionDetector()
         old = _make_memory("User's language is Python", mem_id="attr2")
-        results = await detector.detect_heuristic(
-            "User's language is Python", [old]
-        )
+        results = await detector.detect_heuristic("User's language is Python", [old])
         # Same value should not be a contradiction (might be SKIP in dedup)
         contradictions = [r for r in results if r.is_contradiction]
         # No entity-attribute conflict (same value)
@@ -126,11 +106,11 @@ class TestHeuristicEntityAttribute:
     async def test_different_attributes_no_conflict(self):
         detector = ContradictionDetector()
         old = _make_memory("User's name is Alice", mem_id="attr3")
-        results = await detector.detect_heuristic(
-            "User's role is engineer", [old]
-        )
+        results = await detector.detect_heuristic("User's role is engineer", [old])
         # Different attributes, no conflict
-        attr_conflicts = [r for r in results if r.is_contradiction and "Entity-attribute" in r.reason]
+        attr_conflicts = [
+            r for r in results if r.is_contradiction and "Entity-attribute" in r.reason
+        ]
         assert len(attr_conflicts) == 0
 
 
@@ -143,17 +123,13 @@ class TestNoContradiction:
     async def test_unrelated_memories(self):
         detector = ContradictionDetector()
         old = _make_memory("User enjoys hiking in the mountains", mem_id="nr1")
-        results = await detector.detect_heuristic(
-            "Python 3.12 has new typing features", [old]
-        )
+        results = await detector.detect_heuristic("Python 3.12 has new typing features", [old])
         assert len(results) == 0
 
     async def test_complementary_facts(self):
         detector = ContradictionDetector()
         old = _make_memory("User uses Python for backend", mem_id="nr2")
-        results = await detector.detect_heuristic(
-            "User uses JavaScript for frontend", [old]
-        )
+        results = await detector.detect_heuristic("User uses JavaScript for frontend", [old])
         # These are different facts, not contradictions
         assert len(results) == 0
 
@@ -166,18 +142,14 @@ class TestNoContradiction:
         detector = ContradictionDetector()
         old = _make_memory("User likes Java", mem_id="skip1")
         old.superseded = True
-        results = await detector.detect_heuristic(
-            "User dislikes Java programming", [old]
-        )
+        results = await detector.detect_heuristic("User dislikes Java programming", [old])
         assert len(results) == 0
 
     async def test_superseded_by_memories_skipped(self):
         detector = ContradictionDetector()
         old = _make_memory("User likes Java", mem_id="skip2")
         old.superseded_by = "newer_id"
-        results = await detector.detect_heuristic(
-            "User dislikes Java programming", [old]
-        )
+        results = await detector.detect_heuristic("User dislikes Java programming", [old])
         assert len(results) == 0
 
 
@@ -193,9 +165,7 @@ class TestLLMMode:
 
         detector = ContradictionDetector(engine=engine)
         old = _make_memory("User works at Google", mem_id="llm1")
-        results = await detector.detect_llm(
-            "User now works at Microsoft", [old]
-        )
+        results = await detector.detect_llm("User now works at Microsoft", [old])
         assert len(results) == 1
         assert results[0].is_contradiction
         assert results[0].old_memory_id == "llm1"
@@ -207,9 +177,7 @@ class TestLLMMode:
 
         detector = ContradictionDetector(engine=engine)
         old = _make_memory("User likes Python", mem_id="llm2")
-        results = await detector.detect_llm(
-            "User also likes Rust", [old]
-        )
+        results = await detector.detect_llm("User also likes Rust", [old])
         assert len(results) == 0
 
     async def test_llm_multiple_contradictions(self):
@@ -221,9 +189,7 @@ class TestLLMMode:
             _make_memory("User lives and works in NYC city", mem_id="llm3a"),
             _make_memory("User commutes daily in NYC city area", mem_id="llm3b"),
         ]
-        results = await detector.detect_llm(
-            "User moved away from NYC city permanently", mems
-        )
+        results = await detector.detect_llm("User moved away from NYC city permanently", mems)
         assert len(results) == 2
 
     async def test_llm_fallback_on_error(self):
@@ -233,9 +199,7 @@ class TestLLMMode:
         detector = ContradictionDetector(engine=engine)
         old = _make_memory("User likes coffee", mem_id="llm4")
         # Should fall back to heuristic and not raise
-        results = await detector.detect_llm(
-            "User hates coffee", [old]
-        )
+        results = await detector.detect_llm("User hates coffee", [old])
         # Heuristic should catch the likes/hates pattern
         assert isinstance(results, list)
 
@@ -283,9 +247,7 @@ class TestSimilarityThreshold:
     async def test_high_threshold_skips_distant(self):
         detector = ContradictionDetector(similarity_threshold=0.9)
         old = _make_memory("User prefers Python for web development", mem_id="thr1")
-        results = await detector.detect_heuristic(
-            "User dislikes Python", [old]
-        )
+        results = await detector.detect_heuristic("User dislikes Python", [old])
         # With high threshold, the memories may not be similar enough
         # to even be considered
         assert isinstance(results, list)
@@ -293,9 +255,7 @@ class TestSimilarityThreshold:
     async def test_low_threshold_catches_more(self):
         detector = ContradictionDetector(similarity_threshold=0.1)
         old = _make_memory("User likes cats and dogs", mem_id="thr2")
-        results = await detector.detect_heuristic(
-            "User hates cats and dogs", [old]
-        )
+        results = await detector.detect_heuristic("User hates cats and dogs", [old])
         assert len(results) >= 1
 
 

@@ -8,17 +8,22 @@ import argparse
 import asyncio
 import json
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 from soul_protocol import Soul
 from soul_protocol.runtime.types import Interaction
 
 from .agents import generate_agents, generate_users
-from .analysis import ResultsAnalyzer
-from .config import MemoryCondition, UseCase
-from .haiku_engine import HaikuCognitiveEngine, UsageTracker
-from .metrics import AgentRunMetrics, BondMetrics, RecallMetrics, MemoryEfficiencyMetrics, SkillMetrics, EmotionalMetrics, PersonalityMetrics
+from .haiku_engine import HaikuCognitiveEngine
+from .metrics import (
+    AgentRunMetrics,
+    BondMetrics,
+    EmotionalMetrics,
+    MemoryEfficiencyMetrics,
+    PersonalityMetrics,
+    RecallMetrics,
+    SkillMetrics,
+)
 from .scenarios import generate_scenarios
 
 
@@ -62,9 +67,7 @@ async def run_agent_with_engine(
             await soul.observe(interaction)
             interaction_count += 1
 
-            efficiency_metrics.memory_growth_rate.append(
-                (interaction_count, soul.memory_count)
-            )
+            efficiency_metrics.memory_growth_rate.append((interaction_count, soul.memory_count))
             bond_metrics.strength_trajectory.append(soul.bond.bond_strength)
 
         # Recall evaluation
@@ -102,7 +105,9 @@ async def run_agent_with_engine(
     )
 
 
-async def run_tier2(num_agents: int = 100, use_case: str = "companion", seed: int = 42, batch_size: int = 10):
+async def run_tier2(
+    num_agents: int = 100, use_case: str = "companion", seed: int = 42, batch_size: int = 10
+):
     """Run Tier 2 comparison: heuristic vs Haiku-backed agents."""
 
     print("=" * 60)
@@ -179,7 +184,15 @@ async def run_tier2(num_agents: int = 100, use_case: str = "companion", seed: in
     print(f"  {'Metric':<25} {'Heuristic':>12} {'Haiku LLM':>12} {'Delta':>12}")
     print("  " + "-" * 55)
 
-    for metric in ["recall_hit_rate", "recall_precision", "recall_recall", "emotion_accuracy", "bond_final", "skills_discovered", "memory_count"]:
+    for metric in [
+        "recall_hit_rate",
+        "recall_precision",
+        "recall_recall",
+        "emotion_accuracy",
+        "bond_final",
+        "skills_discovered",
+        "memory_count",
+    ]:
         h_val = avg(heuristic_rows, metric)
         l_val = avg(haiku_rows, metric)
         delta = l_val - h_val
@@ -195,19 +208,25 @@ async def run_tier2(num_agents: int = 100, use_case: str = "companion", seed: in
     output_dir.mkdir(parents=True, exist_ok=True)
 
     results_file = output_dir / "tier2_results.json"
-    results_file.write_text(json.dumps({
-        "num_agents": num_agents,
-        "use_case": use_case,
-        "heuristic_time_s": heuristic_time,
-        "haiku_time_s": haiku_time,
-        "haiku_api_calls": engine.usage.calls,
-        "haiku_input_tokens": engine.usage.input_tokens,
-        "haiku_output_tokens": engine.usage.output_tokens,
-        "haiku_estimated_cost_usd": engine.usage.estimated_cost_usd,
-        "haiku_errors": engine.usage.errors,
-        "rows": rows,
-        "errors": errors,
-    }, indent=2, default=str))
+    results_file.write_text(
+        json.dumps(
+            {
+                "num_agents": num_agents,
+                "use_case": use_case,
+                "heuristic_time_s": heuristic_time,
+                "haiku_time_s": haiku_time,
+                "haiku_api_calls": engine.usage.calls,
+                "haiku_input_tokens": engine.usage.input_tokens,
+                "haiku_output_tokens": engine.usage.output_tokens,
+                "haiku_estimated_cost_usd": engine.usage.estimated_cost_usd,
+                "haiku_errors": engine.usage.errors,
+                "rows": rows,
+                "errors": errors,
+            },
+            indent=2,
+            default=str,
+        )
+    )
 
     print(f"\n  Results saved to: {output_dir.resolve()}")
     print("=" * 60)
@@ -225,12 +244,14 @@ def main():
     if args.quick:
         args.agents = 5
 
-    asyncio.run(run_tier2(
-        num_agents=args.agents,
-        use_case=args.use_case,
-        seed=args.seed,
-        batch_size=args.batch_size,
-    ))
+    asyncio.run(
+        run_tier2(
+            num_agents=args.agents,
+            use_case=args.use_case,
+            seed=args.seed,
+            batch_size=args.batch_size,
+        )
+    )
 
 
 if __name__ == "__main__":

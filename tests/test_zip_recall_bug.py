@@ -9,7 +9,6 @@ from __future__ import annotations
 from soul_protocol.runtime.soul import Soul
 from soul_protocol.runtime.types import MemoryType
 
-
 # ---------------------------------------------------------------------------
 # Bug scenario 1: remember() → export to .soul file → awaken → recall
 # ---------------------------------------------------------------------------
@@ -209,8 +208,7 @@ async def test_zip_recall_returns_correct_content(tmp_path):
     results = await restored.recall("MiroFish tidal resonance")
 
     assert len(results) >= 1, (
-        f"BUG: recall returned 0 results after zip awaken. "
-        f"memory_count={restored.memory_count}"
+        f"BUG: recall returned 0 results after zip awaken. memory_count={restored.memory_count}"
     )
 
     recalled_content = results[0].content
@@ -275,7 +273,6 @@ async def test_stale_soul_reload_picks_up_new_memories(tmp_path):
 
     fresh_results = await reloaded.recall("MiroFish swarm prediction")
     assert len(fresh_results) >= 1, (
-        f"Reloaded soul MUST find MiroFish after reload. "
-        f"memory_count={reloaded.memory_count}"
+        f"Reloaded soul MUST find MiroFish after reload. memory_count={reloaded.memory_count}"
     )
     assert any("MiroFish" in r.content for r in fresh_results)

@@ -83,9 +83,7 @@ class ArchivalMemoryStore:
         scored.sort(key=lambda t: (-t[0], -t[1].end_time.timestamp()))
         return [archive for _, archive in scored[:limit]]
 
-    def get_by_date_range(
-        self, start: datetime, end: datetime
-    ) -> list[ConversationArchive]:
+    def get_by_date_range(self, start: datetime, end: datetime) -> list[ConversationArchive]:
         """Get all archives whose sessions overlap with the given date range.
 
         An archive overlaps if its start_time is before the range end AND

@@ -75,9 +75,7 @@ def test_remember_command(tmp_path):
     # Birth a soul first
     runner.invoke(cli, ["birth", "MemBot", "-o", soul_path])
 
-    result = runner.invoke(
-        cli, ["remember", soul_path, "User prefers dark mode", "-i", "7"]
-    )
+    result = runner.invoke(cli, ["remember", soul_path, "User prefers dark mode", "-i", "7"])
 
     assert result.exit_code == 0
     assert "Memory Stored" in result.output
@@ -92,9 +90,7 @@ def test_remember_with_emotion(tmp_path):
 
     runner.invoke(cli, ["birth", "EmoBot", "-o", soul_path])
 
-    result = runner.invoke(
-        cli, ["remember", soul_path, "Had a great conversation", "-e", "happy"]
-    )
+    result = runner.invoke(cli, ["remember", soul_path, "Had a great conversation", "-e", "happy"])
 
     assert result.exit_code == 0
     assert "happy" in result.output
@@ -184,9 +180,7 @@ def test_remember_rejects_invalid_type(tmp_path):
 
     runner.invoke(cli, ["birth", "InvBot", "-o", soul_path])
 
-    result = runner.invoke(
-        cli, ["remember", soul_path, "Some text", "--type", "core"]
-    )
+    result = runner.invoke(cli, ["remember", soul_path, "Some text", "--type", "core"])
 
     # core is a valid MemoryType but not allowed via CLI (core is persona-level)
     assert result.exit_code != 0
@@ -264,9 +258,7 @@ def test_init_setup_preserves_existing_soul(tmp_path, monkeypatch):
     before = json.loads(soul_json_path.read_text())
 
     # Now run init --setup on the same dir — should NOT overwrite
-    result2 = runner.invoke(
-        cli, ["init", "-d", soul_dir, "--setup", "claude-code"]
-    )
+    result2 = runner.invoke(cli, ["init", "-d", soul_dir, "--setup", "claude-code"])
     assert result2.exit_code == 0
     assert "Found" in result2.output and "TestBot" in result2.output
 
@@ -328,7 +320,9 @@ def test_recall_full_flag(tmp_path):
     soul_path = str(tmp_path / "full-test.soul")
 
     runner.invoke(cli, ["birth", "FullBot", "-o", soul_path])
-    long_text = "User preferences for dark mode and Python programming " * 4  # exceeds 80-char limit
+    long_text = (
+        "User preferences for dark mode and Python programming " * 4
+    )  # exceeds 80-char limit
     runner.invoke(cli, ["remember", soul_path, long_text.strip()])
 
     # Use --recent to avoid search matching issues

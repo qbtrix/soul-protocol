@@ -8,7 +8,7 @@ import asyncio
 import json
 import statistics
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +56,7 @@ def _extract_scores(result: dict) -> tuple[float | None, float | None]:
 # ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
+
 
 async def run_multi_judge(
     tests: list[str] | None = None,
@@ -165,7 +166,7 @@ async def run_multi_judge(
     print(row)
 
     # --- Inter-rater agreement ---
-    print(f"\n  Inter-Judge Agreement (per test):")
+    print("\n  Inter-Judge Agreement (per test):")
     for test_key in test_keys:
         display_name = TEST_REGISTRY[test_key][0]
         soul_scores = []
@@ -186,7 +187,7 @@ async def run_multi_judge(
     # --- Save results ---
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).isoformat(timespec="seconds").replace(":", "-").replace("+", "p")
+    ts = datetime.now(UTC).isoformat(timespec="seconds").replace(":", "-").replace("+", "p")
 
     # Serialize judge results (strip non-serializable objects)
     def _clean(obj: Any) -> Any:
@@ -196,7 +197,7 @@ async def run_multi_judge(
 
     payload = {
         "metadata": {
-            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
             "tests": test_keys,
             "judges": judge_keys,
             "total_elapsed_seconds": round(total_elapsed, 2),

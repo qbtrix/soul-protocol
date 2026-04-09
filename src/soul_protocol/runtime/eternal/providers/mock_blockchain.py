@@ -39,9 +39,7 @@ class MockBlockchainProvider:
         digest = hashlib.sha256(seed.encode()).hexdigest()[:16]
         return f"0x{digest}"
 
-    async def archive(
-        self, soul_data: bytes, soul_id: str, **kwargs: Any
-    ) -> ArchiveResult:
+    async def archive(self, soul_data: bytes, soul_id: str, **kwargs: Any) -> ArchiveResult:
         """Archive soul data to mock blockchain registry."""
         token_id = self._mint_token_id(soul_id)
         self._registry[token_id] = soul_data
@@ -72,9 +70,7 @@ class MockBlockchainProvider:
         """Retrieve soul data from mock blockchain by token ID."""
         data = self._registry.get(reference)
         if data is None:
-            raise KeyError(
-                f"Token '{reference}' not found in mock blockchain registry"
-            )
+            raise KeyError(f"Token '{reference}' not found in mock blockchain registry")
         return data
 
     async def verify(self, reference: str) -> bool:

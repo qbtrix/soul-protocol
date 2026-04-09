@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from soul_protocol.runtime.cognitive.engine import CognitiveEngine
 
 
-def engine_from_env() -> "CognitiveEngine":
+def engine_from_env() -> CognitiveEngine:
     """Auto-detect the best available CognitiveEngine from the environment.
 
     Priority order:
@@ -34,6 +34,7 @@ def engine_from_env() -> "CognitiveEngine":
     if os.environ.get("ANTHROPIC_API_KEY"):
         try:
             from soul_protocol.runtime.cognitive.adapters.anthropic import AnthropicEngine
+
             return AnthropicEngine()
         except ImportError:
             pass  # anthropic package not installed; try next
@@ -41,14 +42,17 @@ def engine_from_env() -> "CognitiveEngine":
     if os.environ.get("OPENAI_API_KEY"):
         try:
             from soul_protocol.runtime.cognitive.adapters.openai import OpenAIEngine
+
             return OpenAIEngine()
         except ImportError:
             pass  # openai package not installed; try next
 
     if os.environ.get("OLLAMA_HOST"):
         from soul_protocol.runtime.cognitive.adapters.ollama import OllamaEngine
+
         return OllamaEngine(host=os.environ["OLLAMA_HOST"])
 
     # Final fallback — always available, zero deps
     from soul_protocol.runtime.cognitive.engine import HeuristicEngine
+
     return HeuristicEngine()

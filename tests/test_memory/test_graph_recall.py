@@ -20,7 +20,6 @@ from soul_protocol.runtime.types import (
     MemoryType,
 )
 
-
 # ---- Fixtures ----
 
 
@@ -217,9 +216,7 @@ class TestGraphRecall:
         """Empty graph should not affect recall results."""
         empty_graph = KnowledgeGraph()
         semantic = SemanticStore()
-        mem = MemoryEntry(
-            type=MemoryType.SEMANTIC, content="test memory content", importance=5
-        )
+        mem = MemoryEntry(type=MemoryType.SEMANTIC, content="test memory content", importance=5)
         await semantic.add(mem)
 
         engine = RecallEngine(
@@ -237,9 +234,7 @@ class TestGraphRecall:
         graph.add_entity("Python", "language")
 
         semantic = SemanticStore()
-        mem = MemoryEntry(
-            type=MemoryType.SEMANTIC, content="weather is sunny today", importance=5
-        )
+        mem = MemoryEntry(type=MemoryType.SEMANTIC, content="weather is sunny today", importance=5)
         await semantic.add(mem)
 
         engine = RecallEngine(
@@ -327,9 +322,7 @@ class TestGraphRecall:
         )
 
         # Only search PROCEDURAL — should not find semantic memories even with graph
-        results = await engine.recall(
-            "Django", limit=10, types=[MemoryType.PROCEDURAL]
-        )
+        results = await engine.recall("Django", limit=10, types=[MemoryType.PROCEDURAL])
         assert all(r.type == MemoryType.PROCEDURAL for r in results)
 
     async def test_manager_recall_uses_graph(self):
@@ -386,9 +379,7 @@ class TestGraphRecall:
         graph.add_relationship("Django", "Python", "built_with")
 
         semantic = SemanticStore()
-        low = MemoryEntry(
-            type=MemoryType.SEMANTIC, content="Python trivia", importance=2
-        )
+        low = MemoryEntry(type=MemoryType.SEMANTIC, content="Python trivia", importance=2)
         high = MemoryEntry(
             type=MemoryType.SEMANTIC, content="Python is critical for our stack", importance=9
         )

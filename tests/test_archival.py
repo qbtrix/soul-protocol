@@ -62,9 +62,7 @@ class TestArchiveSearch:
         store.archive_conversation(
             _make_archive("arc-001", summary="Discussed Python web frameworks")
         )
-        store.archive_conversation(
-            _make_archive("arc-002", summary="Talked about cooking recipes")
-        )
+        store.archive_conversation(_make_archive("arc-002", summary="Talked about cooking recipes"))
 
         results = store.search_archives("Python")
         assert len(results) == 1
@@ -90,17 +88,13 @@ class TestArchiveSearch:
 
     def test_search_respects_limit(self, store: ArchivalMemoryStore):
         for i in range(10):
-            store.archive_conversation(
-                _make_archive(f"arc-{i:03d}", summary=f"Python topic {i}")
-            )
+            store.archive_conversation(_make_archive(f"arc-{i:03d}", summary=f"Python topic {i}"))
 
         results = store.search_archives("Python", limit=3)
         assert len(results) == 3
 
     def test_search_ranks_by_overlap(self, store: ArchivalMemoryStore):
-        store.archive_conversation(
-            _make_archive("arc-001", summary="Python is great")
-        )
+        store.archive_conversation(_make_archive("arc-001", summary="Python is great"))
         store.archive_conversation(
             _make_archive(
                 "arc-002",
@@ -136,9 +130,7 @@ class TestDateRangeQueries:
 
     def test_get_by_date_range_overlapping(self, store: ArchivalMemoryStore):
         # Archive spanning hours 0-2
-        store.archive_conversation(
-            _make_archive("arc-001", start_offset_hours=0, duration_hours=2)
-        )
+        store.archive_conversation(_make_archive("arc-001", start_offset_hours=0, duration_hours=2))
 
         base = datetime(2026, 3, 1, 10, 0, 0)
         # Query for hour 1-3: should overlap with arc-001 (hour 0-2)

@@ -11,7 +11,6 @@ from typing import Any
 
 from .runner import ConditionType, LongHorizonResults
 
-
 # ---------------------------------------------------------------------------
 # Condition labels for human-readable output
 # ---------------------------------------------------------------------------
@@ -34,6 +33,7 @@ CONDITION_ORDER = [
 # ---------------------------------------------------------------------------
 # Statistical utilities
 # ---------------------------------------------------------------------------
+
 
 def cohens_d(group1: list[float], group2: list[float]) -> float:
     """Calculate Cohen's d effect size between two groups."""
@@ -68,6 +68,7 @@ def _effect_label(d: float) -> str:
 # Analyzer
 # ---------------------------------------------------------------------------
 
+
 class LongHorizonAnalyzer:
     """Analyze long-horizon ablation results."""
 
@@ -92,19 +93,21 @@ class LongHorizonAnalyzer:
             memories = [r["total_memories"] for r in rows]
             bonds = [r["bond_strength"] for r in rows]
 
-            summary.append({
-                "condition": cond,
-                "label": CONDITION_LABELS.get(cond, cond),
-                "n_scenarios": len(rows),
-                "recall_precision_mean": statistics.mean(precisions),
-                "recall_precision_values": precisions,
-                "memory_efficiency_mean": statistics.mean(efficiencies),
-                "memory_efficiency_values": efficiencies,
-                "total_memories_mean": statistics.mean(memories),
-                "total_memories_values": memories,
-                "bond_strength_mean": statistics.mean(bonds),
-                "bond_strength_values": bonds,
-            })
+            summary.append(
+                {
+                    "condition": cond,
+                    "label": CONDITION_LABELS.get(cond, cond),
+                    "n_scenarios": len(rows),
+                    "recall_precision_mean": statistics.mean(precisions),
+                    "recall_precision_values": precisions,
+                    "memory_efficiency_mean": statistics.mean(efficiencies),
+                    "memory_efficiency_values": efficiencies,
+                    "total_memories_mean": statistics.mean(memories),
+                    "total_memories_values": memories,
+                    "bond_strength_mean": statistics.mean(bonds),
+                    "bond_strength_values": bonds,
+                }
+            )
 
         return summary
 
@@ -137,16 +140,18 @@ class LongHorizonAnalyzer:
                 d = cohens_d(soul_vals, other_vals)
                 delta = full_soul_row[f"{metric_key}_mean"] - s[f"{metric_key}_mean"]
 
-                comparisons.append({
-                    "condition_a": ConditionType.FULL_SOUL,
-                    "condition_b": s["condition"],
-                    "metric": metric_label,
-                    "cohens_d": d,
-                    "effect_label": _effect_label(d),
-                    "delta": delta,
-                    "soul_mean": full_soul_row[f"{metric_key}_mean"],
-                    "other_mean": s[f"{metric_key}_mean"],
-                })
+                comparisons.append(
+                    {
+                        "condition_a": ConditionType.FULL_SOUL,
+                        "condition_b": s["condition"],
+                        "metric": metric_label,
+                        "cohens_d": d,
+                        "effect_label": _effect_label(d),
+                        "delta": delta,
+                        "soul_mean": full_soul_row[f"{metric_key}_mean"],
+                        "other_mean": s[f"{metric_key}_mean"],
+                    }
+                )
 
         return comparisons
 
@@ -207,12 +212,8 @@ class LongHorizonAnalyzer:
         sections.append("")
         comparisons = self.pairwise_comparisons()
         if comparisons:
-            sections.append(
-                "| vs Condition | Metric | Delta | Cohen's d | Effect |"
-            )
-            sections.append(
-                "|-------------|--------|-------|-----------|--------|"
-            )
+            sections.append("| vs Condition | Metric | Delta | Cohen's d | Effect |")
+            sections.append("|-------------|--------|-------|-----------|--------|")
             for c in comparisons:
                 label_b = CONDITION_LABELS.get(c["condition_b"], c["condition_b"])
                 delta_str = f"{c['delta']:+.3f}"

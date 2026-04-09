@@ -296,9 +296,7 @@ class TestCompactionHelpers:
 
 class TestCompactionEdgeCases:
     async def test_single_message_no_compaction(self, store, mock_engine):
-        await store.append_message(
-            ContextMessage(role="user", content="solo", token_count=10)
-        )
+        await store.append_message(ContextMessage(role="user", content="solo", token_count=10))
         compactor = ThreeLevelCompactor(store, mock_engine)
         saved = await compactor.compact(token_budget=100)
         assert saved == 0

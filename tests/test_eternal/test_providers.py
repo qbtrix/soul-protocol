@@ -13,7 +13,6 @@ from soul_protocol.runtime.eternal.providers import (
     MockIPFSProvider,
 )
 
-
 SAMPLE_DATA = b"test-soul-data-bytes-1234567890"
 SOUL_ID = "did:soul:test-soul-001"
 

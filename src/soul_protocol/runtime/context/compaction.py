@@ -111,18 +111,14 @@ class ThreeLevelCompactor:
 
         # Get uncovered messages, oldest first
         messages = await self._store.get_messages()
-        uncovered = [
-            m for m in messages if not self._is_seq_covered(m.seq, covered_ranges)
-        ]
+        uncovered = [m for m in messages if not self._is_seq_covered(m.seq, covered_ranges)]
 
         if len(uncovered) <= self._summary_batch_size:
             return 0  # Not enough messages to form a batch worth summarizing
 
         # Take the oldest batch (leave recent messages verbatim)
         batch = uncovered[: self._summary_batch_size]
-        batch_text = "\n".join(
-            f"[{m.role}] {m.content}" for m in batch
-        )
+        batch_text = "\n".join(f"[{m.role}] {m.content}" for m in batch)
         batch_tokens = sum(m.token_count for m in batch)
 
         prompt = SUMMARY_PROMPT.format(messages=batch_text)
@@ -211,9 +207,7 @@ class ThreeLevelCompactor:
         # Get uncovered messages, oldest first
         covered_ranges = await self._store.get_covered_seq_ranges()
         messages = await self._store.get_messages()
-        uncovered = [
-            m for m in messages if not self._is_seq_covered(m.seq, covered_ranges)
-        ]
+        uncovered = [m for m in messages if not self._is_seq_covered(m.seq, covered_ranges)]
 
         # Also consider existing summary/bullet nodes (oldest first)
         nodes = await self._store.get_all_nodes()
@@ -234,9 +228,7 @@ class ThreeLevelCompactor:
         for node in compacted_nodes:
             if overflow <= 0:
                 break
-            truncated_items.append(
-                (node.id, node.seq_start, node.seq_end, node.token_count)
-            )
+            truncated_items.append((node.id, node.seq_start, node.seq_end, node.token_count))
             overflow -= node.token_count
             tokens_saved += node.token_count
 
@@ -246,7 +238,9 @@ class ThreeLevelCompactor:
             child_ids = [t[0] for t in truncated_items]
 
             # Create a truncated node with minimal content
-            truncated_content = f"[{len(truncated_items)} items truncated, seq {seq_start}-{seq_end}]"
+            truncated_content = (
+                f"[{len(truncated_items)} items truncated, seq {seq_start}-{seq_end}]"
+            )
             truncated_tokens = _estimate_tokens(truncated_content)
 
             node = ContextNode(

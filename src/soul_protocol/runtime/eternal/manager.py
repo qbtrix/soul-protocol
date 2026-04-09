@@ -23,7 +23,7 @@ class EternalStorageManager:
         self._archives: dict[str, list[RecoverySource]] = {}
 
     @classmethod
-    def with_mocks(cls) -> "EternalStorageManager":
+    def with_mocks(cls) -> EternalStorageManager:
         """Create an EternalStorageManager with all mock providers registered."""
         from .providers.mock_arweave import MockArweaveProvider
         from .providers.mock_ipfs import MockIPFSProvider
@@ -111,9 +111,7 @@ class EternalStorageManager:
                 errors.append(f"{source.tier}: {exc}")
                 continue
 
-        raise RuntimeError(
-            f"Failed to recover from any source. Errors: {'; '.join(errors)}"
-        )
+        raise RuntimeError(f"Failed to recover from any source. Errors: {'; '.join(errors)}")
 
     async def get_recovery_sources(self, soul_id: str) -> list[RecoverySource]:
         """Get all tracked recovery sources for a soul."""

@@ -25,6 +25,12 @@ from __future__ import annotations
 
 from .runtime.bond import Bond
 from .runtime.cognitive.engine import CognitiveEngine, HeuristicEngine
+from .runtime.eternal import (
+    ArchiveResult,
+    EternalStorageManager,
+    EternalStorageProvider,
+    RecoverySource,
+)
 from .runtime.exceptions import (
     SoulCorruptError,
     SoulDecryptionError,
@@ -67,7 +73,6 @@ from .runtime.types import (
     SoulManifest,
     SoulState,
 )
-from .runtime.eternal import ArchiveResult, EternalStorageManager, EternalStorageProvider, RecoverySource
 
 # Core primitives from spec/ (always available — only requires pydantic)
 from .spec.identity import BondTarget as CoreBondTarget
@@ -76,8 +81,8 @@ from .spec.manifest import Manifest as CoreManifest
 from .spec.memory import DictMemoryStore, MemoryStore
 from .spec.memory import Interaction as CoreInteraction
 from .spec.memory import MemoryEntry as CoreMemoryEntry
-from .spec.template import SoulTemplate
 from .spec.memory import Participant as CoreParticipant
+from .spec.template import SoulTemplate
 
 __all__ = [
     "Bond",

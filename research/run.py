@@ -8,7 +8,7 @@ import argparse
 import asyncio
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import ExperimentConfig, MemoryCondition, UseCase
@@ -40,7 +40,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         metavar="LIST",
         help="Comma-separated conditions to run (default: all). "
-             f"Options: {', '.join(c.value for c in MemoryCondition)}",
+        f"Options: {', '.join(c.value for c in MemoryCondition)}",
     )
     parser.add_argument(
         "--use-cases",
@@ -48,7 +48,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         metavar="LIST",
         help="Comma-separated use cases to run (default: all). "
-             f"Options: {', '.join(u.value for u in UseCase)}",
+        f"Options: {', '.join(u.value for u in UseCase)}",
     )
     parser.add_argument(
         "--output",
@@ -142,6 +142,7 @@ def print_headline(results) -> None:
 
     # Compute per-condition recall hit rates.
     from collections import defaultdict
+
     recall_by_condition: dict[str, list[float]] = defaultdict(list)
     for row in rows:
         condition = row.get("condition", "")
@@ -160,7 +161,7 @@ def print_headline(results) -> None:
     if full_key in means and none_key in means:
         delta = means[full_key] - means[none_key]
         pct = (delta / means[none_key] * 100) if means[none_key] else float("inf")
-        print(f"\n  Headline: Full Soul vs No Memory:")
+        print("\n  Headline: Full Soul vs No Memory:")
         print(f"    Recall hit rate delta: {delta:+.3f} ({pct:+.1f}%)")
 
         # Cohen's d (pooled std).
@@ -168,6 +169,7 @@ def print_headline(results) -> None:
         none_vals = recall_by_condition[none_key]
         if len(full_vals) > 1 and len(none_vals) > 1:
             import math
+
             var_f = sum((x - means[full_key]) ** 2 for x in full_vals) / (len(full_vals) - 1)
             var_n = sum((x - means[none_key]) ** 2 for x in none_vals) / (len(none_vals) - 1)
             pooled = math.sqrt((var_f + var_n) / 2)
@@ -181,7 +183,7 @@ async def run(args: argparse.Namespace) -> None:
     print_plan(config)
 
     start = time.monotonic()
-    start_dt = datetime.now(timezone.utc)
+    start_dt = datetime.now(UTC)
     print(f"\n  Started at {start_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}")
     print(f"  Batch size: {args.batch_size}\n")
 

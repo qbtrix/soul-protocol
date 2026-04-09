@@ -11,6 +11,7 @@ def _import_dspy():
     """Lazy import dspy — raises ImportError with a helpful message."""
     try:
         import dspy
+
         return dspy
     except ImportError:
         raise ImportError(
@@ -35,8 +36,9 @@ class SignificanceGate:
             "factual_importance: float, reasoning: str"
         )
 
-    def forward(self, user_input: str, agent_output: str,
-                core_values: list[str], recent_context: str = "") -> object:
+    def forward(
+        self, user_input: str, agent_output: str, core_values: list[str], recent_context: str = ""
+    ) -> object:
         """Assess whether an interaction should be stored in episodic memory.
 
         Args:
@@ -68,8 +70,7 @@ class QueryExpander:
     def __init__(self):
         dspy = _import_dspy()
         self._module = dspy.Predict(
-            "query, personality_summary: str -> "
-            "expanded_queries: list[str]"
+            "query, personality_summary: str -> expanded_queries: list[str]"
         )
 
     def forward(self, query: str, personality_summary: str = "") -> list[str]:
@@ -102,8 +103,7 @@ class FactExtractor:
             "facts: list[str], is_update: bool, reasoning: str"
         )
 
-    def forward(self, user_input: str, agent_output: str,
-                existing_facts: str = "") -> object:
+    def forward(self, user_input: str, agent_output: str, existing_facts: str = "") -> object:
         """Extract facts from an interaction.
 
         Args:

@@ -18,13 +18,13 @@ import json
 import logging
 from pathlib import Path
 
-from soul_protocol import Soul, Interaction
-from soul_protocol.runtime.memory.sentiment import detect_sentiment
+from soul_protocol import Interaction, Soul
 from soul_protocol.runtime.memory.attention import (
+    DEFAULT_SIGNIFICANCE_THRESHOLD,
     compute_significance,
     overall_significance,
-    DEFAULT_SIGNIFICANCE_THRESHOLD,
 )
+from soul_protocol.runtime.memory.sentiment import detect_sentiment
 from soul_protocol.runtime.types import Mood
 
 from ..suite import DimensionResult
@@ -218,6 +218,7 @@ _ARC_ANGRY = [
 # EI-1: Sentiment Classification Benchmark
 # ---------------------------------------------------------------------------
 
+
 def _run_sentiment_benchmark() -> float:
     """Load corpus and measure classification accuracy."""
     if not _CORPUS_PATH.exists():
@@ -238,7 +239,11 @@ def _run_sentiment_benchmark() -> float:
         else:
             logger.debug(
                 "Mismatch: text=%r expected=%s got=%s (v=%.2f a=%.2f)",
-                text[:50], expected, marker.label, marker.valence, marker.arousal,
+                text[:50],
+                expected,
+                marker.label,
+                marker.valence,
+                marker.arousal,
             )
 
     accuracy = correct / total if total > 0 else 0.0
@@ -249,6 +254,7 @@ def _run_sentiment_benchmark() -> float:
 # ---------------------------------------------------------------------------
 # EI-2: Gate Calibration Test
 # ---------------------------------------------------------------------------
+
 
 def _run_gate_calibration() -> tuple[float, float]:
     """Test significance gate on high-emotion vs neutral interactions.
@@ -298,8 +304,10 @@ def _run_gate_calibration() -> tuple[float, float]:
 
     logger.info(
         "EI-2 gate calibration: emotional_pass=%d/50 (%.0f%%), neutral_reject=%d/50 (%.0f%%)",
-        high_emotion_pass, emotional_storage_rate * 100,
-        neutral_reject, neutral_rejection_rate * 100,
+        high_emotion_pass,
+        emotional_storage_rate * 100,
+        neutral_reject,
+        neutral_rejection_rate * 100,
     )
     return emotional_storage_rate, neutral_rejection_rate
 
@@ -307,6 +315,7 @@ def _run_gate_calibration() -> tuple[float, float]:
 # ---------------------------------------------------------------------------
 # EI-3: Mood State Machine Test
 # ---------------------------------------------------------------------------
+
 
 async def _run_mood_test() -> float:
     """Feed consecutive emotional interactions and verify mood shifts.
@@ -324,10 +333,12 @@ async def _run_mood_test() -> float:
 
     # Phase 1: Feed 5 frustration interactions — expect negative mood
     for text in _FRUSTRATION_TEXTS:
-        await soul.observe(Interaction(
-            user_input=text,
-            agent_output="I hear you, that sounds really tough.",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input=text,
+                agent_output="I hear you, that sounds really tough.",
+            )
+        )
 
     # Check mood is in the negative territory
     total_checks += 1
@@ -340,10 +351,12 @@ async def _run_mood_test() -> float:
 
     # Phase 2: Feed 5 excitement interactions — expect positive mood
     for text in _EXCITEMENT_TEXTS:
-        await soul.observe(Interaction(
-            user_input=text,
-            agent_output="That's wonderful to hear!",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input=text,
+                agent_output="That's wonderful to hear!",
+            )
+        )
 
     # Check mood shifted to positive territory
     total_checks += 1
@@ -355,13 +368,19 @@ async def _run_mood_test() -> float:
         logger.debug("Mood after excitement: %s (expected positive)", soul.state.mood.value)
 
     responsiveness = checks_passed / total_checks if total_checks > 0 else 0.0
-    logger.info("EI-3 mood responsiveness: %d/%d = %.0f%%", checks_passed, total_checks, responsiveness * 100)
+    logger.info(
+        "EI-3 mood responsiveness: %d/%d = %.0f%%",
+        checks_passed,
+        total_checks,
+        responsiveness * 100,
+    )
     return responsiveness
 
 
 # ---------------------------------------------------------------------------
 # EI-4: Emotional Arc Coherence
 # ---------------------------------------------------------------------------
+
 
 async def _run_arc_coherence() -> float:
     """Feed 60 interactions in 3 emotional phases and measure cluster purity.
@@ -397,16 +416,20 @@ async def _run_arc_coherence() -> float:
     for phase_name, texts, _expected_labels in phases:
         start_count = len(soul._memory._episodic._memories)
         for i, text in enumerate(texts):
-            await soul.observe(Interaction(
-                user_input=text,
-                agent_output=agent_responses[i % len(agent_responses)],
-            ))
+            await soul.observe(
+                Interaction(
+                    user_input=text,
+                    agent_output=agent_responses[i % len(agent_responses)],
+                )
+            )
             total_observed += 1
         end_count = len(soul._memory._episodic._memories)
         phase_boundaries.append((start_count, end_count))
         logger.debug(
             "Phase %s: %d new episodic memories (total=%d)",
-            phase_name, end_count - start_count, end_count,
+            phase_name,
+            end_count - start_count,
+            end_count,
         )
 
     # Analyze cluster purity per phase
@@ -427,8 +450,7 @@ async def _run_arc_coherence() -> float:
         matching = 0
         for mem in phase_memories:
             if mem.somatic and any(
-                _labels_match(exp, mem.somatic.label)
-                for exp in expected_labels
+                _labels_match(exp, mem.somatic.label) for exp in expected_labels
             ):
                 matching += 1
 
@@ -436,17 +458,24 @@ async def _run_arc_coherence() -> float:
         purities.append(purity)
         logger.debug(
             "Phase %s: purity=%.2f (%d/%d matching %s)",
-            phase_name, purity, matching, len(phase_memories), expected_labels,
+            phase_name,
+            purity,
+            matching,
+            len(phase_memories),
+            expected_labels,
         )
 
     arc_coherence = sum(purities) / len(purities) if purities else 0.0
-    logger.info("EI-4 arc coherence: %.2f (phases=%s)", arc_coherence, [round(p, 2) for p in purities])
+    logger.info(
+        "EI-4 arc coherence: %.2f (phases=%s)", arc_coherence, [round(p, 2) for p in purities]
+    )
     return arc_coherence
 
 
 # ---------------------------------------------------------------------------
 # Main evaluate entry point
 # ---------------------------------------------------------------------------
+
 
 async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
     """Run D2 Emotional Intelligence evaluation.

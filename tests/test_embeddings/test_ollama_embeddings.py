@@ -18,8 +18,7 @@ def _make_mock_ollama_module(dim: int = 768):
     def _embed(model, input):
         if isinstance(input, list):
             embeddings = [
-                [float(j * 0.001 + i * 0.01) for j in range(dim)]
-                for i in range(len(input))
+                [float(j * 0.001 + i * 0.01) for j in range(dim)] for i in range(len(input))
             ]
         else:
             embeddings = [[float(j * 0.001) for j in range(dim)]]
@@ -41,6 +40,7 @@ class TestOllamaEmbeddingProvider:
             from soul_protocol.runtime.embeddings.ollama_embeddings import (
                 OllamaEmbeddingProvider,
             )
+
             provider = OllamaEmbeddingProvider(**kwargs)
             provider._client = mock_client
         return provider
@@ -57,6 +57,7 @@ class TestOllamaEmbeddingProvider:
         from soul_protocol.runtime.embeddings.ollama_embeddings import (
             OllamaEmbeddingProvider,
         )
+
         provider = OllamaEmbeddingProvider(dimensions=512)
         assert provider.dimensions == 512
 
@@ -92,6 +93,7 @@ class TestOllamaEmbeddingProvider:
         from soul_protocol.runtime.embeddings.ollama_embeddings import (
             OllamaEmbeddingProvider,
         )
+
         provider = OllamaEmbeddingProvider()
         assert provider._model == "nomic-embed-text"
 
@@ -99,6 +101,7 @@ class TestOllamaEmbeddingProvider:
         from soul_protocol.runtime.embeddings.ollama_embeddings import (
             OllamaEmbeddingProvider,
         )
+
         provider = OllamaEmbeddingProvider(model="mxbai-embed-large")
         assert provider._model == "mxbai-embed-large"
 
@@ -106,6 +109,7 @@ class TestOllamaEmbeddingProvider:
         from soul_protocol.runtime.embeddings.ollama_embeddings import (
             OllamaEmbeddingProvider,
         )
+
         provider = OllamaEmbeddingProvider()
         assert provider._base_url == "http://localhost:11434"
 
@@ -113,6 +117,7 @@ class TestOllamaEmbeddingProvider:
         from soul_protocol.runtime.embeddings.ollama_embeddings import (
             OllamaEmbeddingProvider,
         )
+
         provider = OllamaEmbeddingProvider(base_url="http://gpu-box:11434")
         assert provider._base_url == "http://gpu-box:11434"
 
@@ -120,6 +125,7 @@ class TestOllamaEmbeddingProvider:
         from soul_protocol.runtime.embeddings.ollama_embeddings import (
             OllamaEmbeddingProvider,
         )
+
         provider = OllamaEmbeddingProvider()
         assert provider._client is None
 
@@ -131,6 +137,7 @@ class TestOllamaImportError:
         from soul_protocol.runtime.embeddings.ollama_embeddings import (
             OllamaEmbeddingProvider,
         )
+
         provider = OllamaEmbeddingProvider()
 
         with patch.dict("sys.modules", {"ollama": None}):
@@ -141,6 +148,7 @@ class TestOllamaImportError:
         from soul_protocol.runtime.embeddings.ollama_embeddings import (
             OllamaEmbeddingProvider,
         )
+
         provider = OllamaEmbeddingProvider()
 
         with patch.dict("sys.modules", {"ollama": None}):

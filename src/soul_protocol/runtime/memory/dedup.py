@@ -14,11 +14,33 @@ from soul_protocol.runtime.types import MemoryEntry
 # Common 2-letter English stopwords to filter when lowering the minimum token
 # length to 2.  These are function words / pronouns that add noise to Jaccard
 # similarity without carrying semantic meaning for memory deduplication.
-_STOP_WORDS_2: frozenset[str] = frozenset({
-    "am", "an", "as", "at", "be", "by", "do", "he", "if", "in",
-    "is", "it", "me", "my", "no", "of", "on", "or", "so", "to",
-    "up", "us", "we",
-})
+_STOP_WORDS_2: frozenset[str] = frozenset(
+    {
+        "am",
+        "an",
+        "as",
+        "at",
+        "be",
+        "by",
+        "do",
+        "he",
+        "if",
+        "in",
+        "is",
+        "it",
+        "me",
+        "my",
+        "no",
+        "of",
+        "on",
+        "or",
+        "so",
+        "to",
+        "up",
+        "us",
+        "we",
+    }
+)
 
 
 def _dedup_tokenize(text: str) -> set[str]:

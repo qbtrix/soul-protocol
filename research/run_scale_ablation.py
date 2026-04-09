@@ -20,7 +20,6 @@
 
 import asyncio
 import json
-import os
 import sys
 import time
 from collections import defaultdict
@@ -38,7 +37,6 @@ from research.long_horizon.runner import (
     LongHorizonRunner,
 )
 from research.long_horizon.scale_scenarios import generate_marathon_scenario
-
 
 # ---------------------------------------------------------------------------
 # Output directory
@@ -105,6 +103,7 @@ def _analyze_recall_by_age(
 # Report generation
 # ---------------------------------------------------------------------------
 
+
 def _generate_report(
     condition_results: dict[str, ConditionResult],
     age_analysis: dict[str, dict[str, dict]],
@@ -125,7 +124,9 @@ def _generate_report(
     # --- Overall results table ---
     lines.append("## Overall Results")
     lines.append("")
-    lines.append("| Condition | Recall Rate | Hits/Total | Memories Stored | Storage Ratio | Bond |")
+    lines.append(
+        "| Condition | Recall Rate | Hits/Total | Memories Stored | Storage Ratio | Bond |"
+    )
     lines.append("|-----------|------------|------------|-----------------|---------------|------|")
 
     cond_order = [
@@ -176,20 +177,26 @@ def _generate_report(
             verdict = "Tied on recall rate"
 
         lines.append(f"- **Recall:** Soul {soul_rate:.1f}% vs RAG {rag_rate:.1f}% -> {verdict}")
-        lines.append(f"- **Memories stored:** Soul {soul_mems} vs RAG {rag_mems} "
-                      f"({rag_mems / max(soul_mems, 1):.1f}x more in RAG)")
+        lines.append(
+            f"- **Memories stored:** Soul {soul_mems} vs RAG {rag_mems} "
+            f"({rag_mems / max(soul_mems, 1):.1f}x more in RAG)"
+        )
 
         if soul_mems > 0 and rag_mems > 0:
             soul_efficiency = full_cr.recall_hits / soul_mems if soul_mems else 0
             rag_efficiency = rag_cr.recall_hits / rag_mems if rag_mems else 0
-            lines.append(f"- **Recall per memory:** Soul {soul_efficiency:.4f} vs RAG {rag_efficiency:.4f} "
-                          f"(Soul is {soul_efficiency / max(rag_efficiency, 0.0001):.1f}x more efficient)")
+            lines.append(
+                f"- **Recall per memory:** Soul {soul_efficiency:.4f} vs RAG {rag_efficiency:.4f} "
+                f"(Soul is {soul_efficiency / max(rag_efficiency, 0.0001):.1f}x more efficient)"
+            )
         lines.append("")
 
     # --- Recall by fact age ---
     lines.append("## Recall by Fact Age")
     lines.append("")
-    lines.append("This is the critical analysis: do early-planted facts get lost more than recent ones?")
+    lines.append(
+        "This is the critical analysis: do early-planted facts get lost more than recent ones?"
+    )
     lines.append("")
 
     # Table header
@@ -237,8 +244,10 @@ def _generate_report(
                 early_avg = sum(cat_rates[:2]) / 2
                 late_avg = sum(cat_rates[-2:]) / 2
                 degradation = early_avg - late_avg
-                lines.append(f"- **{label}:** Early avg {early_avg:.1f}%, Late avg {late_avg:.1f}%, "
-                              f"Degradation {degradation:+.1f}pp")
+                lines.append(
+                    f"- **{label}:** Early avg {early_avg:.1f}%, Late avg {late_avg:.1f}%, "
+                    f"Degradation {degradation:+.1f}pp"
+                )
         lines.append("")
 
     # --- Memory growth ---
@@ -304,6 +313,7 @@ def _generate_report(
 # Main
 # ---------------------------------------------------------------------------
 
+
 async def main() -> None:
     t_start = time.monotonic()
 
@@ -334,7 +344,7 @@ async def main() -> None:
 
     # --- Console output ---
     print(f"\n{'=' * 80}")
-    print(f"SCALE ABLATION RESULTS — 1000-Turn Marathon")
+    print("SCALE ABLATION RESULTS — 1000-Turn Marathon")
     print(f"{'=' * 80}")
 
     cond_labels = {
@@ -413,10 +423,7 @@ async def main() -> None:
             "recall_results": cr.recall_results,
         }
     raw_data["recall_by_age"] = {
-        cond: {
-            cat: data for cat, data in cats.items()
-        }
-        for cond, cats in age_analysis.items()
+        cond: {cat: data for cat, data in cats.items()} for cond, cats in age_analysis.items()
     }
 
     results_path = OUTPUT_DIR / "results.json"
@@ -431,7 +438,7 @@ async def main() -> None:
 
     # Console-friendly summary
     summary_lines = []
-    summary_lines.append(f"Scale Ablation — 1000-Turn Marathon")
+    summary_lines.append("Scale Ablation — 1000-Turn Marathon")
     summary_lines.append(f"Duration: {total_duration:.1f}s")
     summary_lines.append("")
     for cond in ALL_CONDITIONS:

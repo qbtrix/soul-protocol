@@ -17,12 +17,12 @@ class Turn:
     user_input: str
     agent_output: str
     # Ground truth metadata for evaluation
-    contains_fact: bool = False           # should the system extract a fact?
-    fact_content: str = ""                # what fact should be extracted
-    references_previous: bool = False     # does this reference earlier context?
-    reference_topic: str = ""             # what topic is being referenced
-    expected_emotion: str = ""            # expected emotional tone
-    importance_hint: float = 0.5          # how important is this interaction (0-1)
+    contains_fact: bool = False  # should the system extract a fact?
+    fact_content: str = ""  # what fact should be extracted
+    references_previous: bool = False  # does this reference earlier context?
+    reference_topic: str = ""  # what topic is being referenced
+    expected_emotion: str = ""  # expected emotional tone
+    importance_hint: float = 0.5  # how important is this interaction (0-1)
 
 
 @dataclass
@@ -32,13 +32,14 @@ class Scenario:
     scenario_id: str
     use_case: str
     turns: list[Turn]
-    planted_facts: list[str]              # facts deliberately planted for recall testing
-    recall_queries: list[tuple[str, str]] # (query, expected_fact) pairs
+    planted_facts: list[str]  # facts deliberately planted for recall testing
+    recall_queries: list[tuple[str, str]]  # (query, expected_fact) pairs
 
 
 # ---------------------------------------------------------------------------
 # Scenario templates — parameterized by user profile
 # ---------------------------------------------------------------------------
+
 
 def _support_scenarios(user: UserProfile, rng: random.Random) -> list[Scenario]:
     """Generate customer support scenarios."""
@@ -83,13 +84,18 @@ def _support_scenarios(user: UserProfile, rng: random.Random) -> list[Scenario]:
         ("What product does the user use?", f"User has been using {product}"),
     ]
 
-    scenarios.append(Scenario(
-        scenario_id=f"support_account_{user.user_id}",
-        use_case="support",
-        turns=turns,
-        planted_facts=[f"User's name is {user_name}", f"User has been using {product} for 2 years"],
-        recall_queries=recall_queries,
-    ))
+    scenarios.append(
+        Scenario(
+            scenario_id=f"support_account_{user.user_id}",
+            use_case="support",
+            turns=turns,
+            planted_facts=[
+                f"User's name is {user_name}",
+                f"User has been using {product} for 2 years",
+            ],
+            recall_queries=recall_queries,
+        )
+    )
 
     # Scenario 2: Follow-up session (tests cross-session memory)
     followup_turns = [
@@ -109,15 +115,17 @@ def _support_scenarios(user: UserProfile, rng: random.Random) -> list[Scenario]:
         ),
     ]
 
-    scenarios.append(Scenario(
-        scenario_id=f"support_followup_{user.user_id}",
-        use_case="support",
-        turns=followup_turns,
-        planted_facts=["User found Firefox works when other browser doesn't"],
-        recall_queries=[
-            ("What browser issue did the user have?", "Firefox works"),
-        ],
-    ))
+    scenarios.append(
+        Scenario(
+            scenario_id=f"support_followup_{user.user_id}",
+            use_case="support",
+            turns=followup_turns,
+            planted_facts=["User found Firefox works when other browser doesn't"],
+            recall_queries=[
+                ("What browser issue did the user have?", "Firefox works"),
+            ],
+        )
+    )
 
     return scenarios
 
@@ -159,19 +167,21 @@ def _coding_scenarios(user: UserProfile, rng: random.Random) -> list[Scenario]:
         ),
     ]
 
-    scenarios.append(Scenario(
-        scenario_id=f"coding_db_{user.user_id}",
-        use_case="coding",
-        turns=turns,
-        planted_facts=[
-            f"User uses {lang} with {framework}",
-            "User prefers raw SQL over ORM for complex queries",
-        ],
-        recall_queries=[
-            ("What language does the user program in?", lang),
-            ("What does the user prefer for database queries?", "raw SQL"),
-        ],
-    ))
+    scenarios.append(
+        Scenario(
+            scenario_id=f"coding_db_{user.user_id}",
+            use_case="coding",
+            turns=turns,
+            planted_facts=[
+                f"User uses {lang} with {framework}",
+                "User prefers raw SQL over ORM for complex queries",
+            ],
+            recall_queries=[
+                ("What language does the user program in?", lang),
+                ("What does the user prefer for database queries?", "raw SQL"),
+            ],
+        )
+    )
 
     return scenarios
 
@@ -222,21 +232,23 @@ def _companion_scenarios(user: UserProfile, rng: random.Random) -> list[Scenario
         ),
     ]
 
-    scenarios.append(Scenario(
-        scenario_id=f"companion_daily_{user.user_id}",
-        use_case="companion",
-        turns=turns,
-        planted_facts=[
-            f"User enjoys {hobby}",
-            f"User likes {food}",
-            "User is stressed about a project deadline moved up by two weeks",
-        ],
-        recall_queries=[
-            ("What hobby does the user enjoy?", hobby),
-            ("What food does the user like?", food),
-            ("What is the user stressed about?", "deadline"),
-        ],
-    ))
+    scenarios.append(
+        Scenario(
+            scenario_id=f"companion_daily_{user.user_id}",
+            use_case="companion",
+            turns=turns,
+            planted_facts=[
+                f"User enjoys {hobby}",
+                f"User likes {food}",
+                "User is stressed about a project deadline moved up by two weeks",
+            ],
+            recall_queries=[
+                ("What hobby does the user enjoy?", hobby),
+                ("What food does the user like?", food),
+                ("What is the user stressed about?", "deadline"),
+            ],
+        )
+    )
 
     return scenarios
 
@@ -244,7 +256,13 @@ def _companion_scenarios(user: UserProfile, rng: random.Random) -> list[Scenario
 def _knowledge_scenarios(user: UserProfile, rng: random.Random) -> list[Scenario]:
     """Generate knowledge worker scenarios."""
     scenarios = []
-    domains = ["machine learning", "marketing analytics", "financial modeling", "UX research", "content strategy"]
+    domains = [
+        "machine learning",
+        "marketing analytics",
+        "financial modeling",
+        "UX research",
+        "content strategy",
+    ]
     tools = ["Excel", "Python", "Tableau", "Notion", "Figma"]
     domain = rng.choice(domains)
     tool = rng.choice(tools)
@@ -278,20 +296,22 @@ def _knowledge_scenarios(user: UserProfile, rng: random.Random) -> list[Scenario
         ),
     ]
 
-    scenarios.append(Scenario(
-        scenario_id=f"knowledge_research_{user.user_id}",
-        use_case="knowledge",
-        turns=turns,
-        planted_facts=[
-            f"User is researching {domain}",
-            f"User uses {tool} for analysis",
-            "User's boss prefers data-driven recommendations with visuals",
-        ],
-        recall_queries=[
-            ("What is the user researching?", domain),
-            ("What tool does the user prefer?", tool),
-        ],
-    ))
+    scenarios.append(
+        Scenario(
+            scenario_id=f"knowledge_research_{user.user_id}",
+            use_case="knowledge",
+            turns=turns,
+            planted_facts=[
+                f"User is researching {domain}",
+                f"User uses {tool} for analysis",
+                "User's boss prefers data-driven recommendations with visuals",
+            ],
+            recall_queries=[
+                ("What is the user researching?", domain),
+                ("What tool does the user prefer?", tool),
+            ],
+        )
+    )
 
     return scenarios
 

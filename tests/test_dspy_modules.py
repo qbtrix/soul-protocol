@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -16,7 +15,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from soul_protocol.runtime.types import Interaction, MemoryEntry, MemoryType, SignificanceScore
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -99,8 +97,7 @@ def _with_mock_dspy():
     mock_dspy = _mock_dspy_module()
     # Remove any cached versions of our modules so they re-import with mock dspy
     modules_to_clear = [
-        k for k in sys.modules
-        if k.startswith("soul_protocol.runtime.cognitive.dspy_")
+        k for k in sys.modules if k.startswith("soul_protocol.runtime.cognitive.dspy_")
     ]
     saved = {k: sys.modules.pop(k) for k in modules_to_clear}
     with patch.dict(sys.modules, {"dspy": mock_dspy}):
@@ -394,8 +391,7 @@ class TestDSPyNotInstalled:
         """dspy_modules raises ImportError with helpful message when dspy missing."""
         # Clear cached dspy_modules, then patch dspy as None (import fails)
         modules_to_clear = [
-            k for k in list(sys.modules)
-            if k.startswith("soul_protocol.runtime.cognitive.dspy_")
+            k for k in list(sys.modules) if k.startswith("soul_protocol.runtime.cognitive.dspy_")
         ]
         saved = {k: sys.modules.pop(k) for k in modules_to_clear}
         try:
@@ -413,8 +409,7 @@ class TestDSPyNotInstalled:
         """Soul.birth(use_dspy=True) falls back when dspy not installed."""
         # Clear cached adapter module, patch dspy as None
         modules_to_clear = [
-            k for k in list(sys.modules)
-            if k.startswith("soul_protocol.runtime.cognitive.dspy_")
+            k for k in list(sys.modules) if k.startswith("soul_protocol.runtime.cognitive.dspy_")
         ]
         saved = {k: sys.modules.pop(k) for k in modules_to_clear}
         try:

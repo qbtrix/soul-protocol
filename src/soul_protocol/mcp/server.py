@@ -41,7 +41,6 @@ from ..runtime.exceptions import SoulProtocolError
 from ..runtime.soul import Soul
 from ..runtime.types import Interaction, MemoryType, Mood
 
-
 # ── Soul Registry ──
 
 
@@ -88,9 +87,7 @@ class SoulRegistry:
             key = name.lower()
             if key not in self._souls:
                 available = ", ".join(s.name for s in self._souls.values())
-                raise RuntimeError(
-                    f"No soul named '{name}'. Available: {available or '(none)'}"
-                )
+                raise RuntimeError(f"No soul named '{name}'. Available: {available or '(none)'}")
             return self._souls[key]
         if self._active and self._active in self._souls:
             return self._souls[self._active]
@@ -122,9 +119,7 @@ class SoulRegistry:
         key = name.lower()
         if key not in self._souls:
             available = ", ".join(s.name for s in self._souls.values())
-            raise RuntimeError(
-                f"No soul named '{name}'. Available: {available or '(none)'}"
-            )
+            raise RuntimeError(f"No soul named '{name}'. Available: {available or '(none)'}")
         self._active = key
         return self._souls[key]
 
@@ -291,6 +286,7 @@ async def _scan_soul_dir(directory: str) -> list[tuple[Soul, str, str]]:
 
 # ── Background File Watcher ──
 
+
 async def _file_watcher() -> None:
     """Background task: poll soul file mtimes and auto-reload on change.
 
@@ -335,14 +331,20 @@ async def _lifespan(server: FastMCP):
         if _cwd_dir.is_dir() and any(_cwd_dir.iterdir()):
             soul_dir = str(_cwd_dir)
         elif _cwd_dir.is_dir():
-            print(f"soul-mcp: .soul/ found at {_cwd_dir} but is empty, checking ~/.soul/", file=sys.stderr, flush=True)
+            print(
+                f"soul-mcp: .soul/ found at {_cwd_dir} but is empty, checking ~/.soul/",
+                file=sys.stderr,
+                flush=True,
+            )
         # Fallback: ~/.soul/ as a user-level default
         if not soul_dir:
             _home_dir = Path.home() / ".soul"
             if _home_dir.is_dir() and any(_home_dir.iterdir()):
                 soul_dir = str(_home_dir)
 
-    print(f"soul-mcp: env SOUL_DIR={soul_dir!r} SOUL_PATH={soul_path!r}", file=sys.stderr, flush=True)
+    print(
+        f"soul-mcp: env SOUL_DIR={soul_dir!r} SOUL_PATH={soul_path!r}", file=sys.stderr, flush=True
+    )
 
     if soul_dir:
         # Multi-soul: scan directory
@@ -508,14 +510,16 @@ async def soul_list() -> str:
     """List all loaded souls with their name, DID, memory count, and active status."""
     souls = []
     for key, s in _registry._souls.items():
-        souls.append({
-            "name": s.name,
-            "did": s.did,
-            "memories": s.memory_count,
-            "active": key == _registry._active,
-            "format": _registry._formats.get(key, "unknown"),
-            "path": _registry._paths.get(key, ""),
-        })
+        souls.append(
+            {
+                "name": s.name,
+                "did": s.did,
+                "memories": s.memory_count,
+                "active": key == _registry._active,
+                "format": _registry._formats.get(key, "unknown"),
+                "path": _registry._paths.get(key, ""),
+            }
+        )
     return json.dumps({"count": len(souls), "souls": souls})
 
 
@@ -528,13 +532,15 @@ async def soul_switch(name: str) -> str:
     """
     soul = _registry.switch(name)
     s = soul.state
-    return json.dumps({
-        "status": "switched",
-        "name": soul.name,
-        "did": soul.did,
-        "mood": s.mood.value,
-        "energy": round(s.energy, 1),
-    })
+    return json.dumps(
+        {
+            "status": "switched",
+            "name": soul.name,
+            "did": soul.did,
+            "mood": s.mood.value,
+            "energy": round(s.energy, 1),
+        }
+    )
 
 
 @mcp.tool
@@ -904,20 +910,22 @@ async def soul_skills(soul: str | None = None) -> str:
     skills = s.skills.skills
     if not skills:
         return json.dumps({"soul": s.name, "skills": [], "total": 0})
-    return json.dumps({
-        "soul": s.name,
-        "total": len(skills),
-        "skills": [
-            {
-                "id": sk.id,
-                "name": sk.name,
-                "level": sk.level,
-                "xp": sk.xp,
-                "xp_to_next": sk.xp_to_next,
-            }
-            for sk in sorted(skills, key=lambda x: x.xp, reverse=True)
-        ],
-    })
+    return json.dumps(
+        {
+            "soul": s.name,
+            "total": len(skills),
+            "skills": [
+                {
+                    "id": sk.id,
+                    "name": sk.name,
+                    "level": sk.level,
+                    "xp": sk.xp,
+                    "xp_to_next": sk.xp_to_next,
+                }
+                for sk in sorted(skills, key=lambda x: x.xp, reverse=True)
+            ],
+        }
+    )
 
 
 @mcp.tool
@@ -946,17 +954,19 @@ async def soul_evaluate(
     interaction = Interaction(user_input=user_input, agent_output=agent_output)
     result = await s.evaluate(interaction, domain=domain)
     _registry.mark_modified(soul)
-    return json.dumps({
-        "soul": s.name,
-        "rubric": result.rubric_id,
-        "overall_score": round(result.overall_score, 3),
-        "criteria": [
-            {"name": cr.criterion, "score": round(cr.score, 3), "passed": cr.passed}
-            for cr in result.criterion_results
-        ],
-        "learning": result.learning,
-        "eval_history_size": len(s.evaluator._history),
-    })
+    return json.dumps(
+        {
+            "soul": s.name,
+            "rubric": result.rubric_id,
+            "overall_score": round(result.overall_score, 3),
+            "criteria": [
+                {"name": cr.criterion, "score": round(cr.score, 3), "passed": cr.passed}
+                for cr in result.criterion_results
+            ],
+            "learning": result.learning,
+            "eval_history_size": len(s.evaluator._history),
+        }
+    )
 
 
 @mcp.tool
@@ -986,22 +996,26 @@ async def soul_learn(
     event = await s.learn(interaction, domain=domain)
     _registry.mark_modified(soul)
     if event is None:
-        return json.dumps({
+        return json.dumps(
+            {
+                "soul": s.name,
+                "learning_event": None,
+                "reason": "Score in medium range — no notable learning pattern",
+            }
+        )
+    return json.dumps(
+        {
             "soul": s.name,
-            "learning_event": None,
-            "reason": "Score in medium range — no notable learning pattern",
-        })
-    return json.dumps({
-        "soul": s.name,
-        "learning_event": {
-            "id": event.id,
-            "lesson": event.lesson,
-            "domain": event.domain,
-            "score": round(event.evaluation_score, 3) if event.evaluation_score else None,
-            "confidence": round(event.confidence, 3),
-            "skill_id": event.skill_id,
-        },
-    })
+            "learning_event": {
+                "id": event.id,
+                "lesson": event.lesson,
+                "domain": event.domain,
+                "score": round(event.evaluation_score, 3) if event.evaluation_score else None,
+                "confidence": round(event.confidence, 3),
+                "skill_id": event.skill_id,
+            },
+        }
+    )
 
 
 @mcp.tool
@@ -1032,31 +1046,42 @@ async def soul_evolve(
     if action == "list":
         pending = s.pending_mutations
         history = s.evolution_history
-        return json.dumps({
-            "soul": s.name,
-            "pending": [
-                {"id": m.id, "trait": m.trait, "old": m.old_value,
-                 "new": m.new_value, "reason": m.reason}
-                for m in pending
-            ],
-            "history_count": len(history),
-        })
+        return json.dumps(
+            {
+                "soul": s.name,
+                "pending": [
+                    {
+                        "id": m.id,
+                        "trait": m.trait,
+                        "old": m.old_value,
+                        "new": m.new_value,
+                        "reason": m.reason,
+                    }
+                    for m in pending
+                ],
+                "history_count": len(history),
+            }
+        )
 
     elif action == "propose":
         if not trait or not new_value or not reason:
             return json.dumps({"error": "propose requires trait, new_value, and reason"})
         mutation = await s.propose_evolution(
-            trait=trait, new_value=new_value, reason=reason,
+            trait=trait,
+            new_value=new_value,
+            reason=reason,
         )
         _registry.mark_modified(soul)
-        return json.dumps({
-            "soul": s.name,
-            "mutation_id": mutation.id,
-            "trait": mutation.trait,
-            "old_value": mutation.old_value,
-            "new_value": mutation.new_value,
-            "status": "pending",
-        })
+        return json.dumps(
+            {
+                "soul": s.name,
+                "mutation_id": mutation.id,
+                "trait": mutation.trait,
+                "old_value": mutation.old_value,
+                "new_value": mutation.new_value,
+                "status": "pending",
+            }
+        )
 
     elif action == "approve":
         if not mutation_id:
@@ -1098,11 +1123,13 @@ async def soul_bond(
         else:
             bond.bond_strength = max(0.0, bond.bond_strength + strengthen)
         _registry.mark_modified(soul)
-    return json.dumps({
-        "soul": s.name,
-        "bond_strength": round(bond.bond_strength, 2),
-        "interaction_count": bond.interaction_count,
-    })
+    return json.dumps(
+        {
+            "soul": s.name,
+            "bond_strength": round(bond.bond_strength, 2),
+            "interaction_count": bond.interaction_count,
+        }
+    )
 
 
 # --- Maintenance Tools (v0.2.8) ---
@@ -1129,22 +1156,26 @@ async def soul_forget(
     if not confirm:
         # Dry-run: search but don't delete
         results = await s.recall(query, limit=50)
-        return json.dumps({
-            "status": "preview",
-            "soul": s.name,
-            "query": query,
-            "matching_count": len(results),
-            "hint": "Set confirm=true to delete these memories",
-        })
+        return json.dumps(
+            {
+                "status": "preview",
+                "soul": s.name,
+                "query": query,
+                "matching_count": len(results),
+                "hint": "Set confirm=true to delete these memories",
+            }
+        )
     result = await s.forget(query)
     _registry.mark_modified(soul)
-    return json.dumps({
-        "status": "deleted",
-        "soul": s.name,
-        "query": query,
-        "total_deleted": result.get("total_deleted", 0),
-        "tiers": result.get("tiers", {}),
-    })
+    return json.dumps(
+        {
+            "status": "deleted",
+            "soul": s.name,
+            "query": query,
+            "total_deleted": result.get("total_deleted", 0),
+            "tiers": result.get("tiers", {}),
+        }
+    )
 
 
 @mcp.tool
@@ -1167,21 +1198,25 @@ async def soul_edit_core(
     s = await _resolve_soul(soul)
     if persona is None and human is None:
         core = s.get_core_memory()
-        return json.dumps({
-            "soul": s.name,
-            "persona": core.persona,
-            "human": core.human,
-            "hint": "Provide persona and/or human to update",
-        })
+        return json.dumps(
+            {
+                "soul": s.name,
+                "persona": core.persona,
+                "human": core.human,
+                "hint": "Provide persona and/or human to update",
+            }
+        )
     await s.edit_core_memory(persona=persona, human=human)
     _registry.mark_modified(soul)
     core = s.get_core_memory()
-    return json.dumps({
-        "status": "updated",
-        "soul": s.name,
-        "persona": core.persona,
-        "human": core.human,
-    })
+    return json.dumps(
+        {
+            "status": "updated",
+            "soul": s.name,
+            "persona": core.persona,
+            "human": core.human,
+        }
+    )
 
 
 @mcp.tool
@@ -1225,10 +1260,7 @@ async def soul_health(
 
     # Orphan graph nodes
     all_content = " ".join(m.content for m in all_mems)
-    orphan_nodes = [
-        n for n in graph_nodes
-        if n.lower() not in all_content.lower() and len(n) > 2
-    ]
+    orphan_nodes = [n for n in graph_nodes if n.lower() not in all_content.lower() and len(n) > 2]
 
     # Bond sanity
     bond = s.bond
@@ -1252,25 +1284,27 @@ async def soul_health(
     if len(orphan_nodes) > 10:
         issues.append(f"{len(orphan_nodes)} orphan graph nodes")
 
-    return json.dumps({
-        "soul": s.name,
-        "tiers": {
-            "episodic": len(episodic),
-            "semantic": len(semantic),
-            "procedural": len(procedural),
-            "total": total,
-        },
-        "graph_nodes": len(graph_nodes),
-        "skills": len(skills),
-        "eval_history": len(evals),
-        "bond_strength": round(bond.bond_strength, 2),
-        "duplicates": dup_count,
-        "low_importance": len(low_imp),
-        "stale_evals": len(stale_proc),
-        "orphan_nodes": len(orphan_nodes),
-        "issues": issues,
-        "healthy": len(issues) == 0,
-    })
+    return json.dumps(
+        {
+            "soul": s.name,
+            "tiers": {
+                "episodic": len(episodic),
+                "semantic": len(semantic),
+                "procedural": len(procedural),
+                "total": total,
+            },
+            "graph_nodes": len(graph_nodes),
+            "skills": len(skills),
+            "eval_history": len(evals),
+            "bond_strength": round(bond.bond_strength, 2),
+            "duplicates": dup_count,
+            "low_importance": len(low_imp),
+            "stale_evals": len(stale_proc),
+            "orphan_nodes": len(orphan_nodes),
+            "issues": issues,
+            "healthy": len(issues) == 0,
+        }
+    )
 
 
 @mcp.tool
@@ -1325,19 +1359,23 @@ async def soul_cleanup(
     total_items = 0
     for action_type, target, items in actions:
         total_items += len(items)
-        summary.append({
-            "action": action_type,
-            "tier": target,
-            "count": len(items),
-        })
+        summary.append(
+            {
+                "action": action_type,
+                "tier": target,
+                "count": len(items),
+            }
+        )
 
     if dry_run or not actions:
-        return json.dumps({
-            "status": "dry_run" if actions else "clean",
-            "soul": s.name,
-            "total_items": total_items,
-            "actions": summary,
-        })
+        return json.dumps(
+            {
+                "status": "dry_run" if actions else "clean",
+                "soul": s.name,
+                "total_items": total_items,
+                "actions": summary,
+            }
+        )
 
     # Execute cleanup
     removed = 0
@@ -1352,12 +1390,14 @@ async def soul_cleanup(
             removed += 1
 
     _registry.mark_modified(soul)
-    return json.dumps({
-        "status": "cleaned",
-        "soul": s.name,
-        "removed": removed,
-        "actions": summary,
-    })
+    return json.dumps(
+        {
+            "status": "cleaned",
+            "soul": s.name,
+            "removed": removed,
+            "actions": summary,
+        }
+    )
 
 
 # --- Context Tools (LCM — Lossless Context Management) ---
@@ -1383,12 +1423,14 @@ async def soul_context_ingest(
     ctx = await _get_or_create_context(s.name)
     msg_id = await ctx.ingest(role, content)
     desc = await ctx.describe()
-    return json.dumps({
-        "message_id": msg_id,
-        "soul": s.name,
-        "total_messages": desc.total_messages,
-        "total_tokens": desc.total_tokens,
-    })
+    return json.dumps(
+        {
+            "message_id": msg_id,
+            "soul": s.name,
+            "total_messages": desc.total_messages,
+            "total_tokens": desc.total_tokens,
+        }
+    )
 
 
 @mcp.tool
@@ -1411,21 +1453,23 @@ async def soul_context_assemble(
     s = await _resolve_soul(soul)
     ctx = await _get_or_create_context(s.name)
     result = await ctx.assemble(max_tokens, system_reserve=system_reserve)
-    return json.dumps({
-        "soul": s.name,
-        "node_count": len(result.nodes),
-        "total_tokens": result.total_tokens,
-        "compaction_applied": result.compaction_applied,
-        "nodes": [
-            {
-                "level": n.level.value,
-                "content": n.content,
-                "token_count": n.token_count,
-                "seq_range": [n.seq_start, n.seq_end],
-            }
-            for n in result.nodes
-        ],
-    })
+    return json.dumps(
+        {
+            "soul": s.name,
+            "node_count": len(result.nodes),
+            "total_tokens": result.total_tokens,
+            "compaction_applied": result.compaction_applied,
+            "nodes": [
+                {
+                    "level": n.level.value,
+                    "content": n.content,
+                    "token_count": n.token_count,
+                    "seq_range": [n.seq_start, n.seq_end],
+                }
+                for n in result.nodes
+            ],
+        }
+    )
 
 
 @mcp.tool
@@ -1447,19 +1491,21 @@ async def soul_context_grep(
     s = await _resolve_soul(soul)
     ctx = await _get_or_create_context(s.name)
     hits = await ctx.grep(pattern, limit=limit)
-    return json.dumps({
-        "soul": s.name,
-        "count": len(hits),
-        "results": [
-            {
-                "message_id": h.message_id,
-                "seq": h.seq,
-                "role": h.role,
-                "snippet": h.content_snippet,
-            }
-            for h in hits
-        ],
-    })
+    return json.dumps(
+        {
+            "soul": s.name,
+            "count": len(hits),
+            "results": [
+                {
+                    "message_id": h.message_id,
+                    "seq": h.seq,
+                    "role": h.role,
+                    "snippet": h.content_snippet,
+                }
+                for h in hits
+            ],
+        }
+    )
 
 
 @mcp.tool
@@ -1479,21 +1525,23 @@ async def soul_context_expand(
     s = await _resolve_soul(soul)
     ctx = await _get_or_create_context(s.name)
     result = await ctx.expand(node_id)
-    return json.dumps({
-        "soul": s.name,
-        "node_id": result.node_id,
-        "level": result.level.value,
-        "original_count": len(result.original_messages),
-        "messages": [
-            {
-                "id": m.id,
-                "role": m.role,
-                "content": m.content,
-                "seq": m.seq,
-            }
-            for m in result.original_messages
-        ],
-    })
+    return json.dumps(
+        {
+            "soul": s.name,
+            "node_id": result.node_id,
+            "level": result.level.value,
+            "original_count": len(result.original_messages),
+            "messages": [
+                {
+                    "id": m.id,
+                    "role": m.role,
+                    "content": m.content,
+                    "seq": m.seq,
+                }
+                for m in result.original_messages
+            ],
+        }
+    )
 
 
 @mcp.tool
@@ -1510,17 +1558,19 @@ async def soul_context_describe(
     s = await _resolve_soul(soul)
     ctx = await _get_or_create_context(s.name)
     desc = await ctx.describe()
-    return json.dumps({
-        "soul": s.name,
-        "total_messages": desc.total_messages,
-        "total_nodes": desc.total_nodes,
-        "total_tokens": desc.total_tokens,
-        "compaction_stats": desc.compaction_stats,
-        "date_range": [
-            desc.date_range[0].isoformat() if desc.date_range[0] else None,
-            desc.date_range[1].isoformat() if desc.date_range[1] else None,
-        ],
-    })
+    return json.dumps(
+        {
+            "soul": s.name,
+            "total_messages": desc.total_messages,
+            "total_nodes": desc.total_nodes,
+            "total_tokens": desc.total_tokens,
+            "compaction_stats": desc.compaction_stats,
+            "date_range": [
+                desc.date_range[0].isoformat() if desc.date_range[0] else None,
+                desc.date_range[1].isoformat() if desc.date_range[1] else None,
+            ],
+        }
+    )
 
 
 # --- Resources (3) ---

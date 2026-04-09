@@ -96,6 +96,4 @@ def decrypt_blob(encrypted: bytes, password: str) -> bytes:
     try:
         return aesgcm.decrypt(nonce, ciphertext, None)
     except InvalidTag as exc:
-        raise ValueError(
-            "Decryption failed — wrong password or corrupted data"
-        ) from exc
+        raise ValueError("Decryption failed — wrong password or corrupted data") from exc

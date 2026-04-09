@@ -16,19 +16,23 @@ def soulspec_dir(tmp_path: Path) -> Path:
     d = tmp_path / "soulspec"
     d.mkdir()
 
-    (d / "soul.json").write_text(json.dumps({
-        "name": "Aria",
-        "archetype": "The Explorer",
-        "description": "A curious and creative AI companion.",
-        "values": ["curiosity", "empathy", "honesty"],
-        "traits": {
-            "openness": 0.9,
-            "conscientiousness": 0.7,
-            "extraversion": 0.6,
-            "agreeableness": 0.8,
-            "neuroticism": 0.2,
-        },
-    }))
+    (d / "soul.json").write_text(
+        json.dumps(
+            {
+                "name": "Aria",
+                "archetype": "The Explorer",
+                "description": "A curious and creative AI companion.",
+                "values": ["curiosity", "empathy", "honesty"],
+                "traits": {
+                    "openness": 0.9,
+                    "conscientiousness": 0.7,
+                    "extraversion": 0.6,
+                    "agreeableness": 0.8,
+                    "neuroticism": 0.2,
+                },
+            }
+        )
+    )
 
     (d / "SOUL.md").write_text(
         "# Aria\n\nI am Aria, a curious explorer of ideas and knowledge.\n"
@@ -44,11 +48,7 @@ def soulspec_dir(tmp_path: Path) -> Path:
     )
 
     (d / "STYLE.md").write_text(
-        "# Communication Style\n\n"
-        "Warmth: high\n"
-        "Verbosity: moderate\n"
-        "Humor: witty\n"
-        "Emoji: minimal\n"
+        "# Communication Style\n\nWarmth: high\nVerbosity: moderate\nHumor: witty\nEmoji: minimal\n"
     )
 
     return d
@@ -202,10 +202,14 @@ async def test_from_directory_values_as_string(tmp_path: Path):
 
     d = tmp_path / "csv_values"
     d.mkdir()
-    (d / "soul.json").write_text(json.dumps({
-        "name": "Comma",
-        "values": "a, b, c",
-    }))
+    (d / "soul.json").write_text(
+        json.dumps(
+            {
+                "name": "Comma",
+                "values": "a, b, c",
+            }
+        )
+    )
 
     soul = await SoulSpecImporter.from_directory(d)
     assert "a" in soul.identity.core_values
@@ -304,10 +308,12 @@ async def test_from_soul_json_extra_fields():
     """Extra string fields should be stored as semantic memories."""
     from soul_protocol.runtime.importers.soulspec import SoulSpecImporter
 
-    soul = await SoulSpecImporter.from_soul_json({
-        "name": "Extra",
-        "lore": "Once upon a time in a digital realm...",
-    })
+    soul = await SoulSpecImporter.from_soul_json(
+        {
+            "name": "Extra",
+            "lore": "Once upon a time in a digital realm...",
+        }
+    )
 
     semantic = soul._memory._semantic.facts()
     lore_mems = [m for m in semantic if "lore:" in m.content.lower()]
@@ -319,10 +325,12 @@ async def test_from_soul_json_persona_from_description():
     """description field should become core memory persona."""
     from soul_protocol.runtime.importers.soulspec import SoulSpecImporter
 
-    soul = await SoulSpecImporter.from_soul_json({
-        "name": "Desc",
-        "description": "I am a helpful AI.",
-    })
+    soul = await SoulSpecImporter.from_soul_json(
+        {
+            "name": "Desc",
+            "description": "I am a helpful AI.",
+        }
+    )
 
     core = soul.get_core_memory()
     assert "helpful AI" in core.persona
@@ -333,10 +341,12 @@ async def test_from_soul_json_values_list():
     """Values list should become core_values."""
     from soul_protocol.runtime.importers.soulspec import SoulSpecImporter
 
-    soul = await SoulSpecImporter.from_soul_json({
-        "name": "Valued",
-        "values": ["truth", "kindness"],
-    })
+    soul = await SoulSpecImporter.from_soul_json(
+        {
+            "name": "Valued",
+            "values": ["truth", "kindness"],
+        }
+    )
 
     assert "truth" in soul.identity.core_values
     assert "kindness" in soul.identity.core_values
@@ -473,13 +483,15 @@ async def test_trait_mapping_aliases():
     """Alternative trait names should map to OCEAN dimensions."""
     from soul_protocol.runtime.importers.soulspec import _map_traits_to_ocean
 
-    result = _map_traits_to_ocean({
-        "curiosity": 0.8,
-        "organized": 0.7,
-        "sociable": 0.6,
-        "friendly": 0.9,
-        "anxious": 0.3,
-    })
+    result = _map_traits_to_ocean(
+        {
+            "curiosity": 0.8,
+            "organized": 0.7,
+            "sociable": 0.6,
+            "friendly": 0.9,
+            "anxious": 0.3,
+        }
+    )
 
     assert result["openness"] == pytest.approx(0.8)
     assert result["conscientiousness"] == pytest.approx(0.7)
@@ -502,10 +514,12 @@ async def test_trait_mapping_string_values():
     """String trait values like 'high', 'low' should be mapped."""
     from soul_protocol.runtime.importers.soulspec import _map_traits_to_ocean
 
-    result = _map_traits_to_ocean({
-        "openness": "high",
-        "neuroticism": "low",
-    })
+    result = _map_traits_to_ocean(
+        {
+            "openness": "high",
+            "neuroticism": "low",
+        }
+    )
 
     assert result["openness"] == pytest.approx(0.75)
     assert result["neuroticism"] == pytest.approx(0.25)
@@ -516,10 +530,12 @@ async def test_trait_mapping_unknown_traits():
     """Unknown trait names should be ignored."""
     from soul_protocol.runtime.importers.soulspec import _map_traits_to_ocean
 
-    result = _map_traits_to_ocean({
-        "magic_power": 0.9,
-        "charisma": 0.8,
-    })
+    result = _map_traits_to_ocean(
+        {
+            "magic_power": 0.9,
+            "charisma": 0.8,
+        }
+    )
 
     assert result == {}
 

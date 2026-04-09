@@ -17,7 +17,6 @@ from soul_protocol.runtime.types import (
     MemoryEntry,
     MemoryType,
     SignificanceScore,
-    SomaticMarker,
 )
 
 if TYPE_CHECKING:
@@ -202,9 +201,7 @@ class DSPyCognitiveProcessor:
         """
         import dspy as _dspy
 
-        existing_str = ", ".join(
-            f.content for f in (existing_facts or []) if not f.superseded_by
-        )
+        existing_str = ", ".join(f.content for f in (existing_facts or []) if not f.superseded_by)
         lm = self._lm
 
         def _run():
@@ -243,7 +240,6 @@ class DSPyCognitiveProcessor:
         Args:
             path: Directory containing optimized module JSON files.
         """
-        import json
         from pathlib import Path
 
         base = Path(path)

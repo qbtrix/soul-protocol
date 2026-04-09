@@ -50,10 +50,14 @@ def test_detect_soulspec_json_file(tmp_path: Path):
 def test_detect_tavernai_json(tmp_path: Path):
     """JSON file with chara_card_v2 spec should be detected as tavernai."""
     f = tmp_path / "card.json"
-    f.write_text(json.dumps({
-        "spec": "chara_card_v2",
-        "data": {"name": "Test"},
-    }))
+    f.write_text(
+        json.dumps(
+            {
+                "spec": "chara_card_v2",
+                "data": {"name": "Test"},
+            }
+        )
+    )
 
     assert detect_format(f) == "tavernai"
 
@@ -88,10 +92,14 @@ def test_detect_soul_protocol_directory(tmp_path: Path):
     """Directory with DSP-formatted soul.json should be detected as soul_protocol."""
     d = tmp_path / "dsp_dir"
     d.mkdir()
-    (d / "soul.json").write_text(json.dumps({
-        "identity": {"name": "Test"},
-        "dna": {},
-    }))
+    (d / "soul.json").write_text(
+        json.dumps(
+            {
+                "identity": {"name": "Test"},
+                "dna": {},
+            }
+        )
+    )
 
     assert detect_format(d) == "soul_protocol"
 
@@ -130,9 +138,13 @@ def test_detect_soulspec_directory_with_soul_json_name_desc(tmp_path: Path):
     """Directory with soul.json containing name+description (no identity/dna) -> soulspec."""
     d = tmp_path / "soulspec_dir"
     d.mkdir()
-    (d / "soul.json").write_text(json.dumps({
-        "name": "Test",
-        "description": "A test soul",
-    }))
+    (d / "soul.json").write_text(
+        json.dumps(
+            {
+                "name": "Test",
+                "description": "A test soul",
+            }
+        )
+    )
 
     assert detect_format(d) == "soulspec"

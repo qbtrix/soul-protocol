@@ -5,22 +5,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
 from soul_protocol.runtime.bridges.a2a import A2AAgentCardBridge
 from soul_protocol.runtime.skills import Skill
 from soul_protocol.runtime.soul import Soul
-from soul_protocol.runtime.types import (
-    DNA,
-    CoreMemory,
-    Identity,
-    Personality,
-    SoulConfig,
-)
 from soul_protocol.spec.a2a import A2AAgentCard, A2ASkill, SoulExtension
-
 
 # ============ Spec Model Tests ============
 
@@ -446,9 +437,7 @@ class TestCLICommands:
         card_file = tmp_path / "card.json"
         card_file.write_text(json.dumps(card))
 
-        soul = A2AAgentCardBridge.agent_card_to_soul(
-            json.loads(card_file.read_text())
-        )
+        soul = A2AAgentCardBridge.agent_card_to_soul(json.loads(card_file.read_text()))
         assert soul.name == "CLIImport"
         assert soul.dna.personality.openness == 0.7
         assert soul.skills.get("test") is not None

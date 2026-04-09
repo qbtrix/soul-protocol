@@ -50,9 +50,7 @@ class TestE2EVectorSearch:
         ]
 
     @pytest.fixture
-    def vector_strategy(
-        self, topic_memories: list[MemoryEntry]
-    ) -> VectorSearchStrategy:
+    def vector_strategy(self, topic_memories: list[MemoryEntry]) -> VectorSearchStrategy:
         """Create a fitted VectorSearchStrategy."""
         corpus = [m.content for m in topic_memories]
         embedder = TFIDFEmbedder(dimensions=128)
@@ -72,8 +70,7 @@ class TestE2EVectorSearch:
         top_contents = [r.content for r in results]
         programming_keywords = ["python", "javascript", "pytest", "docker", "code", "programming"]
         has_programming = any(
-            any(kw in content.lower() for kw in programming_keywords)
-            for content in top_contents
+            any(kw in content.lower() for kw in programming_keywords) for content in top_contents
         )
         assert has_programming, f"Expected programming results in top 4, got: {top_contents}"
 
@@ -89,8 +86,7 @@ class TestE2EVectorSearch:
         top_contents = [r.content for r in results]
         cooking_keywords = ["pasta", "cake", "recipe", "salmon", "bread", "baked", "grilled"]
         has_cooking = any(
-            any(kw in content.lower() for kw in cooking_keywords)
-            for content in top_contents
+            any(kw in content.lower() for kw in cooking_keywords) for content in top_contents
         )
         assert has_cooking, f"Expected cooking results in top 4, got: {top_contents}"
 
@@ -101,14 +97,25 @@ class TestE2EVectorSearch:
     ) -> None:
         """Search for sports-related terms — sports memories should rank higher."""
         # Use terms that actually appear in the sports corpus entries
-        results = vector_strategy.search("football basketball running swimming", topic_memories, limit=4)
+        results = vector_strategy.search(
+            "football basketball running swimming", topic_memories, limit=4
+        )
         assert len(results) > 0
 
         top_contents = [r.content for r in results]
-        sports_keywords = ["football", "running", "basketball", "swimming", "game", "laps", "park", "gym", "pool"]
+        sports_keywords = [
+            "football",
+            "running",
+            "basketball",
+            "swimming",
+            "game",
+            "laps",
+            "park",
+            "gym",
+            "pool",
+        ]
         has_sports = any(
-            any(kw in content.lower() for kw in sports_keywords)
-            for content in top_contents
+            any(kw in content.lower() for kw in sports_keywords) for content in top_contents
         )
         assert has_sports, f"Expected sports results in top 4, got: {top_contents}"
 
@@ -152,9 +159,7 @@ class TestE2EVectorSearch:
 
         embedder = vector_strategy.embedder
         query_vec = embedder.embed("python coding")
-        similarities = [
-            cosine_similarity(query_vec, embedder.embed(r.content)) for r in results
-        ]
+        similarities = [cosine_similarity(query_vec, embedder.embed(r.content)) for r in results]
         # Verify descending order
         for i in range(len(similarities) - 1):
             assert similarities[i] >= similarities[i + 1] - 1e-9

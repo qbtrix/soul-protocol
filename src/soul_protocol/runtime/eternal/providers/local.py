@@ -40,9 +40,7 @@ class LocalStorageProvider:
         safe_name = reference.replace(":", "_").replace("/", "_")
         return self._base_dir / f"{safe_name}.soul"
 
-    async def archive(
-        self, soul_data: bytes, soul_id: str, **kwargs: Any
-    ) -> ArchiveResult:
+    async def archive(self, soul_data: bytes, soul_id: str, **kwargs: Any) -> ArchiveResult:
         """Archive soul data to local filesystem."""
         self._base_dir.mkdir(parents=True, exist_ok=True)
         ref = self._ref_for(soul_data, soul_id)
@@ -63,9 +61,7 @@ class LocalStorageProvider:
         """Retrieve soul data from local filesystem."""
         path = self._path_for(reference)
         if not path.exists():
-            raise FileNotFoundError(
-                f"No local archive found at {path} for reference '{reference}'"
-            )
+            raise FileNotFoundError(f"No local archive found at {path} for reference '{reference}'")
         return path.read_bytes()
 
     async def verify(self, reference: str) -> bool:

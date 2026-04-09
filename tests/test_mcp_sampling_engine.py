@@ -4,12 +4,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # MCPSamplingEngine unit tests
@@ -112,7 +110,7 @@ class TestMCPSamplingEngineFallbackOnError:
         from soul_protocol.runtime.cognitive.adapters.mcp_sampling import MCPSamplingEngine
 
         mock_ctx = MagicMock()
-        mock_ctx.sample = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_ctx.sample = AsyncMock(side_effect=TimeoutError())
 
         engine = MCPSamplingEngine(mock_ctx)
         result = await engine.think("[TASK:extract_facts] User: My name is Alice")

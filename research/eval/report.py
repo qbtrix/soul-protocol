@@ -49,6 +49,7 @@ def _use_color() -> bool:
 # Score labels and status symbols
 # ---------------------------------------------------------------------------
 
+
 def _score_label(score: float) -> tuple[str, str]:
     """Return (label, symbol) for a given 0-100 score."""
     if score >= 90:
@@ -75,6 +76,7 @@ def _score_color(score: float) -> str:
 # 1. Markdown report
 # ---------------------------------------------------------------------------
 
+
 def render_markdown(report: SoulHealthReport) -> str:
     """Render a SoulHealthReport as a pretty markdown table for terminal or whitepaper."""
     label, emoji = _score_label(report.soul_health_score)
@@ -100,10 +102,7 @@ def render_markdown(report: SoulHealthReport) -> str:
             f"| {len(r.passed)} | {len(r.failed)} | {status} |"
         )
 
-    lines.append(
-        f"| — | **Soul Health Score** | **{report.soul_health_score}** "
-        f"| | | {emoji} |"
-    )
+    lines.append(f"| — | **Soul Health Score** | **{report.soul_health_score}** | | | {emoji} |")
     lines.append("")
 
     # Dimension details
@@ -158,6 +157,7 @@ def render_markdown(report: SoulHealthReport) -> str:
 # 2. JSON report
 # ---------------------------------------------------------------------------
 
+
 def render_json(report: SoulHealthReport) -> str:
     """Serialize a SoulHealthReport to JSON with pretty-printing."""
 
@@ -173,6 +173,7 @@ def render_json(report: SoulHealthReport) -> str:
 # 3. Whitepaper comparison table (Full Soul vs RAG Only)
 # ---------------------------------------------------------------------------
 
+
 def render_comparison_table(report: SoulHealthReport) -> str:
     """Render a comparison table: Full Soul vs RAG Only baseline.
 
@@ -186,9 +187,7 @@ def render_comparison_table(report: SoulHealthReport) -> str:
     lines.append("|-----------|-----------|----------|-------|")
 
     # Build a lookup for quick access
-    dim_map: dict[int, DimensionResult] = {
-        r.dimension_id: r for r in report.dimension_results
-    }
+    dim_map: dict[int, DimensionResult] = {r.dimension_id: r for r in report.dimension_results}
 
     rag_shs = 0.0
 
@@ -214,9 +213,7 @@ def render_comparison_table(report: SoulHealthReport) -> str:
                 rag_score_str = "N/A"
                 delta_str = "—"
 
-        lines.append(
-            f"| {name} (D{dim_id}) | {full_score:.1f} | {rag_score_str} | {delta_str} |"
-        )
+        lines.append(f"| {name} (D{dim_id}) | {full_score:.1f} | {rag_score_str} | {delta_str} |")
 
     # Summary row
     full_shs = report.soul_health_score
@@ -234,6 +231,7 @@ def render_comparison_table(report: SoulHealthReport) -> str:
 # ---------------------------------------------------------------------------
 # 4. Terminal dashboard with ANSI colors and bar charts
 # ---------------------------------------------------------------------------
+
 
 def _bar(score: float, width: int = 20) -> str:
     """Render a bar chart: [████████░░] score/100."""

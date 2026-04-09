@@ -4,12 +4,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
-
 
 # ============ Fixtures ============
 
@@ -54,7 +51,9 @@ def rich_graph() -> KnowledgeGraph:
     g.add_entity("Python", "technology")
     g.add_entity("Rust", "technology")
     g.add_entity("ACME", "company")
-    g.add_relationship("Alice", "Python", "uses", metadata={"context": "Primary language", "confidence": 0.9})
+    g.add_relationship(
+        "Alice", "Python", "uses", metadata={"context": "Primary language", "confidence": 0.9}
+    )
     g.add_relationship("Alice", "ACME", "works_at")
     g.add_relationship("Bob", "Python", "uses")
     g.add_relationship("Bob", "Rust", "uses")

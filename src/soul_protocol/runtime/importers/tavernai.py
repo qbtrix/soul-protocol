@@ -36,9 +36,7 @@ def _validate_card_v2(data: dict[str, Any]) -> dict[str, Any]:
     """
     spec = data.get("spec", "")
     if spec != CHARA_CARD_V2_SPEC:
-        raise ValueError(
-            f"Not a Character Card V2: spec='{spec}', expected '{CHARA_CARD_V2_SPEC}'"
-        )
+        raise ValueError(f"Not a Character Card V2: spec='{spec}', expected '{CHARA_CARD_V2_SPEC}'")
 
     card_data = data.get("data")
     if not isinstance(card_data, dict):
@@ -76,29 +74,29 @@ def _extract_json_from_png(png_bytes: bytes) -> dict[str, Any]:
             break
 
         # Read chunk length and type
-        chunk_len = struct.unpack(">I", png_bytes[offset:offset + 4])[0]
-        chunk_type = png_bytes[offset + 4:offset + 8]
+        chunk_len = struct.unpack(">I", png_bytes[offset : offset + 4])[0]
+        chunk_type = png_bytes[offset + 4 : offset + 8]
 
         if chunk_type == b"tEXt":
             # tEXt chunk: keyword\0value
-            chunk_data = png_bytes[offset + 8:offset + 8 + chunk_len]
+            chunk_data = png_bytes[offset + 8 : offset + 8 + chunk_len]
             null_idx = chunk_data.find(b"\x00")
             if null_idx >= 0:
                 keyword = chunk_data[:null_idx].decode("latin-1")
-                value = chunk_data[null_idx + 1:]
+                value = chunk_data[null_idx + 1 :]
                 if keyword == "chara":
                     decoded = base64.b64decode(value)
                     return json.loads(decoded)
 
         elif chunk_type == b"iTXt":
             # iTXt chunk: keyword\0compression_flag\0compression_method\0language\0translated_keyword\0text
-            chunk_data = png_bytes[offset + 8:offset + 8 + chunk_len]
+            chunk_data = png_bytes[offset + 8 : offset + 8 + chunk_len]
             null_idx = chunk_data.find(b"\x00")
             if null_idx >= 0:
                 keyword = chunk_data[:null_idx].decode("latin-1")
                 if keyword == "chara":
                     # Parse iTXt structure
-                    rest = chunk_data[null_idx + 1:]
+                    rest = chunk_data[null_idx + 1 :]
                     if len(rest) >= 2:
                         compression_flag = rest[0]
                         # Skip compression_method, language, translated_keyword
@@ -106,11 +104,11 @@ def _extract_json_from_png(png_bytes: bytes) -> dict[str, Any]:
                         # Find end of language tag
                         lang_end = rest.find(b"\x00")
                         if lang_end >= 0:
-                            rest = rest[lang_end + 1:]
+                            rest = rest[lang_end + 1 :]
                             # Find end of translated keyword
                             trans_end = rest.find(b"\x00")
                             if trans_end >= 0:
-                                text_data = rest[trans_end + 1:]
+                                text_data = rest[trans_end + 1 :]
                                 if compression_flag:
                                     text_data = zlib.decompress(text_data)
                                 decoded = base64.b64decode(text_data)
@@ -143,10 +141,7 @@ def _build_png_with_chara(image_bytes: bytes, card_json: dict[str, Any]) -> byte
     chunk_type = b"tEXt"
     chunk_crc = zlib.crc32(chunk_type + text_data) & 0xFFFFFFFF
     text_chunk = (
-        struct.pack(">I", len(text_data))
-        + chunk_type
-        + text_data
-        + struct.pack(">I", chunk_crc)
+        struct.pack(">I", len(text_data)) + chunk_type + text_data + struct.pack(">I", chunk_crc)
     )
 
     png_sig = b"\x89PNG\r\n\x1a\n"
@@ -170,7 +165,9 @@ def _minimal_png() -> bytes:
     sig = b"\x89PNG\r\n\x1a\n"
 
     # IHDR chunk: 1x1, 8-bit RGBA
-    ihdr_data = struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0)  # width, height, bit_depth, color_type, compression, filter, interlace
+    ihdr_data = struct.pack(
+        ">IIBBBBB", 1, 1, 8, 6, 0, 0, 0
+    )  # width, height, bit_depth, color_type, compression, filter, interlace
     ihdr_type = b"IHDR"
     ihdr_crc = zlib.crc32(ihdr_type + ihdr_data) & 0xFFFFFFFF
     ihdr = struct.pack(">I", len(ihdr_data)) + ihdr_type + ihdr_data + struct.pack(">I", ihdr_crc)
@@ -214,7 +211,7 @@ class TavernAIImporter:
     """
 
     @staticmethod
-    async def from_json(data: dict[str, Any]) -> "Soul":
+    async def from_json(data: dict[str, Any]) -> Soul:
         """Create a Soul from a Character Card V2 JSON dict.
 
         Args:
@@ -307,7 +304,7 @@ class TavernAIImporter:
         return soul
 
     @staticmethod
-    async def from_png(path: str | Path) -> "Soul":
+    async def from_png(path: str | Path) -> Soul:
         """Extract Character Card V2 JSON from a PNG file and create a Soul.
 
         TavernAI character cards can be embedded in PNG files as a tEXt chunk
@@ -332,7 +329,7 @@ class TavernAIImporter:
         return await TavernAIImporter.from_json(card_json)
 
     @staticmethod
-    async def to_character_card(soul: "Soul") -> dict[str, Any]:
+    async def to_character_card(soul: Soul) -> dict[str, Any]:
         """Export a Soul to Character Card V2 JSON format.
 
         Args:
@@ -393,7 +390,9 @@ class TavernAIImporter:
         return card
 
     @staticmethod
-    async def to_png(soul: "Soul", output_path: str | Path, image_path: str | Path | None = None) -> Path:
+    async def to_png(
+        soul: Soul, output_path: str | Path, image_path: str | Path | None = None
+    ) -> Path:
         """Export a Soul to a PNG file with embedded Character Card V2.
 
         Args:

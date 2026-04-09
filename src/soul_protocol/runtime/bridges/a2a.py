@@ -9,7 +9,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from soul_protocol.runtime.skills import Skill, SkillRegistry
+from soul_protocol.runtime.skills import Skill
 from soul_protocol.runtime.types import (
     DNA,
     CoreMemory,
@@ -61,9 +61,7 @@ class A2AAgentCardBridge:
         soul_ext = SoulExtension(
             did=soul.did,
             personality=ocean_dict,
-            soul_version=getattr(soul, "_config", None)
-            and soul._config.version
-            or "1.0.0",
+            soul_version=getattr(soul, "_config", None) and soul._config.version or "1.0.0",
             protocol="dsp/1.0",
         )
 
@@ -104,8 +102,13 @@ class A2AAgentCardBridge:
         soul_ext_data = card.extensions.get("soul", {})
         if isinstance(soul_ext_data, dict):
             personality_data = soul_ext_data.get("personality", {})
-            for trait in ("openness", "conscientiousness", "extraversion",
-                          "agreeableness", "neuroticism"):
+            for trait in (
+                "openness",
+                "conscientiousness",
+                "extraversion",
+                "agreeableness",
+                "neuroticism",
+            ):
                 if trait in personality_data:
                     personality_kwargs[trait] = float(personality_data[trait])
 
@@ -170,9 +173,7 @@ class A2AAgentCardBridge:
         soul_ext = SoulExtension(
             did=soul.did,
             personality=ocean_dict,
-            soul_version=getattr(soul, "_config", None)
-            and soul._config.version
-            or "1.0.0",
+            soul_version=getattr(soul, "_config", None) and soul._config.version or "1.0.0",
             protocol="dsp/1.0",
         )
 

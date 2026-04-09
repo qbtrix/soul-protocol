@@ -4,7 +4,9 @@
 #   semantic fact stored in a previous session (e.g., location or employer changes).
 
 """Tests for end-to-end contradiction detection across observe() sessions."""
+
 import pytest
+
 from soul_protocol.runtime.types import Interaction
 
 
@@ -34,11 +36,10 @@ async def test_location_contradiction_across_sessions(tmp_path):
     # SemanticStore.facts(include_superseded=True) exposes all facts including
     # superseded ones so we can assert the old fact was properly retired.
     semantics = soul._memory._semantic.facts(include_superseded=True)
-    nyc_facts = [f for f in semantics if "nyc" in f.content.lower() and "lives" in f.content.lower()]
-    amsterdam_facts = [
-        f for f in semantics
-        if "amsterdam" in f.content.lower()
+    nyc_facts = [
+        f for f in semantics if "nyc" in f.content.lower() and "lives" in f.content.lower()
     ]
+    amsterdam_facts = [f for f in semantics if "amsterdam" in f.content.lower()]
 
     # Amsterdam should exist
     assert len(amsterdam_facts) > 0, "Amsterdam location not stored at all"
@@ -85,9 +86,10 @@ async def test_employer_contradiction_across_sessions(tmp_path):
 @pytest.mark.asyncio
 async def test_contradiction_detection_returns_results(tmp_path):
     """ContradictionDetector.detect_heuristic() should return results for verb-fact conflicts."""
+    import uuid
+
     from soul_protocol.runtime.memory.contradiction import ContradictionDetector
     from soul_protocol.runtime.types import MemoryEntry, MemoryType
-    import uuid
 
     detector = ContradictionDetector()
     existing = [
@@ -109,9 +111,10 @@ async def test_contradiction_detection_returns_results(tmp_path):
 @pytest.mark.asyncio
 async def test_non_contradiction_not_flagged(tmp_path):
     """Unrelated facts should not be flagged as contradictions."""
+    import uuid
+
     from soul_protocol.runtime.memory.contradiction import ContradictionDetector
     from soul_protocol.runtime.types import MemoryEntry, MemoryType
-    import uuid
 
     detector = ContradictionDetector()
     existing = [

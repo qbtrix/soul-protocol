@@ -99,9 +99,7 @@ async def unpack_soul(
             "general_events",
         ]:
             mem_path = f"memory/{tier_name}.json"
-            exists = (
-                (f"{mem_path}.enc" in names) if is_encrypted else (mem_path in names)
-            )
+            exists = (f"{mem_path}.enc" in names) if is_encrypted else (mem_path in names)
             if exists:
                 tier_raw = _read(mem_path)
                 memory_data[tier_name] = json.loads(tier_raw)

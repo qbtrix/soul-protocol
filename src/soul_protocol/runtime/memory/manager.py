@@ -77,16 +77,16 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from soul_protocol.runtime.memory.archival import ArchivalMemoryStore, ConversationArchive
 from soul_protocol.runtime.memory.attention import (
     is_significant,
     overall_significance,
 )
-from soul_protocol.runtime.memory.core import CoreMemoryManager
 from soul_protocol.runtime.memory.contradiction import ContradictionDetector
-from soul_protocol.runtime.memory.archival import ArchivalMemoryStore, ConversationArchive
+from soul_protocol.runtime.memory.core import CoreMemoryManager
 from soul_protocol.runtime.memory.dedup import reconcile_fact
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
@@ -142,9 +142,7 @@ FACT_PATTERNS: list[tuple[re.Pattern[str], int, str]] = [
         "User uses {0}",
     ),
     (
-        re.compile(
-            r"i(?:'m| am) (?:building|creating|making) (\w[\w\s]{2,30})", re.IGNORECASE
-        ),
+        re.compile(r"i(?:'m| am) (?:building|creating|making) (\w[\w\s]{2,30})", re.IGNORECASE),
         7,
         "User is building {0}",
     ),
@@ -329,17 +327,42 @@ _TOPIC_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     # "I work on the API layer" / "I work on machine learning"
     (re.compile(r"i work on " + _TOPIC_CAPTURE, re.IGNORECASE), "topic", "works_on"),
     # "I'm interested in distributed systems"
-    (re.compile(r"i(?:'m| am) interested in " + _TOPIC_CAPTURE, re.IGNORECASE), "topic", "interested_in"),
+    (
+        re.compile(r"i(?:'m| am) interested in " + _TOPIC_CAPTURE, re.IGNORECASE),
+        "topic",
+        "interested_in",
+    ),
     # "I'm working on a new feature" / "I'm working on soul protocol"
     (re.compile(r"i(?:'m| am) working on " + _TOPIC_CAPTURE, re.IGNORECASE), "topic", "works_on"),
     # "at Google" / "at Acme Corp" (organization)
-    (re.compile(r"(?:work|working) (?:at|for) ((?:[A-Z][\w]*(?:\s+[A-Z][\w]*){0,3}))"), "organization", "works_at"),
+    (
+        re.compile(r"(?:work|working) (?:at|for) ((?:[A-Z][\w]*(?:\s+[A-Z][\w]*){0,3}))"),
+        "organization",
+        "works_at",
+    ),
     # "my project is called X" / "the project is X"
-    (re.compile(r"(?:project|app|tool|product) (?:is |called |named )([\w][\w\-]+)", re.IGNORECASE), "project", "builds"),
+    (
+        re.compile(
+            r"(?:project|app|tool|product) (?:is |called |named )([\w][\w\-]+)", re.IGNORECASE
+        ),
+        "project",
+        "builds",
+    ),
     # "I manage a team" / "I lead the engineering team"
-    (re.compile(r"i (?:manage|lead|run|own) (?:a |the )?" + _TOPIC_CAPTURE, re.IGNORECASE), "topic", "manages"),
+    (
+        re.compile(r"i (?:manage|lead|run|own) (?:a |the )?" + _TOPIC_CAPTURE, re.IGNORECASE),
+        "topic",
+        "manages",
+    ),
     # "we're building X" / "we are building X"
-    (re.compile(r"we(?:'re| are) (?:building|creating|making|developing) " + _TOPIC_CAPTURE, re.IGNORECASE), "project", "builds"),
+    (
+        re.compile(
+            r"we(?:'re| are) (?:building|creating|making|developing) " + _TOPIC_CAPTURE,
+            re.IGNORECASE,
+        ),
+        "project",
+        "builds",
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -360,9 +383,7 @@ _THIRD_PERSON_RELATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         "leads",
     ),
     (
-        re.compile(
-            r"(\w+)\s+(?:works?\s+(?:at|for)|joined?)\s+(\w+)", re.IGNORECASE
-        ),
+        re.compile(r"(\w+)\s+(?:works?\s+(?:at|for)|joined?)\s+(\w+)", re.IGNORECASE),
         "works_at",
     ),
     (
@@ -380,21 +401,76 @@ _THIRD_PERSON_RELATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 _STOP_WORDS: set[str] = {
-    "i", "the", "a", "an", "is", "are", "was", "were", "be", "been",
-    "it", "its", "my", "we", "our", "you", "your", "he", "she", "they",
-    "this", "that", "these", "those", "what", "which", "who", "how",
-    "can", "could", "will", "would", "should", "do", "does", "did",
-    "but", "and", "or", "not", "no", "yes", "so", "if", "then",
-    "also", "just", "very", "really", "well", "here", "there",
-    "user", "agent", "let", "me", "hi", "hello", "hey",
-    "thanks", "thank", "please", "sure", "okay", "ok",
+    "i",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "it",
+    "its",
+    "my",
+    "we",
+    "our",
+    "you",
+    "your",
+    "he",
+    "she",
+    "they",
+    "this",
+    "that",
+    "these",
+    "those",
+    "what",
+    "which",
+    "who",
+    "how",
+    "can",
+    "could",
+    "will",
+    "would",
+    "should",
+    "do",
+    "does",
+    "did",
+    "but",
+    "and",
+    "or",
+    "not",
+    "no",
+    "yes",
+    "so",
+    "if",
+    "then",
+    "also",
+    "just",
+    "very",
+    "really",
+    "well",
+    "here",
+    "there",
+    "user",
+    "agent",
+    "let",
+    "me",
+    "hi",
+    "hello",
+    "hey",
+    "thanks",
+    "thank",
+    "please",
+    "sure",
+    "okay",
+    "ok",
 }
 
 
 _FACT_PREFIXES: list[str] = [
-    template.split("{")[0].strip()
-    for _, _, template in FACT_PATTERNS
-    if "{" in template
+    template.split("{")[0].strip() for _, _, template in FACT_PATTERNS if "{" in template
 ]
 
 
@@ -480,7 +556,7 @@ class MemoryManager:
                 entity_extractor=self.extract_entities,
             )
 
-    def set_engine(self, engine: "CognitiveEngine") -> None:
+    def set_engine(self, engine: CognitiveEngine) -> None:
         """Swap the CognitiveEngine at runtime without re-initializing the MemoryManager.
 
         Called by Soul.set_engine() when a new engine becomes available after
@@ -517,9 +593,7 @@ class MemoryManager:
     def set_core(self, persona: str, human: str) -> None:
         self._core_manager.set(persona=persona, human=human)
 
-    async def edit_core(
-        self, persona: str | None = None, human: str | None = None
-    ) -> None:
+    async def edit_core(self, persona: str | None = None, human: str | None = None) -> None:
         """Replace core memory fields (provided values overwrite existing)."""
         self._core_manager.edit(persona=persona, human=human)
 
@@ -586,9 +660,7 @@ class MemoryManager:
         token_count = len(tokenize(combined_text))
         sig_value = overall_significance(sig_score, token_count=token_count)
         significant = is_significant(sig_score, token_count=token_count)
-        logger.debug(
-            "Significance assessed: score=%.3f, significant=%s", sig_value, significant
-        )
+        logger.debug("Significance assessed: score=%.3f, significant=%s", sig_value, significant)
 
         # --- 3. Conditional episodic storage ---
         episodic_id: str | None = None
@@ -609,7 +681,9 @@ class MemoryManager:
 
         # --- 4. Extract and store semantic facts ---
         facts = await self._cognitive.extract_facts(
-            interaction, self._semantic.facts(), significance=sig_score,
+            interaction,
+            self._semantic.facts(),
+            significance=sig_score,
         )
         await self._resolve_fact_conflicts(facts)
         # Phase 2: dedup pipeline before storing
@@ -628,7 +702,8 @@ class MemoryManager:
                         ef.superseded_by = fact.id
                         logger.debug(
                             "Dedup MERGE: old id=%s superseded by %s",
-                            merge_id, fact.id,
+                            merge_id,
+                            fact.id,
                         )
                         break
                 stored_facts.append(fact)
@@ -670,9 +745,7 @@ class MemoryManager:
         if detect_contradictions and stored_facts:
             all_semantic = self._semantic.facts(include_superseded=False)
             for fact in stored_facts:
-                cresults = await self._contradiction_detector.detect(
-                    fact.content, all_semantic
-                )
+                cresults = await self._contradiction_detector.detect(fact.content, all_semantic)
                 for cr in cresults:
                     if cr.is_contradiction and cr.old_memory_id:
                         # Mark old memory as superseded
@@ -682,15 +755,19 @@ class MemoryManager:
                                 existing_fact.superseded_by = fact.id
                                 logger.debug(
                                     "Contradiction: old_id=%s superseded by new_id=%s reason=%s",
-                                    cr.old_memory_id, fact.id, cr.reason,
+                                    cr.old_memory_id,
+                                    fact.id,
+                                    cr.reason,
                                 )
                                 break
-                        contradictions.append({
-                            "old_id": cr.old_memory_id,
-                            "new_id": fact.id,
-                            "reason": cr.reason,
-                            "confidence": cr.confidence,
-                        })
+                        contradictions.append(
+                            {
+                                "old_id": cr.old_memory_id,
+                                "new_id": fact.id,
+                                "reason": cr.reason,
+                                "confidence": cr.confidence,
+                            }
+                        )
 
         # --- 4d. Raw-text contradiction scan (verb-fact fallback) ---
         # When the heuristic extractor misses a fact update (e.g. "I moved to
@@ -718,17 +795,19 @@ class MemoryManager:
                         existing_fact.superseded_by = "raw-text-contradiction"
                         logger.debug(
                             "Raw-text contradiction: old_id=%s superseded, reason=%s",
-                            cr.old_memory_id, cr.reason,
+                            cr.old_memory_id,
+                            cr.reason,
                         )
                         break
                 already_superseded.add(cr.old_memory_id)
-                contradictions.append({
-                    "old_id": cr.old_memory_id,
-                    "new_id": "raw-text-contradiction",
-                    "reason": cr.reason,
-                    "confidence": cr.confidence,
-                })
-
+                contradictions.append(
+                    {
+                        "old_id": cr.old_memory_id,
+                        "new_id": "raw-text-contradiction",
+                        "reason": cr.reason,
+                        "confidence": cr.confidence,
+                    }
+                )
 
         # --- 5. Extract entities (with provenance metadata) ---
         # --- 6. Update self-model ---
@@ -737,10 +816,7 @@ class MemoryManager:
         # accounts for both the initial significance gate (step 2) AND
         # fact-based promotion (step 4b), so we only skip when the interaction
         # truly had no meaningful content.
-        skip_deep = (
-            not significant
-            and self._settings.skip_deep_processing_on_low_significance
-        )
+        skip_deep = not significant and self._settings.skip_deep_processing_on_low_significance
 
         entities: list[dict] = []
         if skip_deep:
@@ -751,7 +827,8 @@ class MemoryManager:
             )
         else:
             entities = await self._cognitive.extract_entities(
-                interaction, source_memory_id=episodic_id,
+                interaction,
+                source_memory_id=episodic_id,
             )
             if entities:
                 logger.debug(
@@ -812,9 +889,7 @@ class MemoryManager:
         """Access the archival memory store."""
         return self._archival
 
-    async def archive_old_memories(
-        self, max_age_hours: float = 48.0
-    ) -> ConversationArchive | None:
+    async def archive_old_memories(self, max_age_hours: float = 48.0) -> ConversationArchive | None:
         """Compress old episodic memories into a ConversationArchive.
 
         Gathers episodic memories older than ``max_age_hours``, generates a
@@ -858,11 +933,7 @@ class MemoryManager:
         summary = ". ".join(sentences[:10]) + "." if sentences else "Archived memories."
 
         # Key moments: high-importance entries
-        key_moments = [
-            entry.content[:200]
-            for entry in old_entries
-            if entry.importance >= 7
-        ]
+        key_moments = [entry.content[:200] for entry in old_entries if entry.importance >= 7]
 
         # Memory refs for provenance tracking
         memory_refs = [entry.id for entry in old_entries]
@@ -919,7 +990,7 @@ class MemoryManager:
         if total > 0:
             self._deletion_audit.append(
                 {
-                    "deleted_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": datetime.now(UTC).isoformat(),
                     "count": total,
                     "reason": f"forget(query='{query}')",
                     "tiers": {
@@ -969,7 +1040,7 @@ class MemoryManager:
         if total > 0:
             self._deletion_audit.append(
                 {
-                    "deleted_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": datetime.now(UTC).isoformat(),
                     "count": total,
                     "reason": f"forget_entity(entity='{entity}')",
                     "tiers": {
@@ -1016,7 +1087,7 @@ class MemoryManager:
         if total > 0:
             self._deletion_audit.append(
                 {
-                    "deleted_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": datetime.now(UTC).isoformat(),
                     "count": total,
                     "reason": f"forget_before(timestamp='{timestamp.isoformat()}')",
                     "tiers": {
@@ -1073,8 +1144,7 @@ class MemoryManager:
                     continue
 
                 is_duplicate = any(
-                    _token_overlap_score(content, existing) > 0.7
-                    for existing in existing_facts
+                    _token_overlap_score(content, existing) > 0.7 for existing in existing_facts
                 )
                 if is_duplicate:
                     continue
@@ -1211,8 +1281,7 @@ class MemoryManager:
                 # Add directed edge from subject to object
                 subj_rels = entities[subj_key]["relationships"]
                 if not any(
-                    r["target"] == obj_raw and r["relation"] == relation_type
-                    for r in subj_rels
+                    r["target"] == obj_raw and r["relation"] == relation_type for r in subj_rels
                 ):
                     subj_rels.append({"target": obj_raw, "relation": relation_type})
 
@@ -1220,8 +1289,7 @@ class MemoryManager:
                 if relation_type == "colleague":
                     obj_rels = entities[obj_key]["relationships"]
                     if not any(
-                        r["target"] == subj_raw and r["relation"] == "colleague"
-                        for r in obj_rels
+                        r["target"] == subj_raw and r["relation"] == "colleague" for r in obj_rels
                     ):
                         obj_rels.append({"target": subj_raw, "relation": "colleague"})
 
@@ -1245,7 +1313,10 @@ class MemoryManager:
                 relation = rel.get("relation", "related_to")
                 if target:
                     self._graph.add_relationship(
-                        name, target, relation, metadata=edge_metadata,
+                        name,
+                        target,
+                        relation,
+                        metadata=edge_metadata,
                     )
 
     @property
@@ -1263,9 +1334,7 @@ class MemoryManager:
 
     # ---- Consolidation ----
 
-    async def consolidate(
-        self, result: ReflectionResult, soul_name: str = "soul"
-    ) -> dict:
+    async def consolidate(self, result: ReflectionResult, soul_name: str = "soul") -> dict:
         applied: dict = {
             "summaries": 0,
             "general_events": 0,
@@ -1292,9 +1361,7 @@ class MemoryManager:
                 applied["general_events"] += 1
 
         if result.self_insight:
-            self._self_model._relationship_notes["self_insight"] = (
-                result.self_insight
-            )
+            self._self_model._relationship_notes["self_insight"] = result.self_insight
             applied["self_insight"] = True
 
         if result.emotional_patterns:
@@ -1349,16 +1416,11 @@ class MemoryManager:
                 for fact in existing_facts:
                     if fact.superseded_by is not None:
                         continue
-                    if (
-                        fact.content.startswith(prefix)
-                        and fact.content != new_content
-                    ):
+                    if fact.content.startswith(prefix) and fact.content != new_content:
                         return fact
         return None
 
-    async def _resolve_fact_conflicts(
-        self, new_facts: list[MemoryEntry]
-    ) -> list[MemoryEntry]:
+    async def _resolve_fact_conflicts(self, new_facts: list[MemoryEntry]) -> list[MemoryEntry]:
         existing = self._semantic.facts()
         for fact in new_facts:
             conflict = self._find_conflict(fact.content, existing)
@@ -1374,9 +1436,7 @@ class MemoryManager:
     # ---- Lifecycle ----
 
     async def clear(self) -> None:
-        self._episodic = EpisodicStore(
-            max_entries=self._settings.episodic_max_entries
-        )
+        self._episodic = EpisodicStore(max_entries=self._settings.episodic_max_entries)
         self._semantic = SemanticStore(max_facts=self._settings.semantic_max_facts)
         self._procedural = ProceduralStore()
         self._graph = KnowledgeGraph()
@@ -1408,24 +1468,17 @@ class MemoryManager:
     def to_dict(self) -> dict:
         return {
             "core": self._core_manager.get().model_dump(),
-            "episodic": [
-                entry.model_dump(mode="json") for entry in self._episodic.entries()
-            ],
+            "episodic": [entry.model_dump(mode="json") for entry in self._episodic.entries()],
             "semantic": [
                 fact.model_dump(mode="json")
                 for fact in self._semantic.facts(include_superseded=True)
             ],
-            "procedural": [
-                proc.model_dump(mode="json") for proc in self._procedural.entries()
-            ],
+            "procedural": [proc.model_dump(mode="json") for proc in self._procedural.entries()],
             "graph": self._graph.to_dict(),
             "self_model": self._self_model.to_dict(),
-            "general_events": [
-                ge.model_dump(mode="json") for ge in self._general_events.values()
-            ],
+            "general_events": [ge.model_dump(mode="json") for ge in self._general_events.values()],
             "archives": [
-                archive.model_dump(mode="json")
-                for archive in self._archival.all_archives()
+                archive.model_dump(mode="json") for archive in self._archival.all_archives()
             ],
         }
 

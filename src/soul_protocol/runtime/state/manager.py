@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from soul_protocol.runtime.types import (
     Biorhythms,
@@ -30,9 +30,7 @@ _LABEL_TO_MOOD: dict[str, Mood] = {
 }
 
 
-def _somatic_to_mood(
-    somatic: SomaticMarker, mood_sensitivity: float = 0.25
-) -> Mood | None:
+def _somatic_to_mood(somatic: SomaticMarker, mood_sensitivity: float = 0.25) -> Mood | None:
     """Map a somatic marker to a Mood, or None if too mild to shift.
 
     Uses label as primary lookup (avoids re-deriving quadrant logic that
@@ -140,9 +138,9 @@ class StateManager:
         last = self._state.last_interaction
         # Ensure both datetimes are tz-aware for comparison
         if last.tzinfo is None:
-            last = last.replace(tzinfo=timezone.utc)
+            last = last.replace(tzinfo=UTC)
         if now.tzinfo is None:
-            now = now.replace(tzinfo=timezone.utc)
+            now = now.replace(tzinfo=UTC)
 
         elapsed_hours = max(0.0, (now - last).total_seconds() / 3600.0)
         if elapsed_hours <= 0:
@@ -195,9 +193,7 @@ class StateManager:
                 old_mood = self._state.mood
                 self._state.mood = new_mood
                 if old_mood != new_mood:
-                    logger.debug(
-                        "Mood shifted: %s -> %s", old_mood.value, new_mood.value
-                    )
+                    logger.debug("Mood shifted: %s -> %s", old_mood.value, new_mood.value)
 
         # Low energy overrides everything (0 = disabled)
         if self._bio.tired_threshold > 0 and self._state.energy < self._bio.tired_threshold:

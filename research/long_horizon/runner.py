@@ -24,7 +24,7 @@ from typing import Any
 
 from soul_protocol.runtime.types import Interaction
 
-from .scenarios import LongHorizonScenario, TestPoint
+from .scenarios import LongHorizonScenario
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +33,10 @@ logger = logging.getLogger(__name__)
 # Condition definitions for long-horizon study
 # ---------------------------------------------------------------------------
 
+
 class ConditionType:
     """The 4 ablation conditions for long-horizon evaluation."""
+
     FULL_SOUL = "full_soul"
     RAG_ONLY = "rag_only"
     PERSONALITY_ONLY = "personality_only"
@@ -52,6 +54,7 @@ ALL_CONDITIONS = [
 # ---------------------------------------------------------------------------
 # Per-condition result
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ConditionResult:
@@ -111,27 +114,30 @@ class LongHorizonResults:
         rows = []
         for sr in self.scenario_results:
             for cond, cr in sr.condition_results.items():
-                rows.append({
-                    "scenario": sr.scenario_id,
-                    "scenario_name": sr.scenario_name,
-                    "condition": cond,
-                    "total_turns": cr.total_turns,
-                    "recall_precision": cr.recall_precision,
-                    "recall_hits": cr.recall_hits,
-                    "recall_total": cr.recall_hits + cr.recall_misses,
-                    "memory_efficiency": cr.memory_efficiency,
-                    "total_memories": cr.total_memories,
-                    "episodic_count": cr.episodic_count,
-                    "semantic_count": cr.semantic_count,
-                    "bond_strength": cr.bond_strength,
-                    "duration_seconds": cr.duration_seconds,
-                })
+                rows.append(
+                    {
+                        "scenario": sr.scenario_id,
+                        "scenario_name": sr.scenario_name,
+                        "condition": cond,
+                        "total_turns": cr.total_turns,
+                        "recall_precision": cr.recall_precision,
+                        "recall_hits": cr.recall_hits,
+                        "recall_total": cr.recall_hits + cr.recall_misses,
+                        "memory_efficiency": cr.memory_efficiency,
+                        "total_memories": cr.total_memories,
+                        "episodic_count": cr.episodic_count,
+                        "semantic_count": cr.semantic_count,
+                        "bond_strength": cr.bond_strength,
+                        "duration_seconds": cr.duration_seconds,
+                    }
+                )
         return rows
 
 
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
+
 
 class LongHorizonRunner:
     """Run long-horizon scenarios through all ablation conditions.
@@ -160,6 +166,7 @@ class LongHorizonRunner:
         if use_dspy_recall:
             try:
                 from soul_protocol.runtime.cognitive.dspy_adapter import DSPyCognitiveProcessor
+
                 self._dspy_processor = DSPyCognitiveProcessor(
                     lm_model=dspy_model,
                     optimized_path=optimized_modules_path,
@@ -272,13 +279,15 @@ class LongHorizonRunner:
             if condition in (ConditionType.PERSONALITY_ONLY, ConditionType.BARE_BASELINE):
                 # No memory means no recall
                 result.recall_misses += 1
-                result.recall_results.append({
-                    "query": tp.query,
-                    "expected": tp.expected_content,
-                    "hit": False,
-                    "description": tp.description,
-                    "recalled": [],
-                })
+                result.recall_results.append(
+                    {
+                        "query": tp.query,
+                        "expected": tp.expected_content,
+                        "hit": False,
+                        "description": tp.description,
+                        "recalled": [],
+                    }
+                )
                 continue
 
             # Use DSPy query expansion if available
@@ -313,14 +322,16 @@ class LongHorizonRunner:
             else:
                 result.recall_misses += 1
 
-            result.recall_results.append({
-                "query": tp.query,
-                "queries_used": queries,
-                "expected": tp.expected_content,
-                "hit": hit,
-                "description": tp.description,
-                "recalled": [m.content for m in unique_recalled[:3]],
-            })
+            result.recall_results.append(
+                {
+                    "query": tp.query,
+                    "queries_used": queries,
+                    "expected": tp.expected_content,
+                    "hit": hit,
+                    "description": tp.description,
+                    "recalled": [m.content for m in unique_recalled[:3]],
+                }
+            )
 
         result.duration_seconds = time.monotonic() - t_start
         return result

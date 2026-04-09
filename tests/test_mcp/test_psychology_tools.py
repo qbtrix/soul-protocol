@@ -18,7 +18,6 @@ from fastmcp import Client  # noqa: E402
 import soul_protocol.mcp.server as server_module  # noqa: E402
 from soul_protocol.mcp.server import mcp  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Shared fixture — mirrors the autouse fixture in test_server.py exactly
 # ---------------------------------------------------------------------------

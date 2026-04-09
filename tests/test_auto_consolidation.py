@@ -59,11 +59,12 @@ class TestAutoConsolidation:
         # No engine set (heuristic only)
         soul._engine = None
 
-        with patch.object(
-            soul._memory, "archive_old_memories", new_callable=AsyncMock
-        ) as mock_archive, patch.object(
-            soul, "reflect", new_callable=AsyncMock
-        ) as mock_reflect:
+        with (
+            patch.object(
+                soul._memory, "archive_old_memories", new_callable=AsyncMock
+            ) as mock_archive,
+            patch.object(soul, "reflect", new_callable=AsyncMock) as mock_reflect,
+        ):
             mock_archive.return_value = None
 
             await soul.observe(_make_interaction("One"))

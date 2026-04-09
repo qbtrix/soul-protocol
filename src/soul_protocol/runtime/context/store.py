@@ -42,9 +42,7 @@ class SQLiteContextStore:
         self._conn = await asyncio.to_thread(self._connect)
         await asyncio.to_thread(self._create_tables)
         # Load current max seq so we can continue from where we left off
-        row = await asyncio.to_thread(
-            self._execute_fetchone, "SELECT MAX(seq) FROM messages"
-        )
+        row = await asyncio.to_thread(self._execute_fetchone, "SELECT MAX(seq) FROM messages")
         if row and row[0] is not None:
             self._seq_counter = row[0]
 
@@ -176,9 +174,7 @@ class SQLiteContextStore:
 
     async def count_messages(self) -> int:
         """Count total messages in the store."""
-        row = await asyncio.to_thread(
-            self._execute_fetchone, "SELECT COUNT(*) FROM messages"
-        )
+        row = await asyncio.to_thread(self._execute_fetchone, "SELECT COUNT(*) FROM messages")
         return row[0] if row else 0
 
     async def total_message_tokens(self) -> int:
@@ -201,9 +197,7 @@ class SQLiteContextStore:
             datetime.fromisoformat(row[1]),
         )
 
-    async def grep_messages(
-        self, pattern: str, *, limit: int = 20
-    ) -> list[GrepResult]:
+    async def grep_messages(self, pattern: str, *, limit: int = 20) -> list[GrepResult]:
         """Search messages by regex pattern. Returns matches ordered by recency."""
         # Fetch all messages and filter in Python (sqlite3 has no regex by default)
         rows = await asyncio.to_thread(
@@ -360,9 +354,7 @@ class SQLiteContextStore:
 
     async def count_nodes(self) -> int:
         """Count total nodes."""
-        row = await asyncio.to_thread(
-            self._execute_fetchone, "SELECT COUNT(*) FROM nodes"
-        )
+        row = await asyncio.to_thread(self._execute_fetchone, "SELECT COUNT(*) FROM nodes")
         return row[0] if row else 0
 
     async def compaction_stats(self) -> dict[str, int]:

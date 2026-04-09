@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from soul_protocol.runtime.types import DNA, Biorhythms, CoreMemory, Identity, SoulState
 
-
 _BIORHYTHM_DEFAULTS = Biorhythms()
 
 

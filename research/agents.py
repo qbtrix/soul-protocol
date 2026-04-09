@@ -7,23 +7,51 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-
 # Archetype pools — agents draw from these to create diverse personas
 ARCHETYPES = [
-    "The Helpful Guide", "The Analytical Thinker", "The Creative Spark",
-    "The Patient Teacher", "The Quick Fixer", "The Deep Listener",
-    "The Cheerful Buddy", "The Stoic Advisor", "The Curious Explorer",
-    "The Precise Engineer", "The Warm Companion", "The Efficient Worker",
-    "The Playful Joker", "The Thoughtful Mentor", "The Bold Innovator",
-    "The Calm Mediator", "The Sharp Critic", "The Gentle Encourager",
-    "The Focused Specialist", "The Broad Generalist",
+    "The Helpful Guide",
+    "The Analytical Thinker",
+    "The Creative Spark",
+    "The Patient Teacher",
+    "The Quick Fixer",
+    "The Deep Listener",
+    "The Cheerful Buddy",
+    "The Stoic Advisor",
+    "The Curious Explorer",
+    "The Precise Engineer",
+    "The Warm Companion",
+    "The Efficient Worker",
+    "The Playful Joker",
+    "The Thoughtful Mentor",
+    "The Bold Innovator",
+    "The Calm Mediator",
+    "The Sharp Critic",
+    "The Gentle Encourager",
+    "The Focused Specialist",
+    "The Broad Generalist",
 ]
 
 VALUE_POOL = [
-    "precision", "clarity", "empathy", "speed", "thoroughness",
-    "creativity", "reliability", "warmth", "honesty", "patience",
-    "curiosity", "efficiency", "loyalty", "humor", "depth",
-    "simplicity", "courage", "fairness", "adaptability", "persistence",
+    "precision",
+    "clarity",
+    "empathy",
+    "speed",
+    "thoroughness",
+    "creativity",
+    "reliability",
+    "warmth",
+    "honesty",
+    "patience",
+    "curiosity",
+    "efficiency",
+    "loyalty",
+    "humor",
+    "depth",
+    "simplicity",
+    "courage",
+    "fairness",
+    "adaptability",
+    "persistence",
 ]
 
 WARMTH_LEVELS = ["low", "medium", "high"]
@@ -38,15 +66,15 @@ class AgentProfile:
     agent_id: int
     name: str
     archetype: str
-    ocean: dict[str, float]          # openness, conscientiousness, extraversion, agreeableness, neuroticism
+    ocean: dict[str, float]  # openness, conscientiousness, extraversion, agreeableness, neuroticism
     values: list[str]
-    communication: dict[str, str]    # warmth, verbosity, formality
+    communication: dict[str, str]  # warmth, verbosity, formality
     persona: str
 
     # Derived behavioral tendencies (computed from OCEAN)
-    emotional_reactivity: float = 0.0   # from neuroticism
-    detail_orientation: float = 0.0     # from conscientiousness
-    social_energy: float = 0.0          # from extraversion
+    emotional_reactivity: float = 0.0  # from neuroticism
+    detail_orientation: float = 0.0  # from conscientiousness
+    social_energy: float = 0.0  # from extraversion
 
     def __post_init__(self):
         self.emotional_reactivity = self.ocean["neuroticism"]
@@ -60,10 +88,10 @@ class UserProfile:
 
     user_id: int
     name: str
-    interaction_style: str           # "brief", "detailed", "emotional", "technical", "mixed"
+    interaction_style: str  # "brief", "detailed", "emotional", "technical", "mixed"
     topic_interests: list[str]
-    consistency: float               # 0-1: how often they revisit same topics
-    sentiment_bias: float            # -1 to 1: generally negative to positive
+    consistency: float  # 0-1: how often they revisit same topics
+    sentiment_bias: float  # -1 to 1: generally negative to positive
 
 
 def _clamp(val: float, lo: float = 0.0, hi: float = 1.0) -> float:
@@ -110,19 +138,20 @@ def generate_agents(
 
         name = f"Agent-{i:04d}"
         persona = (
-            f"I am {name}, {archetype.lower()}. "
-            f"I value {', '.join(values[:-1])} and {values[-1]}."
+            f"I am {name}, {archetype.lower()}. I value {', '.join(values[:-1])} and {values[-1]}."
         )
 
-        agents.append(AgentProfile(
-            agent_id=i,
-            name=name,
-            archetype=archetype,
-            ocean=ocean,
-            values=values,
-            communication=communication,
-            persona=persona,
-        ))
+        agents.append(
+            AgentProfile(
+                agent_id=i,
+                name=name,
+                archetype=archetype,
+                ocean=ocean,
+                values=values,
+                communication=communication,
+                persona=persona,
+            )
+        )
 
     return agents
 
@@ -131,20 +160,52 @@ INTERACTION_STYLES = ["brief", "detailed", "emotional", "technical", "mixed"]
 
 TOPIC_POOLS = {
     "support": [
-        "billing", "account", "password reset", "refund", "shipping",
-        "product defect", "subscription", "upgrade", "cancellation", "feedback",
+        "billing",
+        "account",
+        "password reset",
+        "refund",
+        "shipping",
+        "product defect",
+        "subscription",
+        "upgrade",
+        "cancellation",
+        "feedback",
     ],
     "coding": [
-        "python", "javascript", "SQL", "debugging", "testing",
-        "architecture", "performance", "security", "deployment", "API design",
+        "python",
+        "javascript",
+        "SQL",
+        "debugging",
+        "testing",
+        "architecture",
+        "performance",
+        "security",
+        "deployment",
+        "API design",
     ],
     "companion": [
-        "daily routine", "mood", "goals", "relationships", "hobbies",
-        "travel", "food", "movies", "music", "exercise",
+        "daily routine",
+        "mood",
+        "goals",
+        "relationships",
+        "hobbies",
+        "travel",
+        "food",
+        "movies",
+        "music",
+        "exercise",
     ],
     "knowledge": [
-        "research", "analysis", "writing", "project planning", "data",
-        "presentation", "strategy", "learning", "brainstorming", "review",
+        "research",
+        "analysis",
+        "writing",
+        "project planning",
+        "data",
+        "presentation",
+        "strategy",
+        "learning",
+        "brainstorming",
+        "review",
     ],
 }
 
@@ -166,13 +227,15 @@ def generate_users(
         consistency = rng.uniform(0.3, 0.9)
         sentiment_bias = rng.gauss(0.2, 0.3)  # slightly positive bias
 
-        users.append(UserProfile(
-            user_id=i,
-            name=f"User-{i:04d}",
-            interaction_style=style,
-            topic_interests=user_topics,
-            consistency=_clamp(consistency, 0.0, 1.0),
-            sentiment_bias=_clamp(sentiment_bias, -1.0, 1.0),
-        ))
+        users.append(
+            UserProfile(
+                user_id=i,
+                name=f"User-{i:04d}",
+                interaction_style=style,
+                topic_interests=user_topics,
+                consistency=_clamp(consistency, 0.0, 1.0),
+                sentiment_bias=_clamp(sentiment_bias, -1.0, 1.0),
+            )
+        )
 
     return users

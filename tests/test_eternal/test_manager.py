@@ -13,7 +13,6 @@ from soul_protocol.runtime.eternal.providers import (
     MockIPFSProvider,
 )
 
-
 SAMPLE_DATA = b"soul-archive-payload-for-manager-tests"
 SOUL_ID = "did:soul:manager-test-001"
 
@@ -101,18 +100,14 @@ class TestRecover:
 
         # First source is bad, second is good
         bad_source = RecoverySource(tier="ipfs", reference="nonexistent-cid")
-        good_source = RecoverySource(
-            tier="arweave", reference=results[0].reference
-        )
+        good_source = RecoverySource(tier="arweave", reference=results[0].reference)
 
         recovered = await manager.recover([bad_source, good_source])
         assert recovered == SAMPLE_DATA
 
     async def test_recover_skips_unavailable(self, manager):
         results = await manager.archive(SAMPLE_DATA, SOUL_ID, tiers=["arweave"])
-        unavailable = RecoverySource(
-            tier="arweave", reference="some-ref", available=False
-        )
+        unavailable = RecoverySource(tier="arweave", reference="some-ref", available=False)
         good = RecoverySource(tier="arweave", reference=results[0].reference)
         recovered = await manager.recover([unavailable, good])
         assert recovered == SAMPLE_DATA

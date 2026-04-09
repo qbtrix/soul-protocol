@@ -18,9 +18,9 @@ from typing import Any, Protocol, runtime_checkable
 from pydantic import BaseModel, Field
 
 
-
 class MemoryVisibility(StrEnum):
     """Visibility tier for memory entries in public channel contexts."""
+
     PUBLIC = "public"
     BONDED = "bonded"
     PRIVATE = "private"
@@ -76,7 +76,7 @@ class Interaction(BaseModel):
         *,
         timestamp: datetime | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> "Interaction":
+    ) -> Interaction:
         """Create a 2-party interaction from user input and agent output.
 
         This is the common case — most interactions are simple request/response.

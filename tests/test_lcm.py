@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from soul_protocol.runtime.context.lcm import LCMContext
-from soul_protocol.spec.context.models import CompactionLevel, ContextNode
+from soul_protocol.spec.context.models import CompactionLevel
 from soul_protocol.spec.context.protocol import ContextEngine
 
 

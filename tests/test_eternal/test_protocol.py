@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from soul_protocol.runtime.eternal.protocol import (
     ArchiveResult,
     EternalStorageProvider,

@@ -56,9 +56,7 @@ class MemoryCompressor:
         # Deduplicate
         unique: list[MemoryEntry] = []
         for mem in sorted_mems:
-            is_dup = any(
-                _token_overlap(mem.content, u.content) > 0.7 for u in unique
-            )
+            is_dup = any(_token_overlap(mem.content, u.content) > 0.7 for u in unique)
             if not is_dup:
                 unique.append(mem)
 
@@ -119,8 +117,7 @@ class MemoryCompressor:
         unique: list[MemoryEntry] = []
         for mem in sorted_mems:
             is_dup = any(
-                _token_overlap(mem.content, u.content) >= similarity_threshold
-                for u in unique
+                _token_overlap(mem.content, u.content) >= similarity_threshold for u in unique
             )
             if not is_dup:
                 unique.append(mem)

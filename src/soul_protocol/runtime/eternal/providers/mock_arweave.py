@@ -37,9 +37,7 @@ class MockArweaveProvider:
         # Arweave tx IDs are 43 chars, base64url encoded
         return digest[:43]
 
-    async def archive(
-        self, soul_data: bytes, soul_id: str, **kwargs: Any
-    ) -> ArchiveResult:
+    async def archive(self, soul_data: bytes, soul_id: str, **kwargs: Any) -> ArchiveResult:
         """Archive soul data to mock Arweave."""
         tx_id = self._generate_tx_id(soul_data)
         self._store[tx_id] = soul_data
@@ -67,9 +65,7 @@ class MockArweaveProvider:
         """Retrieve soul data from mock Arweave by transaction ID."""
         data = self._store.get(reference)
         if data is None:
-            raise KeyError(
-                f"Transaction '{reference}' not found in mock Arweave store"
-            )
+            raise KeyError(f"Transaction '{reference}' not found in mock Arweave store")
         return data
 
     async def verify(self, reference: str) -> bool:

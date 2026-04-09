@@ -6,16 +6,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
-from datetime import datetime, timedelta
 
 from soul_protocol.runtime.memory.activation import compute_activation
+from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.personality_modulation import (
-    W_AGREEABLENESS,
-    W_CONSCIENTIOUSNESS,
-    W_EXTRAVERSION,
-    W_NEUROTICISM,
-    W_OPENNESS,
     _agreeableness_signal,
     _conscientiousness_signal,
     _extraversion_signal,
@@ -24,7 +21,6 @@ from soul_protocol.runtime.memory.personality_modulation import (
     _trait_delta,
     compute_personality_boost,
 )
-from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.procedural import ProceduralStore
 from soul_protocol.runtime.memory.recall import RecallEngine
 from soul_protocol.runtime.memory.semantic import SemanticStore
@@ -34,7 +30,6 @@ from soul_protocol.runtime.types import (
     Personality,
     SomaticMarker,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -453,7 +448,10 @@ async def test_recall_high_openness_ranks_semantic_higher():
 
     open_personality = Personality(openness=0.95)
     engine = RecallEngine(
-        episodic_store, semantic_store, procedural_store, personality=open_personality,
+        episodic_store,
+        semantic_store,
+        procedural_store,
+        personality=open_personality,
     )
 
     results = await engine.recall("python programming", limit=10)
@@ -464,7 +462,9 @@ async def test_recall_high_openness_ranks_semantic_higher():
     # depends on multiple factors. Verify personality at least doesn't penalize
     # semantic entries for high-openness personalities.
     sem_idx = ids.index("sem1")
-    assert sem_idx <= 1, f"Semantic entry should rank in top 2 with high-Openness, got index {sem_idx}"
+    assert sem_idx <= 1, (
+        f"Semantic entry should rank in top 2 with high-Openness, got index {sem_idx}"
+    )
 
 
 @pytest.mark.asyncio
@@ -519,7 +519,10 @@ async def test_recall_high_extraversion_ranks_episodic_higher():
 
     extraverted = Personality(extraversion=0.95)
     engine = RecallEngine(
-        episodic_store, semantic_store, procedural_store, personality=extraverted,
+        episodic_store,
+        semantic_store,
+        procedural_store,
+        personality=extraverted,
     )
 
     results = await engine.recall("coffee travel", limit=10)

@@ -8,11 +8,9 @@ from __future__ import annotations
 import pytest
 
 from research.long_horizon.analyze import (
-    CONDITION_LABELS,
-    CONDITION_ORDER,
     LongHorizonAnalyzer,
-    cohens_d,
     _effect_label,
+    cohens_d,
 )
 from research.long_horizon.runner import (
     ConditionResult,
@@ -218,9 +216,9 @@ class TestLongHorizonAnalyzer:
         comparisons = analyzer.pairwise_comparisons()
 
         recall_vs_rag = next(
-            c for c in comparisons
-            if c["condition_b"] == ConditionType.RAG_ONLY
-            and c["metric"] == "Recall Precision"
+            c
+            for c in comparisons
+            if c["condition_b"] == ConditionType.RAG_ONLY and c["metric"] == "Recall Precision"
         )
         # Full Soul: 0.8, RAG: 0.45 => delta = +0.35
         assert recall_vs_rag["delta"] == pytest.approx(0.35)
@@ -232,9 +230,9 @@ class TestLongHorizonAnalyzer:
         comparisons = analyzer.pairwise_comparisons()
 
         recall_vs_bare = next(
-            c for c in comparisons
-            if c["condition_b"] == ConditionType.BARE_BASELINE
-            and c["metric"] == "Recall Precision"
+            c
+            for c in comparisons
+            if c["condition_b"] == ConditionType.BARE_BASELINE and c["metric"] == "Recall Precision"
         )
         assert recall_vs_bare["delta"] == pytest.approx(0.8)
 

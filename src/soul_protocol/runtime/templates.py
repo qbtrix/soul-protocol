@@ -143,7 +143,9 @@ class SoulFactory:
                 varied_ocean[trait] = max(0.0, min(1.0, base_val + delta))
 
             soul_name = name_pattern.format(
-                prefix=prefix, index=i, name=template.name,
+                prefix=prefix,
+                index=i,
+                name=template.name,
             )
 
             soul = await Soul.birth(

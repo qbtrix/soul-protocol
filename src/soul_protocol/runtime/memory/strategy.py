@@ -100,6 +100,5 @@ class BM25SearchStrategy:
 
         # Normalize raw BM25 score to 0-1 range using tanh
         # tanh(raw / 3) gives a smooth mapping where score ~3 maps to ~0.75
-        import math
 
         return math.tanh(raw / 3.0)

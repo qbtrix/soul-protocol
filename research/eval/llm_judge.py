@@ -18,7 +18,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from research.haiku_engine import HaikuCognitiveEngine
@@ -38,6 +38,7 @@ def _strip_markdown(text: str) -> str:
     if m:
         return m.group(1).strip()
     return text
+
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -153,6 +154,7 @@ Respond in this exact JSON format (no other text):
 # Judge: EI-1 Sentiment Classification
 # ---------------------------------------------------------------------------
 
+
 async def judge_sentiment(engine: HaikuCognitiveEngine) -> JudgeDimensionResult:
     """Use Haiku to classify all 61 sentiment corpus entries.
 
@@ -180,7 +182,9 @@ async def judge_sentiment(engine: HaikuCognitiveEngine) -> JudgeDimensionResult:
             llm_confidence = float(parsed.get("confidence", 0.5))
             llm_reasoning = parsed.get("reasoning", "")
         except (json.JSONDecodeError, KeyError, ValueError) as e:
-            logger.warning("Failed to parse LLM response for %r: %s — raw: %s", text[:40], e, response[:100])
+            logger.warning(
+                "Failed to parse LLM response for %r: %s — raw: %s", text[:40], e, response[:100]
+            )
             llm_label = "error"
             llm_confidence = 0.0
             llm_reasoning = f"Parse error: {e}"
@@ -217,9 +221,9 @@ async def judge_sentiment(engine: HaikuCognitiveEngine) -> JudgeDimensionResult:
         llm_only_correct=llm_only,
         heuristic_only_correct=heur_only,
         notes=(
-            f"Heuristic: {heuristic_correct}/{total} ({heuristic_correct/total:.0%}), "
-            f"LLM: {llm_correct}/{total} ({llm_correct/total:.0%}), "
-            f"Agreement: {agreed}/{total} ({agreed/total:.0%}), "
+            f"Heuristic: {heuristic_correct}/{total} ({heuristic_correct / total:.0%}), "
+            f"LLM: {llm_correct}/{total} ({llm_correct / total:.0%}), "
+            f"Agreement: {agreed}/{total} ({agreed / total:.0%}), "
             f"LLM-only wins: {llm_only}, Heuristic-only wins: {heur_only}"
         ),
     )
@@ -232,6 +236,7 @@ async def judge_sentiment(engine: HaikuCognitiveEngine) -> JudgeDimensionResult:
 # Judge: PE-1 Personality Fidelity
 # ---------------------------------------------------------------------------
 
+
 async def judge_personality(engine: HaikuCognitiveEngine) -> JudgeDimensionResult:
     """Use Haiku to evaluate system prompt quality for different OCEAN profiles."""
     from soul_protocol import Soul
@@ -239,21 +244,51 @@ async def judge_personality(engine: HaikuCognitiveEngine) -> JudgeDimensionResul
     profiles = [
         {
             "name": "HighOpen",
-            "ocean": {"openness": 0.9, "conscientiousness": 0.2, "extraversion": 0.8,
-                      "agreeableness": 0.3, "neuroticism": 0.7},
-            "comm": {"warmth": "high", "verbosity": "moderate", "humor_style": "dry", "emoji_usage": "rare"},
+            "ocean": {
+                "openness": 0.9,
+                "conscientiousness": 0.2,
+                "extraversion": 0.8,
+                "agreeableness": 0.3,
+                "neuroticism": 0.7,
+            },
+            "comm": {
+                "warmth": "high",
+                "verbosity": "moderate",
+                "humor_style": "dry",
+                "emoji_usage": "rare",
+            },
         },
         {
             "name": "LowOpen",
-            "ocean": {"openness": 0.1, "conscientiousness": 0.9, "extraversion": 0.2,
-                      "agreeableness": 0.8, "neuroticism": 0.1},
-            "comm": {"warmth": "moderate", "verbosity": "concise", "humor_style": "none", "emoji_usage": "never"},
+            "ocean": {
+                "openness": 0.1,
+                "conscientiousness": 0.9,
+                "extraversion": 0.2,
+                "agreeableness": 0.8,
+                "neuroticism": 0.1,
+            },
+            "comm": {
+                "warmth": "moderate",
+                "verbosity": "concise",
+                "humor_style": "none",
+                "emoji_usage": "never",
+            },
         },
         {
             "name": "Balanced",
-            "ocean": {"openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5,
-                      "agreeableness": 0.5, "neuroticism": 0.5},
-            "comm": {"warmth": "moderate", "verbosity": "moderate", "humor_style": "light", "emoji_usage": "occasional"},
+            "ocean": {
+                "openness": 0.5,
+                "conscientiousness": 0.5,
+                "extraversion": 0.5,
+                "agreeableness": 0.5,
+                "neuroticism": 0.5,
+            },
+            "comm": {
+                "warmth": "moderate",
+                "verbosity": "moderate",
+                "humor_style": "light",
+                "emoji_usage": "occasional",
+            },
         },
     ]
 
@@ -282,24 +317,28 @@ async def judge_personality(engine: HaikuCognitiveEngine) -> JudgeDimensionResul
         try:
             response = await engine.think(prompt)
             parsed = json.loads(_strip_markdown(response))
-            scores.append({
-                "profile": profile["name"],
-                "trait_coverage": parsed.get("trait_coverage", 0),
-                "comm_style_coverage": parsed.get("comm_style_coverage", 0),
-                "behavioral_consistency": parsed.get("behavioral_consistency", 0),
-                "specificity": parsed.get("specificity", 0),
-                "reasoning": parsed.get("reasoning", ""),
-            })
+            scores.append(
+                {
+                    "profile": profile["name"],
+                    "trait_coverage": parsed.get("trait_coverage", 0),
+                    "comm_style_coverage": parsed.get("comm_style_coverage", 0),
+                    "behavioral_consistency": parsed.get("behavioral_consistency", 0),
+                    "specificity": parsed.get("specificity", 0),
+                    "reasoning": parsed.get("reasoning", ""),
+                }
+            )
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.warning("Failed to parse personality judge for %s: %s", profile["name"], e)
-            scores.append({
-                "profile": profile["name"],
-                "trait_coverage": 0,
-                "comm_style_coverage": 0,
-                "behavioral_consistency": 0,
-                "specificity": 0,
-                "reasoning": f"Parse error: {e}",
-            })
+            scores.append(
+                {
+                    "profile": profile["name"],
+                    "trait_coverage": 0,
+                    "comm_style_coverage": 0,
+                    "behavioral_consistency": 0,
+                    "specificity": 0,
+                    "reasoning": f"Parse error: {e}",
+                }
+            )
 
     # Compute averages
     avg_trait = sum(s["trait_coverage"] for s in scores) / len(scores)
@@ -330,6 +369,7 @@ async def judge_personality(engine: HaikuCognitiveEngine) -> JudgeDimensionResul
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _fuzzy_match(expected: str, actual: str) -> bool:
     """Fuzzy label match — same logic as d2_emotion._labels_match."""
     e = expected.lower().strip()
@@ -340,12 +380,20 @@ def _fuzzy_match(expected: str, actual: str) -> bool:
         return True
     # Stem mapping
     stems = {
-        "excit": "excitement", "joy": "joy", "happy": "joy",
-        "grat": "gratitude", "thank": "gratitude",
-        "curio": "curiosity", "intrigu": "curiosity",
-        "frustr": "frustration", "anger": "frustration", "angry": "frustration",
-        "sad": "sadness", "depress": "sadness",
-        "neutr": "neutral", "confus": "confusion",
+        "excit": "excitement",
+        "joy": "joy",
+        "happy": "joy",
+        "grat": "gratitude",
+        "thank": "gratitude",
+        "curio": "curiosity",
+        "intrigu": "curiosity",
+        "frustr": "frustration",
+        "anger": "frustration",
+        "angry": "frustration",
+        "sad": "sadness",
+        "depress": "sadness",
+        "neutr": "neutral",
+        "confus": "confusion",
     }
     e_canon = next((c for s, c in stems.items() if s in e), None)
     a_canon = next((c for s, c in stems.items() if s in a), None)
@@ -355,6 +403,7 @@ def _fuzzy_match(expected: str, actual: str) -> bool:
 # ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
+
 
 async def run_llm_judges(
     dimensions: list[int] | None = None,
@@ -387,7 +436,7 @@ async def run_llm_judges(
 
     # Build output
     output: dict = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "mode": "llm_judge",
         "model": model,
         "max_concurrent": max_concurrent,
@@ -449,16 +498,23 @@ async def run_llm_judges(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Run LLM judge evaluations")
-    parser.add_argument("--dimensions", type=str, default="2,3",
-                        help="Comma-separated dimension IDs to judge (default: 2,3)")
-    parser.add_argument("--concurrent", type=int, default=15,
-                        help="Max concurrent API calls (default: 15)")
-    parser.add_argument("--model", type=str, default="claude-haiku-4-5-20251001",
-                        help="Model to use for judging")
+    parser.add_argument(
+        "--dimensions",
+        type=str,
+        default="2,3",
+        help="Comma-separated dimension IDs to judge (default: 2,3)",
+    )
+    parser.add_argument(
+        "--concurrent", type=int, default=15, help="Max concurrent API calls (default: 15)"
+    )
+    parser.add_argument(
+        "--model", type=str, default="claude-haiku-4-5-20251001", help="Model to use for judging"
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -468,11 +524,13 @@ def main():
     )
 
     dims = [int(d.strip()) for d in args.dimensions.split(",")]
-    results = asyncio.run(run_llm_judges(
-        dimensions=dims,
-        max_concurrent=args.concurrent,
-        model=args.model,
-    ))
+    results = asyncio.run(
+        run_llm_judges(
+            dimensions=dims,
+            max_concurrent=args.concurrent,
+            model=args.model,
+        )
+    )
 
     # Print summary
     print("\n" + "=" * 60)

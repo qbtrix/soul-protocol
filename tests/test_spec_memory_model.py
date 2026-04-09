@@ -17,7 +17,6 @@ from soul_protocol.runtime.memory.activation import compute_activation
 from soul_protocol.runtime.memory.graph import KnowledgeGraph, TemporalEdge
 from soul_protocol.runtime.types import MemoryCategory, MemoryEntry, MemoryType
 
-
 # ============ MemoryCategory Enum ============
 
 
@@ -193,7 +192,12 @@ class TestTemporalEdgeMetadata:
         assert restored.metadata == meta
 
     def test_from_dict_without_metadata_key(self):
-        data = {"source": "A", "target": "B", "relation": "knows", "valid_from": datetime.now().isoformat()}
+        data = {
+            "source": "A",
+            "target": "B",
+            "relation": "knows",
+            "valid_from": datetime.now().isoformat(),
+        }
         edge = TemporalEdge.from_dict(data)
         assert edge.metadata is None
 
@@ -218,14 +222,18 @@ class TestGraphMetadataInQueries:
     def test_as_of_date_includes_metadata(self):
         g = KnowledgeGraph()
         now = datetime.now()
-        g.add_relationship("A", "B", "works_at", metadata={"role": "engineer"}, valid_from=now - timedelta(days=1))
+        g.add_relationship(
+            "A", "B", "works_at", metadata={"role": "engineer"}, valid_from=now - timedelta(days=1)
+        )
         results = g.as_of_date(now)
         assert any(r.get("metadata") == {"role": "engineer"} for r in results)
 
     def test_relationship_evolution_includes_metadata(self):
         g = KnowledgeGraph()
         now = datetime.now()
-        g.add_relationship("A", "B", "friend", metadata={"context": "school"}, valid_from=now - timedelta(days=100))
+        g.add_relationship(
+            "A", "B", "friend", metadata={"context": "school"}, valid_from=now - timedelta(days=100)
+        )
         g.expire_relationship("A", "B", "friend")
         g.add_relationship("A", "B", "colleague", metadata={"context": "work"})
         results = g.relationship_evolution("A", "B")

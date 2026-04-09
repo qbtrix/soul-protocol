@@ -5,10 +5,8 @@
 
 from __future__ import annotations
 
-import math
 import os
 import time
-
 
 # Model name → known dimension count (avoids a probe call when possible)
 _KNOWN_DIMENSIONS: dict[str, int] = {
@@ -108,7 +106,7 @@ class OpenAIEmbeddingProvider:
                 if status is not None and status not in (429, 500, 502, 503, 504):
                     raise
                 if attempt < self._max_retries - 1:
-                    delay = self._base_delay * (2 ** attempt)
+                    delay = self._base_delay * (2**attempt)
                     time.sleep(delay)
 
         raise last_error  # type: ignore[misc]

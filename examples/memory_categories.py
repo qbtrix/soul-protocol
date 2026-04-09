@@ -24,18 +24,25 @@ async def main() -> None:
     interactions = [
         ("My name is Alex and I'm a data engineer at Acme Corp", "Nice to meet you, Alex!"),
         ("I prefer Python over Java for data pipelines", "Python is great for that use case."),
-        ("We had an outage last Tuesday — the ETL job crashed", "That sounds stressful. What caused it?"),
-        ("The fix was to add retry logic with exponential backoff", "Smart — that's a common pattern for resilience."),
-        ("I really like working with Apache Spark", "Spark is powerful for large-scale data processing."),
+        (
+            "We had an outage last Tuesday — the ETL job crashed",
+            "That sounds stressful. What caused it?",
+        ),
+        (
+            "The fix was to add retry logic with exponential backoff",
+            "Smart — that's a common pattern for resilience.",
+        ),
+        (
+            "I really like working with Apache Spark",
+            "Spark is powerful for large-scale data processing.",
+        ),
     ]
 
     print(f"Born: {soul.name}\n")
     print("Observing 5 interactions...")
 
     for user_msg, agent_msg in interactions:
-        await soul.observe(
-            Interaction(user_input=user_msg, agent_output=agent_msg, channel="demo")
-        )
+        await soul.observe(Interaction(user_input=user_msg, agent_output=agent_msg, channel="demo"))
 
     # -- Recall and inspect memory metadata
     print("\n--- All memories about the user ---")

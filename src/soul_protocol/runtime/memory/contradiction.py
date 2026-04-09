@@ -27,10 +27,14 @@ logger = logging.getLogger(__name__)
 # Negation patterns: words/phrases that flip meaning
 _NEGATION_PAIRS: list[tuple[re.Pattern[str], re.Pattern[str]]] = [
     (re.compile(r"\bis\b", re.I), re.compile(r"\bis not\b|\bisn'?t\b", re.I)),
-    (re.compile(r"\blikes?\b|\bloves?\b|\bprefers?\b", re.I),
-     re.compile(r"\bhates?\b|\bdislikes?\b|\bdoesn'?t like\b", re.I)),
-    (re.compile(r"\bworks? (?:at|for)\b", re.I),
-     re.compile(r"\bleft\b|\bquit\b|\bno longer works?\b", re.I)),
+    (
+        re.compile(r"\blikes?\b|\bloves?\b|\bprefers?\b", re.I),
+        re.compile(r"\bhates?\b|\bdislikes?\b|\bdoesn'?t like\b", re.I),
+    ),
+    (
+        re.compile(r"\bworks? (?:at|for)\b", re.I),
+        re.compile(r"\bleft\b|\bquit\b|\bno longer works?\b", re.I),
+    ),
     (re.compile(r"\bcan\b", re.I), re.compile(r"\bcan(?:no|'?)t\b", re.I)),
     (re.compile(r"\bdoes\b", re.I), re.compile(r"\bdoes(?:n'?t| not)\b", re.I)),
     (re.compile(r"\bhas\b", re.I), re.compile(r"\bhas(?:n'?t| not)\b|\bno longer has\b", re.I)),
@@ -51,10 +55,23 @@ _ENTITY_ATTR_RE = re.compile(
 # and group 2 = employer — handled specially in _extract_verb_facts.
 _VERB_FACT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:user|i)\s+(?:live?s?|resides?)\s+in\s+(.+?)(?:\.|,|$)", re.I), "location"),
-    (re.compile(r"(?:user|i)\s+(?:moved?|relocated?|moved? to)\s+(?:to\s+)?(.+?)(?:\.|,|$)", re.I), "location"),
+    (
+        re.compile(
+            r"(?:user|i)\s+(?:moved?|relocated?|moved? to)\s+(?:to\s+)?(.+?)(?:\.|,|$)", re.I
+        ),
+        "location",
+    ),
     (re.compile(r"(?:user|i)\s+(?:is\s+)?based\s+in\s+(.+?)(?:\.|,|$)", re.I), "location"),
-    (re.compile(r"(?:user|i)\s+(?:works?\s+(?:at|for)|joined?|started?\s+at)\s+(.+?)(?:\.|,|$)", re.I), "employer"),
-    (re.compile(r"(?:user|i)\s+(?:is\s+)?(?:a\s+)?(.+?)\s+(?:at|@)\s+(.+?)(?:\.|,|$)", re.I), "role"),
+    (
+        re.compile(
+            r"(?:user|i)\s+(?:works?\s+(?:at|for)|joined?|started?\s+at)\s+(.+?)(?:\.|,|$)", re.I
+        ),
+        "employer",
+    ),
+    (
+        re.compile(r"(?:user|i)\s+(?:is\s+)?(?:a\s+)?(.+?)\s+(?:at|@)\s+(.+?)(?:\.|,|$)", re.I),
+        "role",
+    ),
 ]
 
 
@@ -166,14 +183,18 @@ class ContradictionDetector:
             b_is_positive = b_has_pos and not b_has_neg
 
             if a_is_positive and b_is_negated:
-                return True, f"Negation detected: '{pos_pattern.pattern}' vs '{neg_pattern.pattern}'"
+                return (
+                    True,
+                    f"Negation detected: '{pos_pattern.pattern}' vs '{neg_pattern.pattern}'",
+                )
             if b_is_positive and a_is_negated:
-                return True, f"Negation detected: '{pos_pattern.pattern}' vs '{neg_pattern.pattern}'"
+                return (
+                    True,
+                    f"Negation detected: '{pos_pattern.pattern}' vs '{neg_pattern.pattern}'",
+                )
         return False, ""
 
-    def _check_entity_attribute_conflict(
-        self, content_a: str, content_b: str
-    ) -> tuple[bool, str]:
+    def _check_entity_attribute_conflict(self, content_a: str, content_b: str) -> tuple[bool, str]:
         """Check if two contents assert different values for the same entity attribute.
 
         E.g., "User's language is Python" vs "User's language is Rust".
@@ -194,9 +215,7 @@ class ContradictionDetector:
                     )
         return False, ""
 
-    def _check_verb_fact_conflict(
-        self, content_a: str, content_b: str
-    ) -> tuple[bool, str]:
+    def _check_verb_fact_conflict(self, content_a: str, content_b: str) -> tuple[bool, str]:
         """Check if two contents assert different values for the same verb-based fact.
 
         Handles location/employer/role patterns that _ENTITY_ATTR_RE misses, e.g.:
@@ -211,8 +230,7 @@ class ContradictionDetector:
         for key in facts_a:
             if key in facts_b and facts_a[key] != facts_b[key]:
                 return True, (
-                    f"Verb-fact conflict: '{key}' "
-                    f"was '{facts_a[key]}', now '{facts_b[key]}'"
+                    f"Verb-fact conflict: '{key}' was '{facts_a[key]}', now '{facts_b[key]}'"
                 )
         return False, ""
 
@@ -244,13 +262,15 @@ class ContradictionDetector:
             # Check negation
             is_neg, neg_reason = self._check_negation(new_content, entry.content)
             if is_neg:
-                results.append(ContradictionResult(
-                    is_contradiction=True,
-                    old_memory_id=entry.id,
-                    new_content=new_content,
-                    reason=neg_reason,
-                    confidence=min(sim_score + 0.2, 1.0),
-                ))
+                results.append(
+                    ContradictionResult(
+                        is_contradiction=True,
+                        old_memory_id=entry.id,
+                        new_content=new_content,
+                        reason=neg_reason,
+                        confidence=min(sim_score + 0.2, 1.0),
+                    )
+                )
                 flagged_ids.add(entry.id)
                 continue
 
@@ -259,13 +279,15 @@ class ContradictionDetector:
                 new_content, entry.content
             )
             if is_conflict:
-                results.append(ContradictionResult(
-                    is_contradiction=True,
-                    old_memory_id=entry.id,
-                    new_content=new_content,
-                    reason=conflict_reason,
-                    confidence=min(sim_score + 0.1, 1.0),
-                ))
+                results.append(
+                    ContradictionResult(
+                        is_contradiction=True,
+                        old_memory_id=entry.id,
+                        new_content=new_content,
+                        reason=conflict_reason,
+                        confidence=min(sim_score + 0.1, 1.0),
+                    )
+                )
                 flagged_ids.add(entry.id)
 
         # Second pass: verb-fact conflict check over ALL non-superseded memories.
@@ -284,13 +306,15 @@ class ContradictionDetector:
                 )
                 if is_vf_conflict:
                     # Use a fixed baseline confidence since Jaccard wasn't used here.
-                    results.append(ContradictionResult(
-                        is_contradiction=True,
-                        old_memory_id=entry.id,
-                        new_content=new_content,
-                        reason=vf_reason,
-                        confidence=0.8,
-                    ))
+                    results.append(
+                        ContradictionResult(
+                            is_contradiction=True,
+                            old_memory_id=entry.id,
+                            new_content=new_content,
+                            reason=vf_reason,
+                            confidence=0.8,
+                        )
+                    )
                     flagged_ids.add(entry.id)
 
         return results
@@ -322,11 +346,10 @@ class ContradictionDetector:
 
         # Build prompt for the engine
         memories_text = "\n".join(
-            f"[{i+1}] (id={entry.id}) {entry.content}"
-            for i, (_, entry) in enumerate(similar)
+            f"[{i + 1}] (id={entry.id}) {entry.content}" for i, (_, entry) in enumerate(similar)
         )
         prompt = (
-            f"New memory: \"{new_content}\"\n\n"
+            f'New memory: "{new_content}"\n\n'
             f"Existing memories:\n{memories_text}\n\n"
             "Which existing memories (if any) does the new memory contradict? "
             "A contradiction means the new information directly conflicts with "
@@ -347,13 +370,15 @@ class ContradictionDetector:
                 idx = int(match.group()) - 1
                 if 0 <= idx < len(similar):
                     sim_score, entry = similar[idx]
-                    results.append(ContradictionResult(
-                        is_contradiction=True,
-                        old_memory_id=entry.id,
-                        new_content=new_content,
-                        reason=f"LLM detected contradiction: {response.strip()}",
-                        confidence=min(sim_score + 0.3, 1.0),
-                    ))
+                    results.append(
+                        ContradictionResult(
+                            is_contradiction=True,
+                            old_memory_id=entry.id,
+                            new_content=new_content,
+                            reason=f"LLM detected contradiction: {response.strip()}",
+                            confidence=min(sim_score + 0.3, 1.0),
+                        )
+                    )
             return results
         except Exception:
             logger.warning("LLM contradiction detection failed, falling back to heuristic")

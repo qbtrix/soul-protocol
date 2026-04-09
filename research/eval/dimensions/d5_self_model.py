@@ -21,7 +21,7 @@ import logging
 import math
 from pathlib import Path
 
-from soul_protocol import Soul, Interaction
+from soul_protocol import Interaction, Soul
 
 from ..suite import DimensionResult
 
@@ -76,7 +76,10 @@ _TECH_INTERACTIONS = [
 ]
 
 _EMOTIONAL_INTERACTIONS = [
-    ("I'm feeling really overwhelmed with life right now.", "That sounds tough. What's weighing on you?"),
+    (
+        "I'm feeling really overwhelmed with life right now.",
+        "That sounds tough. What's weighing on you?",
+    ),
     ("My best friend and I had a terrible fight.", "I'm sorry. Do you want to talk about it?"),
     ("I'm so grateful for the support I've received.", "You deserve that support."),
     ("I've been struggling with anxiety lately.", "Anxiety is hard. Have you talked to anyone?"),
@@ -115,16 +118,77 @@ _EMOTIONAL_INTERACTIONS = [
 
 # The self-model creates dynamic domain names from keywords. We check
 # if the top domain contains relevant terms rather than exact names.
-_TECH_KEYWORDS = {"python", "debug", "code", "api", "database", "deploy", "docker",
-                  "rust", "server", "test", "programming", "sql", "build", "refactor",
-                  "technical", "helper", "pipeline", "deployment", "asyncio", "errors",
-                  "optimize", "query", "endpoint", "structure", "caching", "migration"}
-_WRITING_KEYWORDS = {"write", "story", "poem", "creative", "fiction", "narrative", "character",
-                     "plot", "blog", "essay", "article", "prose", "draft", "writer"}
-_EMOTION_KEYWORDS = {"feel", "feeling", "emotion", "sad", "happy", "anxiety", "grief",
-                     "compassion", "lonely", "scared", "stress", "heart", "tears", "trust",
-                     "emotional", "companion", "overwhelmed", "struggling", "grateful",
-                     "proud", "hopeful", "worried", "hurt", "crying", "forgave"}
+_TECH_KEYWORDS = {
+    "python",
+    "debug",
+    "code",
+    "api",
+    "database",
+    "deploy",
+    "docker",
+    "rust",
+    "server",
+    "test",
+    "programming",
+    "sql",
+    "build",
+    "refactor",
+    "technical",
+    "helper",
+    "pipeline",
+    "deployment",
+    "asyncio",
+    "errors",
+    "optimize",
+    "query",
+    "endpoint",
+    "structure",
+    "caching",
+    "migration",
+}
+_WRITING_KEYWORDS = {
+    "write",
+    "story",
+    "poem",
+    "creative",
+    "fiction",
+    "narrative",
+    "character",
+    "plot",
+    "blog",
+    "essay",
+    "article",
+    "prose",
+    "draft",
+    "writer",
+}
+_EMOTION_KEYWORDS = {
+    "feel",
+    "feeling",
+    "emotion",
+    "sad",
+    "happy",
+    "anxiety",
+    "grief",
+    "compassion",
+    "lonely",
+    "scared",
+    "stress",
+    "heart",
+    "tears",
+    "trust",
+    "emotional",
+    "companion",
+    "overwhelmed",
+    "struggling",
+    "grateful",
+    "proud",
+    "hopeful",
+    "worried",
+    "hurt",
+    "crying",
+    "forgave",
+}
 
 
 def _domain_matches_topic(domain_name: str, topic_keywords: set[str]) -> bool:
@@ -136,6 +200,7 @@ def _domain_matches_topic(domain_name: str, topic_keywords: set[str]) -> bool:
 # ---------------------------------------------------------------------------
 # SM-1: Domain Classification
 # ---------------------------------------------------------------------------
+
 
 async def _sm1_domain_classification(quick: bool) -> float:
     """Feed topic-specific interactions and check top domain matches.
@@ -160,9 +225,7 @@ async def _sm1_domain_classification(quick: bool) -> float:
         else _TECH_INTERACTIONS[:n_turns]
     )
     writing_interactions = (
-        [(t["user_input"], t["agent_output"]) for t in writing_corpus]
-        if writing_corpus
-        else []
+        [(t["user_input"], t["agent_output"]) for t in writing_corpus] if writing_corpus else []
     )
     emotional_interactions = (
         [(t["user_input"], t["agent_output"]) for t in emotional_corpus]
@@ -201,7 +264,12 @@ async def _sm1_domain_classification(quick: bool) -> float:
                 if _domain_matches_topic(img.domain, keywords):
                     correct += 1
                     matched = True
-                    logger.debug("SM-1 %s: domain '%s' matches (conf=%.2f)", topic, img.domain, img.confidence)
+                    logger.debug(
+                        "SM-1 %s: domain '%s' matches (conf=%.2f)",
+                        topic,
+                        img.domain,
+                        img.confidence,
+                    )
                     break
             if not matched:
                 domain_names = [img.domain for img in images[:3]]
@@ -217,6 +285,7 @@ async def _sm1_domain_classification(quick: bool) -> float:
 # ---------------------------------------------------------------------------
 # SM-2: Emergence Speed (with live confidence tracking for curve fit)
 # ---------------------------------------------------------------------------
+
 
 async def _sm2_emergence_speed(quick: bool) -> tuple[int, float]:
     """Feed tech interactions one at a time, track when confidence crosses 0.4.
@@ -265,20 +334,27 @@ async def _sm2_emergence_speed(quick: bool) -> tuple[int, float]:
                 logger.info("SM-2 emergence at turn %d (conf=%.2f)", i + 1, conf)
 
     # Compute Pearson r between observed and theoretical confidence curves
-    curve_fit = pearson_r(observed_confidences, theoretical_confidences) if len(observed_confidences) >= 2 else 1.0
+    curve_fit = (
+        pearson_r(observed_confidences, theoretical_confidences)
+        if len(observed_confidences) >= 2
+        else 1.0
+    )
     # Clamp to [0, 1] for scoring (negative correlation = 0)
     curve_fit = max(0.0, curve_fit)
 
     if emergence_turn == max_turns:
         logger.info("SM-2: no domain crossed 0.4 within %d turns", max_turns)
 
-    logger.info("SM-2 confidence curve fit: r=%.4f (%d data points)", curve_fit, len(observed_confidences))
+    logger.info(
+        "SM-2 confidence curve fit: r=%.4f (%d data points)", curve_fit, len(observed_confidences)
+    )
     return emergence_turn, curve_fit
 
 
 # ---------------------------------------------------------------------------
 # SM-3: Cross-Domain Isolation
 # ---------------------------------------------------------------------------
+
 
 async def _sm3_cross_domain_isolation(quick: bool) -> float:
     """Feed tech interactions, check that emotion domains don't appear.
@@ -335,7 +411,8 @@ async def _sm3_cross_domain_isolation(quick: bool) -> float:
         if _domain_matches_topic(domain_name, _EMOTION_KEYWORDS) and img.confidence >= 0.3:
             logger.warning(
                 "SM-3 contamination: emotion domain '%s' (conf=%.2f) in tech soul",
-                domain_name, img.confidence,
+                domain_name,
+                img.confidence,
             )
             contaminated = True
 
@@ -347,6 +424,7 @@ async def _sm3_cross_domain_isolation(quick: bool) -> float:
 # ---------------------------------------------------------------------------
 # SM-4: Relationship Note Extraction
 # ---------------------------------------------------------------------------
+
 
 async def _sm4_relationship_notes() -> float:
     """Feed a 'my boss is Sarah Chen' interaction, check relationship_notes.
@@ -360,10 +438,12 @@ async def _sm4_relationship_notes() -> float:
         persona="I pay attention to people.",
     )
 
-    await soul.observe(Interaction(
-        user_input="My boss is named Sarah Chen and I work at Acme Corp.",
-        agent_output="Good to know! Sarah Chen at Acme Corp — I'll remember that.",
-    ))
+    await soul.observe(
+        Interaction(
+            user_input="My boss is named Sarah Chen and I work at Acme Corp.",
+            agent_output="Good to know! Sarah Chen at Acme Corp — I'll remember that.",
+        )
+    )
 
     notes = soul.self_model.relationship_notes
     all_notes_text = " ".join(notes.values()).lower()
@@ -376,6 +456,7 @@ async def _sm4_relationship_notes() -> float:
 # ---------------------------------------------------------------------------
 # Confidence curve fitting helper
 # ---------------------------------------------------------------------------
+
 
 def pearson_r(x: list[float], y: list[float]) -> float:
     """Compute Pearson correlation coefficient."""
@@ -395,6 +476,7 @@ def pearson_r(x: list[float], y: list[float]) -> float:
 # ---------------------------------------------------------------------------
 # Main evaluate entry point
 # ---------------------------------------------------------------------------
+
 
 async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
     """Run D5 Self-Model evaluation."""

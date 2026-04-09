@@ -4,25 +4,24 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
+
 import pytest
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
 
 from soul_protocol.runtime.dream import (
     DetectedProcedure,
-    DreamReport,
     Dreamer,
+    DreamReport,
     EvolutionInsight,
     GraphConsolidation,
     TopicCluster,
 )
-from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph, TemporalEdge
 from soul_protocol.runtime.memory.procedural import ProceduralStore
 from soul_protocol.runtime.memory.semantic import SemanticStore
 from soul_protocol.runtime.soul import Soul
 from soul_protocol.runtime.types import Interaction, MemoryEntry, MemoryType
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -39,7 +38,7 @@ def _make_episode(
         type=MemoryType.EPISODIC,
         content=content,
         importance=5,
-        created_at=created_at or datetime.now(timezone.utc),
+        created_at=created_at or datetime.now(UTC),
         entities=entities or [],
     )
 
@@ -50,7 +49,7 @@ def _make_semantic_fact(content: str) -> MemoryEntry:
         type=MemoryType.SEMANTIC,
         content=content,
         importance=6,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
 
@@ -121,24 +120,26 @@ class TestDreamReport:
             ),
             procedures_created=1,
             evolution_insights=[
-                EvolutionInsight(trait="personality.openness", direction="increase", evidence="high diversity"),
+                EvolutionInsight(
+                    trait="personality.openness", direction="increase", evidence="high diversity"
+                ),
             ],
         )
 
         summary = report.summary()
 
-        assert "42" in summary                      # episodes reviewed
-        assert "350ms" in summary                   # duration
-        assert "python decorators" in summary       # cluster label
-        assert "5" in summary                       # cluster count
-        assert "Recurring pattern" in summary       # procedure
-        assert "Emerging topic" in summary          # trend
-        assert "10" in summary                      # archived
-        assert "2" in summary                       # deduplicated
-        assert "1" in summary                       # entities merged
-        assert "4" in summary                       # edges pruned
-        assert "Procedures created: 1" in summary   # synthesis result
-        assert "personality.openness" in summary    # evolution trait
+        assert "42" in summary  # episodes reviewed
+        assert "350ms" in summary  # duration
+        assert "python decorators" in summary  # cluster label
+        assert "5" in summary  # cluster count
+        assert "Recurring pattern" in summary  # procedure
+        assert "Emerging topic" in summary  # trend
+        assert "10" in summary  # archived
+        assert "2" in summary  # deduplicated
+        assert "1" in summary  # entities merged
+        assert "4" in summary  # edges pruned
+        assert "Procedures created: 1" in summary  # synthesis result
+        assert "personality.openness" in summary  # evolution trait
 
     def test_summary_minimal_report_no_extra_sections(self):
         """A report with only episodes reviewed should not render optional sections."""
@@ -174,7 +175,7 @@ class TestDreamerGatherPhase:
     """_gather_episodes() — filtering by timestamp."""
 
     def test_gather_all_episodes_when_no_since(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         episodes = [
             _make_episode("Episode A", created_at=now - timedelta(days=5)),
             _make_episode("Episode B", created_at=now - timedelta(days=1)),
@@ -187,7 +188,7 @@ class TestDreamerGatherPhase:
         assert len(result) == 3
 
     def test_gather_filters_episodes_after_since(self):
-        cutoff = datetime.now(timezone.utc) - timedelta(days=3)
+        cutoff = datetime.now(UTC) - timedelta(days=3)
         old = _make_episode("old episode", created_at=cutoff - timedelta(days=1))
         recent_a = _make_episode("recent A", created_at=cutoff + timedelta(hours=1))
         recent_b = _make_episode("recent B", created_at=cutoff + timedelta(days=1))
@@ -207,7 +208,7 @@ class TestDreamerGatherPhase:
         assert result == []
 
     def test_gather_since_at_exact_boundary_is_inclusive(self):
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         episode = _make_episode("boundary episode", created_at=ts)
         dreamer, _ = _build_dreamer_with_episodes([episode])
 
@@ -355,7 +356,7 @@ class TestDreamerDetectBehavioralTrends:
     """_detect_behavioral_trends() — emerging and declining topics."""
 
     def test_detects_emerging_topic_in_second_half(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # First half: questions about Python
         first_half = [
             _make_episode(
@@ -382,7 +383,7 @@ class TestDreamerDetectBehavioralTrends:
         assert len(emerging) >= 1
 
     def test_detects_declining_topic_from_first_half(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # First half: heavy on "python"
         first_half = [
             _make_episode(
@@ -440,7 +441,9 @@ class TestDreamerDeduplicateSemantic:
 
         # Add two very similar facts
         fact_a = _make_semantic_fact("User prefers Python programming language for data science")
-        fact_b = _make_semantic_fact("User prefers Python programming language for data science work")
+        fact_b = _make_semantic_fact(
+            "User prefers Python programming language for data science work"
+        )
         await semantic.add(fact_a)
         await semantic.add(fact_b)
         memory._semantic = semantic
@@ -522,7 +525,9 @@ class TestDreamerDeduplicateSemantic:
         semantic = SemanticStore()
 
         fact_a = _make_semantic_fact("User prefers Python programming language for data science")
-        fact_b = _make_semantic_fact("User prefers Python programming language for data science work")
+        fact_b = _make_semantic_fact(
+            "User prefers Python programming language for data science work"
+        )
         await semantic.add(fact_a)
         await semantic.add(fact_b)
         memory._semantic = semantic
@@ -607,12 +612,8 @@ class TestDreamerDryRun:
         past_cutoff = now - timedelta(hours=50)  # just past 48h
         inside_cutoff = now - timedelta(hours=10)  # well inside 48h
 
-        old_eps = [
-            MagicMock(created_at=past_cutoff, archived=False) for _ in range(3)
-        ]
-        recent_eps = [
-            MagicMock(created_at=inside_cutoff, archived=False) for _ in range(2)
-        ]
+        old_eps = [MagicMock(created_at=past_cutoff, archived=False) for _ in range(3)]
+        recent_eps = [MagicMock(created_at=inside_cutoff, archived=False) for _ in range(2)]
 
         dreamer = Dreamer(memory)
         count = dreamer._count_archivable(old_eps + recent_eps)
@@ -633,9 +634,7 @@ class TestDreamerDryRun:
         now = datetime.now()
         past_cutoff = now - timedelta(hours=50)
 
-        old_eps = [
-            MagicMock(created_at=past_cutoff, archived=False) for _ in range(2)
-        ]
+        old_eps = [MagicMock(created_at=past_cutoff, archived=False) for _ in range(2)]
 
         dreamer = Dreamer(memory)
         count = dreamer._count_archivable(old_eps)
@@ -707,9 +706,7 @@ class TestDreamerConsolidateGraph:
         g.add_entity("Flask", "framework")
         # Expired 45 days ago
         expired_date = datetime.now() - timedelta(days=45)
-        g._edges.append(
-            TemporalEdge("Python", "Flask", "used_with", valid_to=expired_date)
-        )
+        g._edges.append(TemporalEdge("Python", "Flask", "used_with", valid_to=expired_date))
         # Still active
         g.add_relationship("Python", "Django", "used_with")
 
@@ -883,7 +880,9 @@ class TestDreamerAnalyzeEvolution:
 
         insights = dreamer._analyze_evolution(episodes, clusters)
 
-        openness = [i for i in insights if i.trait == "personality.openness" and i.direction == "increase"]
+        openness = [
+            i for i in insights if i.trait == "personality.openness" and i.direction == "increase"
+        ]
         assert len(openness) >= 1
 
     def test_fewer_than_ten_episodes_returns_empty_insights(self):
@@ -918,7 +917,8 @@ class TestDreamerAnalyzeEvolution:
         insights = dreamer._analyze_evolution(episodes, [])
 
         conscientiousness = [
-            i for i in insights
+            i
+            for i in insights
             if i.trait == "personality.conscientiousness" and i.direction == "increase"
         ]
         assert len(conscientiousness) >= 1
@@ -1203,9 +1203,7 @@ class TestDreamBeforeAfterSimulation:
         ]
 
         for user_input, agent_output in python_template + rust_template + kubernetes_template:
-            await soul.observe(
-                _make_interaction(user_input=user_input, agent_output=agent_output)
-            )
+            await soul.observe(_make_interaction(user_input=user_input, agent_output=agent_output))
 
         # --- Snapshot BEFORE ---
         before_episodes = len(soul._memory._episodic.entries())

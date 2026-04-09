@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from .a2a import A2AAgentCard, A2ASkill, SoulExtension
 from .container import SoulContainer
 from .context import (
     AssembleResult,
@@ -26,13 +27,19 @@ from .embeddings import (
     euclidean_distance,
 )
 from .eternal import ArchiveResult, EternalStorageProvider, RecoverySource
-from .a2a import A2AAgentCard, A2ASkill, SoulExtension
 from .identity import BondTarget, Identity
-from .manifest import Manifest
-from .memory import DictMemoryStore, Interaction, MemoryEntry, MemoryStore, MemoryVisibility, Participant
-from .template import SoulTemplate
 from .learning import LearningEvent
+from .manifest import Manifest
+from .memory import (
+    DictMemoryStore,
+    Interaction,
+    MemoryEntry,
+    MemoryStore,
+    MemoryVisibility,
+    Participant,
+)
 from .soul_file import pack_soul, unpack_soul, unpack_to_container
+from .template import SoulTemplate
 
 __all__ = [
     # A2A Agent Card

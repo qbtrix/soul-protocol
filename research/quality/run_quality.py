@@ -20,7 +20,7 @@ import asyncio
 import json
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -85,8 +85,7 @@ def _resolve_tests(raw: str) -> list[str]:
     unknown = [t for t in requested if t not in TEST_REGISTRY]
     if unknown:
         sys.exit(
-            f"Unknown test(s): {', '.join(unknown)}. "
-            f"Valid options: {', '.join(ALL_TEST_NAMES)}"
+            f"Unknown test(s): {', '.join(unknown)}. Valid options: {', '.join(ALL_TEST_NAMES)}"
         )
     return requested
 
@@ -157,22 +156,15 @@ def _print_scorecard(
         if baseline is not None:
             baseline_scores.append(baseline)
 
-        p(
-            f"  {display_name:<26}| {win:<9}| {_fmt(soul, 10):<12}| {_fmt(baseline)}"
-        )
+        p(f"  {display_name:<26}| {win:<9}| {_fmt(soul, 10):<12}| {_fmt(baseline)}")
 
     p(_DASH)
 
     overall_soul = sum(soul_scores) / len(soul_scores) if soul_scores else None
-    overall_base = (
-        sum(baseline_scores) / len(baseline_scores) if baseline_scores else None
-    )
+    overall_base = sum(baseline_scores) / len(baseline_scores) if baseline_scores else None
     overall_win = _winner(overall_soul, overall_base)
 
-    p(
-        f"  {'Overall':<26}| {overall_win:<9}| "
-        f"{_fmt(overall_soul, 10):<12}| {_fmt(overall_base)}"
-    )
+    p(f"  {'Overall':<26}| {overall_win:<9}| {_fmt(overall_soul, 10):<12}| {_fmt(overall_base)}")
     p()
 
     agent_calls = agent_usage.get("calls", 0)
@@ -204,7 +196,7 @@ def _save_results(
     """Write JSON results and markdown scorecard to the output directory."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = metadata.get("timestamp", datetime.now(timezone.utc).isoformat())
+    timestamp = metadata.get("timestamp", datetime.now(UTC).isoformat())
     stem = timestamp.replace(":", "-").replace("+", "p")
 
     # JSON — full results
@@ -219,9 +211,7 @@ def _save_results(
     # Markdown — scorecard
     md_path = output_dir / f"quality_{stem}.md"
     md_content = (
-        f"# Quality Validation Results\n\n"
-        f"**Date:** {timestamp}\n\n"
-        f"```\n{scorecard_text}\n```\n"
+        f"# Quality Validation Results\n\n**Date:** {timestamp}\n\n```\n{scorecard_text}\n```\n"
     )
     md_path.write_text(md_content)
     print(f"Scorecard saved to {md_path}")
@@ -251,9 +241,9 @@ async def run(argv: list[str] | None = None) -> None:
 
     for key in test_keys:
         display_name, test_fn = TEST_REGISTRY[key]
-        print(f"\n{'='*40}")
+        print(f"\n{'=' * 40}")
         print(f"  Running: {display_name}")
-        print(f"{'='*40}\n")
+        print(f"{'=' * 40}\n")
 
         test_start = time.monotonic()
         result = await test_fn(agent_engine, judge_engine)
@@ -293,7 +283,7 @@ async def run(argv: list[str] | None = None) -> None:
 
     scorecard_text = _print_scorecard(results, test_keys, agent_usage, judge_usage)
 
-    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    timestamp = datetime.now(UTC).isoformat(timespec="seconds")
     metadata = {
         "timestamp": timestamp,
         "tests_run": test_keys,

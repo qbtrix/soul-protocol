@@ -19,7 +19,6 @@ from soul_protocol.spec.identity import Identity as CoreIdentity
 from soul_protocol.spec.memory import Interaction as CoreInteraction
 from soul_protocol.spec.memory import Participant as CoreParticipant
 
-
 # ============ Issue #95: Multi-participant Interaction ============
 
 
@@ -54,9 +53,7 @@ class TestInteractionBackwardCompat:
         assert interaction.agent_output == "hi there"
 
     def test_legacy_constructor_with_channel(self):
-        interaction = Interaction(
-            user_input="hello", agent_output="hi", channel="discord"
-        )
+        interaction = Interaction(user_input="hello", agent_output="hi", channel="discord")
         assert interaction.channel == "discord"
         assert interaction.user_input == "hello"
 
@@ -97,9 +94,7 @@ class TestInteractionMultiParticipant:
         assert len(interaction.participants) == 2
 
     def test_from_pair_with_channel(self):
-        interaction = Interaction.from_pair(
-            "hello", "hi", channel="slack"
-        )
+        interaction = Interaction.from_pair("hello", "hi", channel="slack")
         assert interaction.channel == "slack"
 
     def test_from_pair_with_timestamp(self):
@@ -387,7 +382,9 @@ class TestSoulIntegration:
         from soul_protocol import Soul
 
         soul = await Soul.birth(name="TestSoul", values=["test"])
-        interaction = Interaction(user_input="My name is Alice", agent_output="Nice to meet you, Alice!")
+        interaction = Interaction(
+            user_input="My name is Alice", agent_output="Nice to meet you, Alice!"
+        )
         await soul.observe(interaction)
         assert soul.memory_count > 0
 

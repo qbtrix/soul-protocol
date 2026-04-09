@@ -270,14 +270,10 @@ class TestSignificanceShortCircuit:
         from unittest.mock import AsyncMock
 
         mgr = MemoryManager(core=CoreMemory(), settings=MemorySettings())
-        mgr._cognitive.detect_sentiment = AsyncMock(
-            return_value=self._neutral_somatic()
-        )
+        mgr._cognitive.detect_sentiment = AsyncMock(return_value=self._neutral_somatic())
         # Safe default — trivial score. Tests that care about the high path
         # override this explicitly.
-        mgr._cognitive.assess_significance = AsyncMock(
-            return_value=self._trivial_score()
-        )
+        mgr._cognitive.assess_significance = AsyncMock(return_value=self._trivial_score())
         mgr._cognitive.extract_facts = AsyncMock(return_value=[])
         mgr._cognitive.extract_entities = AsyncMock(return_value=[])
         mgr._cognitive.update_self_model = AsyncMock()

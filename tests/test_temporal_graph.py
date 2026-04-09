@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
@@ -144,9 +144,7 @@ class TestAsOfDate:
         assert apr[0]["target"] == "Rust"
 
     def test_no_results_before_any_edges(self, graph: KnowledgeGraph):
-        graph.add_relationship(
-            "A", "B", "uses", valid_from=datetime(2026, 6, 1)
-        )
+        graph.add_relationship("A", "B", "uses", valid_from=datetime(2026, 6, 1))
         result = graph.as_of_date(datetime(2026, 1, 1))
         assert result == []
 

@@ -1,9 +1,9 @@
 # tests/test_demo.py — Smoke test for developer onboarding demo
 # Updated: 2026-03-13 — Set SOUL_DEMO_NO_PAUSE=1 to prevent blocking on input
 
-import os
 
 import pytest
+
 from soul_protocol.demo import run_demo
 
 

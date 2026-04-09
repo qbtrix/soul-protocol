@@ -199,20 +199,26 @@ def test_empty_core_values_gives_zero_goal_relevance(neutral_interaction):
 
 def test_overall_significance_weighted_sum():
     """overall_significance uses rebalanced weights: 0.3*novelty + 0.2*emotion + 0.2*goal + 0.3*richness."""
-    score = SignificanceScore(novelty=0.8, emotional_intensity=0.6, goal_relevance=0.4, content_richness=0.5)
+    score = SignificanceScore(
+        novelty=0.8, emotional_intensity=0.6, goal_relevance=0.4, content_richness=0.5
+    )
     expected = round(0.3 * 0.8 + 0.2 * 0.6 + 0.2 * 0.4 + 0.3 * 0.5, 10)
     assert pytest.approx(overall_significance(score), abs=1e-9) == expected
 
 
 def test_overall_significance_all_zero():
     """A zero score produces 0.0 overall significance."""
-    score = SignificanceScore(novelty=0.0, emotional_intensity=0.0, goal_relevance=0.0, content_richness=0.0)
+    score = SignificanceScore(
+        novelty=0.0, emotional_intensity=0.0, goal_relevance=0.0, content_richness=0.0
+    )
     assert overall_significance(score) == 0.0
 
 
 def test_overall_significance_all_one():
     """A perfect score of 1.0 on all dimensions produces 1.0 overall."""
-    score = SignificanceScore(novelty=1.0, emotional_intensity=1.0, goal_relevance=1.0, content_richness=1.0)
+    score = SignificanceScore(
+        novelty=1.0, emotional_intensity=1.0, goal_relevance=1.0, content_richness=1.0
+    )
     assert pytest.approx(overall_significance(score)) == 1.0
 
 
@@ -286,5 +292,7 @@ def test_custom_threshold_exact_boundary():
     """Score exactly at the threshold boundary must be accepted (>=)."""
     # With weights 0.3*novelty + 0.2*emotion + 0.2*goal + 0.3*richness
     # 0.3*1.0 + 0.2*0.0 + 0.2*0.0 + 0.3*0.0 = 0.3
-    score = SignificanceScore(novelty=1.0, emotional_intensity=0.0, goal_relevance=0.0, content_richness=0.0)
+    score = SignificanceScore(
+        novelty=1.0, emotional_intensity=0.0, goal_relevance=0.0, content_richness=0.0
+    )
     assert is_significant(score, threshold=0.3) is True

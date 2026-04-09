@@ -7,10 +7,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from research.long_horizon.scenarios import (
-    LongHorizonScenario,
     TestPoint,
     generate_adversarial_burial,
     generate_all_scenarios,
@@ -56,7 +53,7 @@ class TestLifeUpdatesScenario:
         scenario = generate_life_updates()
         for tp in scenario.test_points:
             assert tp.expected_content, f"Test point missing expected_content: {tp.query}"
-            assert tp.query, f"Test point missing query"
+            assert tp.query, "Test point missing query"
 
     def test_scenario_metadata(self):
         scenario = generate_life_updates()
@@ -159,18 +156,14 @@ class TestAdversarialBurialScenario:
         """All 5 facts should be planted in the first 10 turns."""
         scenario = generate_adversarial_burial()
         for turn_idx, _fact in scenario.planted_facts:
-            assert turn_idx < 10, (
-                f"Fact should be planted in first 10 turns, got turn {turn_idx}"
-            )
+            assert turn_idx < 10, f"Fact should be planted in first 10 turns, got turn {turn_idx}"
 
     def test_recall_tests_are_late(self):
         """Recall tests should be at turn 150+."""
         scenario = generate_adversarial_burial()
         recall_points = [tp for tp in scenario.test_points if tp.test_type == "recall"]
         for tp in recall_points:
-            assert tp.turn_index >= 150, (
-                f"Recall test should be at turn 150+, got {tp.turn_index}"
-            )
+            assert tp.turn_index >= 150, f"Recall test should be at turn 150+, got {tp.turn_index}"
 
     def test_sufficient_noise_between_facts_and_tests(self):
         """At least 140 turns of noise between facts and tests."""
@@ -180,25 +173,20 @@ class TestAdversarialBurialScenario:
             tp.turn_index for tp in scenario.test_points if tp.test_type == "recall"
         )
         gap = min_test_turn - max_fact_turn
-        assert gap >= 100, (
-            f"Need at least 100 turns of noise between facts and tests, got {gap}"
-        )
+        assert gap >= 100, f"Need at least 100 turns of noise between facts and tests, got {gap}"
 
     def test_recall_tests_cover_all_facts(self):
         """Each planted fact should have at least one recall test."""
         scenario = generate_adversarial_burial()
         fact_contents = [f.lower() for _, f in scenario.planted_facts]
         test_expecteds = [
-            tp.expected_content.lower()
-            for tp in scenario.test_points
-            if tp.test_type == "recall"
+            tp.expected_content.lower() for tp in scenario.test_points if tp.test_type == "recall"
         ]
         # Each fact should be testable by at least one test point
         for fact in fact_contents:
             key_words = set(fact.split())
             matched = any(
-                any(word in expected for word in key_words)
-                for expected in test_expecteds
+                any(word in expected for word in key_words) for expected in test_expecteds
             )
             assert matched, f"No recall test covers fact: {fact}"
 
@@ -233,9 +221,7 @@ class TestGenerateAllScenarios:
 
     def test_all_have_test_points(self):
         for scenario in generate_all_scenarios():
-            assert len(scenario.test_points) > 0, (
-                f"{scenario.name} has no test points"
-            )
+            assert len(scenario.test_points) > 0, f"{scenario.name} has no test points"
 
 
 class TestTestPointDataclass:

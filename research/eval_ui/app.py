@@ -42,8 +42,8 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from soul_protocol import Soul, Interaction
 from research.haiku_engine import HaikuCognitiveEngine
+from soul_protocol import Interaction, Soul
 
 logger = logging.getLogger("eval_ui")
 
@@ -147,6 +147,7 @@ sessions: dict[str, dict[str, Any]] = {}
 # Startup / Shutdown
 # ---------------------------------------------------------------------------
 
+
 @app.on_event("startup")
 async def startup_event():
     """Validate config and start background tasks on boot."""
@@ -181,7 +182,8 @@ async def _session_cleanup_loop():
         await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
         now = time.time()
         expired = [
-            sid for sid, sess in sessions.items()
+            sid
+            for sid, sess in sessions.items()
             if now - sess.get("created_at", now) > SESSION_TTL_SECONDS
         ]
         for sid in expired:
@@ -193,6 +195,7 @@ async def _session_cleanup_loop():
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _generate_session_id() -> str:
     return "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
@@ -279,6 +282,7 @@ def _save_session(session: dict[str, Any]) -> None:
 # Request / Response models
 # ---------------------------------------------------------------------------
 
+
 class StartRequest(BaseModel):
     student_name: str
 
@@ -305,6 +309,7 @@ class SurveyRequest(BaseModel):
 # Routes — Pages
 # ---------------------------------------------------------------------------
 
+
 @app.get("/", response_class=HTMLResponse)
 async def landing_page(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -314,26 +319,33 @@ async def landing_page(request: Request):
 async def instructions_page(request: Request, session_id: str):
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-    return templates.TemplateResponse("instructions.html", {
-        "request": request,
-        "session_id": session_id,
-    })
+    return templates.TemplateResponse(
+        "instructions.html",
+        {
+            "request": request,
+            "session_id": session_id,
+        },
+    )
 
 
 @app.get("/chat/{session_id}", response_class=HTMLResponse)
 async def chat_page(request: Request, session_id: str):
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-    return templates.TemplateResponse("chat.html", {
-        "request": request,
-        "session_id": session_id,
-        "max_turns": MAX_TURNS,
-    })
+    return templates.TemplateResponse(
+        "chat.html",
+        {
+            "request": request,
+            "session_id": session_id,
+            "max_turns": MAX_TURNS,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
 # Routes — API
 # ---------------------------------------------------------------------------
+
 
 @app.post("/api/start")
 async def start_session(req: StartRequest):
@@ -413,11 +425,13 @@ async def send_message(req: MessageRequest):
         # Let the soul observe the interaction so it builds memory
         try:
             soul: Soul = session["soul"]
-            await soul.observe(Interaction(
-                user_input=req.message,
-                agent_output=response,
-                channel="eval_ui",
-            ))
+            await soul.observe(
+                Interaction(
+                    user_input=req.message,
+                    agent_output=response,
+                    channel="eval_ui",
+                )
+            )
         except Exception as e:
             logger.warning("Soul.observe() failed (non-fatal): %s", e)
     else:
@@ -451,8 +465,11 @@ async def submit_survey(req: SurveyRequest):
         raise HTTPException(status_code=404, detail="Session not found")
 
     survey_data = {
-        "q1": req.q1, "q2": req.q2, "q3": req.q3,
-        "q4": req.q4, "q5": req.q5,
+        "q1": req.q1,
+        "q2": req.q2,
+        "q3": req.q3,
+        "q4": req.q4,
+        "q5": req.q5,
         "q6": req.q6,  # Reverse-coded: "responses felt generic and repetitive"
     }
 
@@ -523,11 +540,28 @@ async def get_results_csv(token: str = ""):
     # Build CSV in memory
     output = io.StringIO()
     fieldnames = [
-        "session_id", "student_name", "timestamp", "soul_preset",
-        "agent_order", "condition_a", "condition_b",
-        "q1_a", "q2_a", "q3_a", "q4_a", "q5_a", "q6_a",
-        "q1_b", "q2_b", "q3_b", "q4_b", "q5_b", "q6_b",
-        "preference", "preferred_condition", "free_text_feedback",
+        "session_id",
+        "student_name",
+        "timestamp",
+        "soul_preset",
+        "agent_order",
+        "condition_a",
+        "condition_b",
+        "q1_a",
+        "q2_a",
+        "q3_a",
+        "q4_a",
+        "q5_a",
+        "q6_a",
+        "q1_b",
+        "q2_b",
+        "q3_b",
+        "q4_b",
+        "q5_b",
+        "q6_b",
+        "preference",
+        "preferred_condition",
+        "free_text_feedback",
     ]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
@@ -545,30 +579,32 @@ async def get_results_csv(token: str = ""):
         else:
             preferred_condition = ""
 
-        writer.writerow({
-            "session_id": r.get("session_id", ""),
-            "student_name": r.get("student_name", ""),
-            "timestamp": r.get("timestamp", ""),
-            "soul_preset": r.get("soul_preset", ""),
-            "agent_order": "|".join(order),
-            "condition_a": order[0],
-            "condition_b": order[1],
-            "q1_a": survey_a.get("q1", ""),
-            "q2_a": survey_a.get("q2", ""),
-            "q3_a": survey_a.get("q3", ""),
-            "q4_a": survey_a.get("q4", ""),
-            "q5_a": survey_a.get("q5", ""),
-            "q6_a": survey_a.get("q6", ""),
-            "q1_b": survey_b.get("q1", ""),
-            "q2_b": survey_b.get("q2", ""),
-            "q3_b": survey_b.get("q3", ""),
-            "q4_b": survey_b.get("q4", ""),
-            "q5_b": survey_b.get("q5", ""),
-            "q6_b": survey_b.get("q6", ""),
-            "preference": pref or "",
-            "preferred_condition": preferred_condition,
-            "free_text_feedback": r.get("free_text_feedback", ""),
-        })
+        writer.writerow(
+            {
+                "session_id": r.get("session_id", ""),
+                "student_name": r.get("student_name", ""),
+                "timestamp": r.get("timestamp", ""),
+                "soul_preset": r.get("soul_preset", ""),
+                "agent_order": "|".join(order),
+                "condition_a": order[0],
+                "condition_b": order[1],
+                "q1_a": survey_a.get("q1", ""),
+                "q2_a": survey_a.get("q2", ""),
+                "q3_a": survey_a.get("q3", ""),
+                "q4_a": survey_a.get("q4", ""),
+                "q5_a": survey_a.get("q5", ""),
+                "q6_a": survey_a.get("q6", ""),
+                "q1_b": survey_b.get("q1", ""),
+                "q2_b": survey_b.get("q2", ""),
+                "q3_b": survey_b.get("q3", ""),
+                "q4_b": survey_b.get("q4", ""),
+                "q5_b": survey_b.get("q5", ""),
+                "q6_b": survey_b.get("q6", ""),
+                "preference": pref or "",
+                "preferred_condition": preferred_condition,
+                "free_text_feedback": r.get("free_text_feedback", ""),
+            }
+        )
 
     csv_content = output.getvalue()
     return StreamingResponse(

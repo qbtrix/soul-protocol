@@ -93,8 +93,12 @@ class KnowledgeGraph:
         self._entities[name] = entity_type
 
     def add_relationship(
-        self, source: str, target: str, relation: str,
-        valid_from: datetime | None = None, valid_to: datetime | None = None,
+        self,
+        source: str,
+        target: str,
+        relation: str,
+        valid_from: datetime | None = None,
+        valid_to: datetime | None = None,
         metadata: dict | None = None,
     ) -> None:
         if source not in self._entities:
@@ -102,13 +106,23 @@ class KnowledgeGraph:
         if target not in self._entities:
             self._entities[target] = "unknown"
         for edge in self._edges:
-            if (edge.source == source and edge.target == target
-                    and edge.relation == relation and edge.is_currently_active()):
+            if (
+                edge.source == source
+                and edge.target == target
+                and edge.relation == relation
+                and edge.is_currently_active()
+            ):
                 return
-        self._edges.append(TemporalEdge(
-            source=source, target=target, relation=relation,
-            valid_from=valid_from, valid_to=valid_to, metadata=metadata,
-        ))
+        self._edges.append(
+            TemporalEdge(
+                source=source,
+                target=target,
+                relation=relation,
+                valid_from=valid_from,
+                valid_to=valid_to,
+                metadata=metadata,
+            )
+        )
 
     def get_related(self, entity: str) -> list[dict]:
         results: list[dict] = []
@@ -116,14 +130,22 @@ class KnowledgeGraph:
             if not edge.is_currently_active():
                 continue
             if edge.source == entity:
-                result: dict = {"source": edge.source, "target": edge.target,
-                                "relation": edge.relation, "direction": "outgoing"}
+                result: dict = {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "relation": edge.relation,
+                    "direction": "outgoing",
+                }
                 if edge.metadata is not None:
                     result["metadata"] = edge.metadata
                 results.append(result)
             elif edge.target == entity:
-                result = {"source": edge.source, "target": edge.target,
-                          "relation": edge.relation, "direction": "incoming"}
+                result = {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "relation": edge.relation,
+                    "direction": "incoming",
+                }
                 if edge.metadata is not None:
                     result["metadata"] = edge.metadata
                 results.append(result)
@@ -164,9 +186,7 @@ class KnowledgeGraph:
                     rel_with_depth["depth"] = depth
                     results.append(rel_with_depth)
                     # Collect neighbors for next hop
-                    neighbor = (
-                        rel["target"] if rel["source"] == current_entity else rel["source"]
-                    )
+                    neighbor = rel["target"] if rel["source"] == current_entity else rel["source"]
                     if neighbor not in visited:
                         next_frontier.add(neighbor)
             frontier = next_frontier
@@ -177,12 +197,17 @@ class KnowledgeGraph:
         """Return a list of all entity names."""
         return list(self._entities.keys())
 
-    def expire_relationship(self, source: str, target: str, relation: str,
-                            expire_at: datetime | None = None) -> bool:
+    def expire_relationship(
+        self, source: str, target: str, relation: str, expire_at: datetime | None = None
+    ) -> bool:
         expire_at = expire_at or datetime.now()
         for edge in self._edges:
-            if (edge.source == source and edge.target == target
-                    and edge.relation == relation and edge.is_currently_active()):
+            if (
+                edge.source == source
+                and edge.target == target
+                and edge.relation == relation
+                and edge.is_currently_active()
+            ):
                 edge.valid_to = expire_at
                 return True
         return False
@@ -191,9 +216,13 @@ class KnowledgeGraph:
         results: list[dict] = []
         for edge in self._edges:
             if edge.is_active_at(dt):
-                result: dict = {"source": edge.source, "target": edge.target,
-                                "relation": edge.relation, "valid_from": edge.valid_from,
-                                "valid_to": edge.valid_to}
+                result: dict = {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "relation": edge.relation,
+                    "valid_from": edge.valid_from,
+                    "valid_to": edge.valid_to,
+                }
                 if edge.metadata is not None:
                     result["metadata"] = edge.metadata
                 results.append(result)
@@ -203,9 +232,13 @@ class KnowledgeGraph:
         results: list[dict] = []
         for edge in self._edges:
             if edge.source == source and edge.target == target:
-                result: dict = {"source": edge.source, "target": edge.target,
-                                "relation": edge.relation, "valid_from": edge.valid_from,
-                                "valid_to": edge.valid_to}
+                result: dict = {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "relation": edge.relation,
+                    "valid_from": edge.valid_from,
+                    "valid_to": edge.valid_to,
+                }
                 if edge.metadata is not None:
                     result["metadata"] = edge.metadata
                 results.append(result)
@@ -238,8 +271,14 @@ class KnowledgeGraph:
         while queue and len(result) < max_nodes:
             entity, depth = queue.popleft()
             edges = self.get_related(entity)
-            result.append({"entity": entity, "entity_type": self._entities.get(entity, "unknown"),
-                           "depth": depth, "edges": edges})
+            result.append(
+                {
+                    "entity": entity,
+                    "entity_type": self._entities.get(entity, "unknown"),
+                    "depth": depth,
+                    "edges": edges,
+                }
+            )
             if depth < max_depth:
                 for neighbor in self._active_neighbors(entity):
                     if neighbor not in visited and len(visited) < max_nodes:
@@ -291,7 +330,11 @@ class KnowledgeGraph:
             if not edge.is_currently_active():
                 continue
             if edge.source in neighborhood_set and edge.target in neighborhood_set:
-                edge_dict: dict = {"source": edge.source, "target": edge.target, "relation": edge.relation}
+                edge_dict: dict = {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "relation": edge.relation,
+                }
                 if edge.metadata is not None:
                     edge_dict["metadata"] = edge.metadata
                 edges.append(edge_dict)
@@ -302,14 +345,19 @@ class KnowledgeGraph:
         entity_set = set(entities)
         nodes: list[dict] = [
             {"entity": name, "entity_type": self._entities.get(name, "unknown")}
-            for name in entities if name in self._entities
+            for name in entities
+            if name in self._entities
         ]
         edges: list[dict] = []
         for edge in self._edges:
             if not edge.is_currently_active():
                 continue
             if edge.source in entity_set and edge.target in entity_set:
-                edge_dict: dict = {"source": edge.source, "target": edge.target, "relation": edge.relation}
+                edge_dict: dict = {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "relation": edge.relation,
+                }
                 if edge.metadata is not None:
                     edge_dict["metadata"] = edge.metadata
                 edges.append(edge_dict)
@@ -374,8 +422,7 @@ class KnowledgeGraph:
             del self._entities[entity]
         original_len = len(self._edges)
         self._edges = [
-            edge for edge in self._edges
-            if edge.source != entity and edge.target != entity
+            edge for edge in self._edges if edge.source != entity and edge.target != entity
         ]
         return original_len - len(self._edges)
 
@@ -399,5 +446,7 @@ class KnowledgeGraph:
                 if edge.target not in graph._entities:
                     graph._entities[edge.target] = "unknown"
             else:
-                graph.add_relationship(edge_data["source"], edge_data["target"], edge_data["relation"])
+                graph.add_relationship(
+                    edge_data["source"], edge_data["target"], edge_data["relation"]
+                )
         return graph

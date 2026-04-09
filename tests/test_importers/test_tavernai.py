@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-import base64
-import json
 from pathlib import Path
 
 import pytest
@@ -188,10 +186,12 @@ async def test_from_json_wrong_spec():
     from soul_protocol.runtime.importers.tavernai import TavernAIImporter
 
     with pytest.raises(ValueError, match="Not a Character Card V2"):
-        await TavernAIImporter.from_json({
-            "spec": "chara_card_v1",
-            "data": {"name": "Old"},
-        })
+        await TavernAIImporter.from_json(
+            {
+                "spec": "chara_card_v1",
+                "data": {"name": "Old"},
+            }
+        )
 
 
 @pytest.mark.asyncio
@@ -209,10 +209,12 @@ async def test_from_json_missing_name():
     from soul_protocol.runtime.importers.tavernai import TavernAIImporter
 
     with pytest.raises(ValueError, match="missing 'name' field"):
-        await TavernAIImporter.from_json({
-            "spec": "chara_card_v2",
-            "data": {"description": "No name"},
-        })
+        await TavernAIImporter.from_json(
+            {
+                "spec": "chara_card_v2",
+                "data": {"description": "No name"},
+            }
+        )
 
 
 @pytest.mark.asyncio
@@ -338,7 +340,11 @@ async def test_round_trip_preserves_scenario(full_card: dict):
 @pytest.mark.asyncio
 async def test_from_png_extraction(tmp_path: Path):
     """Extract Character Card from a PNG file with embedded tEXt chunk."""
-    from soul_protocol.runtime.importers.tavernai import TavernAIImporter, _minimal_png, _build_png_with_chara
+    from soul_protocol.runtime.importers.tavernai import (
+        TavernAIImporter,
+        _build_png_with_chara,
+        _minimal_png,
+    )
 
     card = _make_card_v2(name="PNGTest", description="Embedded in an image.")
     png_bytes = _build_png_with_chara(_minimal_png(), card)
@@ -374,7 +380,7 @@ async def test_from_png_invalid_file(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_from_png_no_chara_chunk(tmp_path: Path):
     """Raise ValueError for PNG without character data."""
-    from soul_protocol.runtime.importers.tavernai import _minimal_png, TavernAIImporter
+    from soul_protocol.runtime.importers.tavernai import TavernAIImporter, _minimal_png
 
     # Minimal PNG without any tEXt chunk
     png_path = tmp_path / "empty.png"

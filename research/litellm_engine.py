@@ -62,7 +62,8 @@ class LiteLLMEngine:
         self.usage = UsageTracker()
 
         self._client = AsyncOpenAI(
-            base_url=base_url or os.environ.get("LITELLM_PROXY_URL", "https://litellm.hzd.interacly.com"),
+            base_url=base_url
+            or os.environ.get("LITELLM_PROXY_URL", "https://litellm.hzd.interacly.com"),
             api_key=api_key or os.environ.get("LITELLM_API_KEY", ""),
         )
 

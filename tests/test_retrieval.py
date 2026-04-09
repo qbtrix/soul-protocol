@@ -80,9 +80,7 @@ class TestGrep:
             assert "goodbye" in r.content_snippet.lower()
 
     async def test_case_insensitive(self, store):
-        await store.append_message(
-            ContextMessage(id="upper", role="user", content="HELLO WORLD")
-        )
+        await store.append_message(ContextMessage(id="upper", role="user", content="HELLO WORLD"))
         results = await grep(store, "hello")
         assert len(results) == 1
 

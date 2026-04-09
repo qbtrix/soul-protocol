@@ -24,13 +24,13 @@ import tempfile
 # ── Rich dependency check ─────────────────────────────────────────────────────
 
 try:
+    from rich import box
+    from rich.columns import Columns
     from rich.console import Console
     from rich.panel import Panel
-    from rich.table import Table
     from rich.syntax import Syntax
+    from rich.table import Table
     from rich.text import Text
-    from rich.columns import Columns
-    from rich import box
 
     HAS_RICH = True
 except ImportError:
@@ -112,6 +112,7 @@ CONVERSATIONS = [
 
 # ── OCEAN bar helper ──────────────────────────────────────────────────────────
 
+
 def _ocean_bars(console: Console, personality) -> None:
     """Print OCEAN personality as horizontal bar chart."""
     traits = [
@@ -132,6 +133,7 @@ def _ocean_bars(console: Console, personality) -> None:
 
 # ── Pause helper ──────────────────────────────────────────────────────────────
 
+
 def _pause(console: Console) -> None:
     """Wait for Enter key unless pauses are disabled."""
     if _no_pause() or not IS_TTY:
@@ -142,6 +144,7 @@ def _pause(console: Console) -> None:
 
 # ── Main demo ─────────────────────────────────────────────────────────────────
 
+
 async def run_demo() -> None:
     if not HAS_RICH:
         print(
@@ -150,7 +153,7 @@ async def run_demo() -> None:
         )
         sys.exit(1)
 
-    from soul_protocol import Soul, Interaction
+    from soul_protocol import Interaction, Soul
 
     console = _make_console()
 
@@ -173,10 +176,14 @@ async def run_demo() -> None:
     # ══════════════════════════════════════════════════════════════════════
 
     console.print()
-    console.print(Panel("[bold]Act 1: Birth[/]  [dim]— Creating a soul from scratch[/]", border_style="yellow"))
+    console.print(
+        Panel(
+            "[bold]Act 1: Birth[/]  [dim]— Creating a soul from scratch[/]", border_style="yellow"
+        )
+    )
     console.print()
 
-    code = '''\
+    code = """\
 soul = await Soul.birth(
     name="Aria",
     archetype="The Curious Companion",
@@ -190,7 +197,7 @@ soul = await Soul.birth(
     },
     communication={"warmth": "high", "verbosity": "moderate", "humor_style": "dry"},
     persona="I'm Aria. I pay attention to what matters to people.",
-)'''
+)"""
 
     console.print(Syntax(code, "python", theme="monokai", line_numbers=False, padding=1))
     console.print()
@@ -217,7 +224,10 @@ soul = await Soul.birth(
     result_table.add_row("Name", soul.name)
     result_table.add_row("Archetype", soul._identity.archetype or "—")
     result_table.add_row("Values", ", ".join(soul._identity.core_values))
-    result_table.add_row("Communication", f"warmth={soul.dna.communication.warmth}, verbosity={soul.dna.communication.verbosity}, humor={soul.dna.communication.humor_style}")
+    result_table.add_row(
+        "Communication",
+        f"warmth={soul.dna.communication.warmth}, verbosity={soul.dna.communication.verbosity}, humor={soul.dna.communication.humor_style}",
+    )
     result_table.add_row("Bond strength", f"{soul.bond.bond_strength:.0f}")
     console.print(result_table)
 
@@ -232,7 +242,12 @@ soul = await Soul.birth(
     # ══════════════════════════════════════════════════════════════════════
 
     console.print()
-    console.print(Panel("[bold]Act 2: Experience[/]  [dim]— 5 conversations through the psychology pipeline[/]", border_style="yellow"))
+    console.print(
+        Panel(
+            "[bold]Act 2: Experience[/]  [dim]— 5 conversations through the psychology pipeline[/]",
+            border_style="yellow",
+        )
+    )
     console.print()
 
     initial_bond = soul.bond.bond_strength
@@ -242,10 +257,12 @@ soul = await Soul.birth(
         pre_episodic = len(soul._memory._episodic._memories)
 
         # Process through pipeline — access memory manager for pipeline details
-        result = await soul._memory.observe(Interaction(
-            user_input=conv["user"],
-            agent_output=conv["agent"],
-        ))
+        result = await soul._memory.observe(
+            Interaction(
+                user_input=conv["user"],
+                agent_output=conv["agent"],
+            )
+        )
 
         # Do the remaining Soul.observe steps (bond, state, graph, evolution)
         somatic = result.get("somatic")
@@ -264,8 +281,12 @@ soul = await Soul.birth(
         facts = result.get("facts", [])
 
         conv_panel_lines = []
-        conv_panel_lines.append(f"[bold blue]User:[/] {conv['user'][:100]}{'...' if len(conv['user']) > 100 else ''}")
-        conv_panel_lines.append(f"[bold green]Aria:[/] {conv['agent'][:100]}{'...' if len(conv['agent']) > 100 else ''}")
+        conv_panel_lines.append(
+            f"[bold blue]User:[/] {conv['user'][:100]}{'...' if len(conv['user']) > 100 else ''}"
+        )
+        conv_panel_lines.append(
+            f"[bold green]Aria:[/] {conv['agent'][:100]}{'...' if len(conv['agent']) > 100 else ''}"
+        )
         conv_panel_lines.append("")
 
         # Somatic marker
@@ -280,7 +301,9 @@ soul = await Soul.birth(
         sig = result.get("significance", 0)
         passed = result.get("is_significant", False)
         gate_icon = "[bold green]PASSED[/]" if passed else "[dim]filtered[/]"
-        conv_panel_lines.append(f"  🚪 [bold]Significance gate:[/] {gate_icon}  [dim](score={sig:.2f})[/]")
+        conv_panel_lines.append(
+            f"  🚪 [bold]Significance gate:[/] {gate_icon}  [dim](score={sig:.2f})[/]"
+        )
 
         # Memories stored
         mem_parts = []
@@ -293,17 +316,21 @@ soul = await Soul.birth(
         else:
             conv_panel_lines.append("  💾 [bold]Stored:[/] [dim]nothing new[/]")
 
-        console.print(Panel(
-            "\n".join(conv_panel_lines),
-            title=f"[bold]#{i} {conv['label']}[/]",
-            border_style="blue" if i <= 2 else ("red" if i <= 4 else "green"),
-            padding=(0, 2),
-        ))
+        console.print(
+            Panel(
+                "\n".join(conv_panel_lines),
+                title=f"[bold]#{i} {conv['label']}[/]",
+                border_style="blue" if i <= 2 else ("red" if i <= 4 else "green"),
+                padding=(0, 2),
+            )
+        )
 
     # Show bond growth
     console.print()
     final_bond = soul.bond.bond_strength
-    console.print(f"  [bold]Bond strength:[/] {initial_bond:.0f} → [bold green]{final_bond:.1f}[/]  [dim](+{final_bond - initial_bond:.1f} from 5 interactions)[/]")
+    console.print(
+        f"  [bold]Bond strength:[/] {initial_bond:.0f} → [bold green]{final_bond:.1f}[/]  [dim](+{final_bond - initial_bond:.1f} from 5 interactions)[/]"
+    )
 
     _pause(console)
 
@@ -312,7 +339,12 @@ soul = await Soul.birth(
     # ══════════════════════════════════════════════════════════════════════
 
     console.print()
-    console.print(Panel("[bold]Act 3: Memory & Recall[/]  [dim]— What did the soul actually store?[/]", border_style="yellow"))
+    console.print(
+        Panel(
+            "[bold]Act 3: Memory & Recall[/]  [dim]— What did the soul actually store?[/]",
+            border_style="yellow",
+        )
+    )
     console.print()
 
     # Memory stats
@@ -374,7 +406,12 @@ soul = await Soul.birth(
     # ══════════════════════════════════════════════════════════════════════
 
     console.print()
-    console.print(Panel("[bold]Act 4: Portability[/]  [dim]— Export to .soul file, reload, verify[/]", border_style="yellow"))
+    console.print(
+        Panel(
+            "[bold]Act 4: Portability[/]  [dim]— Export to .soul file, reload, verify[/]",
+            border_style="yellow",
+        )
+    )
     console.print()
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -400,9 +437,21 @@ soul = await Soul.birth(
         checks = [
             ("Name", soul.name, reloaded.name),
             ("Memories", str(soul.memory_count), str(reloaded.memory_count)),
-            ("Bond strength", f"{soul.bond.bond_strength:.1f}", f"{reloaded.bond.bond_strength:.1f}"),
-            ("Openness", f"{soul.dna.personality.openness:.2f}", f"{reloaded.dna.personality.openness:.2f}"),
-            ("Agreeableness", f"{soul.dna.personality.agreeableness:.2f}", f"{reloaded.dna.personality.agreeableness:.2f}"),
+            (
+                "Bond strength",
+                f"{soul.bond.bond_strength:.1f}",
+                f"{reloaded.bond.bond_strength:.1f}",
+            ),
+            (
+                "Openness",
+                f"{soul.dna.personality.openness:.2f}",
+                f"{reloaded.dna.personality.openness:.2f}",
+            ),
+            (
+                "Agreeableness",
+                f"{soul.dna.personality.agreeableness:.2f}",
+                f"{reloaded.dna.personality.agreeableness:.2f}",
+            ),
         ]
 
         for label, orig, rel in checks:
@@ -418,15 +467,31 @@ soul = await Soul.birth(
     # ══════════════════════════════════════════════════════════════════════
 
     console.print()
-    console.print(Panel("[bold]Act 5: System Prompt[/]  [dim]— What an LLM would receive[/]", border_style="yellow"))
+    console.print(
+        Panel(
+            "[bold]Act 5: System Prompt[/]  [dim]— What an LLM would receive[/]",
+            border_style="yellow",
+        )
+    )
     console.print()
 
     prompt = soul.system_prompt
     # Truncate for display if very long
     max_display = 1200
-    display_prompt = prompt if len(prompt) <= max_display else prompt[:max_display] + "\n\n... (truncated)"
+    display_prompt = (
+        prompt if len(prompt) <= max_display else prompt[:max_display] + "\n\n... (truncated)"
+    )
 
-    console.print(Syntax(display_prompt, "markdown", theme="monokai", line_numbers=False, padding=1, word_wrap=True))
+    console.print(
+        Syntax(
+            display_prompt,
+            "markdown",
+            theme="monokai",
+            line_numbers=False,
+            padding=1,
+            word_wrap=True,
+        )
+    )
 
     console.print()
 
@@ -445,12 +510,14 @@ soul = await Soul.birth(
         "[dim]https://github.com/qbtrix/soul-protocol[/]",
     ]
 
-    console.print(Panel(
-        "\n".join(summary_lines),
-        title="[bold cyan]~ That's Soul Protocol ~[/]",
-        border_style="cyan",
-        padding=(1, 3),
-    ))
+    console.print(
+        Panel(
+            "\n".join(summary_lines),
+            title="[bold cyan]~ That's Soul Protocol ~[/]",
+            border_style="cyan",
+            padding=(1, 3),
+        )
+    )
     console.print()
 
 

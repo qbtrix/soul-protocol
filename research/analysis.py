@@ -83,6 +83,7 @@ EFFECT_THRESHOLDS: list[tuple[float, str]] = [
 # ASCII table formatter
 # ---------------------------------------------------------------------------
 
+
 def format_table(headers: list[str], rows: list[list[str]], align: str | None = None) -> str:
     """Render a markdown-compatible ASCII table.
 
@@ -129,21 +130,19 @@ def format_table(headers: list[str], rows: list[list[str]], align: str | None = 
         return "-" * width
 
     # Header row
-    header_line = "| " + " | ".join(
-        _pad(h, col_widths[i], align[i]) for i, h in enumerate(headers)
-    ) + " |"
+    header_line = (
+        "| " + " | ".join(_pad(h, col_widths[i], align[i]) for i, h in enumerate(headers)) + " |"
+    )
 
     # Separator
-    sep_line = "| " + " | ".join(
-        _sep(align[i], col_widths[i]) for i in range(num_cols)
-    ) + " |"
+    sep_line = "| " + " | ".join(_sep(align[i], col_widths[i]) for i in range(num_cols)) + " |"
 
     # Data rows
     data_lines = []
     for row in normalised_rows:
-        line = "| " + " | ".join(
-            _pad(row[i], col_widths[i], align[i]) for i in range(num_cols)
-        ) + " |"
+        line = (
+            "| " + " | ".join(_pad(row[i], col_widths[i], align[i]) for i in range(num_cols)) + " |"
+        )
         data_lines.append(line)
 
     return "\n".join([header_line, sep_line] + data_lines)
@@ -176,6 +175,7 @@ def _sig_stars(p: float) -> str:
 # ---------------------------------------------------------------------------
 # ResultsAnalyzer
 # ---------------------------------------------------------------------------
+
 
 class ResultsAnalyzer:
     """Analyse a list of flat row dicts produced by ``AgentRunMetrics.to_row()``."""
@@ -263,16 +263,18 @@ class ResultsAnalyzer:
                 d = cohens_d(soul_vals, other_vals)
                 u_stat, p_val = mann_whitney_u(soul_vals, other_vals)
 
-                comparisons.append({
-                    "condition_a": full_soul,
-                    "condition_b": cond,
-                    "metric": metric,
-                    "cohens_d": d,
-                    "effect_label": _effect_label(d),
-                    "mann_whitney_u": u_stat,
-                    "p_value": p_val,
-                    "significant": p_val < ALPHA,
-                })
+                comparisons.append(
+                    {
+                        "condition_a": full_soul,
+                        "condition_b": cond,
+                        "metric": metric,
+                        "cohens_d": d,
+                        "effect_label": _effect_label(d),
+                        "mann_whitney_u": u_stat,
+                        "p_value": p_val,
+                        "significant": p_val < ALPHA,
+                    }
+                )
 
         return comparisons
 
@@ -305,9 +307,7 @@ class ResultsAnalyzer:
                     entry[f"{metric}_delta"] = 0.0
                 else:
                     prev = CONDITION_ORDER[i - 1]
-                    entry[f"{metric}_delta"] = (
-                        cond_means[cond][metric] - cond_means[prev][metric]
-                    )
+                    entry[f"{metric}_delta"] = cond_means[cond][metric] - cond_means[prev][metric]
             results.append(entry)
 
         # Identify the biggest jump per metric
@@ -368,7 +368,9 @@ class ResultsAnalyzer:
 
             # Emotion delta: FULL_SOUL - FULL_NO_EMOTION
             soul_rows = [r for r in uc_rows if r["condition"] == MemoryCondition.FULL_SOUL.value]
-            no_emo_rows = [r for r in uc_rows if r["condition"] == MemoryCondition.FULL_NO_EMOTION.value]
+            no_emo_rows = [
+                r for r in uc_rows if r["condition"] == MemoryCondition.FULL_NO_EMOTION.value
+            ]
 
             for metric in KEY_METRICS:
                 soul_vals = self._extract_metric(soul_rows, metric)
@@ -401,8 +403,8 @@ class ResultsAnalyzer:
         sections.append("# Soul Protocol — Statistical Analysis Report")
         sections.append("")
         sections.append(f"Total data rows: {len(self.rows)}")
-        conditions_present = sorted({r['condition'] for r in self.rows})
-        use_cases_present = sorted({r['use_case'] for r in self.rows})
+        conditions_present = sorted({r["condition"] for r in self.rows})
+        use_cases_present = sorted({r["use_case"] for r in self.rows})
         sections.append(f"Conditions: {', '.join(conditions_present)}")
         sections.append(f"Use cases: {', '.join(use_cases_present)}")
         sections.append("")
@@ -418,15 +420,17 @@ class ResultsAnalyzer:
             headers = ["Condition", "Use Case", "N", "Mean", "Std", "Median", "95% CI"]
             table_rows: list[list[str]] = []
             for s in summary:
-                table_rows.append([
-                    CONDITION_LABELS.get(s["condition"], s["condition"]),
-                    USE_CASE_LABELS.get(s["use_case"], s["use_case"]),
-                    str(s["n"]),
-                    _fmt(s[f"{metric}_mean"]),
-                    _fmt(s[f"{metric}_std"]),
-                    _fmt(s[f"{metric}_median"]),
-                    f"[{_fmt(s[f'{metric}_ci_lo'])}, {_fmt(s[f'{metric}_ci_hi'])}]",
-                ])
+                table_rows.append(
+                    [
+                        CONDITION_LABELS.get(s["condition"], s["condition"]),
+                        USE_CASE_LABELS.get(s["use_case"], s["use_case"]),
+                        str(s["n"]),
+                        _fmt(s[f"{metric}_mean"]),
+                        _fmt(s[f"{metric}_std"]),
+                        _fmt(s[f"{metric}_median"]),
+                        f"[{_fmt(s[f'{metric}_ci_lo'])}, {_fmt(s[f'{metric}_ci_hi'])}]",
+                    ]
+                )
             sections.append(format_table(headers, table_rows, "llrrrrr"))
             sections.append("")
 
@@ -439,15 +443,17 @@ class ResultsAnalyzer:
         pw_headers = ["vs Condition", "Metric", "Cohen's d", "Effect", "U", "p-value", "Sig"]
         pw_rows: list[list[str]] = []
         for p in pairwise:
-            pw_rows.append([
-                CONDITION_LABELS.get(p["condition_b"], p["condition_b"]),
-                p["metric"],
-                _fmt(p["cohens_d"]),
-                p["effect_label"],
-                _fmt(p["mann_whitney_u"], 1),
-                _fmt(p["p_value"], 4),
-                _sig_stars(p["p_value"]),
-            ])
+            pw_rows.append(
+                [
+                    CONDITION_LABELS.get(p["condition_b"], p["condition_b"]),
+                    p["metric"],
+                    _fmt(p["cohens_d"]),
+                    p["effect_label"],
+                    _fmt(p["mann_whitney_u"], 1),
+                    _fmt(p["p_value"], 4),
+                    _sig_stars(p["p_value"]),
+                ]
+            )
         sections.append(format_table(pw_headers, pw_rows, "llrllrl"))
         sections.append("")
 
@@ -497,12 +503,14 @@ class ResultsAnalyzer:
                 emo_str = _fmt(emo_delta)
                 if emo_delta > 0:
                     emo_str = "+" + emo_str
-                uc_rows.append([
-                    metric,
-                    CONDITION_LABELS.get(best_cond, str(best_cond)) if best_cond else "N/A",
-                    _fmt(best_val),
-                    emo_str,
-                ])
+                uc_rows.append(
+                    [
+                        metric,
+                        CONDITION_LABELS.get(best_cond, str(best_cond)) if best_cond else "N/A",
+                        _fmt(best_val),
+                        emo_str,
+                    ]
+                )
             sections.append(format_table(uc_headers, uc_rows, "llrr"))
             sections.append("")
 

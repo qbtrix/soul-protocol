@@ -35,8 +35,7 @@ class OllamaEngine:
             import httpx
         except ImportError as exc:
             raise ImportError(
-                "OllamaEngine requires the 'httpx' package. "
-                "Install it with: pip install httpx"
+                "OllamaEngine requires the 'httpx' package. Install it with: pip install httpx"
             ) from exc
 
         url = f"{self._host}/api/generate"

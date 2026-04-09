@@ -33,7 +33,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -81,9 +81,7 @@ class Identity(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         """Auto-migrate bonded_to to bonds if bonds is empty."""
         if self.bonded_to and not self.bonds:
-            self.bonds.append(
-                BondTarget(id=self.bonded_to, bond_type="human")
-            )
+            self.bonds.append(BondTarget(id=self.bonded_to, bond_type="human"))
 
 
 # ============ DNA / Personality ============
@@ -125,17 +123,43 @@ class Biorhythms(BaseModel):
     social_battery: float = Field(default=100.0, ge=0.0, le=100.0)
 
     # Energy dynamics — defaults to 0 (always-on, no drain)
-    energy_regen_rate: float = Field(default=0.0, ge=0.0, description="Energy recovered per hour of elapsed time (0 = no regen needed)")
-    energy_drain_rate: float = Field(default=0.0, ge=0.0, description="Energy lost per interaction (0 = no drain)")
-    social_drain_rate: float = Field(default=0.0, ge=0.0, description="Social battery lost per interaction (0 = no drain)")
+    energy_regen_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Energy recovered per hour of elapsed time (0 = no regen needed)",
+    )
+    energy_drain_rate: float = Field(
+        default=0.0, ge=0.0, description="Energy lost per interaction (0 = no drain)"
+    )
+    social_drain_rate: float = Field(
+        default=0.0, ge=0.0, description="Social battery lost per interaction (0 = no drain)"
+    )
 
     # Mood dynamics
-    tired_threshold: float = Field(default=0.0, ge=0.0, le=100.0, description="Energy below this forces TIRED mood (0 = disabled)")
-    mood_inertia: float = Field(default=0.4, ge=0.0, le=1.0, description="EMA alpha for mood shifts (0 = max inertia, 1 = instant)")
-    mood_sensitivity: float = Field(default=0.25, ge=0.0, le=1.0, description="Valence threshold to trigger mood change (0 = always shift)")
+    tired_threshold: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description="Energy below this forces TIRED mood (0 = disabled)",
+    )
+    mood_inertia: float = Field(
+        default=0.4,
+        ge=0.0,
+        le=1.0,
+        description="EMA alpha for mood shifts (0 = max inertia, 1 = instant)",
+    )
+    mood_sensitivity: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description="Valence threshold to trigger mood change (0 = always shift)",
+    )
 
     # Auto-regeneration
-    auto_regen: bool = Field(default=False, description="Recover energy automatically based on elapsed time (enable for companion souls)")
+    auto_regen: bool = Field(
+        default=False,
+        description="Recover energy automatically based on elapsed time (enable for companion souls)",
+    )
 
 
 class DNA(BaseModel):
@@ -210,9 +234,9 @@ class SelfImage(BaseModel):
 # ============ Memory ============
 
 
-
 class MemoryVisibility(StrEnum):
     """Visibility tier for memory entries in public channel contexts."""
+
     PUBLIC = "public"
     BONDED = "bonded"
     PRIVATE = "private"
@@ -414,7 +438,7 @@ class RubricResult(BaseModel):
     overall_score: float  # weighted average, 0.0-1.0
     criterion_results: list[CriterionResult]
     learning: str = ""
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class EvolutionConfig(BaseModel):
@@ -503,13 +527,9 @@ class Interaction(BaseModel):
                 if not participants:
                     new_participants = []
                     if user_input is not None:
-                        new_participants.append(
-                            {"role": "user", "content": user_input}
-                        )
+                        new_participants.append({"role": "user", "content": user_input})
                     if agent_output is not None:
-                        new_participants.append(
-                            {"role": "agent", "content": agent_output}
-                        )
+                        new_participants.append({"role": "agent", "content": agent_output})
                     data["participants"] = new_participants
         return data
 
@@ -538,7 +558,7 @@ class Interaction(BaseModel):
         channel: str = "unknown",
         timestamp: datetime | None = None,
         metadata: dict | None = None,
-    ) -> "Interaction":
+    ) -> Interaction:
         """Create a 2-party interaction from user input and agent output."""
         return cls(
             participants=[

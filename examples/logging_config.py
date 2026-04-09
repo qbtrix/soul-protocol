@@ -24,10 +24,10 @@ import json
 import logging
 import logging.config
 
-
 # ---------------------------------------------------------------------------
 # 1. Simple development config — see everything
 # ---------------------------------------------------------------------------
+
 
 def configure_dev_logging() -> None:
     """Human-readable console output with DEBUG level for the soul runtime."""
@@ -43,6 +43,7 @@ def configure_dev_logging() -> None:
 # ---------------------------------------------------------------------------
 # 2. Production config — INFO level, JSON format
 # ---------------------------------------------------------------------------
+
 
 class JSONFormatter(logging.Formatter):
     """Emit log records as single-line JSON objects."""

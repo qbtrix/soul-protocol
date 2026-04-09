@@ -4,11 +4,9 @@
 
 from __future__ import annotations
 
-import math
-
 import pytest
 
-from research.agents import AgentProfile, UserProfile, generate_agents, generate_users
+from research.agents import UserProfile, generate_agents, generate_users
 from research.conditions import NoMemoryCondition, ObserveResult
 from research.config import ExperimentConfig, MemoryCondition, UseCase
 from research.metrics import (
@@ -61,7 +59,11 @@ def test_agent_generation():
         # Communication style fields are present
         assert agent.communication["warmth"] in ("low", "medium", "high")
         assert agent.communication["verbosity"] in (
-            "minimal", "low", "medium", "high", "verbose",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "verbose",
         )
         assert agent.communication["formality"] in ("casual", "neutral", "formal")
 
@@ -84,7 +86,11 @@ def test_user_generation():
             assert isinstance(user, UserProfile)
             assert user.name.startswith("User-")
             assert user.interaction_style in (
-                "brief", "detailed", "emotional", "technical", "mixed",
+                "brief",
+                "detailed",
+                "emotional",
+                "technical",
+                "mixed",
             )
             assert len(user.topic_interests) >= 2
             assert 0.0 <= user.consistency <= 1.0
@@ -214,7 +220,7 @@ def test_metrics_to_row():
     assert row["agent_id"] == 0
     assert row["condition"] == "none"
     assert row["recall_precision"] == pytest.approx(0.7)  # mean(0.8, 0.6)
-    assert row["recall_hit_rate"] == pytest.approx(0.5)   # 1 of 2 hits
+    assert row["recall_hit_rate"] == pytest.approx(0.5)  # 1 of 2 hits
     assert row["emotion_accuracy"] == pytest.approx(2 / 3)
     assert row["bond_final"] == pytest.approx(0.2)
     assert row["skills_discovered"] == 2

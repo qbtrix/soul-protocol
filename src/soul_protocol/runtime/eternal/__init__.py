@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from .protocol import ArchiveResult, EternalStorageProvider, RecoverySource
 from .manager import EternalStorageManager
+from .protocol import ArchiveResult, EternalStorageProvider, RecoverySource
 
 __all__ = [
     "ArchiveResult",

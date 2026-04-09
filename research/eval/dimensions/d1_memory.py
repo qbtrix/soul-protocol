@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import logging
 
-from ..suite import DimensionResult
-from research.long_horizon.runner import LongHorizonRunner, ConditionType
+from research.long_horizon.runner import ConditionType, LongHorizonRunner
 from research.long_horizon.scenarios import (
-    generate_life_updates,
     generate_all_scenarios,
+    generate_life_updates,
 )
+
+from ..suite import DimensionResult
 
 logger = logging.getLogger(__name__)
 

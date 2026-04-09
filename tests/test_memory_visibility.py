@@ -17,10 +17,10 @@ from soul_protocol.runtime.types import (
     MemoryVisibility,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_entry(
     content: str,
@@ -37,6 +37,7 @@ def _make_entry(
 # ---------------------------------------------------------------------------
 # MemoryVisibility enum
 # ---------------------------------------------------------------------------
+
 
 class TestMemoryVisibilityEnum:
     def test_values(self):
@@ -58,6 +59,7 @@ class TestMemoryVisibilityEnum:
 # ---------------------------------------------------------------------------
 # MemoryEntry visibility field
 # ---------------------------------------------------------------------------
+
 
 class TestMemoryEntryVisibility:
     def test_default_visibility_is_bonded(self):
@@ -93,6 +95,7 @@ class TestMemoryEntryVisibility:
 # ---------------------------------------------------------------------------
 # filter_by_visibility()
 # ---------------------------------------------------------------------------
+
 
 class TestFilterByVisibility:
     def test_system_context_sees_everything(self):
@@ -186,11 +189,12 @@ class TestFilterByVisibility:
 # Soul.recall() with visibility (integration)
 # ---------------------------------------------------------------------------
 
+
 class TestSoulRecallVisibility:
     @pytest.mark.asyncio
     async def test_default_recall_sees_all(self):
         """Without requester_id, all visibility tiers are returned."""
-        from soul_protocol import Soul, MemoryVisibility
+        from soul_protocol import MemoryVisibility, Soul
 
         soul = await Soul.birth("VisTest")
         await soul.remember("public fact", visibility=MemoryVisibility.PUBLIC)
@@ -202,7 +206,7 @@ class TestSoulRecallVisibility:
 
     @pytest.mark.asyncio
     async def test_external_requester_filtered(self):
-        from soul_protocol import Soul, MemoryVisibility
+        from soul_protocol import MemoryVisibility, Soul
 
         soul = await Soul.birth("VisTest2")
         await soul.remember("public info", visibility=MemoryVisibility.PUBLIC)
@@ -218,7 +222,7 @@ class TestSoulRecallVisibility:
 
     @pytest.mark.asyncio
     async def test_low_bond_only_public(self):
-        from soul_protocol import Soul, MemoryVisibility
+        from soul_protocol import MemoryVisibility, Soul
 
         soul = await Soul.birth("VisTest3")
         await soul.remember("public note", visibility=MemoryVisibility.PUBLIC)
@@ -231,7 +235,7 @@ class TestSoulRecallVisibility:
     @pytest.mark.asyncio
     async def test_recall_uses_soul_bond_by_default(self):
         """When bond_strength is None, uses the soul's own bond."""
-        from soul_protocol import Soul, MemoryVisibility
+        from soul_protocol import MemoryVisibility, Soul
 
         soul = await Soul.birth("VisTest4")
         # Default bond starts at 50 > 30 threshold
@@ -242,7 +246,7 @@ class TestSoulRecallVisibility:
     @pytest.mark.asyncio
     async def test_remember_default_visibility(self):
         """remember() defaults to BONDED visibility."""
-        from soul_protocol import Soul, MemoryVisibility
+        from soul_protocol import MemoryVisibility, Soul
 
         soul = await Soul.birth("VisTest5")
         await soul.remember("some fact")
@@ -251,7 +255,7 @@ class TestSoulRecallVisibility:
 
     @pytest.mark.asyncio
     async def test_remember_explicit_visibility(self):
-        from soul_protocol import Soul, MemoryVisibility
+        from soul_protocol import MemoryVisibility, Soul
 
         soul = await Soul.birth("VisTest6")
         await soul.remember("open fact", visibility=MemoryVisibility.PUBLIC)
@@ -263,14 +267,18 @@ class TestSoulRecallVisibility:
 # Spec-level MemoryVisibility
 # ---------------------------------------------------------------------------
 
+
 class TestSpecMemoryVisibility:
     def test_spec_memory_entry_has_visibility(self):
-        from soul_protocol.spec.memory import MemoryEntry as SpecEntry, MemoryVisibility as SpecVis
+        from soul_protocol.spec.memory import MemoryEntry as SpecEntry
+        from soul_protocol.spec.memory import MemoryVisibility as SpecVis
+
         entry = SpecEntry(content="test")
         assert entry.visibility == SpecVis.BONDED
 
     def test_spec_visibility_values(self):
         from soul_protocol.spec.memory import MemoryVisibility as SpecVis
+
         assert SpecVis.PUBLIC == "public"
         assert SpecVis.BONDED == "bonded"
         assert SpecVis.PRIVATE == "private"

@@ -75,10 +75,7 @@ def generate_significance_dataset(
                     # Only store turns that directly contain facts or are high-importance.
                     # Removed near_fact heuristic — scenarios are too dense with facts
                     # for adjacency to be a useful negative signal.
-                    should_store = (
-                        turn.contains_fact
-                        or turn.importance_hint >= 0.8
-                    )
+                    should_store = turn.contains_fact or turn.importance_hint >= 0.8
 
                     recent_context = "\n".join(f"- {r[:100]}" for r in recent[-5:])
 
@@ -101,9 +98,7 @@ def generate_significance_dataset(
                     examples.append(example)
 
                     # Update recent context
-                    recent.append(
-                        f"User: {turn.user_input[:50]} | Agent: {turn.agent_output[:50]}"
-                    )
+                    recent.append(f"User: {turn.user_input[:50]} | Agent: {turn.agent_output[:50]}")
 
     return examples
 
@@ -183,7 +178,15 @@ def _expand_query_heuristic(
 
     # Rephrase with keywords from the expected fact
     fact_words = set(expected_fact.lower().split()) - {
-        "the", "a", "an", "is", "are", "was", "were", "user", "user's",
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "user",
+        "user's",
     }
     if fact_words:
         keyword_query = " ".join(sorted(fact_words)[:5])
@@ -197,7 +200,9 @@ def _expand_query_heuristic(
     expanded.append(f"tell me about {topic}")
 
     # Add a short keyword-only version
-    keywords = [w for w in query.split() if len(w) > 3 and w.lower() not in {"what", "does", "the", "user"}]
+    keywords = [
+        w for w in query.split() if len(w) > 3 and w.lower() not in {"what", "does", "the", "user"}
+    ]
     if keywords:
         expanded.append(" ".join(keywords))
 

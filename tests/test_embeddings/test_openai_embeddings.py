@@ -45,6 +45,7 @@ class TestOpenAIEmbeddingProvider:
             from soul_protocol.runtime.embeddings.openai_embeddings import (
                 OpenAIEmbeddingProvider,
             )
+
             provider = OpenAIEmbeddingProvider(api_key="test-key-123", **kwargs)
             # Pre-inject the mock client
             provider._client = mock_client
@@ -59,18 +60,16 @@ class TestOpenAIEmbeddingProvider:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
-        provider = OpenAIEmbeddingProvider(
-            model="text-embedding-3-small", api_key="test"
-        )
+
+        provider = OpenAIEmbeddingProvider(model="text-embedding-3-small", api_key="test")
         assert provider.dimensions == 1536
 
     def test_dimensions_large_model(self) -> None:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
-        provider = OpenAIEmbeddingProvider(
-            model="text-embedding-3-large", api_key="test"
-        )
+
+        provider = OpenAIEmbeddingProvider(model="text-embedding-3-large", api_key="test")
         assert provider.dimensions == 3072
 
     def test_embed_returns_list_of_floats(self) -> None:
@@ -105,6 +104,7 @@ class TestOpenAIEmbeddingProvider:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
+
         provider = OpenAIEmbeddingProvider(api_key="test")
         assert provider._model == "text-embedding-3-small"
 
@@ -112,15 +112,15 @@ class TestOpenAIEmbeddingProvider:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
-        provider = OpenAIEmbeddingProvider(
-            model="text-embedding-3-large", api_key="test"
-        )
+
+        provider = OpenAIEmbeddingProvider(model="text-embedding-3-large", api_key="test")
         assert provider._model == "text-embedding-3-large"
 
     def test_api_key_from_env(self) -> None:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
+
         with patch.dict(os.environ, {"OPENAI_API_KEY": "env-key-456"}):
             provider = OpenAIEmbeddingProvider()
             assert provider._api_key == "env-key-456"
@@ -129,6 +129,7 @@ class TestOpenAIEmbeddingProvider:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
+
         with patch.dict(os.environ, {"OPENAI_API_KEY": "env-key"}):
             provider = OpenAIEmbeddingProvider(api_key="explicit-key")
             assert provider._api_key == "explicit-key"
@@ -137,6 +138,7 @@ class TestOpenAIEmbeddingProvider:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
+
         mock_module = MagicMock()
         with patch.dict(os.environ, {}, clear=True):
             # Remove OPENAI_API_KEY if present
@@ -155,6 +157,7 @@ class TestOpenAIRetryLogic:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
+
         mock_module, mock_client = _make_mock_openai_module()
 
         rate_limit_error = Exception("Rate limited")
@@ -169,9 +172,7 @@ class TestOpenAIRetryLogic:
             ]
         )
 
-        provider = OpenAIEmbeddingProvider(
-            api_key="test", max_retries=3, base_delay=0.01
-        )
+        provider = OpenAIEmbeddingProvider(api_key="test", max_retries=3, base_delay=0.01)
         provider._client = mock_client
 
         with patch.dict("sys.modules", {"openai": mock_module}):
@@ -182,15 +183,14 @@ class TestOpenAIRetryLogic:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
+
         mock_module, mock_client = _make_mock_openai_module()
 
         error = Exception("Server error")
         error.status_code = 500
         mock_client.embeddings.create = MagicMock(side_effect=error)
 
-        provider = OpenAIEmbeddingProvider(
-            api_key="test", max_retries=2, base_delay=0.01
-        )
+        provider = OpenAIEmbeddingProvider(api_key="test", max_retries=2, base_delay=0.01)
         provider._client = mock_client
 
         with patch.dict("sys.modules", {"openai": mock_module}):
@@ -201,15 +201,14 @@ class TestOpenAIRetryLogic:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
+
         mock_module, mock_client = _make_mock_openai_module()
 
         auth_error = Exception("Unauthorized")
         auth_error.status_code = 401
         mock_client.embeddings.create = MagicMock(side_effect=auth_error)
 
-        provider = OpenAIEmbeddingProvider(
-            api_key="bad-key", max_retries=3, base_delay=0.01
-        )
+        provider = OpenAIEmbeddingProvider(api_key="bad-key", max_retries=3, base_delay=0.01)
         provider._client = mock_client
 
         with patch.dict("sys.modules", {"openai": mock_module}):
@@ -226,6 +225,7 @@ class TestOpenAIImportError:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
+
         provider = OpenAIEmbeddingProvider(api_key="test")
         provider._client = None
 
@@ -237,6 +237,7 @@ class TestOpenAIImportError:
         from soul_protocol.runtime.embeddings.openai_embeddings import (
             OpenAIEmbeddingProvider,
         )
+
         provider = OpenAIEmbeddingProvider(api_key="test")
         provider._client = None
 

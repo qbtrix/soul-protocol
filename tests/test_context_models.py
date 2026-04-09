@@ -6,8 +6,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
-
 from soul_protocol.spec.context.models import (
     AssembleResult,
     CompactionLevel,
@@ -17,7 +15,6 @@ from soul_protocol.spec.context.models import (
     ExpandResult,
     GrepResult,
 )
-
 
 # ---------------------------------------------------------------------------
 # CompactionLevel

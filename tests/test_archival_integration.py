@@ -13,7 +13,6 @@ import pytest
 from soul_protocol.runtime.memory.manager import MemoryManager
 from soul_protocol.runtime.types import (
     CoreMemory,
-    Interaction,
     MemoryEntry,
     MemorySettings,
     MemoryType,

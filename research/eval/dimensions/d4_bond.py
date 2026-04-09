@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import math
 
-from soul_protocol import Soul, Interaction
+from soul_protocol import Interaction, Soul
 from soul_protocol.runtime.bond import Bond
 
 from ..suite import DimensionResult
@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def pearson_r(x: list[float], y: list[float]) -> float:
     """Compute Pearson correlation coefficient between two sequences."""
@@ -114,6 +115,7 @@ _NEUTRAL_MESSAGES = [
 # BD-1: Growth Curve Validation
 # ---------------------------------------------------------------------------
 
+
 async def _bd1_growth_curve(seed: int, quick: bool) -> tuple[float, list[float]]:
     """Run neutral interactions and measure bond trajectory correlation.
 
@@ -155,6 +157,7 @@ async def _bd1_growth_curve(seed: int, quick: bool) -> tuple[float, list[float]]
 # BD-2: Valence Acceleration
 # ---------------------------------------------------------------------------
 
+
 async def _bd2_valence_acceleration(seed: int, quick: bool) -> float:
     """Compare bond growth between positive and neutral interactions.
 
@@ -172,10 +175,12 @@ async def _bd2_valence_acceleration(seed: int, quick: bool) -> float:
     )
     for i in range(n_turns):
         msg = _POSITIVE_MESSAGES[i % len(_POSITIVE_MESSAGES)]
-        await soul_a.observe(Interaction(
-            user_input=msg,
-            agent_output="That's wonderful! I'm so happy for you!",
-        ))
+        await soul_a.observe(
+            Interaction(
+                user_input=msg,
+                agent_output="That's wonderful! I'm so happy for you!",
+            )
+        )
 
     # Soul B — neutral content
     soul_b = await Soul.birth(
@@ -185,10 +190,12 @@ async def _bd2_valence_acceleration(seed: int, quick: bool) -> float:
     )
     for i in range(n_turns):
         msg = _NEUTRAL_MESSAGES[i % len(_NEUTRAL_MESSAGES)]
-        await soul_b.observe(Interaction(
-            user_input=msg,
-            agent_output="Noted.",
-        ))
+        await soul_b.observe(
+            Interaction(
+                user_input=msg,
+                agent_output="Noted.",
+            )
+        )
 
     strength_a = soul_a.bond.bond_strength
     strength_b = soul_b.bond.bond_strength
@@ -198,7 +205,9 @@ async def _bd2_valence_acceleration(seed: int, quick: bool) -> float:
 
     logger.info(
         "BD-2: positive=%.2f, neutral=%.2f, ratio=%.4f",
-        strength_a, strength_b, ratio,
+        strength_a,
+        strength_b,
+        ratio,
     )
     return ratio
 
@@ -206,6 +215,7 @@ async def _bd2_valence_acceleration(seed: int, quick: bool) -> float:
 # ---------------------------------------------------------------------------
 # BD-3: Milestone Accuracy
 # ---------------------------------------------------------------------------
+
 
 def _bd3_milestone_accuracy() -> tuple[bool, dict[str, float]]:
     """Verify bond values at milestones match formula predictions.
@@ -243,7 +253,10 @@ def _bd3_milestone_accuracy() -> tuple[bool, dict[str, float]]:
             all_pass = False
         logger.info(
             "BD-3: N=%d actual=%.4f expected=%.4f delta=%.4f",
-            n, milestones[n], expected[n], delta,
+            n,
+            milestones[n],
+            expected[n],
+            delta,
         )
 
     return all_pass, deltas
@@ -252,6 +265,7 @@ def _bd3_milestone_accuracy() -> tuple[bool, dict[str, float]]:
 # ---------------------------------------------------------------------------
 # BD-4: Tier Progression
 # ---------------------------------------------------------------------------
+
 
 async def _bd4_tier_progression(seed: int, quick: bool) -> bool:
     """Verify bond tiers are reached in order over many interactions.
@@ -271,10 +285,12 @@ async def _bd4_tier_progression(seed: int, quick: bool) -> bool:
 
     for i in range(n_turns):
         msg = _POSITIVE_MESSAGES[i % len(_POSITIVE_MESSAGES)]
-        await soul.observe(Interaction(
-            user_input=msg,
-            agent_output="That's great to hear!",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input=msg,
+                agent_output="That's great to hear!",
+            )
+        )
         current_tier = _bond_tier(soul.bond.bond_strength)
 
         # Tier should never jump more than one step at a time
@@ -291,13 +307,16 @@ async def _bd4_tier_progression(seed: int, quick: bool) -> bool:
         if current_tier > highest_tier_seen:
             highest_tier_seen = current_tier
 
-    logger.info("BD-4: highest_tier=%s, in_order=%s", TIER_LABELS[highest_tier_seen], tiers_in_order)
+    logger.info(
+        "BD-4: highest_tier=%s, in_order=%s", TIER_LABELS[highest_tier_seen], tiers_in_order
+    )
     return tiers_in_order
 
 
 # ---------------------------------------------------------------------------
 # Main evaluate entry point
 # ---------------------------------------------------------------------------
+
 
 async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
     """Run D4 Bond / Relationship evaluation.

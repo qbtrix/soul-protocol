@@ -11,7 +11,6 @@ from soul_protocol.runtime.evaluation import (
     HIGH_SCORE_THRESHOLD,
     LOW_SCORE_THRESHOLD,
     Evaluator,
-    heuristic_evaluate,
 )
 from soul_protocol.runtime.skills import Skill, SkillRegistry
 from soul_protocol.runtime.soul import Soul
@@ -23,13 +22,10 @@ from soul_protocol.runtime.types import (
 )
 from soul_protocol.spec.learning import LearningEvent
 
-
 # ============ Helpers ============
 
 
-def _interaction(
-    user_input: str = "hello", agent_output: str = "hi"
-) -> Interaction:
+def _interaction(user_input: str = "hello", agent_output: str = "hi") -> Interaction:
     return Interaction(user_input=user_input, agent_output=agent_output)
 
 
@@ -38,9 +34,7 @@ def _rubric(name: str = "test", domain: str = "test") -> Rubric:
         name=name,
         domain=domain,
         criteria=[
-            RubricCriterion(
-                name="completeness", description="Complete", weight=1.0
-            ),
+            RubricCriterion(name="completeness", description="Complete", weight=1.0),
         ],
     )
 
@@ -202,18 +196,14 @@ class TestCreateLearningEvent:
     def test_interaction_id_passed_through(self):
         evaluator = Evaluator()
         result = _result(0.9)
-        event = evaluator.create_learning_event(
-            result, interaction_id="int_42"
-        )
+        event = evaluator.create_learning_event(result, interaction_id="int_42")
         assert event is not None
         assert event.trigger_interaction_id == "int_42"
 
     def test_domain_override(self):
         evaluator = Evaluator()
         result = _result(0.9, rubric_id="default_domain")
-        event = evaluator.create_learning_event(
-            result, domain="custom_domain"
-        )
+        event = evaluator.create_learning_event(result, domain="custom_domain")
         assert event is not None
         assert event.domain == "custom_domain"
 
@@ -227,9 +217,7 @@ class TestCreateLearningEvent:
     def test_skill_id_passed_through(self):
         evaluator = Evaluator()
         result = _result(0.9)
-        event = evaluator.create_learning_event(
-            result, skill_id="python_coding"
-        )
+        event = evaluator.create_learning_event(result, skill_id="python_coding")
         assert event is not None
         assert event.skill_id == "python_coding"
 
@@ -421,7 +409,7 @@ class TestSoulLearn:
         interaction = Interaction(
             user_input="explain python decorators and how they work",
             agent_output="Decorators wrap functions. You can use the at sign to apply them. "
-                         "They are useful for many things in coding.",
+            "They are useful for many things in coding.",
         )
         event = await soul.learn(interaction, domain="technical_helper")
         # Medium score — no learning event created

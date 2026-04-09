@@ -33,9 +33,7 @@ _RERANK_TIMEOUT_SECONDS = 30.0
 # because relevance scoring doesn't need angle brackets or long literal
 # response markers — losing them doesn't hurt the LLM's ability to pick.
 _DANGEROUS_CHARS = re.compile(r"[<>]")
-_RESPONSE_MARKER_PATTERN = re.compile(
-    r"\bselected\s+ids?\b", flags=re.IGNORECASE
-)
+_RESPONSE_MARKER_PATTERN = re.compile(r"\bselected\s+ids?\b", flags=re.IGNORECASE)
 
 
 def _sanitize_for_prompt(text: str, max_len: int = 200) -> str:
@@ -128,15 +126,13 @@ async def rerank_memories(
                 len(candidates),
             )
             return reranked
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning(
             "Smart rerank timed out after %.0fs, falling back to heuristic order",
             _RERANK_TIMEOUT_SECONDS,
         )
     except Exception as e:
-        logger.warning(
-            "Smart rerank failed, falling back to heuristic order: %s", e
-        )
+        logger.warning("Smart rerank failed, falling back to heuristic order: %s", e)
 
     # Fallback: return first N from heuristic ordering
     return candidates[:limit]

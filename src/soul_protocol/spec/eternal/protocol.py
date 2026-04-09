@@ -45,9 +45,7 @@ class EternalStorageProvider(Protocol):
         """Name of this storage tier (e.g., 'ipfs', 'arweave')."""
         ...
 
-    async def archive(
-        self, soul_data: bytes, soul_id: str, **kwargs: Any
-    ) -> ArchiveResult:
+    async def archive(self, soul_data: bytes, soul_id: str, **kwargs: Any) -> ArchiveResult:
         """Archive soul data. Returns an ArchiveResult."""
         ...
 

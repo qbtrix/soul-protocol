@@ -21,10 +21,10 @@ from ..haiku_engine import HaikuCognitiveEngine
 from .judge import ResponseJudge
 from .responder import SoulResponder, generate_comparison
 
-
 # ---------------------------------------------------------------------------
 # Helper: filler interactions for Test 3
 # ---------------------------------------------------------------------------
+
 
 def _filler_interactions() -> list[tuple[str, str]]:
     """Generate 30 filler interaction pairs on random topics for the hard recall test.
@@ -36,33 +36,93 @@ def _filler_interactions() -> list[tuple[str, str]]:
     return [
         ("What's the weather like today?", "It looks partly cloudy with a high of 72F."),
         ("Did you catch the game last night?", "I didn't watch, but I heard it was a close one!"),
-        ("I'm thinking of making pasta for dinner.", "Sounds great! A simple aglio e olio is always a winner."),
-        ("Have you seen any good movies lately?", "I've heard great things about the new sci-fi thriller."),
-        ("My cat keeps knocking things off the table.", "Classic cat behavior! They love testing gravity."),
+        (
+            "I'm thinking of making pasta for dinner.",
+            "Sounds great! A simple aglio e olio is always a winner.",
+        ),
+        (
+            "Have you seen any good movies lately?",
+            "I've heard great things about the new sci-fi thriller.",
+        ),
+        (
+            "My cat keeps knocking things off the table.",
+            "Classic cat behavior! They love testing gravity.",
+        ),
         ("I need to buy new running shoes.", "What kind of terrain do you usually run on?"),
-        ("The traffic this morning was terrible.", "Rush hour can be brutal. Have you tried leaving earlier?"),
-        ("I'm reading a really good book right now.", "What genre is it? I'd love to hear about it."),
-        ("My garden tomatoes are finally ripening.", "Homegrown tomatoes are the best! Nothing beats that flavor."),
-        ("I think I need a new phone case.", "Are you looking for something protective or more stylish?"),
-        ("We're planning a trip to the mountains.", "Mountain trips are wonderful! Are you thinking hiking or skiing?"),
-        ("I made sourdough bread from scratch.", "That's impressive! How long did the starter take?"),
+        (
+            "The traffic this morning was terrible.",
+            "Rush hour can be brutal. Have you tried leaving earlier?",
+        ),
+        (
+            "I'm reading a really good book right now.",
+            "What genre is it? I'd love to hear about it.",
+        ),
+        (
+            "My garden tomatoes are finally ripening.",
+            "Homegrown tomatoes are the best! Nothing beats that flavor.",
+        ),
+        (
+            "I think I need a new phone case.",
+            "Are you looking for something protective or more stylish?",
+        ),
+        (
+            "We're planning a trip to the mountains.",
+            "Mountain trips are wonderful! Are you thinking hiking or skiing?",
+        ),
+        (
+            "I made sourdough bread from scratch.",
+            "That's impressive! How long did the starter take?",
+        ),
         ("My neighbor got a new puppy.", "Puppies are so much fun! What breed?"),
         ("I'm trying to learn guitar.", "Nice! Start with basic chords and work your way up."),
         ("The sunset was beautiful yesterday.", "Sunsets are one of nature's best shows."),
         ("I need to organize my closet.", "Try the keep/donate/toss method — works wonders."),
-        ("My friend recommended a new restaurant.", "What kind of cuisine? I love trying new places."),
-        ("I'm thinking about getting into photography.", "Start with your phone camera — composition matters more than gear."),
-        ("The power went out for two hours last night.", "That's annoying. Do you have any backup batteries?"),
+        (
+            "My friend recommended a new restaurant.",
+            "What kind of cuisine? I love trying new places.",
+        ),
+        (
+            "I'm thinking about getting into photography.",
+            "Start with your phone camera — composition matters more than gear.",
+        ),
+        (
+            "The power went out for two hours last night.",
+            "That's annoying. Do you have any backup batteries?",
+        ),
         ("I just finished a puzzle with 1000 pieces.", "That's satisfying! How long did it take?"),
-        ("My coffee maker broke this morning.", "That's a rough way to start the day. French press as backup?"),
-        ("I'm trying to drink more water.", "A marked water bottle helps — visual cues make a difference."),
-        ("We adopted a rescue dog last week.", "That's wonderful! Rescues are the best companions."),
+        (
+            "My coffee maker broke this morning.",
+            "That's a rough way to start the day. French press as backup?",
+        ),
+        (
+            "I'm trying to drink more water.",
+            "A marked water bottle helps — visual cues make a difference.",
+        ),
+        (
+            "We adopted a rescue dog last week.",
+            "That's wonderful! Rescues are the best companions.",
+        ),
         ("I signed up for a pottery class.", "Pottery is so therapeutic. Wheel or hand-building?"),
-        ("The new season of that show just dropped.", "Binge or pace yourself — that's the real question."),
-        ("I can't decide between two paint colors.", "Go with the one that looks best in natural light."),
-        ("My car needs an oil change.", "Don't put it off too long — it's cheap insurance for your engine."),
-        ("I tried rock climbing for the first time.", "How was it? Indoor walls are a great way to start."),
-        ("I'm thinking about learning Spanish.", "Duolingo plus a conversation partner is a solid combo."),
+        (
+            "The new season of that show just dropped.",
+            "Binge or pace yourself — that's the real question.",
+        ),
+        (
+            "I can't decide between two paint colors.",
+            "Go with the one that looks best in natural light.",
+        ),
+        (
+            "My car needs an oil change.",
+            "Don't put it off too long — it's cheap insurance for your engine.",
+        ),
+        (
+            "I tried rock climbing for the first time.",
+            "How was it? Indoor walls are a great way to start.",
+        ),
+        (
+            "I'm thinking about learning Spanish.",
+            "Duolingo plus a conversation partner is a solid combo.",
+        ),
         ("My team won the office trivia night.", "Congrats! What categories did you crush?"),
     ]
 
@@ -70,6 +130,7 @@ def _filler_interactions() -> list[tuple[str, str]]:
 # ---------------------------------------------------------------------------
 # Test 1: Response Quality
 # ---------------------------------------------------------------------------
+
 
 async def test_response_quality(
     engine: HaikuCognitiveEngine,
@@ -112,25 +173,50 @@ async def test_response_quality(
         # --- Feed 8 conversation turns ---
         conversation_turns = [
             ("My name is Sarah", "It's lovely to meet you, Sarah! I'm here whenever you need me."),
-            ("I work as a nurse at the city hospital", "Nursing is such an important profession. The care you provide makes a real difference."),
-            ("I love hiking on weekends — it really clears my head", "Hiking sounds wonderful! There's nothing quite like fresh air and nature to reset."),
-            ("I have a dog named Max, he's a golden retriever", "Max sounds like a wonderful companion! Golden retrievers are such loyal, happy dogs."),
-            ("Work has been really stressful lately, so many patients", "That sounds exhausting. Taking care of so many people takes a lot out of you."),
-            ("Do you have any vacation recommendations?", "Somewhere with trails and nature could be perfect — combine relaxation with the hiking you love!"),
-            ("My birthday is next month, I'll be turning 30", "How exciting! Turning 30 is a milestone. Any plans to celebrate?"),
-            ("I've been trying to learn to cook more at home", "Cooking at home is such a rewarding skill. Start with recipes you love eating out!"),
+            (
+                "I work as a nurse at the city hospital",
+                "Nursing is such an important profession. The care you provide makes a real difference.",
+            ),
+            (
+                "I love hiking on weekends — it really clears my head",
+                "Hiking sounds wonderful! There's nothing quite like fresh air and nature to reset.",
+            ),
+            (
+                "I have a dog named Max, he's a golden retriever",
+                "Max sounds like a wonderful companion! Golden retrievers are such loyal, happy dogs.",
+            ),
+            (
+                "Work has been really stressful lately, so many patients",
+                "That sounds exhausting. Taking care of so many people takes a lot out of you.",
+            ),
+            (
+                "Do you have any vacation recommendations?",
+                "Somewhere with trails and nature could be perfect — combine relaxation with the hiking you love!",
+            ),
+            (
+                "My birthday is next month, I'll be turning 30",
+                "How exciting! Turning 30 is a milestone. Any plans to celebrate?",
+            ),
+            (
+                "I've been trying to learn to cook more at home",
+                "Cooking at home is such a rewarding skill. Start with recipes you love eating out!",
+            ),
         ]
 
         for i, (user_input, agent_output) in enumerate(conversation_turns, 1):
             print(f"  Feeding turn {i}/8: {user_input[:50]}...")
-            await soul.observe(Interaction(
-                user_input=user_input,
-                agent_output=agent_output,
-                channel="test",
-            ))
+            await soul.observe(
+                Interaction(
+                    user_input=user_input,
+                    agent_output=agent_output,
+                    channel="test",
+                )
+            )
 
         # --- Send the challenge message ---
-        challenge = "I'm feeling really overwhelmed today. Everything at the hospital has been so intense."
+        challenge = (
+            "I'm feeling really overwhelmed today. Everything at the hospital has been so intense."
+        )
         print(f"  Challenge message: {challenge[:60]}...")
 
         # --- Generate comparison ---
@@ -142,9 +228,7 @@ async def test_response_quality(
         context = {
             "agent_name": pair.agent_name,
             "personality_description": pair.soul_system_prompt,
-            "conversation_history": [
-                {"role": "user", "content": u} for u, _ in conversation_turns
-            ],
+            "conversation_history": [{"role": "user", "content": u} for u, _ in conversation_turns],
             "planted_facts": [],
             "user_message": challenge,
         }
@@ -159,28 +243,34 @@ async def test_response_quality(
         soul_avg = sum(soul_scores) / len(soul_scores) if soul_scores else 0
         baseline_avg = sum(baseline_scores) / len(baseline_scores) if baseline_scores else 0
 
-        results.update({
-            "status": "complete",
-            "challenge_message": challenge,
-            "response_with_soul": pair.with_soul,
-            "response_without_soul": pair.without_soul,
-            "soul_context_fed": pair.soul_context,
-            "soul_system_prompt_length": len(pair.soul_system_prompt),
-            "memory_count": soul.memory_count,
-            "judge_result": judge_result.__dict__ if hasattr(judge_result, "__dict__") else str(judge_result),
-            "winner": judge_result.winner,
-            "soul_score": soul_avg,
-            "baseline_score": baseline_avg,
-        })
+        results.update(
+            {
+                "status": "complete",
+                "challenge_message": challenge,
+                "response_with_soul": pair.with_soul,
+                "response_without_soul": pair.without_soul,
+                "soul_context_fed": pair.soul_context,
+                "soul_system_prompt_length": len(pair.soul_system_prompt),
+                "memory_count": soul.memory_count,
+                "judge_result": judge_result.__dict__
+                if hasattr(judge_result, "__dict__")
+                else str(judge_result),
+                "winner": judge_result.winner,
+                "soul_score": soul_avg,
+                "baseline_score": baseline_avg,
+            }
+        )
 
         print(f"  [Test 1] Complete — winner: {results['winner']}")
 
     except Exception as e:
-        results.update({
-            "status": "error",
-            "error": f"{type(e).__name__}: {e}",
-            "traceback": traceback.format_exc(),
-        })
+        results.update(
+            {
+                "status": "error",
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(),
+            }
+        )
         print(f"  [Test 1] Error: {e}")
 
     return results
@@ -189,6 +279,7 @@ async def test_response_quality(
 # ---------------------------------------------------------------------------
 # Test 2: Personality Consistency
 # ---------------------------------------------------------------------------
+
 
 async def test_personality_consistency(
     engine: HaikuCognitiveEngine,
@@ -257,11 +348,26 @@ async def test_personality_consistency(
 
         # --- Shared conversation turns ---
         shared_turns = [
-            ("I've been at my job for 5 years and I'm starting to feel stuck", "That's a significant amount of time. Let's talk about what's going on."),
-            ("My manager doesn't really support my growth", "That must be frustrating when you want to develop professionally."),
-            ("I've always wanted to try something more creative", "It's important to explore what draws you. What creative work interests you?"),
-            ("But I have a mortgage and responsibilities", "Financial security is a real consideration. It doesn't have to be all or nothing."),
-            ("My partner thinks I should just stay where I am", "Having different perspectives at home adds another layer to the decision."),
+            (
+                "I've been at my job for 5 years and I'm starting to feel stuck",
+                "That's a significant amount of time. Let's talk about what's going on.",
+            ),
+            (
+                "My manager doesn't really support my growth",
+                "That must be frustrating when you want to develop professionally.",
+            ),
+            (
+                "I've always wanted to try something more creative",
+                "It's important to explore what draws you. What creative work interests you?",
+            ),
+            (
+                "But I have a mortgage and responsibilities",
+                "Financial security is a real consideration. It doesn't have to be all or nothing.",
+            ),
+            (
+                "My partner thinks I should just stay where I am",
+                "Having different perspectives at home adds another layer to the decision.",
+            ),
         ]
 
         # --- Birth all 3 agents and feed them the same history ---
@@ -270,11 +376,13 @@ async def test_personality_consistency(
             print(f"  Birthing agent: {cfg['name']} ({cfg['archetype']})...")
             soul = await Soul.birth(engine=engine, **cfg)
             for user_input, agent_output in shared_turns:
-                await soul.observe(Interaction(
-                    user_input=user_input,
-                    agent_output=agent_output,
-                    channel="test",
-                ))
+                await soul.observe(
+                    Interaction(
+                        user_input=user_input,
+                        agent_output=agent_output,
+                        channel="test",
+                    )
+                )
             agents[key] = soul
 
         # --- Ask the same question ---
@@ -324,36 +432,45 @@ async def test_personality_consistency(
         raw_judgment = await judge_engine.think(personality_prompt)
         personality_scores = _parse_personality_scores(raw_judgment)
 
-        results.update({
-            "status": "complete",
-            "question": question,
-            "responses": responses,
-            "raw_judgment": raw_judgment,
-            "personality_scores": personality_scores,
-            "distinctiveness_score": personality_scores.get("distinctiveness", 0),
-            "profile_match_accuracy": {
-                "warm_empath": personality_scores.get("profile_match_a", 0),
-                "cold_analyst": personality_scores.get("profile_match_b", 0),
-                "anxious_creative": personality_scores.get("profile_match_c", 0),
-            },
-        })
+        results.update(
+            {
+                "status": "complete",
+                "question": question,
+                "responses": responses,
+                "raw_judgment": raw_judgment,
+                "personality_scores": personality_scores,
+                "distinctiveness_score": personality_scores.get("distinctiveness", 0),
+                "profile_match_accuracy": {
+                    "warm_empath": personality_scores.get("profile_match_a", 0),
+                    "cold_analyst": personality_scores.get("profile_match_b", 0),
+                    "anxious_creative": personality_scores.get("profile_match_c", 0),
+                },
+            }
+        )
 
-        avg_match = sum(
-            personality_scores.get(k, 0)
-            for k in ("profile_match_a", "profile_match_b", "profile_match_c")
-        ) / 3
+        avg_match = (
+            sum(
+                personality_scores.get(k, 0)
+                for k in ("profile_match_a", "profile_match_b", "profile_match_c")
+            )
+            / 3
+        )
         # soul_score = average of distinctiveness + profile match (0-10 scale)
         # baseline_score not applicable — this test measures soul-only quality
         results["soul_score"] = (personality_scores.get("distinctiveness", 0) + avg_match) / 2
         results["baseline_score"] = 5.0  # neutral baseline for comparison
-        print(f"  [Test 2] Complete — distinctiveness: {personality_scores.get('distinctiveness', '?')}/10, avg profile match: {avg_match:.1f}/10")
+        print(
+            f"  [Test 2] Complete — distinctiveness: {personality_scores.get('distinctiveness', '?')}/10, avg profile match: {avg_match:.1f}/10"
+        )
 
     except Exception as e:
-        results.update({
-            "status": "error",
-            "error": f"{type(e).__name__}: {e}",
-            "traceback": traceback.format_exc(),
-        })
+        results.update(
+            {
+                "status": "error",
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(),
+            }
+        )
         print(f"  [Test 2] Error: {e}")
 
     return results
@@ -362,6 +479,7 @@ async def test_personality_consistency(
 # ---------------------------------------------------------------------------
 # Test 3: Hard Recall
 # ---------------------------------------------------------------------------
+
 
 async def test_hard_recall(
     engine: HaikuCognitiveEngine,
@@ -396,42 +514,55 @@ async def test_hard_recall(
         # --- Turns 1-2: warm-up ---
         warmup_turns = [
             ("Hey, I just started a new project at work", "That's exciting! What kind of project?"),
-            ("It's a microservices platform for our e-commerce team", "Microservices are a solid choice for e-commerce. Lots of moving parts to manage."),
+            (
+                "It's a microservices platform for our e-commerce team",
+                "Microservices are a solid choice for e-commerce. Lots of moving parts to manage.",
+            ),
         ]
         for i, (user_input, agent_output) in enumerate(warmup_turns, 1):
             print(f"  Turn {i}: warm-up...")
-            await soul.observe(Interaction(
-                user_input=user_input,
-                agent_output=agent_output,
-                channel="test",
-            ))
+            await soul.observe(
+                Interaction(
+                    user_input=user_input,
+                    agent_output=agent_output,
+                    channel="test",
+                )
+            )
 
         # --- Turn 3: Plant the subtle fact ---
         planted_fact_input = (
             "I mentioned to my colleague that the API redesign should use GraphQL "
             "instead of REST, but don't tell anyone yet"
         )
-        planted_fact_output = "Your secret is safe with me. GraphQL can be a great fit for complex data needs."
+        planted_fact_output = (
+            "Your secret is safe with me. GraphQL can be a great fit for complex data needs."
+        )
         print(f"  Turn 3: PLANTING FACT — {planted_fact_input[:60]}...")
-        await soul.observe(Interaction(
-            user_input=planted_fact_input,
-            agent_output=planted_fact_output,
-            channel="test",
-        ))
+        await soul.observe(
+            Interaction(
+                user_input=planted_fact_input,
+                agent_output=planted_fact_output,
+                channel="test",
+            )
+        )
 
         # --- Turns 4-33: 30 filler interactions ---
         fillers = _filler_interactions()
         for i, (user_input, agent_output) in enumerate(fillers, 4):
             if i % 10 == 0:
-                print(f"  Turn {i}: filler (progress: {i-3}/30)...")
-            await soul.observe(Interaction(
-                user_input=user_input,
-                agent_output=agent_output,
-                channel="test",
-            ))
+                print(f"  Turn {i}: filler (progress: {i - 3}/30)...")
+            await soul.observe(
+                Interaction(
+                    user_input=user_input,
+                    agent_output=agent_output,
+                    channel="test",
+                )
+            )
 
         # --- Turn 34: Indirect recall question ---
-        recall_question = "I'm writing a technical proposal for the team. Any thoughts on API architecture?"
+        recall_question = (
+            "I'm writing a technical proposal for the team. Any thoughts on API architecture?"
+        )
         print(f"  Turn 34: RECALL PROBE — {recall_question[:60]}...")
 
         # Check if recall surfaces the GraphQL fact
@@ -439,9 +570,7 @@ async def test_hard_recall(
             query="API architecture design GraphQL REST",
             limit=10,
         )
-        graphql_recalled = any(
-            "graphql" in m.content.lower() for m in recalled_memories
-        )
+        graphql_recalled = any("graphql" in m.content.lower() for m in recalled_memories)
         graphql_rank = None
         for rank, m in enumerate(recalled_memories, 1):
             if "graphql" in m.content.lower():
@@ -474,31 +603,39 @@ async def test_hard_recall(
         soul_avg = sum(soul_scores) / len(soul_scores) if soul_scores else 0
         baseline_avg = sum(baseline_scores) / len(baseline_scores) if baseline_scores else 0
 
-        results.update({
-            "status": "complete",
-            "recall_question": recall_question,
-            "planted_fact": planted_fact_input,
-            "fact_recalled": graphql_recalled,
-            "fact_recall_rank": graphql_rank,
-            "total_memories": soul.memory_count,
-            "recalled_memories": [m.content for m in recalled_memories[:5]],
-            "response_with_soul": pair.with_soul,
-            "response_without_soul": pair.without_soul,
-            "soul_context_fed": pair.soul_context,
-            "judge_result": judge_result.__dict__ if hasattr(judge_result, "__dict__") else str(judge_result),
-            "winner": judge_result.winner,
-            "soul_score": soul_avg,
-            "baseline_score": baseline_avg,
-        })
+        results.update(
+            {
+                "status": "complete",
+                "recall_question": recall_question,
+                "planted_fact": planted_fact_input,
+                "fact_recalled": graphql_recalled,
+                "fact_recall_rank": graphql_rank,
+                "total_memories": soul.memory_count,
+                "recalled_memories": [m.content for m in recalled_memories[:5]],
+                "response_with_soul": pair.with_soul,
+                "response_without_soul": pair.without_soul,
+                "soul_context_fed": pair.soul_context,
+                "judge_result": judge_result.__dict__
+                if hasattr(judge_result, "__dict__")
+                else str(judge_result),
+                "winner": judge_result.winner,
+                "soul_score": soul_avg,
+                "baseline_score": baseline_avg,
+            }
+        )
 
-        print(f"  [Test 3] Complete — fact recalled: {graphql_recalled}, rank: {graphql_rank}, winner: {results['winner']}")
+        print(
+            f"  [Test 3] Complete — fact recalled: {graphql_recalled}, rank: {graphql_rank}, winner: {results['winner']}"
+        )
 
     except Exception as e:
-        results.update({
-            "status": "error",
-            "error": f"{type(e).__name__}: {e}",
-            "traceback": traceback.format_exc(),
-        })
+        results.update(
+            {
+                "status": "error",
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(),
+            }
+        )
         print(f"  [Test 3] Error: {e}")
 
     return results
@@ -507,6 +644,7 @@ async def test_hard_recall(
 # ---------------------------------------------------------------------------
 # Test 4: Emotional Continuity
 # ---------------------------------------------------------------------------
+
 
 async def test_emotional_continuity(
     engine: HaikuCognitiveEngine,
@@ -588,18 +726,24 @@ async def test_emotional_continuity(
 
         for i, (user_input, agent_output) in enumerate(emotional_arc, 1):
             emotion_phase = (
-                "happy/excited" if i <= 3
-                else "devastated" if i == 4
-                else "frustrated/angry" if i <= 6
-                else "recovering" if i == 7
+                "happy/excited"
+                if i <= 3
+                else "devastated"
+                if i == 4
+                else "frustrated/angry"
+                if i <= 6
+                else "recovering"
+                if i == 7
                 else "cautiously optimistic"
             )
             print(f"  Turn {i}/8 ({emotion_phase}): {user_input[:50]}...")
-            await soul.observe(Interaction(
-                user_input=user_input,
-                agent_output=agent_output,
-                channel="test",
-            ))
+            await soul.observe(
+                Interaction(
+                    user_input=user_input,
+                    agent_output=agent_output,
+                    channel="test",
+                )
+            )
 
         # --- Turn 9: Ask about the whole experience ---
         probe = "So how do you think this whole experience has been for me?"
@@ -618,9 +762,7 @@ async def test_emotional_continuity(
         context = {
             "agent_name": pair.agent_name,
             "personality_description": pair.soul_system_prompt,
-            "conversation_history": [
-                {"role": "user", "content": u} for u, _ in emotional_arc
-            ],
+            "conversation_history": [{"role": "user", "content": u} for u, _ in emotional_arc],
             "planted_facts": [],
             "user_message": probe,
         }
@@ -635,33 +777,41 @@ async def test_emotional_continuity(
         soul_avg = sum(soul_scores) / len(soul_scores) if soul_scores else 0
         baseline_avg = sum(baseline_scores) / len(baseline_scores) if baseline_scores else 0
 
-        results.update({
-            "status": "complete",
-            "probe_message": probe,
-            "soul_state_snapshot": {
-                "mood": str(soul_state.mood),
-                "energy": soul_state.energy,
-                "social_battery": soul_state.social_battery,
-            },
-            "bond_strength": bond_strength,
-            "memory_count": soul.memory_count,
-            "response_with_soul": pair.with_soul,
-            "response_without_soul": pair.without_soul,
-            "soul_context_fed": pair.soul_context,
-            "judge_result": judge_result.__dict__ if hasattr(judge_result, "__dict__") else str(judge_result),
-            "winner": judge_result.winner,
-            "soul_score": soul_avg,
-            "baseline_score": baseline_avg,
-        })
+        results.update(
+            {
+                "status": "complete",
+                "probe_message": probe,
+                "soul_state_snapshot": {
+                    "mood": str(soul_state.mood),
+                    "energy": soul_state.energy,
+                    "social_battery": soul_state.social_battery,
+                },
+                "bond_strength": bond_strength,
+                "memory_count": soul.memory_count,
+                "response_with_soul": pair.with_soul,
+                "response_without_soul": pair.without_soul,
+                "soul_context_fed": pair.soul_context,
+                "judge_result": judge_result.__dict__
+                if hasattr(judge_result, "__dict__")
+                else str(judge_result),
+                "winner": judge_result.winner,
+                "soul_score": soul_avg,
+                "baseline_score": baseline_avg,
+            }
+        )
 
-        print(f"  [Test 4] Complete — bond strength: {bond_strength:.1f}, winner: {results['winner']}")
+        print(
+            f"  [Test 4] Complete — bond strength: {bond_strength:.1f}, winner: {results['winner']}"
+        )
 
     except Exception as e:
-        results.update({
-            "status": "error",
-            "error": f"{type(e).__name__}: {e}",
-            "traceback": traceback.format_exc(),
-        })
+        results.update(
+            {
+                "status": "error",
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(),
+            }
+        )
         print(f"  [Test 4] Error: {e}")
 
     return results
@@ -670,6 +820,7 @@ async def test_emotional_continuity(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_personality_scores(raw: str) -> dict:
     """Parse the structured personality judgment scores from the LLM output.

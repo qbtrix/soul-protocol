@@ -17,10 +17,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from soul_protocol.runtime.memory.sentiment import detect_sentiment
-
 
 # ---------------------------------------------------------------------------
 # Category 1 — Missing vocabulary
@@ -98,8 +95,7 @@ def test_baking_cookies_happy_is_joy_not_excitement():
     """
     result = detect_sentiment("Baking cookies with grandma always makes me happy")
     assert result.label == "joy", (
-        f"Expected 'joy', got {result.label!r} "
-        f"(valence={result.valence}, arousal={result.arousal})"
+        f"Expected 'joy', got {result.label!r} (valence={result.valence}, arousal={result.arousal})"
     )
 
 
@@ -110,8 +106,7 @@ def test_everything_clicked_feeling_great_is_joy_not_excitement():
     """
     result = detect_sentiment("Everything just clicked perfectly today, feeling great")
     assert result.label == "joy", (
-        f"Expected 'joy', got {result.label!r} "
-        f"(valence={result.valence}, arousal={result.arousal})"
+        f"Expected 'joy', got {result.label!r} (valence={result.valence}, arousal={result.arousal})"
     )
 
 
@@ -122,8 +117,7 @@ def test_childhood_book_delighted_is_joy_not_excitement():
     """
     result = detect_sentiment("Found my favorite childhood book at a yard sale, delighted")
     assert result.label == "joy", (
-        f"Expected 'joy', got {result.label!r} "
-        f"(valence={result.valence}, arousal={result.arousal})"
+        f"Expected 'joy', got {result.label!r} (valence={result.valence}, arousal={result.arousal})"
     )
 
 

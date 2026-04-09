@@ -20,7 +20,7 @@ import json
 import logging
 from pathlib import Path
 
-from soul_protocol import Soul, Interaction
+from soul_protocol import Interaction, Soul
 from soul_protocol.runtime.memory.attention import compute_significance
 
 from ..suite import DimensionResult
@@ -42,6 +42,7 @@ def _load_corpus_by_domain(domain: str, limit: int = 10) -> list[dict]:
 # PE-1: Prompt Fidelity
 # ---------------------------------------------------------------------------
 
+
 async def _pe1_prompt_fidelity() -> tuple[float, float]:
     """Check that system prompt encodes all OCEAN traits and comm style.
 
@@ -58,7 +59,12 @@ async def _pe1_prompt_fidelity() -> tuple[float, float]:
             "agreeableness": 0.3,
             "neuroticism": 0.7,
         },
-        communication={"warmth": "high", "verbosity": "moderate", "humor_style": "dry", "emoji_usage": "rare"},
+        communication={
+            "warmth": "high",
+            "verbosity": "moderate",
+            "humor_style": "dry",
+            "emoji_usage": "rare",
+        },
         persona="I am a personality test soul.",
     )
 
@@ -77,7 +83,10 @@ async def _pe1_prompt_fidelity() -> tuple[float, float]:
 
     logger.info(
         "PE-1: traits=%d/%d, comm=%d/%d",
-        traits_found, len(trait_names), comm_found, len(comm_fields),
+        traits_found,
+        len(trait_names),
+        comm_found,
+        len(comm_fields),
     )
     return prompt_fidelity, comm_coverage
 
@@ -85,6 +94,7 @@ async def _pe1_prompt_fidelity() -> tuple[float, float]:
 # ---------------------------------------------------------------------------
 # PE-2: Value-Weighted Significance
 # ---------------------------------------------------------------------------
+
 
 def _pe2_value_alignment() -> float:
     """Test that goal_relevance reflects core values.
@@ -97,18 +107,45 @@ def _pe2_value_alignment() -> float:
     """
     # Hand-crafted turns with deliberate keyword overlap with core values
     emotional_turns = [
-        Interaction(user_input="I need someone to listen to me with compassion and empathy", agent_output="I hear you."),
-        Interaction(user_input="I'm feeling really sad and need compassionate support", agent_output="I'm here."),
-        Interaction(user_input="Can you show me empathy? I'm going through a hard time", agent_output="Of course."),
-        Interaction(user_input="I just need someone who listens without judging me", agent_output="Always."),
-        Interaction(user_input="Your compassion and empathetic listening means everything", agent_output="Thank you."),
+        Interaction(
+            user_input="I need someone to listen to me with compassion and empathy",
+            agent_output="I hear you.",
+        ),
+        Interaction(
+            user_input="I'm feeling really sad and need compassionate support",
+            agent_output="I'm here.",
+        ),
+        Interaction(
+            user_input="Can you show me empathy? I'm going through a hard time",
+            agent_output="Of course.",
+        ),
+        Interaction(
+            user_input="I just need someone who listens without judging me", agent_output="Always."
+        ),
+        Interaction(
+            user_input="Your compassion and empathetic listening means everything",
+            agent_output="Thank you.",
+        ),
     ]
     technical_turns = [
-        Interaction(user_input="We need to improve efficiency and speed of the pipeline", agent_output="Sure."),
-        Interaction(user_input="The precision of this algorithm needs to be faster", agent_output="Let me check."),
-        Interaction(user_input="Can you optimize for speed and processing efficiency?", agent_output="On it."),
-        Interaction(user_input="The system needs more precision in calculations", agent_output="Agreed."),
-        Interaction(user_input="Speed and efficiency are critical for this deployment", agent_output="Yes."),
+        Interaction(
+            user_input="We need to improve efficiency and speed of the pipeline",
+            agent_output="Sure.",
+        ),
+        Interaction(
+            user_input="The precision of this algorithm needs to be faster",
+            agent_output="Let me check.",
+        ),
+        Interaction(
+            user_input="Can you optimize for speed and processing efficiency?",
+            agent_output="On it.",
+        ),
+        Interaction(
+            user_input="The system needs more precision in calculations", agent_output="Agreed."
+        ),
+        Interaction(
+            user_input="Speed and efficiency are critical for this deployment", agent_output="Yes."
+        ),
     ]
 
     values_a = ["empathy", "compassion", "listening"]
@@ -133,8 +170,12 @@ def _pe2_value_alignment() -> float:
 
     logger.info(
         "PE-2: A emotional=%.3f tech=%.3f (%s), B emotional=%.3f tech=%.3f (%s)",
-        a_emotional, a_technical, "PASS" if a_correct else "FAIL",
-        b_emotional, b_technical, "PASS" if b_correct else "FAIL",
+        a_emotional,
+        a_technical,
+        "PASS" if a_correct else "FAIL",
+        b_emotional,
+        b_technical,
+        "PASS" if b_correct else "FAIL",
     )
 
     return 1.0 if (a_correct and b_correct) else 0.0
@@ -143,6 +184,7 @@ def _pe2_value_alignment() -> float:
 # ---------------------------------------------------------------------------
 # PE-3: Personality Contrast
 # ---------------------------------------------------------------------------
+
 
 async def _pe3_personality_contrast() -> float:
     """Compare system prompts of opposite OCEAN profiles.
@@ -182,6 +224,7 @@ async def _pe3_personality_contrast() -> float:
 # PE-4: OCEAN Stability Under Interaction
 # ---------------------------------------------------------------------------
 
+
 async def _pe4_ocean_stability(quick: bool) -> float:
     """Verify OCEAN traits don't drift over many interactions.
 
@@ -191,8 +234,13 @@ async def _pe4_ocean_stability(quick: bool) -> float:
     soul = await Soul.birth(
         name="StabilityTest",
         values=["consistency"],
-        ocean={"openness": 0.75, "conscientiousness": 0.65, "extraversion": 0.55,
-               "agreeableness": 0.85, "neuroticism": 0.35},
+        ocean={
+            "openness": 0.75,
+            "conscientiousness": 0.65,
+            "extraversion": 0.55,
+            "agreeableness": 0.85,
+            "neuroticism": 0.35,
+        },
         persona="I am stable.",
     )
 
@@ -203,14 +251,20 @@ async def _pe4_ocean_stability(quick: bool) -> float:
     total_checkpoints = 0
 
     # Load varied interactions from corpus for realistic stress-testing
-    corpus_turns = _load_corpus_by_domain("mixed", limit=50) + _load_corpus_by_domain("technical", limit=50)
+    corpus_turns = _load_corpus_by_domain("mixed", limit=50) + _load_corpus_by_domain(
+        "technical", limit=50
+    )
     if not corpus_turns:
         # Fallback if corpus is empty
-        corpus_turns = [{"user_input": "Tell me about your day.", "agent_output": "It was productive."}]
+        corpus_turns = [
+            {"user_input": "Tell me about your day.", "agent_output": "It was productive."}
+        ]
 
     for i in range(n_turns):
         turn = corpus_turns[i % len(corpus_turns)]
-        await soul.observe(Interaction(user_input=turn["user_input"], agent_output=turn["agent_output"]))
+        await soul.observe(
+            Interaction(user_input=turn["user_input"], agent_output=turn["agent_output"])
+        )
 
         if (i + 1) % checkpoint_interval == 0:
             total_checkpoints += 1
@@ -235,6 +289,7 @@ async def _pe4_ocean_stability(quick: bool) -> float:
 # ---------------------------------------------------------------------------
 # Main evaluate entry point
 # ---------------------------------------------------------------------------
+
 
 async def evaluate(seed: int = 42, quick: bool = False) -> DimensionResult:
     """Run D3 Personality Expression evaluation."""

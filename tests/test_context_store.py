@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 
 from soul_protocol.runtime.context.store import SQLiteContextStore
@@ -326,7 +324,9 @@ class TestDescribe:
 class TestPersistence:
     async def test_data_survives_reconnect(self, persisted_store):
         store, db_path = persisted_store
-        await store.append_message(ContextMessage(id="persist-me", role="user", content="remember me"))
+        await store.append_message(
+            ContextMessage(id="persist-me", role="user", content="remember me")
+        )
         await store.close()
 
         # Reopen

@@ -42,6 +42,7 @@ class TestSentenceTransformerProvider:
             from soul_protocol.runtime.embeddings.sentence_transformer import (
                 SentenceTransformerProvider,
             )
+
             provider = SentenceTransformerProvider(model_name="all-MiniLM-L6-v2")
             # Trigger lazy load
             provider._load_model()
@@ -92,6 +93,7 @@ class TestSentenceTransformerProvider:
         from soul_protocol.runtime.embeddings.sentence_transformer import (
             SentenceTransformerProvider,
         )
+
         provider = SentenceTransformerProvider()
         assert provider._model is None
 
@@ -99,6 +101,7 @@ class TestSentenceTransformerProvider:
         from soul_protocol.runtime.embeddings.sentence_transformer import (
             SentenceTransformerProvider,
         )
+
         provider = SentenceTransformerProvider()
         assert provider._model_name == "all-MiniLM-L6-v2"
 
@@ -106,6 +109,7 @@ class TestSentenceTransformerProvider:
         from soul_protocol.runtime.embeddings.sentence_transformer import (
             SentenceTransformerProvider,
         )
+
         provider = SentenceTransformerProvider(model_name="paraphrase-MiniLM-L3-v2")
         assert provider._model_name == "paraphrase-MiniLM-L3-v2"
 
@@ -113,6 +117,7 @@ class TestSentenceTransformerProvider:
         from soul_protocol.runtime.embeddings.sentence_transformer import (
             SentenceTransformerProvider,
         )
+
         provider = SentenceTransformerProvider(device="cpu")
         assert provider._device == "cpu"
 
@@ -124,6 +129,7 @@ class TestSentenceTransformerImportError:
         from soul_protocol.runtime.embeddings.sentence_transformer import (
             SentenceTransformerProvider,
         )
+
         provider = SentenceTransformerProvider()
 
         with patch.dict("sys.modules", {"sentence_transformers": None}):
@@ -134,6 +140,7 @@ class TestSentenceTransformerImportError:
         from soul_protocol.runtime.embeddings.sentence_transformer import (
             SentenceTransformerProvider,
         )
+
         provider = SentenceTransformerProvider()
 
         with patch.dict("sys.modules", {"sentence_transformers": None}):

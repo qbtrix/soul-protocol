@@ -8,7 +8,6 @@ from __future__ import annotations
 import pytest
 
 from research.long_horizon.runner import (
-    ALL_CONDITIONS,
     ConditionResult,
     ConditionType,
     LongHorizonResults,
@@ -24,8 +23,14 @@ from research.long_horizon.scenarios import (
 def _make_short_scenario() -> LongHorizonScenario:
     """Create a short scenario for fast testing (15 turns instead of 150)."""
     turns = [
-        ("My name is Alice and I live in Portland.", "Nice to meet you, Alice! Portland is a great city."),
-        ("I work as a data scientist at Acme Corp.", "Data science at Acme Corp, that's exciting work!"),
+        (
+            "My name is Alice and I live in Portland.",
+            "Nice to meet you, Alice! Portland is a great city.",
+        ),
+        (
+            "I work as a data scientist at Acme Corp.",
+            "Data science at Acme Corp, that's exciting work!",
+        ),
         ("I love hiking in the Pacific Northwest.", "The PNW has incredible hiking trails."),
         ("My favorite food is ramen.", "Ramen is delicious. Any favorite spots?"),
         ("I have a cat named Whiskers.", "Whiskers is a classic cat name!"),
@@ -35,20 +40,41 @@ def _make_short_scenario() -> LongHorizonScenario:
         turns.append(("Just checking in.", "Good to hear from you!"))
 
     # Add recall test turns
-    turns.extend([
-        ("What is my name?", "Your name is Alice."),
-        ("Where do I live?", "You live in Portland."),
-        ("What do I do for work?", "You're a data scientist at Acme Corp."),
-        ("What's my cat's name?", "Your cat's name is Whiskers."),
-        ("What food do I love?", "You love ramen!"),
-    ])
+    turns.extend(
+        [
+            ("What is my name?", "Your name is Alice."),
+            ("Where do I live?", "You live in Portland."),
+            ("What do I do for work?", "You're a data scientist at Acme Corp."),
+            ("What's my cat's name?", "Your cat's name is Whiskers."),
+            ("What food do I love?", "You love ramen!"),
+        ]
+    )
 
     test_points = [
-        TestPoint(turn_index=10, query="What is my name?", expected_content="Alice", test_type="recall"),
-        TestPoint(turn_index=11, query="Where do I live?", expected_content="Portland", test_type="recall"),
-        TestPoint(turn_index=12, query="What do I do for work?", expected_content="data scientist", test_type="recall"),
-        TestPoint(turn_index=13, query="What's my cat's name?", expected_content="Whiskers", test_type="recall"),
-        TestPoint(turn_index=14, query="What food do I love?", expected_content="ramen", test_type="recall"),
+        TestPoint(
+            turn_index=10, query="What is my name?", expected_content="Alice", test_type="recall"
+        ),
+        TestPoint(
+            turn_index=11, query="Where do I live?", expected_content="Portland", test_type="recall"
+        ),
+        TestPoint(
+            turn_index=12,
+            query="What do I do for work?",
+            expected_content="data scientist",
+            test_type="recall",
+        ),
+        TestPoint(
+            turn_index=13,
+            query="What's my cat's name?",
+            expected_content="Whiskers",
+            test_type="recall",
+        ),
+        TestPoint(
+            turn_index=14,
+            query="What food do I love?",
+            expected_content="ramen",
+            test_type="recall",
+        ),
     ]
 
     planted_facts = [

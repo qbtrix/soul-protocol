@@ -138,9 +138,7 @@ class TestPruneByImportance:
             _mem("Old medium fact", importance=5, age_days=400),
             _mem("Recent medium fact", importance=5, age_days=10),
         ]
-        keep, pruned = compressor.prune_by_importance(
-            memories, min_importance=3, max_age_days=365
-        )
+        keep, pruned = compressor.prune_by_importance(memories, min_importance=3, max_age_days=365)
         assert len(keep) == 1
         assert keep[0].content == "Recent medium fact"
 
@@ -149,9 +147,7 @@ class TestPruneByImportance:
         memories = [
             _mem("User's name is Prakash", importance=9, age_days=500),
         ]
-        keep, pruned = compressor.prune_by_importance(
-            memories, min_importance=3, max_age_days=365
-        )
+        keep, pruned = compressor.prune_by_importance(memories, min_importance=3, max_age_days=365)
         assert len(keep) == 1
         assert len(pruned) == 0
 

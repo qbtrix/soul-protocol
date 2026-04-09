@@ -9,7 +9,6 @@ import pytest
 
 from soul_protocol.runtime.bond import Bond
 from soul_protocol.runtime.memory.attention import (
-    DEFAULT_SIGNIFICANCE_THRESHOLD,
     compute_significance,
     is_significant,
     overall_significance,
@@ -18,7 +17,6 @@ from soul_protocol.runtime.memory.attention import (
 from soul_protocol.runtime.memory.search import BM25Index
 from soul_protocol.runtime.memory.strategy import BM25SearchStrategy, SearchStrategy
 from soul_protocol.runtime.types import Interaction, SignificanceScore
-
 
 # ---------------------------------------------------------------------------
 # Helpers

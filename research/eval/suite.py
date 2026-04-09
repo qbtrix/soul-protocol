@@ -14,9 +14,10 @@ import asyncio
 import json
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable, Awaitable
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +52,14 @@ _SOUL_PROTOCOL_VERSION = "0.2.3"
 # Result data models
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class DimensionResult:
     """Result from evaluating a single SHS dimension."""
 
-    dimension_id: int              # 1-7
+    dimension_id: int  # 1-7
     dimension_name: str
-    score: float                   # 0-100
+    score: float  # 0-100
     metrics: dict[str, Any] = field(default_factory=dict)
     passed: list[str] = field(default_factory=list)
     failed: list[str] = field(default_factory=list)
@@ -68,11 +70,11 @@ class DimensionResult:
 class SoulHealthReport:
     """Complete Soul Health Score report across all dimensions."""
 
-    soul_health_score: float       # 0-100 composite
+    soul_health_score: float  # 0-100 composite
     dimension_results: list[DimensionResult] = field(default_factory=list)
     run_id: str = ""
     seed: int = 42
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     version: str = _SOUL_PROTOCOL_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -117,6 +119,7 @@ def _register_dimensions() -> None:
     for dim_id, module_path in modules:
         try:
             import importlib
+
             mod = importlib.import_module(module_path)
             _DIMENSION_RUNNERS[dim_id] = mod.evaluate
         except (ImportError, AttributeError):
@@ -140,6 +143,7 @@ def _placeholder_result(dim_id: int) -> DimensionResult:
 # Main entry point
 # ---------------------------------------------------------------------------
 
+
 async def run_eval_suite(
     seed: int = 42,
     dimensions: list[int] | None = None,
@@ -162,7 +166,10 @@ async def run_eval_suite(
 
     logger.info(
         "Starting SHS eval: run_id=%s seed=%d dims=%s quick=%s",
-        run_id, seed, dims_to_run, quick,
+        run_id,
+        seed,
+        dims_to_run,
+        quick,
     )
 
     results: list[DimensionResult] = []
@@ -184,7 +191,8 @@ async def run_eval_suite(
         else:
             logger.info(
                 "D%d: %s — not implemented, placeholder",
-                dim_id, DIMENSION_NAMES[dim_id],
+                dim_id,
+                DIMENSION_NAMES[dim_id],
             )
             results.append(_placeholder_result(dim_id))
 
@@ -206,33 +214,45 @@ async def run_eval_suite(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m research.eval.suite",
         description="Run the Soul Health Score evaluation suite.",
     )
     parser.add_argument(
-        "--seed", type=int, default=42,
+        "--seed",
+        type=int,
+        default=42,
         help="Random seed (default: 42)",
     )
     parser.add_argument(
-        "--dimensions", type=int, nargs="+", default=None,
+        "--dimensions",
+        type=int,
+        nargs="+",
+        default=None,
         help="Which dimensions to evaluate (1-7). Omit for all.",
     )
     parser.add_argument(
-        "--quick", action="store_true",
+        "--quick",
+        action="store_true",
         help="Reduced turn counts for faster iteration.",
     )
     parser.add_argument(
-        "--output", type=str, default=None,
+        "--output",
+        type=str,
+        default=None,
         help="Write JSON report to file (default: stdout).",
     )
     parser.add_argument(
-        "--dashboard", action="store_true",
+        "--dashboard",
+        action="store_true",
         help="Print colorful terminal dashboard instead of JSON.",
     )
     parser.add_argument(
-        "-v", "--verbose", action="store_true",
+        "-v",
+        "--verbose",
+        action="store_true",
         help="Enable debug logging.",
     )
     return parser
@@ -258,6 +278,7 @@ def main() -> None:
 
     if args.dashboard:
         from research.eval.report import print_dashboard
+
         print_dashboard(report)
     elif args.output:
         with open(args.output, "w") as f:

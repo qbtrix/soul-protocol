@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 SOUL_CONTEXT_START = "<!-- SOUL-CONTEXT-START -->"
@@ -40,9 +40,7 @@ def resolve_target_path(target: str, cwd: Path) -> Path:
         ValueError: If the target is not supported.
     """
     if target not in TARGET_FILES:
-        raise ValueError(
-            f"Unknown target '{target}'. Supported: {', '.join(SUPPORTED_TARGETS)}"
-        )
+        raise ValueError(f"Unknown target '{target}'. Supported: {', '.join(SUPPORTED_TARGETS)}")
     return cwd / TARGET_FILES[target]
 
 
@@ -96,7 +94,7 @@ async def build_context_block(
     else:
         memories_section = "- (no memories yet)"
 
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     block = f"""{SOUL_CONTEXT_START}
 ## Soul: {name}
@@ -200,9 +198,7 @@ def find_soul(soul_dir: Path, soul_name: str | None = None) -> Path:
         candidate = soul_dir / f"{soul_name}.soul"
         if candidate.is_file():
             return candidate
-        raise FileNotFoundError(
-            f"Soul '{soul_name}' not found in {soul_dir}"
-        )
+        raise FileNotFoundError(f"Soul '{soul_name}' not found in {soul_dir}")
 
     # Auto-detect: find the first soul subdirectory or .soul file
     for item in sorted(soul_dir.iterdir()):
@@ -211,6 +207,4 @@ def find_soul(soul_dir: Path, soul_name: str | None = None) -> Path:
         if item.is_file() and item.suffix == ".soul":
             return item
 
-    raise FileNotFoundError(
-        f"No soul found in {soul_dir}. Run 'soul init' first."
-    )
+    raise FileNotFoundError(f"No soul found in {soul_dir}. Run 'soul init' first.")

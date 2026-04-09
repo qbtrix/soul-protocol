@@ -155,9 +155,7 @@ class EvolutionManager:
                 mutation.approved_at = datetime.now()
                 self._config.pending.remove(mutation)
                 self._config.history.append(mutation)
-                logger.info(
-                    "Mutation approved: id=%s, trait=%s", mutation_id, mutation.trait
-                )
+                logger.info("Mutation approved: id=%s, trait=%s", mutation_id, mutation.trait)
                 return True
         return False
 
@@ -205,7 +203,10 @@ class EvolutionManager:
         return new_dna
 
     async def check_triggers(
-        self, dna: DNA, interaction: Interaction, evaluation_triggers: list[dict] | None = None,
+        self,
+        dna: DNA,
+        interaction: Interaction,
+        evaluation_triggers: list[dict] | None = None,
     ) -> list[Mutation]:
         """Check for automatic evolution triggers from evaluation patterns.
 

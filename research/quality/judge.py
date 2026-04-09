@@ -14,10 +14,10 @@ from typing import Any
 
 from ..haiku_engine import HaikuCognitiveEngine
 
-
 # ---------------------------------------------------------------------------
 # Quality dimensions
 # ---------------------------------------------------------------------------
+
 
 class QualityDimension(Enum):
     """Six dimensions for evaluating agent response quality."""
@@ -66,6 +66,7 @@ _DIMENSION_DESCRIPTIONS: dict[QualityDimension, str] = {
 # ---------------------------------------------------------------------------
 # Result dataclasses
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class JudgeScore:
@@ -182,6 +183,7 @@ Return ONLY valid JSON (no markdown fences, no extra text):
 # JSON parsing
 # ---------------------------------------------------------------------------
 
+
 def _parse_judge_response(text: str) -> dict[str, Any]:
     """Parse JSON from judge response, handling markdown fences and preamble.
 
@@ -227,6 +229,7 @@ def _parse_judge_response(text: str) -> dict[str, Any]:
 # ResponseJudge
 # ---------------------------------------------------------------------------
 
+
 class ResponseJudge:
     """LLM-as-judge for scoring agent responses on quality dimensions.
 
@@ -262,10 +265,12 @@ class ResponseJudge:
         """Normalise context dict values to strings for prompt interpolation."""
         history = context.get("conversation_history", [])
         if isinstance(history, list):
-            history_str = "\n".join(
-                f"  {turn.get('role', '?')}: {turn.get('content', '')}"
-                for turn in history
-            ) or "  (none)"
+            history_str = (
+                "\n".join(
+                    f"  {turn.get('role', '?')}: {turn.get('content', '')}" for turn in history
+                )
+                or "  (none)"
+            )
         else:
             history_str = str(history)
 
@@ -301,13 +306,16 @@ class ResponseJudge:
                 numeric_score = float(score_val)
             except (ValueError, TypeError):
                 import re
-                nums = re.findall(r'\b(\d+(?:\.\d+)?)\b', str(score_val))
+
+                nums = re.findall(r"\b(\d+(?:\.\d+)?)\b", str(score_val))
                 numeric_score = float(nums[0]) if nums else 5.0
-            result.append(JudgeScore(
-                dimension=dimension_label,
-                score=numeric_score,
-                reasoning=str(reason),
-            ))
+            result.append(
+                JudgeScore(
+                    dimension=dimension_label,
+                    score=numeric_score,
+                    reasoning=str(reason),
+                )
+            )
         return result
 
     # -- public API -------------------------------------------------------

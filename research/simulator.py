@@ -15,9 +15,10 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from soul_protocol.runtime.types import Interaction
 
@@ -45,6 +46,7 @@ ProgressCallback = Callable[[int, int, str], None]
 # ---------------------------------------------------------------------------
 # Results container
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SimulationResults:
@@ -96,6 +98,7 @@ class SimulationResults:
 # ---------------------------------------------------------------------------
 # Simulation engine
 # ---------------------------------------------------------------------------
+
 
 class SimulationEngine:
     """Orchestrates the full factorial experiment.
@@ -155,12 +158,14 @@ class SimulationEngine:
             for cond in self.config.conditions:
                 for uc in self.config.use_cases:
                     user = self._users[uc.value][agent.agent_id]
-                    run_specs.append(_RunSpec(
-                        agent=agent,
-                        user=user,
-                        condition_type=cond,
-                        use_case=uc,
-                    ))
+                    run_specs.append(
+                        _RunSpec(
+                            agent=agent,
+                            user=user,
+                            condition_type=cond,
+                            use_case=uc,
+                        )
+                    )
 
         total = len(run_specs)
         logger.info(
@@ -313,7 +318,11 @@ class SimulationEngine:
                         # Heuristic: negative emotions should produce negative
                         # valence, positive emotions positive valence.
                         expected_negative = turn.expected_emotion in {
-                            "frustrated", "stressed", "anxious", "sad", "angry",
+                            "frustrated",
+                            "stressed",
+                            "anxious",
+                            "sad",
+                            "angry",
                         }
                         valence_negative = result.somatic_valence < 0
                         match = expected_negative == valence_negative
@@ -338,12 +347,8 @@ class SimulationEngine:
                 # Precision: of the returned memories, how many are relevant
                 # to the expected fact?  We use substring matching as proxy.
                 if recalled_contents:
-                    relevant_count = sum(
-                        1 for c in recalled_contents if expected_lower in c
-                    )
-                    recall_metrics.precision_scores.append(
-                        relevant_count / len(recalled_contents)
-                    )
+                    relevant_count = sum(1 for c in recalled_contents if expected_lower in c)
+                    recall_metrics.precision_scores.append(relevant_count / len(recalled_contents))
                 else:
                     recall_metrics.precision_scores.append(0.0)
 
@@ -363,7 +368,13 @@ class SimulationEngine:
         # Personality drift: if the condition tracks OCEAN over time we could
         # compare start vs end.  For now record zero drift (personality is
         # fixed in the current protocol — drift measures future evolution).
-        for trait in ("openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"):
+        for trait in (
+            "openness",
+            "conscientiousness",
+            "extraversion",
+            "agreeableness",
+            "neuroticism",
+        ):
             personality_metrics.trait_drift[trait] = [0.0]
 
         return AgentRunMetrics(
@@ -382,6 +393,7 @@ class SimulationEngine:
 # ---------------------------------------------------------------------------
 # Internal types
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _RunSpec:

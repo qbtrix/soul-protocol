@@ -96,6 +96,7 @@ async def generate_comparison(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _build_prompt(system: str, context: str, user_message: str) -> str:
     """Assemble a single prompt string for the HaikuCognitiveEngine.
 

@@ -2,10 +2,11 @@
 # Created: 2026-03-29 — Verifies progressive=True returns primary + overflow entries
 
 import pytest
-from soul_protocol.runtime.memory.recall import RecallEngine
+
 from soul_protocol.runtime.memory.episodic import EpisodicStore
-from soul_protocol.runtime.memory.semantic import SemanticStore
 from soul_protocol.runtime.memory.procedural import ProceduralStore
+from soul_protocol.runtime.memory.recall import RecallEngine
+from soul_protocol.runtime.memory.semantic import SemanticStore
 from soul_protocol.runtime.types import MemoryEntry, MemoryType
 
 

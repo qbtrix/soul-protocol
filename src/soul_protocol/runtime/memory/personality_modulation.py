@@ -11,8 +11,7 @@
 
 from __future__ import annotations
 
-from soul_protocol.runtime.types import MemoryEntry, MemoryType, Personality, SomaticMarker
-
+from soul_protocol.runtime.types import MemoryEntry, MemoryType, Personality
 
 # ---------------------------------------------------------------------------
 # Per-trait weight caps — prevent any single trait from dominating.
@@ -128,9 +127,15 @@ def compute_personality_boost(
 
     boost = 0.0
     boost += _trait_delta(personality.openness) * _openness_signal(entry) * W_OPENNESS
-    boost += _trait_delta(personality.conscientiousness) * _conscientiousness_signal(entry) * W_CONSCIENTIOUSNESS
+    boost += (
+        _trait_delta(personality.conscientiousness)
+        * _conscientiousness_signal(entry)
+        * W_CONSCIENTIOUSNESS
+    )
     boost += _trait_delta(personality.extraversion) * _extraversion_signal(entry) * W_EXTRAVERSION
-    boost += _trait_delta(personality.agreeableness) * _agreeableness_signal(entry) * W_AGREEABLENESS
+    boost += (
+        _trait_delta(personality.agreeableness) * _agreeableness_signal(entry) * W_AGREEABLENESS
+    )
     boost += _trait_delta(personality.neuroticism) * _neuroticism_signal(entry) * W_NEUROTICISM
 
     return boost

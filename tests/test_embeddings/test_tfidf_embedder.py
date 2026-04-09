@@ -53,11 +53,13 @@ class TestTFIDFEmbedderFit:
     def test_fit_respects_dimensions(self) -> None:
         embedder = TFIDFEmbedder(dimensions=5)
         # Fit with many unique terms
-        embedder.fit([
-            "alpha beta gamma delta epsilon",
-            "zeta eta theta iota kappa",
-            "lambda mu nu xi omicron",
-        ])
+        embedder.fit(
+            [
+                "alpha beta gamma delta epsilon",
+                "zeta eta theta iota kappa",
+                "lambda mu nu xi omicron",
+            ]
+        )
         vec = embedder.embed("alpha beta")
         assert len(vec) == 5
 
