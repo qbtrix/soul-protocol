@@ -18,6 +18,9 @@
 #   GeneralEvent, SelfImage) to public exports.
 # Updated: feat/journal-spec — Added org journal primitives (Actor, DataRef,
 #   EventEntry, ACTION_NAMESPACES) from spec.journal. See RFC PR #164.
+# Updated: feat/decision-traces — Added decision-trace payload models and
+#   helpers (AgentProposal, HumanCorrection, DecisionGraduation, build/trace
+#   helpers, cluster_correction_patterns). See RFC PR #164, Workstream D.
 
 from __future__ import annotations
 
@@ -70,6 +73,16 @@ from .runtime.eternal import ArchiveResult, EternalStorageManager, EternalStorag
 # Core primitives from spec/ (always available — only requires pydantic)
 from .spec.identity import BondTarget as CoreBondTarget
 from .spec.identity import Identity as CoreIdentity
+from .spec.decisions import (
+    AgentProposal,
+    DecisionGraduation,
+    HumanCorrection,
+    build_correction_event,
+    build_proposal_event,
+    cluster_correction_patterns,
+    find_corrections_for,
+    trace_decision_chain,
+)
 from .spec.journal import ACTION_NAMESPACES, Actor, DataRef, EventEntry
 from .spec.manifest import Manifest as CoreManifest
 from .spec.memory import DictMemoryStore, MemoryStore
@@ -146,6 +159,15 @@ __all__ = [
     "Actor",
     "DataRef",
     "EventEntry",
+    # Decision traces (feat/decision-traces)
+    "AgentProposal",
+    "HumanCorrection",
+    "DecisionGraduation",
+    "build_proposal_event",
+    "build_correction_event",
+    "find_corrections_for",
+    "trace_decision_chain",
+    "cluster_correction_patterns",
 ]
 
 __version__ = "0.2.5"

@@ -7,6 +7,11 @@
 # Updated: 2026-03-23 — Added A2A Agent Card models (A2AAgentCard, A2ASkill, SoulExtension).
 # Updated: feat/journal-spec — Exported Journal primitives (Actor, DataRef, EventEntry,
 #   ACTION_NAMESPACES) from the new org journal module. See RFC PR #164.
+# Updated: feat/decision-traces — Exported decision trace payload models
+#   (AgentProposal, HumanCorrection, DecisionGraduation) and helpers
+#   (build_proposal_event, build_correction_event, find_corrections_for,
+#   trace_decision_chain, cluster_correction_patterns). See RFC PR #164,
+#   Workstream D.
 
 from __future__ import annotations
 
@@ -30,6 +35,17 @@ from .embeddings import (
 from .eternal import ArchiveResult, EternalStorageProvider, RecoverySource
 from .a2a import A2AAgentCard, A2ASkill, SoulExtension
 from .identity import BondTarget, Identity
+from .decisions import (
+    AgentProposal,
+    DecisionGraduation,
+    Disposition,
+    HumanCorrection,
+    build_correction_event,
+    build_proposal_event,
+    cluster_correction_patterns,
+    find_corrections_for,
+    trace_decision_chain,
+)
 from .journal import ACTION_NAMESPACES, Actor, DataRef, EventEntry
 from .manifest import Manifest
 from .memory import DictMemoryStore, Interaction, MemoryEntry, MemoryStore, MemoryVisibility, Participant
@@ -61,6 +77,16 @@ __all__ = [
     "Actor",
     "DataRef",
     "EventEntry",
+    # Decision traces (agent.proposed / human.corrected / decision.graduated)
+    "AgentProposal",
+    "HumanCorrection",
+    "DecisionGraduation",
+    "Disposition",
+    "build_proposal_event",
+    "build_correction_event",
+    "find_corrections_for",
+    "trace_decision_chain",
+    "cluster_correction_patterns",
     # Memory
     "Interaction",
     "MemoryEntry",
