@@ -3,11 +3,16 @@
 #   and batch_spawn(). from_template() creates one soul from a SoulTemplate with
 #   optional overrides. batch_spawn() creates N souls with controlled personality
 #   variance. Each spawned soul gets a unique DID and slightly varied OCEAN traits.
+# Updated: 2026-04-13 (Move 6 PR-A) — load_template() reads YAML/JSON files
+#   so bundled templates (Arrow, Flash, Cyborg, Analyst) and custom user
+#   templates can be loaded without hand-constructing the model.
 
 from __future__ import annotations
 
+import json
 import logging
 import random
+from pathlib import Path
 from typing import Any
 
 from soul_protocol.spec.template import SoulTemplate
@@ -35,6 +40,45 @@ class SoulFactory:
     def list_templates(self) -> list[str]:
         """List registered template names."""
         return list(self._templates.keys())
+
+    def get(self, name: str) -> SoulTemplate | None:
+        """Return a registered template by name (None if missing)."""
+        return self._templates.get(name)
+
+    @staticmethod
+    def load_template(path: str | Path) -> SoulTemplate:
+        """Load a SoulTemplate from a YAML or JSON file.
+
+        File extension picks the parser: ``.yaml``/``.yml`` use PyYAML,
+        anything else is parsed as JSON. Missing files raise FileNotFoundError;
+        malformed payloads raise pydantic ValidationError so callers see the
+        offending field clearly.
+        """
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"Template file not found: {path}")
+
+        text = p.read_text(encoding="utf-8")
+        if p.suffix.lower() in {".yaml", ".yml"}:
+            try:
+                import yaml
+            except ImportError as exc:
+                raise ImportError(
+                    "PyYAML is required to load YAML templates. "
+                    "Install with `pip install soul-protocol[engine]`."
+                ) from exc
+            data = yaml.safe_load(text) or {}
+        else:
+            data = json.loads(text)
+
+        return SoulTemplate.model_validate(data)
+
+    @classmethod
+    def load_bundled(cls, name: str) -> SoulTemplate:
+        """Load one of the bundled role templates by short name (e.g. 'arrow')."""
+        from soul_protocol.templates import template_path
+
+        return cls.load_template(template_path(name))
 
     @staticmethod
     async def from_template(

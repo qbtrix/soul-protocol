@@ -674,6 +674,104 @@ def list():
     asyncio.run(_list())
 
 
+@cli.group()
+def template():
+    """Browse and instantiate bundled role templates (Move 6)."""
+
+
+@template.command("list")
+def template_list():
+    """Show every bundled template (Arrow, Flash, Cyborg, Analyst, ...)."""
+    from soul_protocol.templates import list_bundled
+
+    names = list_bundled()
+    if not names:
+        console.print("[dim]No bundled templates installed[/dim]")
+        return
+
+    table = Table(title="Bundled Soul Templates", border_style="blue")
+    table.add_column("Name", style="cyan")
+    table.add_column("Archetype")
+    table.add_column("Skills")
+
+    from soul_protocol.runtime.templates import SoulFactory
+
+    for name in sorted(names):
+        try:
+            tmpl = SoulFactory.load_bundled(name)
+            table.add_row(
+                tmpl.name,
+                tmpl.archetype,
+                ", ".join(tmpl.skills[:3]) + ("..." if len(tmpl.skills) > 3 else ""),
+            )
+        except Exception as exc:
+            table.add_row(name, "[red]load error[/red]", str(exc))
+
+    console.print(table)
+
+
+@template.command("show")
+@click.argument("name")
+def template_show(name):
+    """Print the YAML for a single bundled template."""
+    from soul_protocol.templates import template_path
+
+    p = template_path(name)
+    if not p.exists():
+        console.print(f"[red]No bundled template named '{name}'[/red]")
+        raise SystemExit(1)
+    console.print(p.read_text(encoding="utf-8"))
+
+
+@cli.command("create")
+@click.option("--template", "template_name", required=True, help="Bundled template name")
+@click.option("--name", help="Override the soul name")
+@click.option(
+    "--dir",
+    "soul_dir",
+    default=".soul",
+    help="Directory to write the new soul to (default: .soul)",
+)
+@click.option(
+    "--format",
+    "soul_format",
+    type=click.Choice(["dir", "zip"], case_sensitive=False),
+    default="dir",
+    help="Storage format",
+)
+def create_from_template(template_name, name, soul_dir, soul_format):
+    """Create a soul from a bundled template (e.g. arrow, flash, cyborg, analyst)."""
+    from soul_protocol.runtime.templates import SoulFactory
+
+    async def _go():
+        try:
+            tmpl = SoulFactory.load_bundled(template_name)
+        except FileNotFoundError:
+            console.print(f"[red]Unknown template: {template_name}[/red]")
+            console.print("[dim]Run `soul template list` to see available templates.[/dim]")
+            return 1
+
+        soul = await SoulFactory.from_template(tmpl, name=name)
+
+        path = Path(soul_dir)
+        if soul_format == "zip":
+            path = path.with_suffix(".soul")
+            await soul.export(str(path))
+        else:
+            path.mkdir(parents=True, exist_ok=True)
+            await soul.export(str(path / "soul.zip"))
+
+        console.print(
+            f"[green]Created soul[/green] [cyan]{soul.name}[/cyan] "
+            f"from template [magenta]{tmpl.name}[/magenta]",
+        )
+        console.print(f"  archetype: {tmpl.archetype}")
+        console.print(f"  written to: {path}")
+        return 0
+
+    raise SystemExit(asyncio.run(_go()) or 0)
+
+
 def _update_soul_manifest(soul_path, archive_results):
     """Update the manifest.json inside a .soul archive with archive results."""
     # Read existing zip contents

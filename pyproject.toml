@@ -84,6 +84,9 @@ Issues = "https://github.com/qbtrix/soul-protocol/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/soul_protocol"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/soul_protocol/templates" = "soul_protocol/templates"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
