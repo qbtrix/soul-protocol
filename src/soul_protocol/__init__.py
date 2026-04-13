@@ -16,6 +16,8 @@
 #   v0.2.1 — Added CognitiveEngine, HeuristicEngine, ReflectionResult exports.
 #   v0.2.0 — Added psychology types (SomaticMarker, SignificanceScore,
 #   GeneralEvent, SelfImage) to public exports.
+# Updated: feat/journal-spec — Added org journal primitives (Actor, DataRef,
+#   EventEntry, ACTION_NAMESPACES) from spec.journal. See RFC PR #164.
 
 from __future__ import annotations
 
@@ -68,6 +70,7 @@ from .runtime.eternal import ArchiveResult, EternalStorageManager, EternalStorag
 # Core primitives from spec/ (always available — only requires pydantic)
 from .spec.identity import BondTarget as CoreBondTarget
 from .spec.identity import Identity as CoreIdentity
+from .spec.journal import ACTION_NAMESPACES, Actor, DataRef, EventEntry
 from .spec.manifest import Manifest as CoreManifest
 from .spec.memory import DictMemoryStore, MemoryStore
 from .spec.memory import Interaction as CoreInteraction
@@ -138,6 +141,11 @@ __all__ = [
     "CoreParticipant",
     "DictMemoryStore",
     "MemoryStore",
+    # Org Journal (feat/journal-spec)
+    "ACTION_NAMESPACES",
+    "Actor",
+    "DataRef",
+    "EventEntry",
 ]
 
 __version__ = "0.2.5"

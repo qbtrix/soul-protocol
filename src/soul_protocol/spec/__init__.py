@@ -5,6 +5,8 @@
 # Updated: Added EternalStorageProvider, EmbeddingProvider, similarity functions.
 # Updated: Added ContextEngine protocol and LCM models for Lossless Context Management.
 # Updated: 2026-03-23 — Added A2A Agent Card models (A2AAgentCard, A2ASkill, SoulExtension).
+# Updated: feat/journal-spec — Exported Journal primitives (Actor, DataRef, EventEntry,
+#   ACTION_NAMESPACES) from the new org journal module. See RFC PR #164.
 
 from __future__ import annotations
 
@@ -28,6 +30,7 @@ from .embeddings import (
 from .eternal import ArchiveResult, EternalStorageProvider, RecoverySource
 from .a2a import A2AAgentCard, A2ASkill, SoulExtension
 from .identity import BondTarget, Identity
+from .journal import ACTION_NAMESPACES, Actor, DataRef, EventEntry
 from .manifest import Manifest
 from .memory import DictMemoryStore, Interaction, MemoryEntry, MemoryStore, MemoryVisibility, Participant
 from .template import SoulTemplate
@@ -53,6 +56,11 @@ __all__ = [
     # Identity
     "BondTarget",
     "Identity",
+    # Journal (org-level event sourcing)
+    "ACTION_NAMESPACES",
+    "Actor",
+    "DataRef",
+    "EventEntry",
     # Memory
     "Interaction",
     "MemoryEntry",
