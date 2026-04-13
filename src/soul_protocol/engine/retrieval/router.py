@@ -1,0 +1,276 @@
+# router.py — RetrievalRouter: scope-filtered, strategy-aware dispatch.
+# Created: feat/retrieval-router — Workstream C1 of Org Architecture RFC (#164).
+# The router is the single entry point every agent uses for retrieval. It
+# knows nothing about soul memory vs Salesforce — it just maps registered
+# sources to adapters, filters by scope, runs the strategy, and hands back
+# merged candidates.
+#
+# Strategies:
+#   * `first`      — try sources in registration order, return first that
+#                    yields a non-empty list.
+#   * `parallel`   — fan out on a ThreadPoolExecutor, gather all, merge
+#                    by score (None scores sink).
+#   * `sequential` — try in order, accumulate until `limit` is reached.
+#
+# Scope enforcement: a source is a candidate iff its registered scopes
+# overlap the request's scopes via `_scope_matches` from the journal —
+# deliberate import, don't re-implement.
+#
+# Journal integration: if a Journal is attached, every dispatch writes a
+# `retrieval.query` event tagged with the request's scope + actor, and
+# whose payload carries the query text + the sources actually queried.
+
+from __future__ import annotations
+
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
+
+from soul_protocol.engine.journal import Journal
+from soul_protocol.engine.journal.sqlite import _scope_matches
+from soul_protocol.spec.journal import EventEntry
+from soul_protocol.spec.retrieval import (
+    CandidateSource,
+    RetrievalCandidate,
+    RetrievalRequest,
+    RetrievalResult,
+)
+
+from .adapters import SourceAdapter
+from .broker import CredentialBroker
+from .exceptions import NoSourcesError, SourceTimeoutError
+
+
+class RetrievalRouter:
+    """Scope-filtered, strategy-aware dispatcher over registered sources.
+
+    Usage:
+        router = RetrievalRouter(journal=journal, broker=broker)
+        router.register_source(CandidateSource(...), MyAdapter())
+        result = router.dispatch(RetrievalRequest(...))
+    """
+
+    def __init__(
+        self,
+        *,
+        journal: Journal | None = None,
+        broker: CredentialBroker | None = None,
+    ) -> None:
+        self._journal = journal
+        self._broker = broker
+        self._sources: dict[str, tuple[CandidateSource, SourceAdapter]] = {}
+
+    # -- registration -----------------------------------------------------
+
+    def register_source(self, source: CandidateSource, adapter: SourceAdapter) -> None:
+        self._sources[source.name] = (source, adapter)
+
+    # -- dispatch ---------------------------------------------------------
+
+    def dispatch(self, request: RetrievalRequest) -> RetrievalResult:
+        request_id = uuid4()
+        started = time.perf_counter()
+
+        selected = self._select_sources(request)
+        if not selected:
+            raise NoSourcesError(
+                f"no registered source matches scopes {request.scopes} "
+                f"(sources filter: {request.sources})"
+            )
+
+        if request.strategy == "first":
+            candidates, queried, failed = self._run_first(request, selected)
+        elif request.strategy == "sequential":
+            candidates, queried, failed = self._run_sequential(request, selected)
+        else:
+            candidates, queried, failed = self._run_parallel(request, selected)
+
+        merged = _merge_and_truncate(candidates, request.limit)
+        total_ms = (time.perf_counter() - started) * 1000.0
+
+        result = RetrievalResult(
+            request_id=request_id,
+            candidates=merged,
+            sources_queried=queried,
+            sources_failed=failed,
+            total_latency_ms=total_ms,
+            trace=None,  # TODO: slot in RetrievalTrace once #161 lands.
+        )
+        self._emit_query_event(request, result)
+        return result
+
+    # -- internals --------------------------------------------------------
+
+    def _select_sources(
+        self, request: RetrievalRequest
+    ) -> list[tuple[CandidateSource, SourceAdapter]]:
+        selected: list[tuple[CandidateSource, SourceAdapter]] = []
+        for name, (source, adapter) in self._sources.items():
+            if request.sources is not None and name not in request.sources:
+                continue
+            # _scope_matches(event_scopes, query_patterns): treats arg 2 as
+            # the pattern set. We want bidirectional overlap — a source
+            # registered for `org:sales:*` should match a request scoped to
+            # `org:sales:leads` AND vice versa.
+            if not (
+                _scope_matches(request.scopes, source.scopes)
+                or _scope_matches(source.scopes, request.scopes)
+            ):
+                continue
+            selected.append((source, adapter))
+        return selected
+
+    def _call_adapter(
+        self,
+        request: RetrievalRequest,
+        source: CandidateSource,
+        adapter: SourceAdapter,
+    ) -> list[RetrievalCandidate]:
+        credential = None
+        if source.kind == "dataref" and self._broker is not None:
+            credential = self._broker.acquire(source.name, request.scopes)
+            self._broker.ensure_usable(credential, request.scopes)
+            self._broker.mark_used(credential)
+        return adapter.query(request, credential)
+
+    def _run_first(
+        self,
+        request: RetrievalRequest,
+        selected: list[tuple[CandidateSource, SourceAdapter]],
+    ) -> tuple[list[RetrievalCandidate], list[str], list[tuple[str, str]]]:
+        queried: list[str] = []
+        failed: list[tuple[str, str]] = []
+        for source, adapter in selected:
+            queried.append(source.name)
+            try:
+                out = _with_timeout(
+                    lambda s=source, a=adapter: self._call_adapter(request, s, a),
+                    request.timeout_s,
+                    source.name,
+                )
+            except SourceTimeoutError as e:
+                failed.append((source.name, str(e)))
+                continue
+            except Exception as e:  # pragma: no cover - defensive
+                failed.append((source.name, f"{type(e).__name__}: {e}"))
+                continue
+            if out:
+                return out, queried, failed
+        return [], queried, failed
+
+    def _run_sequential(
+        self,
+        request: RetrievalRequest,
+        selected: list[tuple[CandidateSource, SourceAdapter]],
+    ) -> tuple[list[RetrievalCandidate], list[str], list[tuple[str, str]]]:
+        collected: list[RetrievalCandidate] = []
+        queried: list[str] = []
+        failed: list[tuple[str, str]] = []
+        for source, adapter in selected:
+            queried.append(source.name)
+            try:
+                out = _with_timeout(
+                    lambda s=source, a=adapter: self._call_adapter(request, s, a),
+                    request.timeout_s,
+                    source.name,
+                )
+            except SourceTimeoutError as e:
+                failed.append((source.name, str(e)))
+                continue
+            except Exception as e:
+                failed.append((source.name, f"{type(e).__name__}: {e}"))
+                continue
+            collected.extend(out)
+            if len(collected) >= request.limit:
+                break
+        return collected, queried, failed
+
+    def _run_parallel(
+        self,
+        request: RetrievalRequest,
+        selected: list[tuple[CandidateSource, SourceAdapter]],
+    ) -> tuple[list[RetrievalCandidate], list[str], list[tuple[str, str]]]:
+        queried = [s.name for s, _ in selected]
+        failed: list[tuple[str, str]] = []
+        collected: list[RetrievalCandidate] = []
+        max_workers = max(1, len(selected))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            future_to_name = {
+                pool.submit(self._call_adapter, request, source, adapter): source.name
+                for source, adapter in selected
+            }
+            for future, name in future_to_name.items():
+                try:
+                    out = future.result(timeout=request.timeout_s)
+                except FuturesTimeout:
+                    failed.append((name, f"source {name} timed out after {request.timeout_s}s"))
+                    future.cancel()
+                except Exception as e:
+                    failed.append((name, f"{type(e).__name__}: {e}"))
+                else:
+                    collected.extend(out)
+        return collected, queried, failed
+
+    def _emit_query_event(
+        self, request: RetrievalRequest, result: RetrievalResult
+    ) -> None:
+        if self._journal is None:
+            return
+        entry = EventEntry(
+            id=uuid4(),
+            ts=datetime.now(UTC),
+            actor=request.actor,
+            action="retrieval.query",
+            scope=list(request.scopes),
+            correlation_id=request.correlation_id,
+            payload={
+                "request_id": str(result.request_id),
+                "query": request.query,
+                "strategy": request.strategy,
+                "sources_queried": result.sources_queried,
+                "sources_failed": [
+                    {"source": s, "reason": r} for s, r in result.sources_failed
+                ],
+                "candidate_count": len(result.candidates),
+            },
+        )
+        try:
+            self._journal.append(entry)
+        except Exception:
+            pass  # audit path must not break retrieval
+
+
+# -- helpers --------------------------------------------------------------
+
+
+def _with_timeout(fn, timeout_s: float, source_name: str) -> list[RetrievalCandidate]:
+    """Run `fn` on a helper thread with a wall-clock deadline.
+
+    Used by the `first` and `sequential` strategies — `parallel` uses its
+    own thread pool + futures timeout. Kept simple on purpose: one helper
+    thread per call, daemonized so a wedged adapter never blocks shutdown.
+    """
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(fn)
+        try:
+            return future.result(timeout=timeout_s)
+        except FuturesTimeout as e:
+            future.cancel()
+            raise SourceTimeoutError(
+                f"source {source_name} timed out after {timeout_s}s"
+            ) from e
+
+
+def _merge_and_truncate(
+    candidates: list[RetrievalCandidate], limit: int
+) -> list[RetrievalCandidate]:
+    """Sort by score descending (None sinks), then truncate."""
+
+    def key(c: RetrievalCandidate) -> tuple[int, float]:
+        if c.score is None:
+            return (1, 0.0)
+        return (0, -c.score)
+
+    ordered = sorted(candidates, key=key)
+    return ordered[:limit]
