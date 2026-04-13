@@ -1,4 +1,7 @@
-# cli/main.py — Click CLI for the Soul Protocol (34 commands)
+# cli/main.py — Click CLI for the Soul Protocol (34 commands + paw group)
+# Updated: feat/paw-os-init — Registered `soul paw os init` subgroup for Paw OS
+#   org bootstrap (RFC #164, Workstream A slice 3). Command creates org dir,
+#   root soul, Ed25519 key, journal, and genesis events.
 # Updated: 2026-03-24 — Added 13 commands for full runtime/MCP feature parity:
 #   observe, reflect, feel, prompt, forget, edit-core, evolve, evaluate, learn,
 #   skills, bond, events, context. Total: 34 commands.
@@ -68,6 +71,12 @@ def _pct_color(value: float) -> str:
 def cli():
     """Soul Protocol — Portable identity and memory for AI agents."""
     pass
+
+
+# Paw OS subcommands (feat/paw-os-init — Workstream A slice 3, RFC #164)
+from soul_protocol.cli.paw_os import paw_group as _paw_group  # noqa: E402
+
+cli.add_command(_paw_group)
 
 
 @cli.command()

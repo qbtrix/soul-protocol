@@ -276,3 +276,4 @@ See the [CognitiveEngine Guide](cognitive-engine.md) for details.
 - **[MCP Server](mcp-server.md)** -- FastMCP server for agent integration
 - **[Integrations](integrations.md)** -- Give Claude Code, Cursor, or any agent a `.soul`
 - **[CLI Reference](cli-reference.md)** -- All 9 commands including `soul inject` for fast agent integration
+- **[Paw OS](paw-os.md)** -- Bootstrap a governance journal for a team of souls with `soul paw os init`
