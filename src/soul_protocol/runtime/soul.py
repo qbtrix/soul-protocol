@@ -130,6 +130,47 @@ def _resolve_engine(engine: Any) -> CognitiveEngine | None:
     return engine
 
 
+def _peek_soul_role(path: Path) -> str:
+    """Read the ``identity.role`` of a soul archive without awakening it.
+
+    Inspects ``soul.json`` first (unencrypted exports and flat .soul/ dirs),
+    falling back to ``manifest.json``'s ``stats.role`` when the archive is
+    encrypted. Returns an empty string when no role can be read. This is a
+    cheap pre-check used by :meth:`Soul.delete` to enforce root protection.
+    """
+    import json
+    import zipfile
+
+    candidates: list[str] = []
+    try:
+        if path.is_dir():
+            soul_json = path / "soul.json"
+            if soul_json.exists():
+                data = json.loads(soul_json.read_text(encoding="utf-8"))
+                return data.get("identity", {}).get("role", "") or ""
+            return ""
+        with zipfile.ZipFile(path) as zf:
+            names = set(zf.namelist())
+            if "soul.json" in names:
+                with zf.open("soul.json") as fh:
+                    data = json.loads(fh.read().decode("utf-8"))
+                role = data.get("identity", {}).get("role", "")
+                if role:
+                    return role
+                candidates.append(role or "")
+            if "manifest.json" in names:
+                with zf.open("manifest.json") as fh:
+                    manifest = json.loads(fh.read().decode("utf-8"))
+                stats = manifest.get("stats", {}) or {}
+                role = stats.get("role", "")
+                if role:
+                    return role
+                candidates.append(role or "")
+    except (zipfile.BadZipFile, KeyError, json.JSONDecodeError, OSError):
+        return ""
+    return candidates[0] if candidates else ""
+
+
 class Soul:
     """A Digital Soul — persistent identity, memory, and state for an AI agent."""
 
@@ -201,6 +242,7 @@ class Soul:
         biorhythms: dict[str, Any] | None = None,
         persona: str | None = None,
         seed_domains: dict[str, list[str]] | None = None,
+        role: str = "",
         # DSPy integration — optional optimized cognitive processing
         use_dspy: bool = False,
         dspy_model: str | None = None,
@@ -243,6 +285,7 @@ class Soul:
             did=generate_did(name),
             name=name,
             archetype=archetype,
+            role=role,
             origin_story=personality,
             core_values=values or [],
             bonded_to=bonded_to,
@@ -541,6 +584,37 @@ class Soul:
     @property
     def archetype(self) -> str:
         return self._identity.archetype
+
+    @property
+    def role(self) -> str:
+        """Free-form role tag. ``"root"`` marks an undeletable governance soul."""
+        return self._identity.role
+
+    @classmethod
+    def delete(cls, path: str | Path) -> None:
+        """Delete a .soul file from disk.
+
+        Refuses with :class:`SoulProtectedError` when the target soul has
+        ``identity.role == "root"`` (Org Architecture RFC #164, layer 1).
+        Use ``soul org destroy`` to tear down an org instance instead.
+        """
+        from .exceptions import SoulFileNotFoundError, SoulProtectedError
+
+        soul_path = Path(path)
+        if not soul_path.exists():
+            raise SoulFileNotFoundError(str(soul_path))
+
+        role = _peek_soul_role(soul_path)
+        if role == "root":
+            raise SoulProtectedError(path=str(soul_path), role=role)
+
+        if soul_path.is_dir():
+            import shutil
+
+            shutil.rmtree(soul_path)
+        else:
+            soul_path.unlink()
+        logger.info("Soul deleted: path=%s", soul_path)
 
     @property
     def dna(self) -> DNA:

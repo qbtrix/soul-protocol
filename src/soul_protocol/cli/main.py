@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import sys
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -623,6 +624,29 @@ def retire(path, preserve_memories):
         console.print(f"[yellow]{name}[/yellow] has been retired. Thank you for the memories.")
 
     asyncio.run(_retire())
+
+
+@cli.command("delete")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+def delete_cmd(path, yes):
+    """Delete a .soul file from disk.
+
+    Refuses for souls with role='root' (use `soul org destroy` instead).
+    """
+    from soul_protocol.runtime.exceptions import SoulProtectedError
+    from soul_protocol.runtime.soul import Soul
+
+    if not yes and not click.confirm(f"Permanently delete {path}?", default=False):
+        console.print("[dim]Cancelled.[/dim]")
+        return
+
+    try:
+        Soul.delete(path)
+    except SoulProtectedError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        sys.exit(1)
+    console.print(f"[yellow]Deleted[/yellow] {path}")
 
 
 @cli.command()

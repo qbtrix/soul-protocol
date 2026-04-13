@@ -56,6 +56,7 @@ class Identity(BaseModel):
     did: str = ""
     name: str
     archetype: str = ""
+    role: str = ""  # Free-form: "root" marks an org's governance soul (undeletable). Empty for normal souls.
     born: datetime = Field(default_factory=datetime.now)
     bonded_to: str | None = None  # DEPRECATED — use bonds instead
     bonds: list[BondTarget] = Field(default_factory=list)

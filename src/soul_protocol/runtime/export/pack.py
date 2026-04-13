@@ -113,6 +113,7 @@ async def pack_soul(
             stats={
                 "version": config.version,
                 "lifecycle": config.lifecycle.value,
+                "role": config.identity.role,
             },
         )
         manifest_json = manifest.model_dump_json(indent=2)

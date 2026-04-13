@@ -1,6 +1,8 @@
 # exceptions.py — Custom exception classes for soul-protocol.
 # Created: v0.3.2 — SoulFileNotFoundError, SoulCorruptError, SoulExportError,
 #   SoulRetireError for proper error handling in awaken(), export(), retire().
+# Updated: feat/onboarding-full — added SoulProtectedError, raised when callers try
+#   to delete or retire a root governance soul (Org Architecture RFC #164, layer 1).
 
 from __future__ import annotations
 
@@ -63,3 +65,21 @@ class SoulDecryptionError(SoulProtocolError):
     def __init__(self, reason: str = "wrong password or corrupted data") -> None:
         self.reason = reason
         super().__init__(f"Failed to decrypt .soul file — {reason}")
+
+
+class SoulProtectedError(SoulProtocolError):
+    """Raised when an operation is refused because the soul has a protected role.
+
+    Currently the only protected role is ``"root"`` (an org governance soul).
+    The only legitimate way to remove a root soul is ``soul org destroy``.
+    """
+
+    def __init__(self, name: str = "", role: str = "root", path: str | None = None) -> None:
+        self.name = name
+        self.role = role
+        self.path = path
+        who = name or path or "this soul"
+        super().__init__(
+            f"Refusing to delete {who}: role={role!r} is protected. "
+            "Use `soul org destroy` to tear down an org instance."
+        )

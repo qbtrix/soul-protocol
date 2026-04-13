@@ -64,14 +64,19 @@ JournalBytes = Annotated[
 
 
 ACTION_NAMESPACES: tuple[str, ...] = (
-    # Governance (root-signed)
+    # Governance (root-signed). ``org.values_set`` records the founding values
+    # picked during ``soul org init``; mutations land as separate events.
     "org.created",
+    "org.values_set",
     "schema.migrated",
     "user.admin_granted",
     "user.admin_revoked",
     "scope.created",
     "key.rotated",
     "org.destroyed",
+    # Note: ``agent.retired`` and ``soul.deleted`` events targeting a root DID
+    # are rejected by ``check_root_undeletable()`` below — root souls can only
+    # be removed via ``soul org destroy``. See RFC #164, layer 2.
     # Identity
     "agent.spawned",
     "agent.retired",
@@ -274,3 +279,49 @@ class EventEntry(BaseModel):
         if any(not s or not s.strip() for s in v):
             raise ValueError("EventEntry.scope entries must be non-empty strings")
         return v
+
+
+# ---------------------------------------------------------------------------
+# Root undeletability — Org Architecture RFC #164, layer 2 (advisory).
+# ---------------------------------------------------------------------------
+
+ROOT_REMOVAL_ACTIONS: frozenset[str] = frozenset({"agent.retired", "soul.deleted"})
+"""Actions that would remove a soul. Refused when the target is a root DID."""
+
+
+class RootProtectedError(ValueError):
+    """Raised when an event would retire or delete the root soul.
+
+    The journal layer is advisory: projections, replayers, and the ``soul``
+    CLI use :func:`check_root_undeletable` to enforce that root removals
+    only happen through ``soul org destroy`` (which writes a single
+    ``org.destroyed`` event and tarballs the org dir).
+    """
+
+
+def check_root_undeletable(entry: EventEntry, root_did: str) -> None:
+    """Refuse retire/delete events targeting the org's root soul.
+
+    The check inspects three places where the root DID can appear:
+
+    - the actor (root retiring itself),
+    - ``payload['target_did']`` (an admin retiring root),
+    - ``payload['soul_id']`` (the legacy field name used by older callers).
+
+    Pass any non-empty ``root_did`` string. No-ops when the action is not
+    in :data:`ROOT_REMOVAL_ACTIONS` or when ``root_did`` is empty.
+    """
+    if not root_did or entry.action not in ROOT_REMOVAL_ACTIONS:
+        return
+    payload = entry.payload if isinstance(entry.payload, dict) else {}
+    targets = {
+        entry.actor.id,
+        payload.get("target_did"),
+        payload.get("soul_id"),
+        payload.get("did"),
+    }
+    if root_did in targets:
+        raise RootProtectedError(
+            f"refused {entry.action}: root soul {root_did} cannot be removed "
+            "via journal events. Use `soul org destroy`."
+        )
