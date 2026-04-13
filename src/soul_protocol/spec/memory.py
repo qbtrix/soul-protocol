@@ -104,6 +104,15 @@ class MemoryEntry(BaseModel):
     source: str = ""
     layer: str = ""
     visibility: MemoryVisibility = MemoryVisibility.BONDED
+    scope: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Hierarchical scope tags for RBAC/ABAC. Empty list = no scope check"
+            " (treated as visible to any caller). Glob pattern: 'org:sales:*'"
+            " matches 'org:sales:leads' and 'org:sales:deals'. Runtimes apply"
+            " filtering at retrieval time before results reach the LLM."
+        ),
+    )
     metadata: dict[str, Any] = Field(default_factory=dict)
     ingested_at: datetime | None = None  # When memory entered the pipeline
     superseded: bool = False  # True when a newer memory contradicts this one

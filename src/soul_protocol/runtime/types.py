@@ -276,6 +276,15 @@ class MemoryEntry(BaseModel):
     # v0.4.0 — Contradiction detection
     superseded: bool = False  # True when a newer memory contradicts this one
     visibility: MemoryVisibility = MemoryVisibility.BONDED
+    # F2 archival memory — marks episodic memories that have been archived
+    archived: bool = False  # True when memory has been compressed into a ConversationArchive
+    # F1 progressive disclosure — runtime-only marker, never persisted
+    is_summarized: bool = False  # Runtime marker: True when content replaced with abstract
+    # Move 5 PR-A — RBAC/ABAC scope tags. Empty list = no scope assigned
+    # (visible to any caller). Hierarchical glob: "org:sales:*" matches
+    # "org:sales:leads". Filtered at retrieval time before results reach
+    # the LLM.
+    scope: list[str] = Field(default_factory=list)
 
 
 class CoreMemory(BaseModel):

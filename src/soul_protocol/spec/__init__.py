@@ -49,6 +49,7 @@ from .decisions import (
 from .journal import ACTION_NAMESPACES, Actor, DataRef, EventEntry
 from .manifest import Manifest
 from .memory import DictMemoryStore, Interaction, MemoryEntry, MemoryStore, MemoryVisibility, Participant
+from .scope import match_scope, normalise_scopes
 from .template import SoulTemplate
 from .learning import LearningEvent
 from .soul_file import pack_soul, unpack_soul, unpack_to_container
@@ -94,6 +95,9 @@ __all__ = [
     "MemoryStore",
     "MemoryVisibility",
     "DictMemoryStore",
+    # Scope
+    "match_scope",
+    "normalise_scopes",
     # Learning
     "LearningEvent",
     "SoulTemplate",

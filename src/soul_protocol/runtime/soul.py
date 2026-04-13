@@ -763,9 +763,22 @@ class Soul:
         requester_id: str | None = None,
         bond_strength: float | None = None,
         bond_threshold: float = 30.0,
+        progressive: bool = False,
+        scopes: list[str] | None = None,
     ) -> list[MemoryEntry]:
-        """Soul recalls relevant memories with visibility filtering."""
-        effective_bond = bond_strength if bond_strength is not None else self._identity.bond.bond_strength
+        """Soul recalls relevant memories with visibility + scope filtering.
+
+        ``scopes`` applies hierarchical RBAC/ABAC matching. When omitted (or
+        empty) the caller sees everything they would otherwise see — back-compat
+        for pre-scope memories and consumers that do not need RBAC. When
+        present, only memories whose own ``scope`` list intersects with the
+        caller's ``scopes`` (via :func:`soul_protocol.spec.match_scope`) are
+        returned. Filtering happens after scoring so the underlying recall
+        order is unchanged.
+        """
+        effective_bond = (
+            bond_strength if bond_strength is not None else self._identity.bond.bond_strength
+        )
         results = await self._memory.recall(
             query=query,
             limit=limit,
@@ -775,6 +788,13 @@ class Soul:
             bond_strength=effective_bond,
             bond_threshold=bond_threshold,
         )
+        if scopes:
+            from soul_protocol.spec.scope import match_scope
+
+            results = [
+                entry for entry in results
+                if match_scope(getattr(entry, "scope", None), scopes)
+            ]
         if not results:
             logger.debug("Recall returned no results: query_len=%d", len(query))
         return results
