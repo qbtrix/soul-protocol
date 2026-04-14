@@ -1,4 +1,10 @@
 # cli/org.py — `soul org {init,status,destroy}` and `soul user invite` stub.
+# Updated: feat/onboarding-full — destroy's tarball writer now filters out
+#   archives_dir so it doesn't recurse into the tarball it's mid-writing
+#   (which would raise ReadError and leave the org neither archived nor
+#   wiped). Also drop founder email from the user.joined journal payload —
+#   the journal is append-only and has no right-to-erasure path, so PII
+#   stays in the founder's soul file (erasable).
 # Renamed: feat/paw-os-init — was cli/paw_os.py. Flattened the Click group
 #   from `soul paw os <cmd>` to `soul org <cmd>`, promoted `user` to a
 #   top-level sibling group, and moved the default data dir from
@@ -402,6 +408,10 @@ def org_init(
             asyncio.run(founder_soul.export(str(founder_user_path)))
             user_did = founder_soul.did
 
+            # GDPR: email stays in the founder's soul file (erasable) and is
+            # omitted from the journal payload (append-only, no clean
+            # right-to-erasure path). The DID alone is enough to reconstruct
+            # the link back to the soul for audit purposes.
             joined = EventEntry(
                 id=uuid4(),
                 ts=datetime.now(timezone.utc),
@@ -412,7 +422,6 @@ def org_init(
                 payload={
                     "user_did": user_did,
                     "name": founder_name,
-                    "email": founder_email or "",
                     "is_founder": True,
                 },
             )
@@ -609,12 +618,42 @@ def org_status(data_dir: Path | None, as_json: bool) -> None:
 
 
 def _archive_org(data_dir: Path, archives_dir: Path) -> Path:
-    """Tarball the org directory under ``archives_dir`` and return the path."""
+    """Tarball the org directory under ``archives_dir`` and return the path.
+
+    When ``archives_dir`` lives inside ``data_dir`` (the default —
+    ``<data_dir>/archives/``), tarfile's default recursive walk would
+    descend into the archive file we're actively writing and raise a
+    ReadError partway through. Leaving the org neither archived nor wiped.
+    The filter below short-circuits any path that lives inside the
+    archives dir, so the tarball contains everything except its own
+    storage location.
+    """
     archives_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     archive_path = archives_dir / f"org-destroyed-{stamp}.tar.gz"
+
+    archives_dir_resolved = archives_dir.resolve()
+
+    def _skip_archives(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        # `tarinfo.name` is relative to the tar root (arcname=data_dir.name).
+        # Resolve the on-disk path it refers to and reject anything under
+        # archives_dir so we never tar the in-flight archive file or any
+        # previously written tarballs in that directory.
+        rel = Path(tarinfo.name)
+        try:
+            parts = rel.parts
+            on_disk = data_dir / Path(*parts[1:]) if len(parts) > 1 else data_dir
+            on_disk_resolved = on_disk.resolve()
+        except OSError:
+            return tarinfo
+        try:
+            on_disk_resolved.relative_to(archives_dir_resolved)
+        except ValueError:
+            return tarinfo
+        return None
+
     with tarfile.open(archive_path, "w:gz") as tf:
-        tf.add(data_dir, arcname=data_dir.name)
+        tf.add(data_dir, arcname=data_dir.name, filter=_skip_archives)
     return archive_path
 
 
