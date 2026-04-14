@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- Bare `pip install soul-protocol` now produces a working `soul` CLI. The CLI's required dependencies (`click`, `rich`, `pyyaml`, `cryptography`) have moved from the `[engine]` extra into base `dependencies`, so `soul --help` no longer raises `ImportError` on a minimal install. The `[engine]` extra is kept as an empty backwards-compat alias so existing `pip install soul-protocol[engine]` pins continue to resolve. Fixes #157.
+
+---
+
 ## [0.2.5] — 2026-03-23
 
 ### Added
