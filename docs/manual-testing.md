@@ -9,6 +9,8 @@ Companion to docs/architecture.md sections 7-12.
 
 > Hands-on validation of the journal, root agent, retrieval router, credential broker, and decision traces. Written for humans (and curious agents) who want to touch the primitives before they go to production.
 
+> **Note on CLI names:** commands below use `soul paw os init / status / destroy` and the `~/.pocketpaw/` data directory because that's the current branch state. A cleanup PR is pending that renames these to `soul org init / status / destroy` with `~/.soul/` default (see the org-journal-spec.md positioning). When that lands, swap the commands below accordingly — the semantics are unchanged.
+
 **Prerequisites:**
 
 ```bash
