@@ -85,8 +85,20 @@ def _default_users_dir() -> Path:
 
 
 def _default_archives_dir() -> Path:
-    """Default directory for archived/exported org data (nested under the org dir)."""
-    return _default_data_dir() / "archives"
+    """Default directory for archived/exported org data.
+
+    Lives as a SIBLING of the data dir, not nested inside it. Reason: ``soul org
+    destroy`` tarballs the data dir and then wipes it. If archives lived inside
+    the data dir, the tarball would be wiped along with everything else,
+    silently destroying the safety net users rely on during destroy.
+
+    Honors ``SOUL_ARCHIVES_DIR`` when set. Otherwise falls back to
+    ``~/.soul-archives/`` (sibling of default ``~/.soul/``).
+    """
+    env = os.environ.get("SOUL_ARCHIVES_DIR")
+    if env:
+        return Path(env).expanduser()
+    return Path.home() / ".soul-archives"
 
 
 def _dir_is_non_empty(path: Path) -> bool:
@@ -661,7 +673,8 @@ def _archive_org(data_dir: Path, archives_dir: Path) -> Path:
 @click.option("--data-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
               help="Org dir to destroy (default: ~/.soul/, or $SOUL_DATA_DIR).")
 @click.option("--archives-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
-              help="Where to drop the tarball (default: ~/.soul/archives/).")
+              help="Where to drop the tarball (default: ~/.soul-archives/, a sibling of the org dir — "
+                   "so the archive survives the wipe that follows).")
 @click.option("--confirm", is_flag=True, help="Required guard rail #1.")
 @click.option("--i-mean-it", "i_mean_it", is_flag=True, help="Required guard rail #2.")
 @click.option("--non-interactive", is_flag=True,

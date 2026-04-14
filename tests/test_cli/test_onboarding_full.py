@@ -211,21 +211,47 @@ def test_destroy_archives_then_wipes(tmp_path: Path) -> None:
     assert any(n.endswith("journal.db") for n in names)
 
 
-def test_destroy_with_default_archives_dir_inside_data_dir(tmp_path: Path) -> None:
-    """The default archives location is <data_dir>/archives/. tarfile.add
-    would otherwise recurse into that directory and try to read the
-    tarball it's currently writing, raising ReadError halfway through and
-    leaving the org neither archived nor wiped. Exercise the default
-    path (no --archives-dir flag) to lock in the filter behavior."""
+def test_destroy_with_default_archives_survives(tmp_path: Path, monkeypatch) -> None:
+    """The default archives dir is a SIBLING of the data dir, not nested
+    inside it. The tarball must survive the destroy that follows — the
+    archive is the user's safety net and losing it silently is exactly
+    the foot-gun this test exists to prevent."""
+    runner = CliRunner()
+    data_dir = tmp_path / "org"
+    users_dir = tmp_path / "users"
+    archives_dir = tmp_path / "archives"
+    monkeypatch.setenv("SOUL_ARCHIVES_DIR", str(archives_dir))
+    _full_init(runner, data_dir, users_dir)
+
+    # No --archives-dir flag: exercise the default.
+    result = runner.invoke(
+        cli,
+        [
+            "org", "destroy",
+            "--data-dir", str(data_dir),
+            "--confirm", "--i-mean-it", "--non-interactive",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert not data_dir.exists()
+    # The archive survives because archives_dir is a sibling, not a child.
+    archives = list(archives_dir.glob("org-destroyed-*.tar.gz"))
+    assert len(archives) == 1, f"expected archive to survive, got {archives}"
+    with tarfile.open(archives[0]) as tf:
+        names = tf.getnames()
+    assert any(n.endswith("journal.db") for n in names)
+
+
+def test_destroy_with_archives_inside_data_dir_completes_cleanly(tmp_path: Path) -> None:
+    """If a user explicitly puts archives_dir inside data_dir, the tarfile
+    filter must still prevent the self-include ReadError. The archive ends
+    up orphaned (wiped with the rest of data_dir) but destroy succeeds.
+    This is the regression test for the tarfile filter itself."""
     runner = CliRunner()
     data_dir = tmp_path / "org"
     users_dir = tmp_path / "users"
     _full_init(runner, data_dir, users_dir)
-
-    # Don't pass --archives-dir — fall back to the data_dir/archives default.
-    # The CLI reads it from _default_archives_dir, which we can't redirect
-    # without env, so run with --archives-dir pointed at data_dir/archives
-    # explicitly (which is the same default path, just spelled out).
     archives_dir = data_dir / "archives"
 
     result = runner.invoke(
@@ -239,12 +265,7 @@ def test_destroy_with_default_archives_dir_inside_data_dir(tmp_path: Path) -> No
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output
-    # data_dir is wiped — including the archives subdir that lived inside it.
-    assert not data_dir.exists()
-    # The archive is orphaned because its parent was just wiped with the
-    # rest of data_dir. That's fine — the test's job is to prove destroy
-    # completes without ReadError, not to preserve the tarball when the
-    # caller picked an in-data-dir archives location.
+    assert not data_dir.exists()  # data_dir wiped cleanly, no ReadError
 
 
 def test_user_joined_payload_does_not_leak_email(tmp_path: Path) -> None:
