@@ -14,6 +14,16 @@
 # This is a placeholder until ``spec.scope`` from #162 lands; the final
 # grammar there is a superset of what we implement. Callers swap to the
 # richer helper when it ships — same name, same shape.
+#
+# v0.3.1 note (2026-04-14): `spec.scope.match_scope` now implements
+# hierarchical containment (a concrete scope matches its ancestor glob).
+# The journal's `scope_matches` stays with its stricter segment-count
+# grammar on purpose: it answers a different question. Here we ask "does
+# this event belong to the set of events the query pattern names", which
+# is a set-membership check where `org:sales` and `org:sales:leads` are
+# genuinely different sets. The router calls this helper twice
+# (both directions) to get the overlap it wants for fanout, so moving to
+# containment would change event fan-out semantics. Leaving as-is.
 
 from __future__ import annotations
 

@@ -161,6 +161,22 @@ class TestInstantiation:
         assert all(match_scope(e.scope, sales_admin) for e in entries)
         assert not any(match_scope(e.scope, hr_admin) for e in entries)
 
+    @pytest.mark.asyncio
+    async def test_arrow_core_memories_visible_to_concrete_sales_caller(self) -> None:
+        """v0.3.1 follow-up: a sales agent installed from Arrow with a
+        concrete caller scope (`org:sales:leads`) must still see the
+        template's core memories tagged with the glob `org:sales:*`.
+        Before the match_scope containment fix this returned no results."""
+        arrow = SoulFactory.load_bundled("arrow")
+        soul = await SoulFactory.from_template(arrow)
+
+        from soul_protocol.spec.scope import match_scope
+
+        entries = list(soul._memory._semantic._facts.values())
+        assert entries
+        concrete_caller = ["org:sales:leads"]
+        assert all(match_scope(e.scope, concrete_caller) for e in entries)
+
 
 # ---------------------------------------------------------------------------
 # Module helpers

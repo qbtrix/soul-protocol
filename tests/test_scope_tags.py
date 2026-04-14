@@ -2,6 +2,9 @@
 
 Created: 2026-04-13 — Hierarchical RBAC/ABAC matching, MemoryEntry shape
 preservation across export/awaken, and Soul.recall scope-filter semantics.
+Updated: 2026-04-14 — match_scope is now bidirectional containment, so
+a caller scope that sits inside a memory's glob scope (and vice versa)
+matches. Tests cover both directions plus the strict one-way variant.
 """
 
 from __future__ import annotations
@@ -11,7 +14,7 @@ import pytest
 from soul_protocol import Soul
 from soul_protocol.runtime.types import MemoryType
 from soul_protocol.spec.memory import MemoryEntry
-from soul_protocol.spec.scope import match_scope, normalise_scopes
+from soul_protocol.spec.scope import match_scope, match_scope_strict, normalise_scopes
 
 # ---------------------------------------------------------------------------
 # match_scope
@@ -58,6 +61,52 @@ class TestMatchScope:
     def test_unknown_pattern_does_not_grant(self) -> None:
         # Patterns must be exact or end with `:*`; arbitrary substrings don't.
         assert not match_scope(["org:sales:leads"], ["sales"])
+
+    # ---- bidirectional containment (v0.3.1 follow-up to #163) ----------
+
+    def test_concrete_caller_matches_glob_entity(self) -> None:
+        """A caller with scope `org:sales:leads` sees memories tagged
+        `org:sales:*`. This is the bundled-archetype use case."""
+        assert match_scope(["org:sales:*"], ["org:sales:leads"])
+
+    def test_glob_entity_matches_broader_glob_caller(self) -> None:
+        """A broader-glob caller sees a nested-glob entity."""
+        assert match_scope(["org:sales:*"], ["org:*"])
+        assert match_scope(["org:*"], ["org:sales:*"])
+
+    def test_sibling_subtrees_do_not_match(self) -> None:
+        assert not match_scope(["org:sales:leads"], ["org:support:*"])
+        assert not match_scope(["org:sales:*"], ["org:support:leads"])
+
+    def test_star_caller_sees_everything(self) -> None:
+        assert match_scope(["org:anything:deep:here"], ["*"])
+        assert match_scope(["*"], ["org:anything:deep:here"])
+
+    def test_empty_edges(self) -> None:
+        # Either empty side → permissive pass-through.
+        assert match_scope([], [])
+        assert match_scope(None, None)
+        assert match_scope(["org:sales:*"], [])
+        assert match_scope([], ["org:sales:*"])
+
+
+class TestMatchScopeStrict:
+    """The one-directional variant preserves the pre-v0.3.1 behaviour for
+    callers that genuinely need `allowed_scopes` to contain `entity_scopes`."""
+
+    def test_asymmetric_direction(self) -> None:
+        # Caller's glob grants the memory's concrete scope.
+        assert match_scope_strict(["org:sales:leads"], ["org:sales:*"])
+        # Memory's glob is NOT granted by a narrower caller under the old rule.
+        assert not match_scope_strict(["org:sales:*"], ["org:sales:leads"])
+
+    def test_exact_and_star(self) -> None:
+        assert match_scope_strict(["org:sales:leads"], ["org:sales:leads"])
+        assert match_scope_strict(["org:sales:leads"], ["*"])
+
+    def test_empty_pass_through(self) -> None:
+        assert match_scope_strict([], ["org:sales:*"])
+        assert match_scope_strict(["org:sales:*"], [])
 
 
 class TestNormaliseScopes:
