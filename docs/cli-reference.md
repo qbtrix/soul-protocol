@@ -1,4 +1,7 @@
-<!-- Covers: CLI installation, all 38 commands with usage examples, options tables, and output descriptions.
+<!-- Covers: CLI installation, all 44 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-04-14 — v0.3.1: Added `soul org` (init/status/destroy), `soul template` (list/show),
+       `soul user invite`, and `soul create --template` command sections. New "Environment Variables"
+       section documents SOUL_DATA_DIR, SOUL_USERS_DIR, SOUL_ARCHIVES_DIR resolution order. Count: 38 → 44.
      Updated: 2026-04-06 — Added `soul dream` command for offline batch memory consolidation.
      Updated: 2026-03-27 — v0.2.8: Added archive, recover, and eternal-status command documentation.
      Updated: 2026-03-26 — v0.2.7: Added 3 maintenance commands (health, cleanup, repair).
@@ -11,7 +14,7 @@
 
 # CLI Reference
 
-Soul Protocol ships a command-line interface with 38 commands for creating, inspecting, exporting, and managing souls. Built on Click with Rich output formatting.
+Soul Protocol ships a command-line interface with 44 commands for creating, inspecting, exporting, and managing souls — plus the org-layer commands added in v0.3.1 (`soul org`, `soul template`, `soul user`, `soul create`). Built on Click with Rich output formatting.
 
 ## Installation
 
@@ -978,6 +981,147 @@ soul context --describe
 | `--max-tokens INT` | Token budget (with `--assemble`). |
 | `--grep PATTERN` | Search context history by regex pattern. |
 | `--describe` | Show context store metadata (message count, tokens, date range). |
+
+---
+
+## Org Layer (v0.3.1)
+
+The `soul org`, `soul template`, `soul user`, and `soul create` command groups ship in v0.3.1. See also [Org Management](org.md) for the bootstrap walkthrough and [Org Journal Spec](org-journal-spec.md) for the wire-level contract.
+
+### `soul org init`
+
+Bootstrap an empty directory into a working org. Creates a root governance soul, generates an Ed25519 signing keypair, opens a SQLite WAL journal, and writes the genesis events (`org.created`, one `scope.created` per first-level scope). Optionally seeds a starter fleet.
+
+```bash
+soul org init --org-name "Acme" --purpose "AI tooling" --non-interactive
+soul org init --org-name "Acme" --values "audit,velocity,kindness" \
+  --founder-name "Pat" --founder-email "pat@acme.com" \
+  --scopes "org:sales,org:ops" --fleet sales --non-interactive
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--org-name TEXT` | | Organization name. Required in `--non-interactive` mode. |
+| `--purpose TEXT` | | Mission statement. Lands in the root soul's persona. |
+| `--values TEXT` | | Comma-separated org values (3-5 recommended). |
+| `--founder-name TEXT` | | Founder's display name. |
+| `--founder-email TEXT` | | Founder's email. |
+| `--scopes TEXT` | | Comma-separated first-level scopes, e.g. `org:sales,org:ops`. |
+| `--fleet [sales\|support\|solo\|skip]` | `skip` | Starter fleet to seed. |
+| `--data-dir PATH` | `~/.soul/` | Where to create the org. Also honors `$SOUL_DATA_DIR`. |
+| `--users-dir PATH` | nested under `--data-dir` | Where founder user souls live. Also honors `$SOUL_USERS_DIR`. |
+| `--force` | off | Overwrite an existing non-empty data-dir. |
+| `--non-interactive` | off | Fail instead of prompting. Requires `--org-name`. |
+
+Re-running `init` against an initialized directory refuses to proceed unless `--force` is passed. Every step emits a journal event so the org state is reconstructable from the event log alone.
+
+---
+
+### `soul org status`
+
+Print a human-readable snapshot of an initialized org: DID, journal head, event count, data-dir location, root soul seal status. Read-only.
+
+```bash
+soul org status
+soul org status --data-dir /path/to/org
+soul org status --json
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--data-dir PATH` | Org dir to inspect. Defaults to `~/.soul/` or `$SOUL_DATA_DIR`. |
+| `--json` | Emit machine-readable JSON instead of a Rich panel. |
+
+---
+
+### `soul org destroy`
+
+Tarball the org to the archives dir, then wipe the data-dir. Terminal — there is no undo. Requires two explicit flags plus (in interactive mode) typing the org name at a prompt.
+
+```bash
+soul org destroy --confirm --i-mean-it
+soul org destroy --confirm --i-mean-it --non-interactive  # tests, scripted teardown
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--data-dir PATH` | `~/.soul/` | Org dir to destroy. Also honors `$SOUL_DATA_DIR`. |
+| `--archives-dir PATH` | `~/.soul-archives/` | Where the tarball lands. Sibling of the org dir by default, so the archive survives the wipe. Also honors `$SOUL_ARCHIVES_DIR`. |
+| `--confirm` | | Required guard rail. |
+| `--i-mean-it` | | Required guard rail (second one). |
+| `--non-interactive` | | Skip the typed-name prompt. |
+
+The destroy path writes the archive *first* and removes the data-dir only on success. If the archive write fails, the org is left intact.
+
+---
+
+### `soul template list`
+
+List every bundled role archetype. v0.3.1 ships Arrow, Flash, Cyborg, and Analyst — each with pre-baked DNA, communication style, and scope defaults.
+
+```bash
+soul template list
+```
+
+---
+
+### `soul template show`
+
+Print the raw YAML for a single bundled template. Useful for copying into your own overrides.
+
+```bash
+soul template show arrow
+```
+
+---
+
+### `soul create`
+
+Instantiate a new `.soul/` directory from a bundled template. Pairs with `soul template list` — pick a name, stamp it out.
+
+```bash
+soul create --template arrow
+soul create --template analyst --name Sage --dir .sage --format zip
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--template TEXT` | Required | Bundled template name (`arrow`, `flash`, `cyborg`, `analyst`). |
+| `--name TEXT` | template default | Override the soul's display name. |
+| `--dir TEXT` | `.soul` | Directory to write the new soul to. |
+| `--format [dir\|zip]` | `dir` | Write as an unpacked directory or a `.soul` zip archive. |
+
+---
+
+### `soul user invite`
+
+Placeholder for the org invite flow. Accepted today so hooks can wire it up in advance; the real implementation lands in a follow-up PR. Prints a hint and exits non-zero so callers don't mistake it for a completed invite.
+
+```bash
+soul user invite pat@acme.com
+```
+
+---
+
+## Environment Variables
+
+The CLI resolves paths in this order: **explicit flag > environment variable > default**. All three variables are honored by `soul org init`, `soul org status`, `soul org destroy`, and any other command that touches the org data-dir.
+
+| Variable | Affects | Default | Description |
+|----------|---------|---------|-------------|
+| `SOUL_DATA_DIR` | `--data-dir` | `~/.soul/` | Root directory for the org: `root.soul`, `keys/`, `journal.db`. |
+| `SOUL_USERS_DIR` | `--users-dir` | nests under `--data-dir` (so `--data-dir /tmp/foo` yields `/tmp/foo/users/`); falls back to `~/.soul/users/` when neither is set | Where founder and invited user souls live. Pre-v0.3.1 this was hardcoded to `~/.soul/users/`, which silently polluted home directories during isolated demos and CI runs. |
+| `SOUL_ARCHIVES_DIR` | `--archives-dir` | `~/.soul-archives/` | Archive destination for `soul org destroy`. Sibling of the org dir so it survives the wipe. |
+
+These are also documented in [Configuration](configuration.md#environment-variables).
 
 ---
 

@@ -1,5 +1,10 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-04-09 (v0.3.0) — bumped test count badge to 2105, noted the
+<!-- Updated: 2026-04-14 (v0.3.1) — bumped test count to 2297, added org-layer
+     pitch to the header, new "Org layer (v0.3.1)" feature block, v0.3.1
+     quick-start with `soul org init`, CLI count 38 → 44 commands (adds org,
+     template, user, create), pointers to org-journal-spec.md, org.md,
+     decision-traces.md, and manual-testing.md.
+     Updated: 2026-04-09 (v0.3.0) — bumped test count badge to 2105, noted the
      four v0.3.0 features in this header block: dream cycle (offline batch
      memory consolidation), smart recall (opt-in LLM reranking with prompt
      injection defense and timeout), significance short-circuit (skip expensive
@@ -12,17 +17,19 @@
 
 # Soul Protocol
 
-**Portable AI identity, memory, and emotion. An open standard.**
+**Portable AI identity, memory, and emotion -- plus an org-level journal and decision traces. An open standard.**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 2105 passing](https://img.shields.io/badge/tests-2105%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 2297 passing](https://img.shields.io/badge/tests-2297%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 
 AI memory systems optimize for retrieval: find the most similar text, stuff it into context, move on. They treat persistence as an IQ problem. But what makes a companion feel real isn't similarity search. It's knowing what matters, what to forget, and who it's becoming.
 
 Soul Protocol gives AI agents persistent identity with psychology-informed memory. Your agent remembers selectively, forms emotional bonds, develops skills, and maintains a personality that evolves over time. The entire state exports as a portable `.soul` file. Switch LLMs, switch platforms, keep the soul.
+
+As of v0.3.1, the protocol also covers the layer *above* a single soul: an org-scoped append-only event journal, a root governance agent, scope-tagged memory, decision traces (`agent.proposed` → `human.corrected` → `decision.graduated`), and a zero-copy retrieval router for federating external data without copying it into the org boundary.
 
 **[Read the whitepaper](WHITEPAPER.md)** for the full design rationale and empirical validation.
 
@@ -70,15 +77,19 @@ Full methodology: [research/EVAL-FRAMEWORK.md](research/EVAL-FRAMEWORK.md)
 
 ```
 soul_protocol/
-├── spec/      695 lines   The protocol. Portable, minimal, no opinions.
-├── runtime/  9,693 lines  Reference implementation. Opinionated, batteries-included.
-├── cli/                    38-command CLI
+├── spec/                   The protocol. Portable, minimal, no opinions.
+│                           Per-soul types + org-layer types (journal, decisions, retrieval).
+├── runtime/                Reference implementation. Opinionated, batteries-included.
+├── engine/                 Org-layer engine: SQLite WAL journal, retrieval router, credential broker.
+├── cli/                    44-command CLI (incl. `soul org`, `soul template`, `soul user`, `soul create`)
 └── mcp/                    MCP server (24 tools, 3 resources)
 ```
 
-**`spec/`** defines what any runtime must implement: Identity, MemoryStore, MemoryEntry, SoulContainer, `.soul` file format, EmbeddingProvider, EternalStorageProvider. Depends on Pydantic only.
+**`spec/`** defines what any runtime must implement: Identity, MemoryStore, MemoryEntry, SoulContainer, `.soul` file format, EmbeddingProvider, EternalStorageProvider. v0.3 added org-layer spec types (`EventEntry`, `Actor`, `DataRef`, `AgentProposal`, `HumanCorrection`, `DecisionGraduation`, `RetrievalRequest`/`Result`, `RetrievalTrace`). Depends on Pydantic only.
 
 **`runtime/`** is one way to run the protocol. OCEAN personality, five-tier memory, psychology pipeline, cognitive engine, bonds, skills, evolution. Other runtimes can implement `spec/` differently.
+
+**`engine/`** (new in v0.3.1) runs the org layer: a SQLite WAL-backed journal with atomic `seq` allocation, a retrieval router that resolves `DataRef` payloads against registered adapters, and a credential broker that scopes secrets per source and fails closed on denial. The full contract lives in [`docs/org-journal-spec.md`](docs/org-journal-spec.md).
 
 Like HTTP and nginx. The spec defines the contract. The runtime is one implementation.
 
@@ -108,7 +119,14 @@ Like HTTP and nginx. The spec defines the contract. The runtime is one implement
 | **Portability** | `.soul` ZIP archive. JSON inside. Rename to .zip and read it. |
 | **Cross-language** | JSON Schemas auto-generated from spec. Validate `.soul` files in any language. |
 | **Dream** | Offline batch consolidation — topic clustering, procedure detection, graph cleanup, personality drift |
-| **CLI** | 38 commands. Rich TUI output. |
+| **Org Journal** | Append-only event log with SQLite WAL backend, atomic `seq`, opportunistic hash-chain. `soul org init` bootstraps it. |
+| **Root Agent** | Governance identity with three-layer undeletability (file guard, protocol guard, CLI refusal). Signs; cannot execute. |
+| **Scope tags** | `MemoryEntry.scope` + `match_scope` helper. Bidirectional containment (`org:sales:*` matches `org:sales:leads`). |
+| **Decision traces** | `agent.proposed` → `human.corrected` → `decision.graduated` event chains linked by `causation_id`. |
+| **Zero-Copy federation** | `RetrievalRouter` + `CredentialBroker`. Resolves `DataRef` payloads against registered adapters; only the receipt crosses the boundary. |
+| **RetrievalTrace** | Every `recall()` and `smart_recall()` emits a trace (query, candidates, rerank decisions) on `Soul.last_retrieval`. |
+| **Role archetypes** | Bundled Arrow, Flash, Cyborg, Analyst templates. `soul template list` / `soul create --template arrow`. |
+| **CLI** | 44 commands. Rich TUI output. |
 | **MCP** | 24 tools + 3 resources for Claude Code, Cursor, or any MCP client |
 
 ---
@@ -116,14 +134,16 @@ Like HTTP and nginx. The spec defines the contract. The runtime is one implement
 ## Install
 
 ```bash
-pip install git+https://github.com/qbtrix/soul-protocol.git
+pip install soul-protocol
 ```
+
+As of v0.3.1 the bare install gives you a working `soul` CLI out of the box — no extras required. The `[engine]` extra is kept as an empty alias so older pins keep resolving (#173).
 
 Extras:
 
 | Extra | What it adds |
 |---|---|
-| `[engine]` | CLI, YAML config, Rich TUI, encryption |
+| `[engine]` | Empty backwards-compat alias. The base install already ships Click, Rich, PyYAML, and cryptography. |
 | `[mcp]` | MCP server (Claude Code, Cursor, any MCP client) |
 | `[anthropic]` | `AnthropicEngine` — Anthropic SDK cognitive adapter |
 | `[openai]` | `OpenAIEngine` — OpenAI SDK cognitive adapter |
@@ -217,6 +237,34 @@ communication:
   warmth: high
   verbosity: low
 persona: I am Aria, precise and efficient.
+```
+
+---
+
+## Quick start: bootstrap an org (v0.3.1)
+
+A single soul is great for a personal companion. For a team of agents that share a journal, scope grammar, and root signing key, bootstrap an org:
+
+```bash
+pip install soul-protocol
+soul org init --org-name "Acme" --purpose "AI tooling" --non-interactive
+soul org status
+```
+
+That creates `~/.soul/` with a root soul, Ed25519 signing keys, a SQLite WAL journal seeded with `org.created` + `scope.created` events, and an archive directory at `~/.soul-archives/`. Every subsequent action — memories, proposals, corrections, retrievals — writes into that journal. See [`docs/org.md`](docs/org.md) for the full flow.
+
+Instantiate a soul from a bundled role archetype:
+
+```bash
+soul template list                       # Arrow, Flash, Cyborg, Analyst
+soul create --template arrow --name Aria # new soul preconfigured with Arrow's DNA
+```
+
+Every recall now leaves a receipt:
+
+```python
+memories = await soul.recall("Python")
+trace = soul.last_retrieval  # RetrievalTrace: query, candidates, rerank decisions, final
 ```
 
 ---
@@ -326,7 +374,7 @@ Archive souls to decentralized storage (local, IPFS, Arweave, blockchain). Curre
 soul <command> [options]
 ```
 
-See [CLI Reference](docs/cli-reference.md) for all 37 commands. Highlights:
+See [CLI Reference](docs/cli-reference.md) for all 44 commands. Highlights:
 
 | Command | Description |
 |---|---|
@@ -345,6 +393,13 @@ See [CLI Reference](docs/cli-reference.md) for all 37 commands. Highlights:
 | `archive` | Archive to eternal storage tiers |
 | `recover` | Recover from eternal storage |
 | `eternal-status` | Show eternal storage references |
+| `dream` | Offline batch memory consolidation |
+| `org init` | Bootstrap an org (root soul, journal, scopes, fleet) |
+| `org status` | Snapshot the org from its journal |
+| `org destroy` | Archive-and-wipe the org directory |
+| `template list` / `show` | Browse bundled role archetypes (Arrow, Flash, Cyborg, Analyst) |
+| `create --template` | Instantiate a soul from an archetype |
+| `user invite` | Invite a user to the org (stub — real flow in a follow-up PR) |
 
 ---
 
@@ -355,7 +410,7 @@ pip install soul-protocol[mcp]
 SOUL_PATH=aria.soul soul-mcp
 ```
 
-23 tools and 3 resources for Claude Code, Cursor, or any MCP-compatible client. See [integrations](docs/integrations.md).
+24 tools and 3 resources for Claude Code, Cursor, or any MCP-compatible client. See [integrations](docs/integrations.md).
 
 ---
 
@@ -392,8 +447,12 @@ await soul.observe(Interaction(
 ## Documentation
 
 - [Whitepaper](WHITEPAPER.md) -- design rationale, psychology stack, empirical validation
-- [Architecture](docs/architecture.md) -- two-layer diagrams, module dependency graph
-- [Configuration](docs/configuration.md) -- OCEAN, communication style, config files
+- [Architecture](docs/architecture.md) -- two-layer diagrams, module dependency graph, org-layer implementation notes
+- [Org Journal Spec](docs/org-journal-spec.md) -- framework-agnostic protocol for the journal, root agent, and retrieval router
+- [Org Management](docs/org.md) -- `soul org init / status / destroy` walkthrough
+- [Decision Traces](docs/decision-traces.md) -- `agent.proposed` → `human.corrected` → `decision.graduated` chains
+- [Manual Testing](docs/manual-testing.md) -- hands-on validation for the org-layer primitives
+- [Configuration](docs/configuration.md) -- OCEAN, communication style, config files, env vars
 - [Self-Model](docs/self-model.md) -- Klein's self-concept, domain discovery
 - [Cognitive Engine](docs/cognitive-engine.md) -- LLM integration, heuristic fallback
 - [Memory Architecture](docs/memory-architecture.md) -- five tiers, activation, compression
@@ -410,7 +469,7 @@ await soul.observe(Interaction(
 git clone https://github.com/qbtrix/soul-protocol.git
 cd soul-protocol
 pip install -e ".[dev]"
-pytest tests/   # 2105 tests
+pytest tests/   # 2297 tests
 ```
 
 ---

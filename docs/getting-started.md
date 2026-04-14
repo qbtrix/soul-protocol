@@ -1,5 +1,8 @@
 <!-- Covers: Installation, optional extras, soul init quickstart, soul inject, first soul walkthrough,
      observe() pipeline explanation, next steps.
+     Updated: 2026-04-14 — v0.3.1: Added "Option B: bootstrap a full org" section with
+       `soul org init`, noted that bare `pip install soul-protocol` now produces a working
+       CLI (#173), pointed next-steps at org-journal-spec.md and decision-traces.md.
      Updated: 2026-03-27 — v0.2.8: Fixed CLI command count (9 → 37), updated energy drain text
        to reflect always-on defaults, fixed example output (energy 96 → 100).
      Updated: 2026-03-24 — v0.2.5: Added LLM engine extras (anthropic, openai, ollama, litellm, llm),
@@ -18,7 +21,7 @@ Install the core package from PyPI:
 pip install soul-protocol
 ```
 
-The core package includes Pydantic models, YAML support, the Click CLI, Rich terminal output, and cryptographic identity (DID generation). No LLM dependencies required.
+The core package includes Pydantic models, YAML support, the Click CLI, Rich terminal output, and cryptographic identity (DID generation). No LLM dependencies required. As of v0.3.1 the bare install is enough to run the `soul` CLI; the `[engine]` extra is kept as an empty alias so older pins keep resolving (#173).
 
 ### Optional Extras
 
@@ -56,7 +59,17 @@ pip install soul-protocol[mcp,graph,anthropic]
 **Python version**: Requires Python 3.11 or later.
 
 
-## Quick Start: `soul init`
+## Quick Start: two paths
+
+Soul Protocol covers two levels. Pick the one that matches what you're building.
+
+- **Option A — create a solo soul.** One `.soul` folder for one agent. Right for a personal assistant, a roleplay character, or anything that doesn't need multi-agent governance.
+- **Option B — bootstrap a full org.** An event journal, a root signing key, scope grammar, and optional starter fleet. Right for a team of agents that share audit history and access boundaries.
+
+You can start with A and graduate to B later — an org journal can absorb existing souls. Nothing in a solo `.soul/` folder is lost by moving it into an org.
+
+
+## Option A: `soul init` (solo soul)
 
 The fastest way to start is the CLI. This creates a `.soul/` folder in your project -- like `.git/` for identity:
 
@@ -92,6 +105,45 @@ To export your `.soul/` folder as a portable archive:
 ```bash
 soul export .soul/ -o aria.soul
 ```
+
+
+## Option B: `soul org init` (full org)
+
+If you're wiring up a team of agents that need to share a journal, scope grammar, and root signing key, bootstrap an org instead. This lands in `~/.soul/` by default (override with `--data-dir` or `$SOUL_DATA_DIR`):
+
+```bash
+soul org init \
+  --org-name "Acme" \
+  --purpose "AI tooling" \
+  --values "audit,velocity,kindness" \
+  --founder-name "Pat" --founder-email "pat@acme.com" \
+  --scopes "org:sales,org:ops" \
+  --fleet sales \
+  --non-interactive
+```
+
+What that produces:
+
+- `~/.soul/root.soul` — the governance soul, weighted toward conscientiousness. It signs; it doesn't execute.
+- `~/.soul/keys/` — Ed25519 private/public keys and the root DID.
+- `~/.soul/journal.db` — SQLite WAL journal, pre-seeded with `org.created` + one `scope.created` per first-level scope.
+- Founder user soul under `--users-dir` (defaults to `~/.soul/users/`, overridable via `$SOUL_USERS_DIR`).
+- Starter fleet (`sales`, `support`, or `solo`) if `--fleet` was passed.
+
+Inspect it:
+
+```bash
+soul org status
+soul org status --json   # machine-readable snapshot
+```
+
+Tear it down (archived to `~/.soul-archives/` before the wipe, so an accidental `destroy` is recoverable):
+
+```bash
+soul org destroy --confirm --i-mean-it
+```
+
+For the full journal contract, scope grammar, and decision-trace event chain see [Org Journal Spec](org-journal-spec.md), [Org Management](org.md), and [Decision Traces](decision-traces.md). Step-by-step walkthroughs for each primitive are in [Manual Testing](manual-testing.md).
 
 
 ## Quick Start: Wire Up an LLM
@@ -279,8 +331,11 @@ See the [CognitiveEngine Guide](cognitive-engine.md) for details.
 - **[API Reference](api-reference.md)** -- Complete Soul class API, all types and models
 - **[MCP Server](mcp-server.md)** -- FastMCP server for agent integration
 - **[Integrations](integrations.md)** -- Give Claude Code, Cursor, or any agent a `.soul`
-- **[CLI Reference](cli-reference.md)** -- All 37 commands including `soul inject` for fast agent integration
-- **[Org management](org.md)** -- Bootstrap a governance journal for a team of souls with `soul org init`
+- **[CLI Reference](cli-reference.md)** -- All 44 commands including `soul org`, `soul template`, `soul create`, `soul inject`
+- **[Org Management](org.md)** -- Bootstrap a governance journal for a team of souls with `soul org init`
+- **[Org Journal Spec](org-journal-spec.md)** -- Framework-agnostic protocol: journal wire format, scope grammar, retrieval router, credential broker
+- **[Decision Traces](decision-traces.md)** -- `agent.proposed` → `human.corrected` → `decision.graduated` event chains
+- **[Manual Testing](manual-testing.md)** -- Hands-on walkthrough for every org-layer primitive
 
 ### What's new in v0.3.1
 

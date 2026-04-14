@@ -1,5 +1,7 @@
 <!-- Covers: Soul configuration — birth parameters, OCEAN personality, communication style,
      biorhythms, persona, config files (YAML/JSON), CLI options, and examples.
+     Updated: 2026-04-14 — v0.3.1: Added Environment Variables section documenting
+     SOUL_DATA_DIR, SOUL_USERS_DIR, SOUL_ARCHIVES_DIR with resolution order.
      Updated: 2026-03-27 — v0.2.8: Fixed biorhythm defaults to always-on (all drain rates 0.0,
      auto_regen false). Updated companion soul example to note opt-in overrides. -->
 
@@ -398,6 +400,24 @@ persona: >
   get tired -- I get things done.
 ```
 
+
+## Environment Variables
+
+v0.3.1 introduced three environment variables that control where the org layer writes its files. They only matter if you're using `soul org init` / `soul org status` / `soul org destroy`; a solo `.soul/` directory created via `soul init` is not affected.
+
+Resolution order for each path is **explicit CLI flag > environment variable > default**. Passing `--data-dir /tmp/foo` always wins, even if `SOUL_DATA_DIR` is set to something else.
+
+| Variable | Corresponding flag | Default | What it controls |
+|----------|--------------------|---------|------------------|
+| `SOUL_DATA_DIR` | `--data-dir` | `~/.soul/` | Root of the org: `root.soul`, `keys/`, `journal.db`, and (by default) `users/`. |
+| `SOUL_USERS_DIR` | `--users-dir` | nested under `--data-dir` (so `--data-dir /tmp/foo` places users in `/tmp/foo/users/`); falls back to `~/.soul/users/` only when neither `--data-dir` nor `SOUL_USERS_DIR` is set | Where founder and invited user souls live. Override this when you want user souls on a separate volume or when an isolated demo shouldn't write to `~/.soul/users/`. |
+| `SOUL_ARCHIVES_DIR` | `--archives-dir` | `~/.soul-archives/` | Destination for `soul org destroy` tarballs. The default is a sibling of the org dir, so the archive survives the wipe that follows. |
+
+Pre-v0.3.1, `SOUL_USERS_DIR` didn't exist and the CLI always wrote user souls to `~/.soul/users/` regardless of `--data-dir`. That silently polluted home directories during CI runs and isolated demos. The new default nests user souls under whatever `--data-dir` points to, which is almost always what callers want.
+
+See also the CLI reference: [Environment Variables](cli-reference.md#environment-variables).
+
+---
 
 ## Configuration Survives Export
 

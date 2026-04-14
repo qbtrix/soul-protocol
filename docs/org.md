@@ -1,9 +1,11 @@
 <!-- Covers: Org management — `soul org init|status|destroy` commands, what they create,
      where the files live, and how idempotency works.
+     Updated: 2026-04-14 — v0.3.1: flag list brought in line with the actually-shipped CLI
+     (adds --values, --founder-name, --founder-email, --scopes, --fleet, --users-dir).
+     Corrected archives-dir default to ~/.soul-archives/ (was incorrectly ~/.soul/archives/).
+     Corrected destroy flags: --confirm + --i-mean-it (removed the --non-interactive --yes variant).
      Updated: feat/paw-os-init — file renamed from paw-os.md to org.md; content
-     rewritten for the `soul org` CLI + `~/.soul/` default path. Add an `install-fleet`
-     stub under Next so readers know the fleet command is coming without pretending it
-     already exists. -->
+     rewritten for the `soul org` CLI + `~/.soul/` default path. -->
 
 # Org Management
 
@@ -17,15 +19,33 @@ Bootstraps an empty directory into a working org. Births a governance soul, gene
 soul org init --org-name "Acme Ventures" --purpose "A software company"
 ```
 
+Full form, seeding values, a founder, scopes, and a starter fleet:
+
+```bash
+soul org init \
+  --org-name "Acme" \
+  --purpose "AI tooling" \
+  --values "audit,velocity,kindness" \
+  --founder-name "Pat" --founder-email "pat@acme.com" \
+  --scopes "org:sales,org:ops" \
+  --fleet sales \
+  --non-interactive
+```
+
 Flags:
 
 - `--org-name TEXT` — the organization's name. Required; prompted if omitted.
 - `--purpose TEXT` — optional mission statement that lands in the root soul persona.
+- `--values TEXT` — comma-separated org values (3-5 recommended). Written into the root soul and emitted as a journal event.
+- `--founder-name TEXT` / `--founder-email TEXT` — founder user details. When set, a user soul is created and added to the org.
+- `--scopes TEXT` — comma-separated first-level scopes (e.g. `org:sales,org:ops`). Each becomes a `scope.created` event.
+- `--fleet [sales|support|solo|skip]` — starter fleet to seed. `skip` creates no agents.
 - `--data-dir PATH` — where to put the org. Defaults to `~/.soul/` (override with `$SOUL_DATA_DIR`).
+- `--users-dir PATH` — where founder user souls live. Defaults to nesting under `--data-dir` (override with `$SOUL_USERS_DIR`).
 - `--force` — overwrite an existing non-empty `--data-dir`. Without it the command refuses.
 - `--non-interactive` — never prompt. Requires `--org-name` to be set.
 
-Re-running `init` against an initialized directory is a no-op unless `--force` is passed. The command is idempotent by design so a half-finished setup can be re-run safely.
+Every step emits one or more journal events so the final org state is fully reconstructable from the event log. Re-running `init` against an initialized directory refuses unless `--force` is passed.
 
 ## What gets created
 
@@ -55,6 +75,7 @@ Prints a human-readable summary of an initialized org: DID, journal head, event 
 ```bash
 soul org status
 soul org status --data-dir /path/to/org
+soul org status --json
 ```
 
 ## `soul org destroy`
@@ -68,11 +89,12 @@ soul org destroy --confirm --i-mean-it
 Flags:
 
 - `--confirm` / `--i-mean-it` — both required before anything is touched.
-- `--archives-dir PATH` — where the archive lands. Defaults to `<data-dir>/archives/`.
-- `--non-interactive --yes` — skip the interactive prompts; intended for tests and scripted teardown.
+- `--data-dir PATH` — org dir to destroy. Defaults to `~/.soul/` (override with `$SOUL_DATA_DIR`).
+- `--archives-dir PATH` — where the archive lands. Defaults to `~/.soul-archives/` (a sibling of the org dir, so the archive survives the wipe). Override with `$SOUL_ARCHIVES_DIR`.
+- `--non-interactive` — skip the typed-name prompt; intended for tests and scripted teardown.
 
-The destroy path writes the archive first and only then removes the data-dir. If the archive write fails, the org is left intact.
+In interactive mode, the CLI also asks you to type the org name at a prompt before proceeding. The destroy path writes the archive first and only then removes the data-dir. If the archive write fails, the org is left intact.
 
 ## Next
 
-The fleet install (`soul org install-fleet <template>`) is the next step on the roadmap: it spawns a starter team attached to an initialized org. It is not yet implemented — until it ships, the org is ready to accept journal appends from whatever tooling you point at `journal.db`.
+Starter fleets land today through `soul org init --fleet <sales|support|solo>`. A standalone `soul org install-fleet` that attaches a fleet to an already-initialized org is next on the roadmap — until it ships, spin up fleets by passing `--fleet` at init time, or append them by hand to `journal.db` via the Journal API. Real user invites (`soul user invite`) are a placeholder today; the full flow ships in a follow-up PR.

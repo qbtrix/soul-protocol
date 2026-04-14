@@ -1,4 +1,6 @@
 <!-- Covers: Soul lifecycle, .soul file format, Identity and DID, OCEAN personality, DNA, state management, memory architecture overview, evolution system, CognitiveEngine overview, SearchStrategy overview.
+     Updated: 2026-04-14 — v0.3.1: Added "Org-Level Concepts" section covering the org journal,
+     root agent, scope tags, decision traces, and Zero-Copy federation. Per-soul concepts unchanged.
      Updated: 2026-03-27 — v0.2.8: Fixed biorhythms table (removed social_battery state field,
      added all config fields with correct always-on defaults). Updated observe() drain text. -->
 
@@ -334,3 +336,70 @@ soul = await Soul.birth(name="Aria", search_strategy=EmbeddingSearch())
 The default is `TokenOverlapStrategy`, which uses Jaccard token overlap (fraction of query tokens found in content). Replace it with embedding-based search for better recall on large memory stores.
 
 See [CognitiveEngine Guide](cognitive-engine.md) for full documentation on search strategies.
+
+
+## Org-Level Concepts (v0.3.1)
+
+Everything above describes a single soul. A soul can live on its own forever — a personal assistant doesn't need an org. But when multiple agents and humans share context, audit history, and access boundaries, the **org layer** provides the container.
+
+The per-soul concepts stay unchanged inside an org. What the org adds is a journal, a governance agent, a scope grammar, decision traces, and a way to reach external data without copying it into the boundary. The protocol-level contract lives in [Org Journal Spec](org-journal-spec.md); what follows is the conceptual overview.
+
+### Org Journal
+
+An append-only event log. One `EventEntry` per action, one monotonically-increasing `seq` across the whole org, an opportunistic sha256 hash-chain for tamper evidence. Backend: SQLite WAL, single file, atomic `seq` allocation inside `BEGIN IMMEDIATE`.
+
+Everything that happens inside an org — a scope created, a soul invited, a proposal raised, a correction applied, a retrieval resolved — becomes one or more events in this journal. The journal is the source of truth. A wiped-and-restored org is reconstructable from its events alone.
+
+Events carry:
+
+- `action` — namespaced string, e.g. `org.created`, `scope.created`, `agent.proposed`, `retrieval.resolved`.
+- `actor` — who did it: root, a user, or an agent.
+- `payload` — structured, typed, validated against the spec.
+- `causation_id` — optional pointer to the event that triggered this one. How decision traces are chained.
+
+### Root Agent
+
+The governance identity that sits above the org. One per org, born at `soul org init`, signs things but can't execute. Three-layer undeletability makes it structurally hard to remove by accident:
+
+1. **Storage level** — file-system guard on `root.soul`.
+2. **Protocol level** — the journal refuses events that would remove the root.
+3. **CLI level** — `soul org destroy` requires two flags plus a typed confirmation.
+
+The root's OCEAN is weighted toward conscientiousness and away from extraversion. It's designed to audit, not to chat.
+
+### Scope Tags
+
+Memories, events, and retrievals carry a **scope** — a colon-separated tag that locates them in the org hierarchy. The grammar is simple:
+
+```
+org:*
+org:sales:*
+org:sales:leads
+agent:arrow-42
+session:2026-04-14-a1b2
+```
+
+Scope matching is **bidirectional containment**: `org:sales:*` matches `org:sales:leads` and vice versa. The v0.3.0 strict helper (`match_scope_strict`) is preserved for callers who want one-way matching, but the default `match_scope` now does the obvious thing — a bundled archetype whose `default_scope` is `org:*` is visible to any agent installed from it without an extra config step.
+
+Scope tags land on `MemoryEntry.scope`. Recalls filter on them automatically.
+
+### Decision Traces
+
+Three chained event types that capture the full cycle of an agent suggesting something and a human reacting:
+
+1. `agent.proposed` — the agent emits a structured proposal with its alternatives, confidence, and the events it consulted.
+2. `human.corrected` — the human edits, accepts, rejects, or defers. Linked back via `causation_id`.
+3. `decision.graduated` — when a correction pattern recurs, it graduates into standing guidance the agent loads as memory.
+
+This is the protocol-level answer to "where does the human-in-the-loop leave a receipt?" See [Decision Traces](decision-traces.md) for the full model.
+
+### Zero-Copy Federation
+
+External data (Drive docs, Salesforce records, Slack threads) doesn't belong inside the org boundary. Copying it creates staleness, duplication, and permission drift. Zero-copy federation handles this differently:
+
+- A **`DataRef`** names a remote payload — source adapter id + opaque locator — without copying the data itself.
+- The **`RetrievalRouter`** resolves a `DataRef` against registered `SourceAdapter`s at query time. Routes can be `first`, `parallel`, or `sequential`.
+- The **`CredentialBroker`** scopes credentials per source and fails closed on denial, writing an audit event so every denied retrieval is traceable.
+- The router emits a **`RetrievalTrace`** (also attached to `Soul.last_retrieval` on every `recall()`) that records the query, the candidate set, the rerank decisions, and the final selection. Only the trace crosses the org boundary; the source data stays where it lives.
+
+The adapter contracts are in [Org Journal Spec](org-journal-spec.md). Concrete adapters for real systems live in each runtime's connector package, not in this repo — the protocol stays SDK-free.
