@@ -1,8 +1,9 @@
 # journal.py — Org Journal primitives (Actor, DataRef, EventEntry).
-# Created: feat/journal-spec — Phase 1 slice of the Org Architecture RFC (PR #164).
-# The journal is the append-only, UTC-stamped, scope-tagged source of truth for
-# a Paw OS instance. This module ships the spec models only — the SQLite WAL
-# engine and the `paw os init` CLI land in follow-up PRs.
+# Updated: feat/journal-spec — renamed paw.os.destroyed -> org.destroyed in
+# ACTION_NAMESPACES to align with the framework-agnostic org-journal-spec.
+# The journal is the append-only, UTC-stamped, scope-tagged source of truth
+# for an org instance. This module ships the spec models only — the SQLite WAL
+# engine and the `soul org init` CLI land in follow-up PRs.
 #
 # Semantics locked here:
 #   - `ts` and `DataRef.point_in_time` must be timezone-aware (UTC). Naive
@@ -59,7 +60,7 @@ ACTION_NAMESPACES: tuple[str, ...] = (
     "user.admin_revoked",
     "scope.created",
     "key.rotated",
-    "paw.os.destroyed",
+    "org.destroyed",
     # Identity
     "agent.spawned",
     "agent.retired",
