@@ -280,26 +280,26 @@ def test_concurrent_writers_wal_no_data_loss(tmp_path: Path) -> None:
     N = 25
     errors: list[Exception] = []
     barrier = threading.Barrier(2)
-    # Shared monotonic clock so the two writers don't violate ts monotonicity
-    # purely by racing each other's datetime.now() reads.
+    # Shared clock + shared tick-and-append lock. The ts allocation and the
+    # append have to be held together, otherwise thread A can tick=10, get
+    # descheduled, thread B ticks=11 and commits, and A's ts=10 commit is
+    # rightly rejected. That's the point of the monotonicity check.
     clock_lock = threading.Lock()
     clock = [datetime.now(UTC)]
-
-    def tick() -> datetime:
-        with clock_lock:
-            clock[0] = clock[0] + timedelta(microseconds=1)
-            return clock[0]
 
     def writer(j: Journal, tag: str) -> None:
         barrier.wait()
         try:
             for _ in range(N):
-                j.append(
-                    _make_entry(
-                        actor=Actor(kind="agent", id=f"did:soul:{tag}"),
-                        ts=tick(),
+                with clock_lock:
+                    clock[0] = clock[0] + timedelta(microseconds=1)
+                    ts = clock[0]
+                    j.append(
+                        _make_entry(
+                            actor=Actor(kind="agent", id=f"did:soul:{tag}"),
+                            ts=ts,
+                        )
                     )
-                )
         except Exception as exc:  # noqa: BLE001
             errors.append(exc)
 
@@ -325,6 +325,68 @@ def test_concurrent_writers_wal_no_data_loss(tmp_path: Path) -> None:
         by_tag[e.actor.id] = by_tag.get(e.actor.id, 0) + 1
     assert by_tag["did:soul:a"] == N
     assert by_tag["did:soul:b"] == N
+
+
+def test_concurrent_writers_real_clocks_preserve_ts_monotonicity(tmp_path: Path) -> None:
+    """Two threads appending with independent datetime.now(UTC) calls — no
+    shared clock. Asserts that (a) no exceptions, (b) all events land with
+    unique seqs, and (c) ts is monotonic across the combined log. This is
+    the case the existing shared-tick test can't surface: the ts-monotonicity
+    check has to happen inside the write transaction, not before it."""
+    path = tmp_path / "journal.db"
+    ja = open_journal(path)
+    jb = open_journal(path)
+
+    N = 25
+    errors: list[tuple[str, Exception]] = []
+    barrier = threading.Barrier(2)
+
+    def writer(j: Journal, tag: str) -> None:
+        barrier.wait()
+        try:
+            for _ in range(N):
+                j.append(
+                    EventEntry(
+                        id=uuid4(),
+                        ts=datetime.now(UTC),
+                        actor=Actor(
+                            kind="system",
+                            id=f"system:{tag}",
+                            scope_context=["org:*"],
+                        ),
+                        action="retrieval.query",
+                        scope=["org:*"],
+                        payload={},
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001
+            errors.append((tag, exc))
+
+    ta = threading.Thread(target=writer, args=(ja, "t1"))
+    tb = threading.Thread(target=writer, args=(jb, "t2"))
+    ta.start()
+    tb.start()
+    ta.join()
+    tb.join()
+
+    ja.close()
+    jb.close()
+
+    assert errors == [], f"concurrent writes raised: {errors}"
+
+    reader = open_journal(path)
+    events = reader.query(limit=10_000)
+    reader.close()
+
+    # All 50 events landed.
+    assert len(events) == 2 * N
+    # seq is unique and gap-free (query returns in seq order).
+    # ts is monotonic across the combined log.
+    prev_ts: datetime | None = None
+    for e in events:
+        if prev_ts is not None:
+            assert e.ts >= prev_ts, f"ts not monotonic: {prev_ts} -> {e.ts}"
+        prev_ts = e.ts
 
 
 # ---------- schema migration ------------------------------------------

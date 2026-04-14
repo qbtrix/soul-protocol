@@ -1,12 +1,15 @@
 # journal.py — Journal high-level class enforcing invariants above a backend.
-# Created: feat/journal-engine — Workstream A slice 2 of Org Architecture RFC (#164).
-# The Journal owns the rules — tz-aware UTC, non-empty scope, monotonic ts,
-# attributed actor, auto-assigned seq, opportunistic hash-chain. Callers
-# never touch the backend directly.
+# Updated: feat/journal-engine — the ts-monotonicity guard now lives inside
+# the backend's BEGIN IMMEDIATE transaction (see sqlite.py). The Journal still
+# shapes entries (hash-link, tz-aware guard) but no longer reads the tail
+# outside the transaction, because that read-then-insert was racy under
+# concurrent writers. Also log (not swallow) hash-link failures so a silent
+# chain break is at least visible.
 
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +21,8 @@ from soul_protocol.spec.journal import Actor, EventEntry
 from .backend import JournalBackend
 from .exceptions import IntegrityError
 from .sqlite import SQLiteJournalBackend
+
+logger = logging.getLogger(__name__)
 
 
 def _is_aware(dt: datetime) -> bool:
@@ -61,20 +66,24 @@ class Journal:
         if not _is_aware(entry.ts):
             raise IntegrityError("EventEntry.ts must be timezone-aware UTC")
 
-        last = self._backend.last_entry()
-        if last is not None:
-            prev_entry, prev_seq = last
-            if entry.ts < prev_entry.ts:
-                raise IntegrityError(
-                    "EventEntry.ts must be >= previous event's ts "
-                    f"({entry.ts.isoformat()} < {prev_entry.ts.isoformat()})"
-                )
-            if entry.prev_hash is None:
+        # Opportunistic hash-link. The monotonicity guard lives in the
+        # backend's write transaction now (see sqlite.append); reading the
+        # tail here is best-effort for the hash only. A racing writer may
+        # mean the hash points at a tail that's no longer the immediate
+        # predecessor, which is acceptable for the placeholder chain and
+        # will be replaced once signing ships.
+        if entry.prev_hash is None:
+            last = self._backend.last_entry()
+            if last is not None:
+                prev_entry, prev_seq = last
                 try:
-                    entry = entry.model_copy(update={"prev_hash": _hash_link(prev_entry, prev_seq)})
-                except Exception:
-                    # Opportunistic — don't fail the append on a hash hiccup.
-                    pass
+                    entry = entry.model_copy(
+                        update={"prev_hash": _hash_link(prev_entry, prev_seq)}
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "hash-link skipped for event %s: %s", entry.id, exc
+                    )
 
         self._backend.append(entry)
 
