@@ -179,7 +179,7 @@ The engine identifies people, technologies, projects, and places mentioned in th
 ```json
 [
     {"name": "FastAPI", "type": "technology", "relation": "uses"},
-    {"name": "PocketPaw", "type": "project", "relation": "builds"}
+    {"name": "Acme", "type": "project", "relation": "builds"}
 ]
 ```
 

@@ -105,7 +105,7 @@ Example graph state after a few interactions:
 
 ```
 Python --[uses]--> User
-PocketPaw --[builds]--> User
+Acme --[builds]--> User
 FastAPI --[uses]--> User
 ```
 
@@ -217,7 +217,7 @@ If not significant: the interaction still passes through fact extraction and ent
 | `i (?:prefer\|like\|love) ...` | "I love Python" | 7 |
 | `i (?:hate\|dislike) ...` | "I hate YAML" | 7 |
 | `i (?:use\|work with\|am using) ...` | "I use Docker" | 6 |
-| `i(?:'m\| am) (?:building\|creating) ...` | "I'm building PocketPaw" | 7 |
+| `i(?:'m\| am) (?:building\|creating) ...` | "I'm building Acme" | 7 |
 | `i (?:work at\|work for) ...` | "I work at Qbtrix" | 8 |
 | `i(?:'m\| am) from ...` | "I'm from India" | 7 |
 | `i live in ...` | "I live in NYC" | 7 |
