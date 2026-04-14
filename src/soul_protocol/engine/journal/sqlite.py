@@ -92,6 +92,25 @@ class SQLiteJournalBackend(JournalBackend):
     # -- writes -----------------------------------------------------------
 
     def append(self, entry: EventEntry) -> int:
+        """Persist an event with atomic seq assignment and monotonic-ts check.
+
+        Monotonicity policy — worth knowing before relying on exact ts ordering:
+
+        - Events whose ts is >= the tail's ts are accepted as-is.
+        - Events whose ts is LESS than tail ts by more than 100ms raise
+          ``IntegrityError``. This catches real clock errors (wall clock
+          jumped back, caller passed a stale ts from minutes ago, etc).
+        - Events whose ts is less than tail by <= 100ms get their ts bumped
+          up to the tail's ts. This tolerates the sub-100ms clock races
+          that occur when two threads call ``datetime.now(UTC)`` and then
+          race into ``BEGIN IMMEDIATE``. The combined log stays
+          non-decreasing; seq ordering (the actual event-order invariant)
+          is unaffected. Users reading journal events in seq order see
+          monotonic ts without occasional flakes under concurrent load.
+
+        Net effect: seq is strictly monotonic; ts is monotonic to within
+        100ms of tolerance for concurrent writers on coarse clocks.
+        """
         with self._lock:
             self._conn.execute("BEGIN IMMEDIATE")
             try:
@@ -107,18 +126,18 @@ class SQLiteJournalBackend(JournalBackend):
                     if entry.ts < prev_ts:
                         delta = (prev_ts - entry.ts).total_seconds()
                         if delta >= 0.1:
-                            # More than a second behind the tail: this is a
-                            # real clock error (wall clock jumped backward,
-                            # caller passed a stale ts), not a thread-race
+                            # More than 100ms behind the tail: a real
+                            # clock error (caller passed a stale ts, wall
+                            # clock jumped backward), not a thread-race
                             # microsecond overlap. Reject it.
                             raise IntegrityError(
                                 "EventEntry.ts must be >= previous event's ts "
                                 f"({entry.ts.isoformat()} < {prev_ts.isoformat()})"
                             )
-                        # Race-window bump: a concurrent writer committed
+                        # Sub-100ms race: a concurrent writer committed
                         # between our now() read and our BEGIN IMMEDIATE.
                         # Stamp at the tail so the combined log stays
-                        # non-decreasing without raising on the caller.
+                        # non-decreasing. See docstring for the policy.
                         entry = entry.model_copy(update={"ts": prev_ts})
                     seq = int(row[1]) + 1
                 else:
