@@ -10,6 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - Bare `pip install soul-protocol` now produces a working `soul` CLI. The CLI's required dependencies (`click`, `rich`, `pyyaml`, `cryptography`) have moved from the `[engine]` extra into base `dependencies`, so `soul --help` no longer raises `ImportError` on a minimal install. The `[engine]` extra is kept as an empty backwards-compat alias so existing `pip install soul-protocol[engine]` pins continue to resolve. Fixes #157.
+- `match_scope` is now bidirectional containment: a caller with scope `org:sales:leads` matches a memory tagged `org:sales:*` (and vice versa). The previous asymmetric behaviour made bundled archetypes' core memories invisible to agents installed from them, since the glob-style `default_scope` on Arrow, Flash, Cyborg, and Analyst seeds into memory but the installed agent usually presents a narrower concrete caller scope. The strict one-way variant is preserved as `match_scope_strict` for callers that need the old semantic.
 
 ---
 
