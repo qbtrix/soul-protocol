@@ -27,8 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from soul_protocol.engine.journal import Journal
-from soul_protocol.engine.journal.sqlite import _scope_matches
+from soul_protocol.engine.journal import Journal, scope_matches
 from soul_protocol.spec.journal import EventEntry
 from soul_protocol.spec.retrieval import (
     CandidateSource,
@@ -109,13 +108,13 @@ class RetrievalRouter:
         for name, (source, adapter) in self._sources.items():
             if request.sources is not None and name not in request.sources:
                 continue
-            # _scope_matches(event_scopes, query_patterns): treats arg 2 as
+            # scope_matches(event_scopes, query_patterns): treats arg 2 as
             # the pattern set. We want bidirectional overlap — a source
             # registered for `org:sales:*` should match a request scoped to
             # `org:sales:leads` AND vice versa.
             if not (
-                _scope_matches(request.scopes, source.scopes)
-                or _scope_matches(source.scopes, request.scopes)
+                scope_matches(request.scopes, source.scopes)
+                or scope_matches(source.scopes, request.scopes)
             ):
                 continue
             selected.append((source, adapter))
@@ -238,7 +237,12 @@ class RetrievalRouter:
         try:
             self._journal.append(entry)
         except Exception:
-            pass  # audit path must not break retrieval
+            # Fire-and-forget. The retrieval.query event is a query log, not
+            # an auth trail: losing it is an observability regression, not a
+            # security one. Credential lifecycle events on the broker are
+            # fail-closed precisely because they ARE the auth trail. The
+            # asymmetry is deliberate — don't unify these two policies.
+            pass
 
 
 # -- helpers --------------------------------------------------------------

@@ -7,6 +7,7 @@ from __future__ import annotations
 from .backend import JournalBackend
 from .exceptions import IntegrityError, JournalError, NotFoundError, SchemaError
 from .journal import Journal, open_journal
+from .scope import scope_matches, scopes_overlap
 from .sqlite import SQLiteJournalBackend
 
 __all__ = [
@@ -18,4 +19,6 @@ __all__ = [
     "SQLiteJournalBackend",
     "SchemaError",
     "open_journal",
+    "scope_matches",
+    "scopes_overlap",
 ]

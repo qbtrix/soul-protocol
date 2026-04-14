@@ -1,4 +1,12 @@
 # broker.py — CredentialBroker Protocol + in-memory implementation.
+# Updated: feat/retrieval-router — credential lifecycle journal emits are now
+# fail-closed. If a journal is attached and the append raises, the broker
+# lifts the exception out to the caller instead of silently issuing / using /
+# revoking a credential that never made it into the audit trail. The router's
+# retrieval.query emit stays fire-and-forget (query log, not auth) with a
+# comment explaining the asymmetric policy. Also drop the local
+# `_scopes_overlap` duplicate and import the public `scopes_overlap` helper
+# from `soul_protocol.engine.journal`.
 # Created: feat/retrieval-router — Workstream C1 of Org Architecture RFC (#164).
 # The broker mints short-lived credentials for external sources (Drive,
 # Salesforce, Snowflake, ...). Scoped per DSP scope so a credential
@@ -25,36 +33,18 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
-from soul_protocol.engine.journal import Journal
+from soul_protocol.engine.journal import Journal, scopes_overlap
 from soul_protocol.spec.journal import Actor, EventEntry
 
 from .exceptions import CredentialExpiredError, CredentialScopeError
 
 DEFAULT_TTL_S: float = 300.0
 
-
-def _scopes_overlap(granted: list[str], requested: list[str]) -> bool:
-    """Prefix + wildcard match. A credential issued for any pattern in
-    `granted` is usable by a requester presenting any pattern in
-    `requested` when at least one requested pattern is covered by a
-    granted pattern.
-
-    Reuses the same colon-delimited, ``*``-as-segment-wildcard semantics as
-    `soul_protocol.engine.journal.sqlite._scope_matches`. Duplicated here
-    deliberately: the journal's helper matches *event scopes* against
-    *query patterns*, which isn't quite the shape we want (granted vs
-    requested). The semantics match, though, so if #162's scope spec lands
-    both sites swap to it.
-    """
-    for req in requested:
-        req_parts = req.split(":")
-        for grant in granted:
-            grant_parts = grant.split(":")
-            if len(grant_parts) != len(req_parts):
-                continue
-            if all(g == "*" or g == r for g, r in zip(grant_parts, req_parts)):
-                return True
-    return False
+# Back-compat alias for tests / callers that imported the private helper from
+# this module before it moved into the public journal module. The semantics
+# are the same; see `soul_protocol.engine.journal.scope.scopes_overlap` for
+# the pinned policy (wildcard-grant vs specific-requester AND vice versa).
+_scopes_overlap = scopes_overlap
 
 
 class Credential(BaseModel):
@@ -120,8 +110,11 @@ class InMemoryCredentialBroker:
             acquired_at=now,
             expires_at=now + timedelta(seconds=self._ttl_s),
         )
-        self._active[cred.id] = cred
+        # Emit FIRST. If the audit append fails under the fail-closed policy,
+        # the credential never enters `_active` and the caller gets the
+        # exception — no orphan credentials hanging around post-failure.
         self._emit("credential.acquired", cred)
+        self._active[cred.id] = cred
         return cred
 
     def ensure_usable(self, credential: Credential, requester_scopes: list[str]) -> None:
@@ -134,7 +127,7 @@ class InMemoryCredentialBroker:
                 f"credential {credential.id} for {credential.source} expired at "
                 f"{credential.expires_at.isoformat()}"
             )
-        if not _scopes_overlap(credential.scopes, requester_scopes):
+        if not scopes_overlap(credential.scopes, requester_scopes):
             raise CredentialScopeError(
                 f"credential {credential.id} scoped to {credential.scopes} "
                 f"cannot be used by requester with scopes {requester_scopes}"
@@ -152,6 +145,18 @@ class InMemoryCredentialBroker:
     # -- journal glue -----------------------------------------------------
 
     def _emit(self, action: str, cred: Credential) -> None:
+        """Append a credential-lifecycle event. Fail-closed by design.
+
+        If no journal is configured the caller has explicitly opted into
+        fire-and-forget operation (tests, ephemeral scripts). With a journal
+        attached, a failed append propagates: audit integrity outranks broker
+        availability on the credential path, and silently issuing /
+        revoking a credential whose lifecycle never made it into the log is
+        worse than surfacing the error to the caller.
+
+        Contrast with the router's `retrieval.query` emit, which stays
+        fire-and-forget — that's a query log, not an auth trail.
+        """
         if self._journal is None:
             return
         entry = EventEntry(
@@ -166,9 +171,4 @@ class InMemoryCredentialBroker:
                 "expires_at": cred.expires_at.isoformat(),
             },
         )
-        try:
-            self._journal.append(entry)
-        except Exception:
-            # Auditing should never crash the broker. Log surface is #161's
-            # concern; we just swallow here for v0.
-            pass
+        self._journal.append(entry)

@@ -1,4 +1,8 @@
 # sqlite.py — SQLite WAL-mode JournalBackend implementation.
+# Updated: feat/retrieval-router — move the scope-matching helper out of this
+# module and into the public `.scope` module. `_scope_matches` stays here as a
+# re-export for now so the router's legacy import keeps working; new callers
+# import `scope_matches` from `soul_protocol.engine.journal`.
 # Updated: feat/journal-engine — move the ts-monotonicity check inside the
 # BEGIN IMMEDIATE transaction so two concurrent writers can't both pass a
 # pre-transaction read and land events with out-of-order timestamps. The
@@ -43,30 +47,11 @@ def _decode_payload(raw: str) -> DataRef | dict[str, Any]:
     return obj
 
 
-def _scope_matches(event_scopes: list[str], query_scopes: list[str]) -> bool:
-    """Prefix + wildcard match. An event matches if any event scope satisfies
-    any query pattern.
-
-    Semantics (colon-delimited segments):
-      - ``"org:sales"`` matches exactly ``org:sales``.
-      - ``"org:sales:*"`` matches ``org:sales:leads``, ``org:sales:deals``,
-        ``org:sales:leads:priority``, but NOT bare ``org:sales``.
-      - ``"org:*"`` matches ``org:sales`` and ``org:hr`` but NOT bare ``org``.
-      - ``"org:*:leads"`` matches ``org:sales:leads`` and ``org:hr:leads``.
-
-    This is a placeholder until ``spec.scope`` from #162 lands; the grammar
-    described in the RFC is a superset of what we implement here. See the
-    PR description for the deferred-work note.
-    """
-    for pat in query_scopes:
-        pat_parts = pat.split(":")
-        for scope in event_scopes:
-            scope_parts = scope.split(":")
-            if len(pat_parts) != len(scope_parts):
-                continue
-            if all(p == "*" or p == s for p, s in zip(pat_parts, scope_parts)):
-                return True
-    return False
+from .scope import scope_matches as _scope_matches
+# Re-export under the old private name so existing imports
+# (including the router's direct reach into this module) keep working
+# until they're migrated over to the public path.
+__all_legacy__ = ("_scope_matches",)
 
 
 class SQLiteJournalBackend(JournalBackend):

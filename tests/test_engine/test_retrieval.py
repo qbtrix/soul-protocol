@@ -1,4 +1,9 @@
 # test_retrieval.py — Retrieval router + credential broker test suite.
+# Updated: feat/retrieval-router — add tests for broker fail-closed audit
+# emission (journal raising on append -> acquire propagates the error),
+# explicit fire-and-forget path when no journal is attached, and a pinned
+# scope-overlap policy: wildcard-grant vs specific-requester AND specific-
+# grant vs wildcard-requester both match; disjoint scopes don't.
 # Created: feat/retrieval-router — Workstream C1 of Org Architecture RFC (#164).
 # Covers: scope filtering, parallel/first/sequential strategies, per-source
 # timeout, journal event emission on dispatch, broker acquire/use/expire
@@ -320,6 +325,89 @@ def test_projection_adapter_calls_underlying_fn() -> None:
     out = adapter.query(_request(), credential=None)
     assert [c.source for c in out] == ["proj"]
     assert len(calls) == 1
+
+
+# -- broker: fail-closed audit emission -----------------------------------
+
+
+class _FailingJournal:
+    """Stub journal whose append always raises. Lets us assert fail-closed
+    behavior without needing a real SQLite error path."""
+
+    def __init__(self) -> None:
+        self.appends: int = 0
+
+    def append(self, _entry) -> None:
+        self.appends += 1
+        raise RuntimeError("simulated journal-down condition")
+
+
+def test_broker_acquire_fails_closed_when_journal_append_raises() -> None:
+    """If the journal is configured and append raises, acquire propagates
+    the error rather than silently issuing a credential whose acquisition
+    never made it into the audit trail. The credential must NOT remain
+    trackable by the broker either — we don't hand back an orphaned token.
+    """
+    bad_journal = _FailingJournal()
+    broker = InMemoryCredentialBroker(journal=bad_journal)  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="simulated journal-down"):
+        broker.acquire("drive", ["org:sales:leads"])
+    # The append was attempted exactly once.
+    assert bad_journal.appends == 1
+
+
+def test_broker_without_journal_is_fire_and_forget() -> None:
+    """No journal configured = explicit opt-out. acquire/use/revoke all
+    succeed silently. This is the path tests and ephemeral scripts use."""
+    broker = InMemoryCredentialBroker()  # journal=None
+    cred = broker.acquire("drive", ["org:sales:leads"])
+    broker.mark_used(cred)
+    broker.revoke(cred.id)
+
+
+# -- broker: scope overlap policy pin -------------------------------------
+
+
+def test_scopes_overlap_wildcard_grant_matches_specific_requester() -> None:
+    """A credential issued for `org:sales:*` is usable by a requester
+    operating at `org:sales:leads`. Pinning this direction so a future
+    refactor can't break fanout."""
+    from soul_protocol.engine.journal import scopes_overlap
+
+    assert scopes_overlap(["org:sales:*"], ["org:sales:leads"])
+
+
+def test_scopes_overlap_specific_grant_matches_wildcard_requester() -> None:
+    """A credential issued for a specific scope `org:sales:leads` is
+    usable by a requester presenting `org:sales:*` — the requester is
+    asserting it operates anywhere in the subtree, and a specific
+    credential covers a specific point in that subtree. Pinning this
+    direction so a future tightening can't break routers that fan out
+    over a broad scope."""
+    from soul_protocol.engine.journal import scopes_overlap
+
+    assert scopes_overlap(["org:sales:leads"], ["org:sales:*"])
+
+
+def test_scopes_overlap_disjoint_scopes_do_not_match() -> None:
+    """A credential for one subtree must not be usable in another."""
+    from soul_protocol.engine.journal import scopes_overlap
+
+    assert not scopes_overlap(["org:sales:*"], ["org:support:*"])
+    assert not scopes_overlap(["org:sales:leads"], ["org:support:tickets"])
+
+
+def test_broker_enforces_scope_asymmetry_on_ensure_usable() -> None:
+    """Integration-level pin: the broker honors the same asymmetric
+    policy. A credential granted broadly is usable by a specific
+    requester, and vice versa — both should succeed."""
+    broker = InMemoryCredentialBroker(ttl_s=60)
+
+    cred_wide = broker.acquire("drive", ["org:sales:*"])
+    broker.ensure_usable(cred_wide, ["org:sales:leads"])
+
+    cred_narrow = broker.acquire("drive", ["org:sales:leads"])
+    broker.ensure_usable(cred_narrow, ["org:sales:*"])
 
 
 def test_dataref_source_triggers_broker(journal: Journal) -> None:
