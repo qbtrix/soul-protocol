@@ -1,4 +1,7 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: 2026-04-14 (v0.3.1) — remember() accepts a ``scope`` kwarg so callers
+#   (notably SoulFactory.from_template) can stamp RBAC/ABAC tags on seeded
+#   memories. Pairs with spec/scope.match_scope on the recall side.
 # Updated: feat/mcp-sampling-engine — Added set_engine() to swap CognitiveEngine at runtime.
 #   MCPSamplingEngine uses this for lazy wiring on first MCP tool call.
 # Updated: 2026-03-22 — Added learn() and learning_events for LearningEvent pipeline.
@@ -61,6 +64,7 @@ from pathlib import Path
 from typing import Any
 
 from soul_protocol.spec.learning import LearningEvent
+from soul_protocol.spec.trace import RetrievalTrace, TraceCandidate
 
 from .bond import Bond
 from .cognitive.engine import CognitiveEngine
@@ -128,6 +132,60 @@ def _resolve_engine(engine: Any) -> CognitiveEngine | None:
 
     # Already a CognitiveEngine — pass through
     return engine
+
+
+def _resolve_actor(soul: Any) -> str:
+    """Best-effort actor identifier for retrieval traces.
+
+    Prefers ``soul._identity.did`` when present. Tests and mock doubles that
+    stub out only the pieces they need still get a trace with a non-empty
+    actor (``""``) without raising.
+    """
+    identity = getattr(soul, "_identity", None)
+    if identity is None:
+        return ""
+    return getattr(identity, "did", "") or ""
+
+
+def _build_trace(
+    *,
+    query: str,
+    source: str,
+    actor: str,
+    results: list,
+    latency_ms: int,
+    metadata: dict | None = None,
+) -> RetrievalTrace:
+    """Construct a :class:`RetrievalTrace` from a recall result set.
+
+    The score fields on individual :class:`MemoryEntry` objects aren't
+    normalised across the codebase. Until ACT-R / rerank scores are
+    plumbed through the recall return value, we approximate via
+    ``importance / 10`` so downstream consumers get a stable 0-1 range.
+    Runtime-defined per the spec — paw-runtime's log sink is free to
+    ignore the value when it has a better signal available.
+    """
+    candidates = []
+    for entry in results:
+        importance = getattr(entry, "importance", 5)
+        tier_raw = getattr(entry, "type", None) or getattr(entry, "layer", "")
+        tier = tier_raw.value if hasattr(tier_raw, "value") else (str(tier_raw) if tier_raw else None)
+        candidates.append(
+            TraceCandidate(
+                id=entry.id,
+                source=source,
+                score=float(importance) / 10.0,
+                tier=tier,
+            )
+        )
+    return RetrievalTrace(
+        actor=actor,
+        query=query,
+        source=source,
+        candidates=candidates,
+        latency_ms=latency_ms,
+        metadata=metadata or {},
+    )
 
 
 def _peek_soul_role(path: Path) -> str:
@@ -222,6 +280,12 @@ class Soul:
         self._skills = SkillRegistry()
         self._evaluator = Evaluator()
         self._learning_events: list[LearningEvent] = []
+
+        # Retrieval trace for the most recent recall() call.
+        # Consumers (paw-runtime JSONL sink, graduation policy) read this after
+        # each call to construct a RetrievalTrace receipt. In-memory only —
+        # never serialised into the .soul file.
+        self._last_retrieval: RetrievalTrace | None = None
 
     # ============ Lifecycle ============
 
@@ -669,6 +733,15 @@ class Soul:
         """Total number of stored memories."""
         return self._memory.count()
 
+    @property
+    def last_retrieval(self) -> RetrievalTrace | None:
+        """The :class:`RetrievalTrace` for the most recent recall call.
+
+        Reset on every ``recall()``. ``None`` until the first recall.
+        In-memory only — never round-tripped through export/awaken.
+        """
+        return self._last_retrieval
+
     async def context_for(
         self,
         user_input: str,
@@ -740,8 +813,14 @@ class Soul:
         emotion: str | None = None,
         entities: list[str] | None = None,
         visibility: MemoryVisibility = MemoryVisibility.BONDED,
+        scope: list[str] | None = None,
     ) -> str:
-        """Soul remembers something. Returns memory ID."""
+        """Soul remembers something. Returns memory ID.
+
+        ``scope`` accepts hierarchical RBAC/ABAC tags (e.g. ``["org:sales:*"]``)
+        that pair with :func:`soul_protocol.spec.match_scope` at recall time.
+        Defaults to an empty list (no scope — visible to any caller).
+        """
         return await self._memory.add(
             MemoryEntry(
                 type=type,
@@ -750,6 +829,7 @@ class Soul:
                 emotion=emotion,
                 entities=entities or [],
                 visibility=visibility,
+                scope=scope or [],
             )
         )
 
@@ -775,10 +855,18 @@ class Soul:
         caller's ``scopes`` (via :func:`soul_protocol.spec.match_scope`) are
         returned. Filtering happens after scoring so the underlying recall
         order is unchanged.
+
+        Populates ``self.last_retrieval`` with a :class:`RetrievalTrace`
+        receipt every call, regardless of whether results were found. The
+        receipt is in-memory only — never serialised into the ``.soul``
+        file. Consumers read it after the call to append to their own log.
         """
+        import time as _time
+
         effective_bond = (
             bond_strength if bond_strength is not None else self._identity.bond.bond_strength
         )
+        start = _time.monotonic()
         results = await self._memory.recall(
             query=query,
             limit=limit,
@@ -795,6 +883,14 @@ class Soul:
                 entry for entry in results
                 if match_scope(getattr(entry, "scope", None), scopes)
             ]
+        elapsed_ms = int((_time.monotonic() - start) * 1000)
+        self._last_retrieval = _build_trace(
+            query=query,
+            source="soul",
+            actor=requester_id or _resolve_actor(self),
+            results=results,
+            latency_ms=elapsed_ms,
+        )
         if not results:
             logger.debug("Recall returned no results: query_len=%d", len(query))
         return results

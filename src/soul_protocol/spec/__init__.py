@@ -12,6 +12,8 @@
 #   (build_proposal_event, build_correction_event, find_corrections_for,
 #   trace_decision_chain, cluster_correction_patterns). See RFC PR #164,
 #   Workstream D.
+# Updated: feat/retrieval-trace-spec — Exported RetrievalTrace + TraceCandidate
+#   from spec.trace (the per-recall receipt model — PR #161).
 
 from __future__ import annotations
 
@@ -51,6 +53,7 @@ from .manifest import Manifest
 from .memory import DictMemoryStore, Interaction, MemoryEntry, MemoryStore, MemoryVisibility, Participant
 from .scope import match_scope, normalise_scopes
 from .template import SoulTemplate
+from .trace import RetrievalTrace, TraceCandidate
 from .learning import LearningEvent
 from .soul_file import pack_soul, unpack_soul, unpack_to_container
 
@@ -98,6 +101,9 @@ __all__ = [
     # Scope
     "match_scope",
     "normalise_scopes",
+    # Retrieval trace (per-recall receipt)
+    "RetrievalTrace",
+    "TraceCandidate",
     # Learning
     "LearningEvent",
     "SoulTemplate",

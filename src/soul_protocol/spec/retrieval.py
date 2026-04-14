@@ -6,6 +6,9 @@
 # Zero-Copy federation is expressed by `CandidateSource.kind == "dataref"`
 # sources — their adapters return candidates whose payload points at live
 # external data rather than copying it.
+# Updated: feat/retrieval-trace-spec — Wired the `trace` field on
+# `RetrievalResult` to the `RetrievalTrace` receipt model from
+# ``soul_protocol.spec.trace`` (closes the v0.3 TODO from PR #161).
 
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from soul_protocol.spec.journal import Actor
+from soul_protocol.spec.trace import RetrievalTrace
 
 
 class CandidateSource(BaseModel):
@@ -111,8 +115,11 @@ class RetrievalResult(BaseModel):
         sources_failed: ``(source_name, failure_reason)`` tuples for any
             source that timed out, raised, or refused (scope mismatch).
         total_latency_ms: End-to-end wall-clock time in the router.
-        trace: Placeholder for the decision trace from #161. Until that
-            module lands this stays ``None``.
+        trace: Optional :class:`RetrievalTrace` receipt for this dispatch.
+            Routers populate it when they want downstream consumers (the
+            paw-runtime JSONL sink, graduation policy, the Why? drawer)
+            to be able to read the per-candidate scores and pick set
+            without holding onto the result object itself.
     """
 
     request_id: UUID
@@ -120,5 +127,4 @@ class RetrievalResult(BaseModel):
     sources_queried: list[str]
     sources_failed: list[tuple[str, str]]
     total_latency_ms: float
-    # TODO: once #161 ships, replace `Any` with spec.trace.RetrievalTrace.
-    trace: Any | None = None
+    trace: RetrievalTrace | None = None
