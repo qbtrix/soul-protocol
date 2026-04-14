@@ -1,6 +1,9 @@
 # journal.py — Org Journal primitives (Actor, DataRef, EventEntry).
-# Updated: feat/journal-spec — renamed paw.os.destroyed -> org.destroyed in
-# ACTION_NAMESPACES to align with the framework-agnostic org-journal-spec.
+# Updated: feat/journal-spec — tighten DataRef.point_in_time to UTC-only
+# (non-UTC tz-aware datetimes now raise instead of being silently accepted),
+# add a __dataref__ marker so the `DataRef | dict` payload union on
+# EventEntry round-trips without silent misdeserialization, and drop the
+# fabric.* namespaces from ACTION_NAMESPACES (runtime-specific, not protocol).
 # The journal is the append-only, UTC-stamped, scope-tagged source of truth
 # for an org instance. This module ships the spec models only — the SQLite WAL
 # engine and the `soul org init` CLI land in follow-up PRs.
@@ -19,13 +22,21 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime
-from typing import Annotated, Literal
+from datetime import datetime, timedelta
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_serializer, model_validator
 from pydantic.functional_serializers import PlainSerializer
 from pydantic.functional_validators import BeforeValidator
+
+# Marker written on JSON-serialized DataRef payloads so the `DataRef | dict`
+# union in EventEntry.payload can be disambiguated on the way back in.
+# A plain dict payload that happens to carry DataRef-shaped keys (e.g. a user
+# query dict with a "source" field) would otherwise get silently coerced into
+# a DataRef on deserialization — and that silent coercion is the bug this
+# discriminator closes.
+_DATAREF_MARKER = "__dataref__"
 
 
 def _decode_bytes(v: object) -> bytes | None:
@@ -77,11 +88,8 @@ ACTION_NAMESPACES: tuple[str, ...] = (
     "kb.source.ingested",
     "kb.article.compiled",
     "kb.article.revised",
-    # Retrieval & Fabric
+    # Retrieval & scope
     "retrieval.query",
-    "fabric.object.created",
-    "fabric.object.updated",
-    "fabric.object.archived",
     "scope.assigned",
     "scope.revoked",
     # Decisions
@@ -154,11 +162,37 @@ class DataRef(BaseModel):
     cache_policy: CachePolicy = "ttl"
     cache_ttl_s: int | None = None
 
+    @model_serializer(mode="wrap", when_used="json")
+    def _serialize_with_marker(self, handler: Any) -> dict[str, Any]:
+        """Stamp ``__dataref__: true`` on every JSON dump so a
+        ``DataRef | dict`` union can disambiguate on the way back in.
+        """
+        data = handler(self)
+        data[_DATAREF_MARKER] = True
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _strip_marker(cls, data: Any) -> Any:
+        """Strip the ``__dataref__`` marker before field validation so
+        round-tripped JSON payloads don't trip extra-fields checks."""
+        if isinstance(data, dict) and _DATAREF_MARKER in data:
+            data = {k: v for k, v in data.items() if k != _DATAREF_MARKER}
+        return data
+
     @field_validator("point_in_time")
     @classmethod
-    def _point_in_time_must_be_aware(cls, v: datetime) -> datetime:
-        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
+    def _point_in_time_must_be_utc(cls, v: datetime) -> datetime:
+        if v.tzinfo is None:
             raise ValueError("DataRef.point_in_time must be timezone-aware (UTC)")
+        offset = v.tzinfo.utcoffset(v)
+        if offset is None:
+            raise ValueError("DataRef.point_in_time must be timezone-aware (UTC)")
+        if offset != timedelta(0):
+            raise ValueError(
+                "DataRef.point_in_time must be UTC — got offset "
+                f"{offset}. Normalize at the source."
+            )
         return v
 
 
@@ -197,9 +231,35 @@ class EventEntry(BaseModel):
     scope: list[str] = Field(min_length=1)
     causation_id: UUID | None = None
     correlation_id: UUID | None = None
-    payload: DataRef | dict = Field(default_factory=dict)
+    payload: dict | DataRef = Field(default_factory=dict)
     prev_hash: JournalBytes = None
     sig: JournalBytes = None
+
+    @field_validator("payload", mode="before")
+    @classmethod
+    def _disambiguate_payload(cls, v: Any) -> Any:
+        """Use the ``__dataref__`` marker to tell a DataRef payload apart
+        from a plain dict that happens to share DataRef field names.
+
+        A ``DataRef | dict`` union would otherwise greedily coerce any
+        dict carrying the right shape (``source``, ``query``,
+        ``point_in_time``) into a DataRef on deserialization. By round-
+        tripping DataRef with an explicit marker, we can keep dicts as
+        dicts unless the caller opted into DataRef semantics, and
+        promote marked dicts to a concrete DataRef before the union sees
+        them so the choice is unambiguous.
+        """
+        if isinstance(v, DataRef):
+            return v
+        if isinstance(v, dict):
+            if v.get(_DATAREF_MARKER) is True:
+                inner = {k: val for k, val in v.items() if k != _DATAREF_MARKER}
+                return DataRef.model_validate(inner)
+            # No marker — keep as a plain dict. Return a fresh dict so
+            # pydantic's union resolver sees a clean shape (not a
+            # DataRef-lookalike that would otherwise match first).
+            return dict(v)
+        return v
 
     @field_validator("ts")
     @classmethod

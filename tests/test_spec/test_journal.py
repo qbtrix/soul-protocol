@@ -74,15 +74,28 @@ def test_dataref_rejects_naive_point_in_time():
         )
 
 
-def test_dataref_accepts_non_utc_tz_but_preserves_offset():
-    """Any tz-aware datetime is accepted — callers are expected to normalize to UTC."""
-    tz = timezone(timedelta(hours=5))
+def test_dataref_rejects_non_utc_tz_aware_datetime():
+    """Non-UTC tz-aware datetimes raise — the spec is UTC-only, not
+    'any tz-aware'. Callers normalize at the source."""
+    tz = timezone(timedelta(hours=5, minutes=30))
+    with pytest.raises(ValidationError):
+        DataRef(
+            source="s3",
+            query="s3://bucket/key",
+            point_in_time=datetime(2026, 4, 13, 17, 0, tzinfo=tz),
+        )
+
+
+def test_dataref_accepts_alternate_utc_equivalent_tz():
+    """Any tzinfo whose utcoffset is zero (e.g. datetime.timezone.utc,
+    a zero-offset timezone(timedelta(0))) is accepted."""
+    zero_offset = timezone(timedelta(0), name="UTC+0")
     ref = DataRef(
         source="s3",
         query="s3://bucket/key",
-        point_in_time=datetime(2026, 4, 13, 17, 0, tzinfo=tz),
+        point_in_time=datetime(2026, 4, 13, 12, 0, tzinfo=zero_offset),
     )
-    assert ref.point_in_time.tzinfo is not None
+    assert ref.point_in_time.utcoffset() == timedelta(0)
 
 
 def test_dataref_default_cache_policy_is_ttl():
@@ -224,3 +237,64 @@ def test_action_field_is_not_enum_enforced():
     """action is free-form — callers can ship new namespaces additively."""
     event = _make_event(action="custom.vertical.event")
     assert event.action == "custom.vertical.event"
+
+
+def test_action_namespaces_excludes_runtime_specific_fabric():
+    """Fabric is a runtime-specific concept (pocket object store) and
+    must not ship in the framework-agnostic catalog. Runtimes extend
+    the tuple from their own code."""
+    assert not any(ns.startswith("fabric.") for ns in ACTION_NAMESPACES)
+
+
+# ----- payload union discriminator -----------------------------------------
+
+
+def test_payload_dict_with_dataref_shaped_keys_stays_a_dict():
+    """A plain dict payload whose keys happen to overlap DataRef
+    (``source``, ``query``, ``point_in_time``) must deserialize as a
+    dict, not silently coerce into a DataRef."""
+    lookalike = {
+        "source": "user typed this",
+        "query": "what's the status?",
+        "point_in_time": "2026-04-13T12:00:00+00:00",
+    }
+    event = _make_event(payload=lookalike)
+    restored = EventEntry.model_validate_json(event.model_dump_json())
+    assert isinstance(restored.payload, dict)
+    assert not isinstance(restored.payload, DataRef)
+    assert restored.payload["source"] == "user typed this"
+
+
+def test_payload_dataref_round_trips_through_the_union():
+    """A DataRef payload round-trips through JSON as a DataRef."""
+    ref = DataRef(
+        source="salesforce",
+        query="SELECT Id FROM Account",
+        point_in_time=datetime(2026, 4, 13, 12, 0, tzinfo=UTC),
+    )
+    event = _make_event(payload=ref)
+    restored = EventEntry.model_validate_json(event.model_dump_json())
+    assert isinstance(restored.payload, DataRef)
+    assert restored.payload.source == "salesforce"
+
+
+def test_payload_plain_dict_unchanged_by_discriminator():
+    """Ordinary dict payloads (no DataRef-ish keys) round-trip unchanged."""
+    event = _make_event(payload={"note": "hello", "count": 3})
+    restored = EventEntry.model_validate_json(event.model_dump_json())
+    assert isinstance(restored.payload, dict)
+    assert restored.payload == {"note": "hello", "count": 3}
+
+
+def test_payload_dataref_json_carries_discriminator_marker():
+    """DataRef's JSON form stamps ``__dataref__: true`` so consumers
+    (and the union resolver) can tell it apart from a plain dict."""
+    import json as _json
+
+    ref = DataRef(
+        source="gdrive",
+        query="file:abc",
+        point_in_time=datetime(2026, 4, 13, tzinfo=UTC),
+    )
+    payload = _json.loads(ref.model_dump_json())
+    assert payload.get("__dataref__") is True
