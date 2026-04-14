@@ -1,5 +1,9 @@
 # sqlite.py — SQLite WAL-mode JournalBackend implementation.
-# Created: feat/journal-engine — Workstream A slice 2 of Org Architecture RFC (#164).
+# Updated: feat/journal-engine — move the ts-monotonicity check inside the
+# BEGIN IMMEDIATE transaction so two concurrent writers can't both pass a
+# pre-transaction read and land events with out-of-order timestamps. The
+# previous check-then-insert pattern left a race window between the last_entry
+# read and the INSERT.
 # Uses sqlite3 stdlib only. WAL is enabled on open for concurrent-reader
 # safety and durable append-only writes. Payload is stored as JSON; either a
 # plain dict or a DataRef-tagged object (see _encode_payload).
@@ -18,6 +22,7 @@ from uuid import UUID
 from soul_protocol.spec.journal import Actor, DataRef, EventEntry
 
 from .backend import JournalBackend
+from .exceptions import IntegrityError
 from .schema import migrate
 
 DATAREF_TAG = "__dataref__"
@@ -90,10 +95,34 @@ class SQLiteJournalBackend(JournalBackend):
         with self._lock:
             self._conn.execute("BEGIN IMMEDIATE")
             try:
+                # Read the current tail under the write lock so the
+                # monotonicity check cannot race another writer that passed
+                # its own check before the INSERT. Two concurrent writers
+                # will serialize here via BEGIN IMMEDIATE.
                 row = self._conn.execute(
-                    "SELECT COALESCE(MAX(seq), -1) FROM events"
+                    "SELECT ts, seq FROM events ORDER BY seq DESC LIMIT 1"
                 ).fetchone()
-                seq = int(row[0]) + 1
+                if row is not None:
+                    prev_ts = datetime.fromisoformat(row[0])
+                    if entry.ts < prev_ts:
+                        delta = (prev_ts - entry.ts).total_seconds()
+                        if delta >= 0.1:
+                            # More than a second behind the tail: this is a
+                            # real clock error (wall clock jumped backward,
+                            # caller passed a stale ts), not a thread-race
+                            # microsecond overlap. Reject it.
+                            raise IntegrityError(
+                                "EventEntry.ts must be >= previous event's ts "
+                                f"({entry.ts.isoformat()} < {prev_ts.isoformat()})"
+                            )
+                        # Race-window bump: a concurrent writer committed
+                        # between our now() read and our BEGIN IMMEDIATE.
+                        # Stamp at the tail so the combined log stays
+                        # non-decreasing without raising on the caller.
+                        entry = entry.model_copy(update={"ts": prev_ts})
+                    seq = int(row[1]) + 1
+                else:
+                    seq = 0
                 self._conn.execute(
                     """
                     INSERT INTO events (
