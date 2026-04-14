@@ -6,6 +6,9 @@
 # Updated: 2026-04-13 (Move 6 PR-A) — load_template() reads YAML/JSON files
 #   so bundled templates (Arrow, Flash, Cyborg, Analyst) and custom user
 #   templates can be loaded without hand-constructing the model.
+# Updated: 2026-04-14 (v0.3.1 rebase) — from_template + batch_spawn now
+#   propagate template.metadata["default_scope"] into seeded core memories
+#   so Move 5 scope tags (see spec/scope.py) apply out of the box.
 
 from __future__ import annotations
 
@@ -116,9 +119,19 @@ class SoulFactory:
 
         soul = await Soul.birth(**birth_kwargs)
 
+        # Propagate default_scope from template metadata (Move 5 hand-off).
+        # When the template declares ``default_scope``, every seeded core
+        # memory inherits those hierarchical scope tags so RBAC/ABAC recall
+        # filtering works on a freshly-instantiated soul without extra wiring.
+        default_scope = template.metadata.get("default_scope")
+        if isinstance(default_scope, str):
+            default_scope = [default_scope]
+        elif not isinstance(default_scope, list):
+            default_scope = None
+
         # Set core memories from template
         for memory_text in template.core_memories:
-            await soul.remember(memory_text, importance=9)
+            await soul.remember(memory_text, importance=9, scope=default_scope)
 
         # Register skills from template
         if template.skills:
@@ -169,6 +182,14 @@ class SoulFactory:
 
         rng = random.Random(rng_seed)
         prefix = template.name_prefix or template.name
+
+        # Propagate default_scope so every spawned soul's core memories
+        # carry the template's RBAC/ABAC tags (e.g. org:sales:*).
+        default_scope = template.metadata.get("default_scope")
+        if isinstance(default_scope, str):
+            default_scope = [default_scope]
+        elif not isinstance(default_scope, list):
+            default_scope = None
         base_ocean = {
             "openness": template.personality.get("openness", 0.5),
             "conscientiousness": template.personality.get("conscientiousness", 0.5),
@@ -198,7 +219,7 @@ class SoulFactory:
 
             # Set core memories from template
             for memory_text in template.core_memories:
-                await soul.remember(memory_text, importance=9)
+                await soul.remember(memory_text, importance=9, scope=default_scope)
 
             # Register skills from template
             for skill_name in template.skills:

@@ -1,4 +1,7 @@
 # soul.py — The main Soul class: birth, awaken, observe, save, export
+# Updated: 2026-04-14 (v0.3.1) — remember() accepts a ``scope`` kwarg so callers
+#   (notably SoulFactory.from_template) can stamp RBAC/ABAC tags on seeded
+#   memories. Pairs with spec/scope.match_scope on the recall side.
 # Updated: feat/mcp-sampling-engine — Added set_engine() to swap CognitiveEngine at runtime.
 #   MCPSamplingEngine uses this for lazy wiring on first MCP tool call.
 # Updated: 2026-03-22 — Added learn() and learning_events for LearningEvent pipeline.
@@ -740,8 +743,14 @@ class Soul:
         emotion: str | None = None,
         entities: list[str] | None = None,
         visibility: MemoryVisibility = MemoryVisibility.BONDED,
+        scope: list[str] | None = None,
     ) -> str:
-        """Soul remembers something. Returns memory ID."""
+        """Soul remembers something. Returns memory ID.
+
+        ``scope`` accepts hierarchical RBAC/ABAC tags (e.g. ``["org:sales:*"]``)
+        that pair with :func:`soul_protocol.spec.match_scope` at recall time.
+        Defaults to an empty list (no scope — visible to any caller).
+        """
         return await self._memory.add(
             MemoryEntry(
                 type=type,
@@ -750,6 +759,7 @@ class Soul:
                 emotion=emotion,
                 entities=entities or [],
                 visibility=visibility,
+                scope=scope or [],
             )
         )
 

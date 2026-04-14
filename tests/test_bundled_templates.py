@@ -134,6 +134,33 @@ class TestInstantiation:
         soul = await SoulFactory.from_template(analyst, name="Custom Analyst")
         assert soul.name == "Custom Analyst"
 
+    @pytest.mark.asyncio
+    async def test_from_template_propagates_default_scope(self) -> None:
+        """Arrow declares default_scope: [org:sales:*]. Seeded core memories
+        should carry that scope so Move 5 match_scope filtering works on a
+        freshly-instantiated soul (no extra wiring needed)."""
+        arrow = SoulFactory.load_bundled("arrow")
+        assert arrow.metadata.get("default_scope") == ["org:sales:*"]
+
+        soul = await SoulFactory.from_template(arrow)
+        # Every seeded memory in the underlying store should carry the
+        # template's default_scope tag, ready for match_scope filtering at
+        # recall time.
+        from soul_protocol.spec.scope import match_scope
+
+        entries = list(soul._memory._semantic._facts.values())
+        assert entries, "no core memories seeded into the semantic store"
+        for entry in entries:
+            assert entry.scope == ["org:sales:*"], f"missing scope on {entry.id}"
+
+        # match_scope semantics: a caller granted a parent/glob scope can
+        # see entity-scoped memories. A caller granted an unrelated scope
+        # cannot.
+        sales_admin = ["org:sales:*"]
+        hr_admin = ["org:hr:*"]
+        assert all(match_scope(e.scope, sales_admin) for e in entries)
+        assert not any(match_scope(e.scope, hr_admin) for e in entries)
+
 
 # ---------------------------------------------------------------------------
 # Module helpers
