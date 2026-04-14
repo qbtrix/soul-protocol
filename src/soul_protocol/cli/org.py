@@ -1,8 +1,12 @@
-# cli/paw_os.py — `soul paw os init` command: bootstrap a Paw OS org.
+# cli/org.py — `soul org init` command: bootstrap an org.
+# Renamed: feat/paw-os-init — was cli/paw_os.py. Flattened the Click group from
+#   `soul paw os <cmd>` to `soul org <cmd>` and moved the default data dir from
+#   ~/.pocketpaw/org/ to ~/.soul/. Set SOUL_DATA_DIR to override. Governance
+#   persona description updated from "Paw OS instance" to "org instance".
 # Created: feat/paw-os-init — Workstream A slice 3 of the Org Architecture RFC (#164).
 #
-# This command brings a Paw OS instance into existence from nothing:
-#   1. Create the org directory (default ~/.pocketpaw/org/)
+# This command brings an org into existence from nothing:
+#   1. Create the org directory (default ~/.soul/, or $SOUL_DATA_DIR)
 #   2. Birth a root governance soul and save it as root.soul
 #   3. Generate an Ed25519 signing keypair for the root identity
 #   4. Initialize the SQLite journal via open_journal()
@@ -41,7 +45,7 @@ console = Console()
 # TODO(#163): replace with load_template("governance") once that API lands.
 GOVERNANCE_PERSONA_NAME = "Root"
 GOVERNANCE_PERSONA_DESC = (
-    "The governance identity for this Paw OS instance. Root holds the signing key, "
+    "The governance identity for this org instance. Root holds the signing key, "
     "approves admin grants, authors scope.created events, and refuses to chat. "
     "It exists to make the org's decisions verifiable, not to participate in them."
 )
@@ -54,7 +58,7 @@ GOVERNANCE_OCEAN = {
 }
 GOVERNANCE_VALUES = ["audit", "durability", "minimal surface", "verifiable decisions"]
 GOVERNANCE_MISSION = (
-    "Govern this Paw OS instance. Sign what must be signed. Stay out of conversations."
+    "Govern this org instance. Sign what must be signed. Stay out of conversations."
 )
 
 
@@ -62,7 +66,25 @@ GOVERNANCE_MISSION = (
 
 
 def _default_data_dir() -> Path:
-    return Path.home() / ".pocketpaw" / "org"
+    """Default org data directory.
+
+    Honors the ``SOUL_DATA_DIR`` env var when set. Otherwise falls back to
+    ``~/.soul/``. The whole directory IS the org — there is no extra nesting.
+    """
+    env = os.environ.get("SOUL_DATA_DIR")
+    if env:
+        return Path(env).expanduser()
+    return Path.home() / ".soul"
+
+
+def _default_users_dir() -> Path:
+    """Default directory for user-owned soul data (nested under the org dir)."""
+    return _default_data_dir() / "users"
+
+
+def _default_archives_dir() -> Path:
+    """Default directory for archived/exported org data (nested under the org dir)."""
+    return _default_data_dir() / "archives"
 
 
 def _dir_is_non_empty(path: Path) -> bool:
@@ -149,27 +171,27 @@ def _remove_tree(path: Path) -> None:
             child.unlink()
 
 
-# --- Command ---------------------------------------------------------------
+# --- Commands --------------------------------------------------------------
 
 
-@click.group("paw")
-def paw_group() -> None:
-    """Paw OS management commands."""
+@click.group("org")
+def org_group() -> None:
+    """Org management commands."""
 
 
-@paw_group.group("os")
-def os_group() -> None:
-    """Paw OS lifecycle: init, status, destroy."""
+@click.group("user")
+def user_group() -> None:
+    """User management commands."""
 
 
-@os_group.command("init")
+@org_group.command("init")
 @click.option("--org-name", type=str, default=None, help="Organization name.")
 @click.option("--purpose", type=str, default=None, help="Optional mission statement for the root soul.")
 @click.option(
     "--data-dir",
     type=click.Path(file_okay=False, path_type=Path),
     default=None,
-    help="Where to create the org (default: ~/.pocketpaw/org/).",
+    help="Where to create the org (default: ~/.soul/, or $SOUL_DATA_DIR).",
 )
 @click.option("--force", is_flag=True, help="Overwrite an existing org directory.")
 @click.option(
@@ -177,18 +199,18 @@ def os_group() -> None:
     is_flag=True,
     help="Fail instead of prompting. Requires --org-name.",
 )
-def paw_os_init(
+def org_init(
     org_name: str | None,
     purpose: str | None,
     data_dir: Path | None,
     force: bool,
     non_interactive: bool,
 ) -> None:
-    """Bootstrap a new Paw OS org: root soul, signing key, journal, genesis events.
+    """Bootstrap a new org: root soul, signing key, journal, genesis events.
 
     \b
     Example:
-      soul paw os init --org-name "Acme Ventures" --purpose "A software company"
+      soul org init --org-name "Acme Ventures" --purpose "A software company"
     """
     data_dir = Path(data_dir) if data_dir else _default_data_dir()
 
@@ -217,7 +239,7 @@ def paw_os_init(
     keys_dir = data_dir / "keys"
     keys_dir.mkdir(parents=True, exist_ok=True)
 
-    console.print(f"[bold]Bootstrapping Paw OS[/bold] at [cyan]{data_dir}[/cyan]")
+    console.print(f"[bold]Bootstrapping org[/bold] at [cyan]{data_dir}[/cyan]")
 
     # -- Root soul ---------------------------------------------------------
     console.print("  [1/5] Birthing root governance soul…")
@@ -287,7 +309,7 @@ def paw_os_init(
         f"[bold]Data dir:[/bold] {data_dir}\n"
         f"[bold]Journal:[/bold]  {journal_path} (2 events)\n"
         f"[bold]Root key:[/bold] {private_path} (0600)\n\n"
-        "[dim]Next:[/dim] install a starter fleet with [cyan]soul paw os fleet install[/cyan] "
+        "[dim]Next:[/dim] install a starter fleet with [cyan]soul org fleet install[/cyan] "
         "(coming in Workstream B)."
     )
-    console.print(Panel(summary, title="Paw OS ready", border_style="green"))
+    console.print(Panel(summary, title="Org ready", border_style="green"))

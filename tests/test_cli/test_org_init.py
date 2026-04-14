@@ -1,4 +1,7 @@
-# test_paw_os_init.py — Tests for `soul paw os init`.
+# test_org_init.py — Tests for `soul org init`.
+# Renamed: feat/paw-os-init — was test_paw_os_init.py. Updated command
+#   invocations from `paw os init` to `org init` and banner assertion from
+#   "Paw OS ready" to "Org ready".
 # Created: feat/paw-os-init — Workstream A slice 3 of the Org Architecture RFC (#164).
 # Covers: happy path, idempotency, --force, --non-interactive guard, journal
 # queryability, key file permissions, Soul.awaken round-trip, and the privacy
@@ -22,7 +25,7 @@ def _invoke_init(runner: CliRunner, data_dir: Path, *extra: str) -> object:
     return runner.invoke(
         cli,
         [
-            "paw", "os", "init",
+            "org", "init",
             "--org-name", "Acme Ventures",
             "--purpose", "A software company",
             "--data-dir", str(data_dir),
@@ -45,7 +48,7 @@ def test_fresh_init_creates_all_artifacts(tmp_path: Path) -> None:
     assert (data_dir / "keys" / "root.ed25519").exists()
     assert (data_dir / "keys" / "root.ed25519.pub").exists()
     assert (data_dir / "keys" / "root.did").exists()
-    assert "Paw OS ready" in result.output
+    assert "Org ready" in result.output
 
 
 def test_init_writes_two_genesis_events(tmp_path: Path) -> None:
@@ -107,7 +110,7 @@ def test_non_interactive_without_org_name_fails(tmp_path: Path) -> None:
 
     result = runner.invoke(
         cli,
-        ["paw", "os", "init", "--data-dir", str(data_dir), "--non-interactive"],
+        ["org", "init", "--data-dir", str(data_dir), "--non-interactive"],
         catch_exceptions=False,
     )
 
