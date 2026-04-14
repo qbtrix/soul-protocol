@@ -125,7 +125,7 @@ dataref.resolved
 graduation.applied, policy.evaluated
 ```
 
-Implementations may extend this catalog with runtime-specific namespaces. The catalog is a tuple, not a closed enum; unregistered actions are allowed but should be documented.
+Implementations may extend this catalog with runtime-specific namespaces. The catalog is a tuple, not a closed enum; unregistered actions are allowed but should be documented. Runtime-specific concepts do not belong in the base catalog: for example, a pocket runtime with a scoped object store might emit `fabric.object.created`, but that namespace is the runtime's to define, not the protocol's.
 
 ---
 
