@@ -10,6 +10,11 @@
      v0.2.9 additions: archival memory wiring (auto-compress old episodics),
      auto-consolidation triggers, progressive recall (abstract overflow),
      skill progression with significance-weighted XP and daily decay.
+     Updated: 2026-04-27 — Documented user-driven supersede primitive
+       (Soul.supersede + soul supersede CLI) on top of the existing
+       superseded_by infrastructure, plus the parallel supersede_audit
+       trail. Internal supersession (dream-cycle dedup, contradiction
+       detector) is unchanged.
      Updated: 2026-03-29 — added v0.2.9 features. -->
 
 # Memory Architecture
@@ -231,6 +236,8 @@ If not significant: the interaction still passes through fact extraction and ent
 **With CognitiveEngine:** The LLM returns a JSON array of facts with content and importance. On parse failure, the heuristic extractor runs as fallback.
 
 **Fact Conflict Resolution (v0.2.2):** When a new fact contradicts an existing one -- detected by matching template prefixes (e.g., "User lives in") -- the old fact gets `superseded_by = new_fact_id`. Both facts persist in storage, but superseded facts are excluded from `search()` and `facts()` by default. You can access the full history with `facts(include_superseded=True)`.
+
+**User-driven Supersede (2026-04-27):** The same `superseded_by` mechanism is exposed to callers via `Soul.supersede(old_id, new_content, *, reason, importance, memory_type, ...)` and the `soul supersede` CLI command. Use it when you have learned that an existing memory is wrong or out of date and want to record the correction without losing provenance. The runtime writes a new memory entry, sets the old entry's `superseded_by` to the new ID, and appends a record to a parallel `supersede_audit` trail (read it via `Soul.supersede_audit`). Internal supersession from the dream cycle and contradiction detector does not write to that trail — it is for explicit user intent only. Recall surfaces the new memory because superseded entries are filtered out of search; the old entry is still on disk under `facts(include_superseded=True)` for "what I once thought" queries.
 
 ### Step 4: Entity Extraction
 

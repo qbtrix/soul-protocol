@@ -7,6 +7,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`Soul.supersede(old_id, new_content, *, reason, importance, memory_type, ...)`** — first-class user-driven memory update. Writes a new memory and links the old one's `superseded_by` so the trace is preserved (search filters out superseded entries by default). Records to a parallel `supersede_audit` trail accessible via `Soul.supersede_audit`. The old `superseded_by` infrastructure was previously only set internally during dream-cycle dedup and contradiction detection. (#192-companion)
+- **`Soul.forget_one(memory_id) -> dict`** — audited single-id deletion. Returns the same dict shape as `forget()` / `forget_entity()` / `forget_before()` plus `found` and `tier` keys. The legacy `forget_by_id(memory_id) -> bool` is preserved for back-compat.
+- **`soul forget --id <id>`** — CLI flag for surgical single-memory deletion. Mutually exclusive with `QUERY` / `--entity` / `--before`. Honours the existing dry-run + `--apply` gate.
+- **`soul supersede <path> <new_content> --old-id <id> [--reason ...]`** — CLI for the supersede primitive.
+- **`SemanticStore.get(memory_id)`** and **`ProceduralStore.get(memory_id)`** — read-by-ID lookup, parity with `EpisodicStore.get`.
+
+### Fixed
+
+- **`soul forget` count display** — both preview and `--apply` modes were reading `result.get("total_deleted", 0)` and `result.get("tiers")`, but `MemoryManager.forget*()` returns `{"total": N}` and per-tier list keys. Preview always reported 0; `--apply` silently deleted but still reported 0. The CLI now reads the real keys and reconstructs per-tier counts from list lengths.
+
 ---
 
 ## [0.3.4] -- 2026-04-24

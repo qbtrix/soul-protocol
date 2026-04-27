@@ -84,6 +84,10 @@ class SemanticStore:
             return True
         return False
 
+    async def get(self, memory_id: str) -> MemoryEntry | None:
+        """Return a fact by ID, or None if absent."""
+        return self._facts.get(memory_id)
+
     def facts(self, include_superseded: bool = False) -> list[MemoryEntry]:
         """Return all semantic facts, sorted by importance descending.
 

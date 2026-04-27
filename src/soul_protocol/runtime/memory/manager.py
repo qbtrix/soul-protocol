@@ -1,4 +1,14 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-04-27 — User-driven memory update primitives.
+#   - `forget_by_id(id)` audits a single-id deletion and returns a dict in the
+#     same shape as `forget()` so the CLI can use one display path.
+#   - `supersede(old_id, new_content, *, reason, importance, memory_type, ...)`
+#     writes a new memory and links the old one's `superseded_by`. The old
+#     entry is preserved (search filters it out by default).  Records to a
+#     parallel `_supersede_audit` list, exposed via the `supersede_audit`
+#     property.
+#   - `_find_entry_by_id` helper walks episodic / semantic / procedural and
+#     returns (entry, tier) so supersede / forget_by_id can route correctly.
 # Updated: 2026-04-04 — Added significance-based short-circuit in observe().
 #   When skip_deep_processing_on_low_significance is True (default) and the
 #   interaction is not significant (including after fact-based promotion in 4b),
@@ -535,6 +545,12 @@ class MemoryManager:
         # v0.3.0 — GDPR deletion audit trail
         # TODO(#51): Persist audit trail through .soul pack/unpack cycle for GDPR compliance
         self._deletion_audit: list[dict] = []
+
+        # 2026-04-27 — Supersede audit trail (parallel to deletion_audit).
+        # User-driven supersede operations append here. Internal contradiction-
+        # resolution and dream-cycle dedup also set superseded_by but do not
+        # write to this list — the audit is for explicit user intent.
+        self._supersede_audit: list[dict] = []
 
         # v0.2.1 — Cognitive processor (LLM or heuristic)
         # Lazy import to avoid circular dependency:
@@ -1105,6 +1121,154 @@ class MemoryManager:
             "total": total,
         }
 
+    async def _find_entry_by_id(
+        self, memory_id: str
+    ) -> tuple[MemoryEntry | None, str | None]:
+        """Look up a memory entry by ID across episodic, semantic, procedural.
+
+        Returns a (entry, tier_name) pair or (None, None) if absent.
+        """
+        entry = await self._episodic.get(memory_id)
+        if entry is not None:
+            return entry, "episodic"
+        entry = await self._semantic.get(memory_id)
+        if entry is not None:
+            return entry, "semantic"
+        entry = await self._procedural.get(memory_id)
+        if entry is not None:
+            return entry, "procedural"
+        return None, None
+
+    async def forget_by_id(self, memory_id: str) -> dict:
+        """Delete a single memory by ID. Records an audit entry.
+
+        Returns a dict in the same shape as ``forget()`` so callers can use a
+        single display path:
+
+          - ``episodic`` / ``semantic`` / ``procedural`` — list of deleted IDs
+            (length 0 or 1).
+          - ``total`` — 0 if not found, 1 if deleted.
+          - ``found`` — bool.
+          - ``tier`` — name of the tier the entry lived in, or None.
+
+        For broad / GDPR-style deletion, prefer ``forget()``,
+        ``forget_entity()``, or ``forget_before()``.
+        """
+        entry, tier = await self._find_entry_by_id(memory_id)
+        result: dict = {
+            "episodic": [],
+            "semantic": [],
+            "procedural": [],
+            "total": 0,
+            "found": entry is not None,
+            "tier": tier,
+        }
+        if entry is None or tier is None:
+            return result
+
+        # Delete from the tier we found it in.
+        deleted = False
+        if tier == "episodic":
+            deleted = await self._episodic.remove(memory_id)
+        elif tier == "semantic":
+            deleted = await self._semantic.remove(memory_id)
+        elif tier == "procedural":
+            deleted = await self._procedural.remove(memory_id)
+
+        if not deleted:
+            # Should not happen — the find succeeded above.  Return found=False
+            # so callers do not record an audit entry on a no-op.
+            result["found"] = False
+            result["tier"] = None
+            return result
+
+        result[tier] = [memory_id]
+        result["total"] = 1
+        self._deletion_audit.append(
+            {
+                "deleted_at": datetime.now(UTC).isoformat(),
+                "count": 1,
+                "reason": f"forget_by_id(memory_id='{memory_id}')",
+                "tiers": {tier: 1},
+            }
+        )
+        return result
+
+    async def supersede(
+        self,
+        old_id: str,
+        new_content: str,
+        *,
+        reason: str | None = None,
+        importance: int = 5,
+        memory_type: MemoryType | None = None,
+        emotion: str | None = None,
+        entities: list[str] | None = None,
+    ) -> dict:
+        """Mark ``old_id`` as superseded by a new memory and write the new one.
+
+        The old entry is preserved in storage so provenance ("what I once
+        thought") is not lost.  Search filters out entries whose
+        ``superseded_by`` is non-None, so recall surfaces the new memory.
+
+        Returns a dict with:
+
+          - ``found`` — whether ``old_id`` resolved.
+          - ``old_id`` / ``new_id`` — the IDs.  ``new_id`` is None when the
+            old entry was not found (no new memory is written in that case).
+          - ``tier`` — tier of the old entry.
+          - ``reason`` — echo of the caller's reason.
+
+        ``memory_type`` defaults to the old entry's tier.  Pass it explicitly
+        only when correcting a fact stored in the wrong tier.
+        """
+        old_entry, tier = await self._find_entry_by_id(old_id)
+        if old_entry is None or tier is None:
+            return {
+                "found": False,
+                "old_id": old_id,
+                "new_id": None,
+                "tier": None,
+                "reason": reason,
+            }
+
+        new_type = memory_type if memory_type is not None else old_entry.type
+        new_entry = MemoryEntry(
+            type=new_type,
+            content=new_content,
+            importance=importance,
+            emotion=emotion,
+            entities=entities or [],
+        )
+        new_id = await self.add(new_entry)
+
+        old_entry.superseded_by = new_id
+        # The semantic store also tracks a parallel `superseded` boolean for
+        # legacy consumers.  Set it when the old entry exposes the field.
+        if hasattr(old_entry, "superseded"):
+            try:
+                old_entry.superseded = True
+            except Exception:  # pragma: no cover — pydantic may freeze fields
+                pass
+
+        self._supersede_audit.append(
+            {
+                "superseded_at": datetime.now(UTC).isoformat(),
+                "old_id": old_id,
+                "new_id": new_id,
+                "tier": tier,
+                "reason": reason,
+            }
+        )
+
+        return {
+            "found": True,
+            "old_id": old_id,
+            "new_id": new_id,
+            "tier": tier,
+            "reason": reason,
+        }
+
     @property
     def deletion_audit(self) -> list[dict]:
         """Return the deletion audit trail.
@@ -1118,6 +1282,21 @@ class MemoryManager:
         The audit trail intentionally does NOT contain deleted content.
         """
         return list(self._deletion_audit)
+
+    @property
+    def supersede_audit(self) -> list[dict]:
+        """Return the user-driven supersede audit trail.
+
+        Each entry contains:
+          - superseded_at: ISO timestamp
+          - old_id / new_id: the memory IDs
+          - tier: tier of the old entry
+          - reason: free-text from the caller (or None)
+
+        Internal supersession (dream-cycle dedup, contradiction resolution)
+        does not append here — only explicit user calls do.
+        """
+        return list(self._supersede_audit)
 
     # ---- Extraction helpers (MVP placeholders) ----
     # ---- Extraction helpers ----

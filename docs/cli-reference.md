@@ -1,4 +1,9 @@
-<!-- Covers: CLI installation, all 44 commands with usage examples, options tables, and output descriptions.
+<!-- Covers: CLI installation, all 45 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-04-27 — Added `soul supersede` for user-driven memory updates (writes a new
+       memory and links the old one's `superseded_by`, preserving provenance). Added `--id`
+       option to `soul forget` for surgical single-id deletion (audited). Updated `soul forget`
+       to document the `--apply` dry-run gate that landed in 0.3.2 + the per-tier preview
+       breakdown. Count: 44 → 45.
      Updated: 2026-04-14 — v0.3.1: Added `soul org` (init/status/destroy), `soul template` (list/show),
        `soul user invite`, and `soul create --template` command sections. New "Environment Variables"
        section documents SOUL_DATA_DIR, SOUL_USERS_DIR, SOUL_ARCHIVES_DIR resolution order. Count: 38 → 44.
@@ -731,12 +736,16 @@ soul prompt .soul/ | pbcopy
 
 ### `soul forget`
 
-Delete memories by query, entity, or timestamp (GDPR-compliant). Searches and deletes matching memories across all tiers. Records a deletion audit entry without storing deleted content.
+Delete memories by ID, query, entity, or timestamp (GDPR-compliant). Searches and deletes matching memories across all tiers. Records a deletion audit entry without storing deleted content.
+
+Dry-run by default — preview shows what would be deleted without touching the soul. Pass `--apply` to actually execute. A `.soul.bak` backup is written before any destructive save (when the soul is a single-file `.soul` archive).
 
 ```bash
-soul forget .soul/ "credit card"
-soul forget aria.soul --entity "John Doe"
-soul forget .soul/ --before 2026-01-01T00:00:00 --confirm
+soul forget .soul/ "credit card"                         # preview by query
+soul forget .soul/ "credit card" --apply                  # prompt + delete
+soul forget aria.soul --entity "John Doe" --apply --confirm
+soul forget .soul/ --before 2026-01-01T00:00:00 --apply
+soul forget .soul/ --id bf0ee3453983 --apply              # surgical single-id
 ```
 
 **Arguments:**
@@ -750,11 +759,50 @@ soul forget .soul/ --before 2026-01-01T00:00:00 --confirm
 
 | Option | Description |
 |--------|-------------|
+| `--id TEXT` | Delete a single memory by exact ID. Mutually exclusive with `QUERY`, `--entity`, `--before`. |
 | `--entity TEXT` | Delete by entity name instead of query. |
 | `--before TEXT` | Delete memories before an ISO timestamp. |
-| `--confirm` | Skip the confirmation prompt. |
+| `--apply` | Actually execute the deletion. Without this flag, `forget` is a preview only. |
+| `--confirm` | Skip the confirmation prompt (requires `--apply`). |
 
-At least one of `QUERY`, `--entity`, or `--before` is required. Prompts for confirmation unless `--confirm` is set.
+Exactly one of `QUERY`, `--id`, `--entity`, or `--before` is required. Without `--apply` you get a count + per-tier breakdown without changes. With `--apply`, the runtime confirms (unless `--confirm`), writes a `.soul.bak`, deletes, saves, and reports.
+
+**Output:** A preview line (or post-action line) of the form `would forget N memories from <name>` (or `Forgot N memories ...`), followed by per-tier counts. Per-tier display reads from the result dict's `episodic` / `semantic` / `procedural` lists; if you script the runtime API directly the same shape is returned.
+
+---
+
+### `soul supersede`
+
+Mark a memory as superseded by a new one. The old entry is preserved in storage so provenance is not lost — search filters out superseded entries by default, so recall surfaces the new memory.
+
+```bash
+soul supersede .soul/ "X actually shipped on 2026-04-21" \
+    --old-id bf0ee345 --reason "verified against current code"
+
+soul supersede aria.soul "User now prefers light mode" \
+    --old-id 4c19e2 --type semantic -i 7
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `NEW_CONTENT` | Yes | The corrected memory text. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--old-id TEXT` | ID of the memory being superseded. **Required.** |
+| `--reason TEXT` | Why the old memory is wrong or out-of-date (recorded in the supersede audit). |
+| `--importance / -i INT` | Importance score for the new memory (1-10, default: 5). |
+| `--emotion / -e TEXT` | Emotion tag for the new memory. |
+| `--type / -t {episodic,semantic,procedural}` | Tier for the new memory. Defaults to the old entry's tier. |
+
+**Output:** A panel showing the old ID, new ID, tier, reason, and the new content. Saves the soul automatically. Exits non-zero if `--old-id` does not resolve.
+
+**Audit:** Every successful supersede writes an entry to the supersede audit trail, exposed via `Soul.supersede_audit`. Internal supersession (dream-cycle dedup, contradiction resolution during `learn`) does not write to this trail — it is for explicit user intent only.
 
 ---
 

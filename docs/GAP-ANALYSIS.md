@@ -79,7 +79,8 @@ Soul Protocol has implemented roughly **65-70% of the vision** described across 
 | Memory compression (SimpleMem-style) | MEM-ARCH | NOT STARTED | -- | No summarization, no recursive consolidation |
 | Importance-based pruning | MEM-ARCH | NOT STARTED | -- | `importance_threshold` in settings but no pruning logic |
 | Semantic deduplication | MEM-ARCH | PARTIAL | `memory/manager.py` | Token-overlap dedup in `extract_facts`; no embedding-based dedup |
-| Memory forget/remove | DSP.md, MEM-ARCH | DONE | `soul.py`, `memory/manager.py` | Remove by ID from any store |
+| Memory forget/remove | DSP.md, MEM-ARCH | DONE | `soul.py`, `memory/manager.py`, `cli/main.py` | Remove by query/entity/timestamp/id. CLI is dry-run by default; `--apply` writes a `.soul.bak`. `--id` added 2026-04-27 for surgical single-id deletion (audited via `Soul.forget_one`). |
+| User-driven memory supersede | -- | DONE | `soul.py`, `memory/manager.py`, `cli/main.py` | 2026-04-27. `Soul.supersede(old_id, new_content, ...)` writes new entry, sets `old.superseded_by = new.id`, appends to `supersede_audit`. Old entry is filtered from search by default but kept on disk for provenance. CLI: `soul supersede`. |
 | Hybrid inline+external storage | MEM-ARCH | NOT STARTED | -- | No vector DB, no external storage links |
 | Embedding interface | MEM-ARCH | PARTIAL | `memory/strategy.py` | `SearchStrategy` protocol exists; no embedding providers |
 | Storage backend interface | MEM-ARCH | DONE | `storage/protocol.py` | Protocol defined but only file backend implemented |
