@@ -1,4 +1,14 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-04-29 (#41) — User-defined layers + domain isolation. The
+#   manager now exposes ``layer(name) -> LayerView`` for free-form layer
+#   namespaces. Built-in layers (core / episodic / semantic / procedural /
+#   social) keep their dedicated stores; arbitrary layer names route through
+#   a generic dict store. ``observe()`` and ``recall()`` accept a ``domain``
+#   keyword (defaults to ``"default"``) that stamps / filters memories by
+#   sub-namespace. ``recall()`` also accepts a ``layer`` keyword to scope
+#   results. The new SocialStore powers ``layer("social")``.
+#   ``to_dict()`` / ``from_dict()`` round-trip the social layer plus any
+#   custom layers via a ``custom_layers`` key.
 # Updated: 2026-04-29 (#46) — Multi-user soul support. observe() and recall()
 #   accept a ``user_id`` keyword that is stamped onto stored MemoryEntry
 #   instances and used to filter recall results. None preserves legacy
@@ -109,6 +119,7 @@ from soul_protocol.runtime.memory.recall import RecallEngine
 from soul_protocol.runtime.memory.search import relevance_score, tokenize
 from soul_protocol.runtime.memory.self_model import SelfModelManager
 from soul_protocol.runtime.memory.semantic import SemanticStore
+from soul_protocol.runtime.memory.social import SocialStore
 from soul_protocol.runtime.types import (
     CoreMemory,
     GeneralEvent,
@@ -504,6 +515,80 @@ def _token_overlap_score(a: str, b: str) -> float:
     return len(intersection) / len(union)
 
 
+# ---------------------------------------------------------------------------
+# v0.4.0 (#41) — LayerView: thin accessor for a single memory layer.
+# ---------------------------------------------------------------------------
+
+# Built-in layers backed by purpose-specific stores. Anything else routes
+# through ``MemoryManager._custom_layers``.
+_BUILTIN_LAYERS = frozenset({"core", "episodic", "semantic", "procedural", "social"})
+
+
+class LayerView:
+    """A thin wrapper around one memory layer inside a :class:`MemoryManager`.
+
+    Returned by :meth:`MemoryManager.layer`. Exposes a small uniform API
+    (``store``, ``query``, ``get``, ``delete``, ``entries``, ``count``)
+    that works for every layer regardless of which underlying store
+    actually holds the entries. Built-in layers (episodic / semantic /
+    procedural / social) delegate to their dedicated store; user-defined
+    layers fall back to a generic dict-based store on the manager.
+
+    The view is stateless — it just dispatches calls. Re-create freely.
+    """
+
+    def __init__(self, manager: MemoryManager, name: str) -> None:
+        self._manager = manager
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        """The layer name this view is bound to."""
+        return self._name
+
+    async def store(self, entry: MemoryEntry) -> str:
+        """Add an entry to this layer. Returns the entry id.
+
+        For built-in layers, the underlying store may overwrite ``entry.type``
+        and ``entry.layer`` to keep its invariants. For custom layers, the
+        layer name is stamped onto ``entry.layer`` before insertion.
+        """
+        return await self._manager._store_in_layer(self._name, entry)
+
+    async def query(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        domain: str | None = None,
+    ) -> list[MemoryEntry]:
+        """Search this layer for entries matching ``query``.
+
+        ``domain`` filters to a specific sub-namespace when set; otherwise
+        every domain in this layer is searched.
+        """
+        return await self._manager._search_in_layer(self._name, query, limit=limit, domain=domain)
+
+    async def get(self, memory_id: str) -> MemoryEntry | None:
+        """Return one entry from this layer by id, or None if absent."""
+        return await self._manager._get_in_layer(self._name, memory_id)
+
+    async def delete(self, memory_id: str) -> bool:
+        """Delete an entry from this layer by id. Returns True if removed."""
+        return await self._manager._delete_in_layer(self._name, memory_id)
+
+    def entries(self, *, domain: str | None = None) -> list[MemoryEntry]:
+        """Return every entry in this layer.
+
+        Pass ``domain`` to filter to one sub-namespace.
+        """
+        return self._manager._entries_in_layer(self._name, domain=domain)
+
+    def count(self, *, domain: str | None = None) -> int:
+        """Return the number of entries in this layer (optionally per-domain)."""
+        return len(self.entries(domain=domain))
+
+
 class MemoryManager:
     """Facade that orchestrates all memory subsystems."""
 
@@ -529,6 +614,11 @@ class MemoryManager:
         self._episodic = EpisodicStore(max_entries=settings.episodic_max_entries)
         self._semantic = SemanticStore(max_facts=settings.semantic_max_facts)
         self._procedural = ProceduralStore()
+        # v0.4.0 (#41) — SocialStore for relationship memories.
+        self._social = SocialStore()
+        # v0.4.0 (#41) — Storage for arbitrary user-defined layers. Keyed by
+        # layer name; each value is a dict of MemoryEntry by id.
+        self._custom_layers: dict[str, dict[str, MemoryEntry]] = {}
         self._graph = KnowledgeGraph()
         self._recall_engine = RecallEngine(
             episodic=self._episodic,
@@ -605,6 +695,156 @@ class MemoryManager:
 
         self._contradiction_detector = ContradictionDetector(engine=engine)
 
+    # ---- v0.4.0 (#41) Layer dispatch helpers ----
+
+    def layer(self, name: str) -> LayerView:
+        """Return a :class:`LayerView` for the given layer name.
+
+        Works for built-in layers (``"episodic"``, ``"semantic"``,
+        ``"procedural"``, ``"social"``) and any user-defined layer name.
+        Custom layers are created lazily on first ``store()`` call.
+        """
+        return LayerView(self, name)
+
+    def _custom_store(self, name: str) -> dict[str, MemoryEntry]:
+        """Return the dict for a custom layer, creating it if missing."""
+        if name not in self._custom_layers:
+            self._custom_layers[name] = {}
+        return self._custom_layers[name]
+
+    async def _store_in_layer(self, layer: str, entry: MemoryEntry) -> str:
+        """Dispatch a store() call to the right backend for this layer."""
+        if layer == "episodic":
+            entry.layer = "episodic"
+            return await self._episodic.add(
+                Interaction(
+                    user_input=entry.content,
+                    agent_output="",
+                    timestamp=entry.created_at,
+                )
+            )
+        if layer == "semantic":
+            entry.layer = "semantic"
+            return await self._semantic.add(entry)
+        if layer == "procedural":
+            entry.layer = "procedural"
+            return await self._procedural.add(entry)
+        if layer == "social":
+            entry.layer = "social"
+            return await self._social.add(entry)
+        # Custom layer
+        if not entry.id:
+            entry.id = uuid.uuid4().hex[:12]
+        entry.layer = layer
+        self._custom_store(layer)[entry.id] = entry
+        return entry.id
+
+    async def _search_in_layer(
+        self,
+        layer: str,
+        query: str,
+        *,
+        limit: int = 10,
+        domain: str | None = None,
+    ) -> list[MemoryEntry]:
+        """Search one layer for entries matching ``query``."""
+        if layer == "episodic":
+            results = await self._episodic.search(query, limit=limit)
+        elif layer == "semantic":
+            results = await self._semantic.search(query, limit=limit)
+        elif layer == "procedural":
+            results = await self._procedural.search(query, limit=limit)
+        elif layer == "social":
+            results = await self._social.search(query, limit=limit)
+        else:
+            scored: list[tuple[float, MemoryEntry]] = []
+            for entry in self._custom_store(layer).values():
+                score = _token_overlap_score(query, entry.content)
+                if score > 0.0:
+                    scored.append((score, entry))
+            scored.sort(key=lambda t: (-t[0], -t[1].importance, -t[1].created_at.timestamp()))
+            results = [entry for _, entry in scored[:limit]]
+        if domain is not None:
+            results = [r for r in results if r.domain == domain]
+        return results
+
+    async def _get_in_layer(self, layer: str, memory_id: str) -> MemoryEntry | None:
+        """Look one entry up by id within a single layer."""
+        if layer == "episodic":
+            return await self._episodic.get(memory_id)
+        if layer == "semantic":
+            return await self._semantic.get(memory_id)
+        if layer == "procedural":
+            return await self._procedural.get(memory_id)
+        if layer == "social":
+            return await self._social.get(memory_id)
+        return self._custom_store(layer).get(memory_id)
+
+    async def _delete_in_layer(self, layer: str, memory_id: str) -> bool:
+        """Delete one entry by id within a single layer."""
+        if layer == "episodic":
+            return await self._episodic.remove(memory_id)
+        if layer == "semantic":
+            return await self._semantic.remove(memory_id)
+        if layer == "procedural":
+            return await self._procedural.remove(memory_id)
+        if layer == "social":
+            return await self._social.remove(memory_id)
+        store = self._custom_store(layer)
+        if memory_id in store:
+            del store[memory_id]
+            return True
+        return False
+
+    def _entries_in_layer(
+        self,
+        layer: str,
+        *,
+        domain: str | None = None,
+    ) -> list[MemoryEntry]:
+        """Return every entry in a layer (optionally domain-filtered)."""
+        if layer == "episodic":
+            entries = list(self._episodic.entries())
+        elif layer == "semantic":
+            entries = list(self._semantic.facts())
+        elif layer == "procedural":
+            entries = list(self._procedural.entries())
+        elif layer == "social":
+            entries = list(self._social.entries())
+        else:
+            entries = list(self._custom_store(layer).values())
+        if domain is not None:
+            entries = [e for e in entries if e.domain == domain]
+        return entries
+
+    def known_layers(self) -> list[str]:
+        """List every layer that currently contains at least one entry.
+
+        Includes built-in layers (when populated) plus any custom layers.
+        Always returned in deterministic order: built-ins first in the
+        canonical order, then custom layers alphabetically.
+        """
+        result: list[str] = []
+        if self._episodic._memories:
+            result.append("episodic")
+        if self._semantic._facts:
+            result.append("semantic")
+        if self._procedural._procedures:
+            result.append("procedural")
+        if self._social._entries:
+            result.append("social")
+        for name in sorted(self._custom_layers.keys()):
+            if self._custom_layers[name]:
+                result.append(name)
+        return result
+
+    def domains_in_layer(self, layer: str) -> dict[str, int]:
+        """Return a per-domain entry count map for the given layer."""
+        counts: dict[str, int] = {}
+        for entry in self._entries_in_layer(layer):
+            counts[entry.domain] = counts.get(entry.domain, 0) + 1
+        return counts
+
     # ---- Core memory ----
 
     def get_core(self) -> CoreMemory:
@@ -629,11 +869,18 @@ class MemoryManager:
                 agent_output="",
                 timestamp=entry.created_at,
             )
-            return await self._episodic.add(interaction)
+            new_id = await self._episodic.add(interaction)
+            # Episodic store creates its own MemoryEntry — propagate domain.
+            stored = await self._episodic.get(new_id)
+            if stored is not None and entry.domain:
+                stored.domain = entry.domain
+            return new_id
         elif entry.type == MemoryType.SEMANTIC:
             return await self._semantic.add(entry)
         elif entry.type == MemoryType.PROCEDURAL:
             return await self._procedural.add(entry)
+        elif entry.type == MemoryType.SOCIAL:
+            return await self._social.add(entry)
         else:
             raise ValueError(
                 f"Cannot add memory of type {entry.type} via add(). "
@@ -649,6 +896,7 @@ class MemoryManager:
         core_values: list[str] | None = None,
         detect_contradictions: bool = True,
         user_id: str | None = None,
+        domain: str = "default",
     ) -> dict:
         """Process an interaction through the psychology-informed pipeline.
 
@@ -659,6 +907,9 @@ class MemoryManager:
             user_id: When set, stamp the user_id on every memory written
                 during this observe call (episodic + semantic facts).
                 None leaves new entries unattributed (legacy behaviour).
+            domain: Sub-namespace stamp for memories written by this call.
+                Defaults to ``"default"``. Pass e.g. ``"finance"`` to scope
+                everything written here to that domain (#41).
         """
         from soul_protocol.runtime.cognitive.engine import (
             compute_salience,
@@ -711,6 +962,9 @@ class MemoryManager:
                 # multi-user recall can filter by attribution.
                 if user_id is not None:
                     self._episodic.update_entry(episodic_id, user_id=user_id)
+                # v0.4.0 (#41) — stamp domain on the new episodic entry.
+                if domain != "default":
+                    self._episodic.update_entry(episodic_id, domain=domain)
             logger.debug("Episodic memory stored: id=%s", episodic_id)
 
         # --- 4. Extract and store semantic facts ---
@@ -725,6 +979,11 @@ class MemoryManager:
         if user_id is not None:
             for fact in facts:
                 fact.user_id = user_id
+        # v0.4.0 (#41) — stamp domain on each fact so domain isolation
+        # survives the dedup pipeline.
+        if domain != "default":
+            for fact in facts:
+                fact.domain = domain
         await self._resolve_fact_conflicts(facts)
         # Phase 2: dedup pipeline before storing
         stored_facts: list[MemoryEntry] = []
@@ -773,6 +1032,9 @@ class MemoryManager:
                 # v0.4.0 (#46) — stamp user_id for promoted episodic too.
                 if user_id is not None:
                     self._episodic.update_entry(episodic_id, user_id=user_id)
+                # v0.4.0 (#41) — stamp domain on promoted episodic too.
+                if domain != "default":
+                    self._episodic.update_entry(episodic_id, domain=domain)
             logger.debug(
                 "Promoted to episodic (facts found): id=%s, sig=%.3f",
                 episodic_id,
@@ -903,6 +1165,8 @@ class MemoryManager:
         bond_threshold: float = 30.0,
         progressive: bool = False,
         user_id: str | None = None,
+        layer: str | None = None,
+        domain: str | None = None,
     ) -> list[MemoryEntry]:
         """Recall memories from the appropriate stores.
 
@@ -910,25 +1174,55 @@ class MemoryManager:
         matches OR is ``None`` (legacy entries are visible to every user).
         When ``user_id`` is ``None``, all entries are returned regardless
         of attribution — preserves pre-#46 behaviour.
+
+        ``layer`` (#41): when set to a string ("episodic", "semantic",
+        "procedural", "social", or any custom layer name), only entries in
+        that layer are returned. None (default) preserves pre-#41 behaviour
+        of searching every built-in tier.
+
+        ``domain`` (#41): when set, filter to entries whose ``domain``
+        matches. Default None returns every domain.
+
+        Filters are applied post-fetch so the underlying ranking stays
+        intact. Fetch limit is widened when filters are active so the
+        post-filter result set still has a chance to reach ``limit``.
         """
-        # Fetch a larger candidate pool when user_id filter is active so the
-        # filter doesn't shrink the result set below ``limit``.
-        fetch_limit = limit * 3 if user_id is not None else limit
-        results = await self._recall_engine.recall(
-            query=query,
-            limit=fetch_limit,
-            types=types,
-            min_importance=min_importance,
-            requester_id=requester_id,
-            bond_strength=bond_strength,
-            bond_threshold=bond_threshold,
-            progressive=progressive,
-        )
+        # Widen the candidate pool when any of the optional filters are
+        # active so post-filter trimming doesn't shrink results below limit.
+        any_filter = user_id is not None or layer is not None or domain is not None
+        fetch_limit = limit * 3 if any_filter else limit
+
+        # When a single layer is requested, route through the layer-specific
+        # search instead of the cross-tier RecallEngine. Custom layers are
+        # invisible to RecallEngine because the engine only knows the four
+        # built-in stores.
+        if layer is not None and layer not in {"episodic", "semantic", "procedural"}:
+            results = await self._search_in_layer(layer, query, limit=fetch_limit)
+        else:
+            engine_types = types
+            if layer is not None:
+                # Reuse the existing types filter to scope the recall engine
+                # to just the requested built-in tier without re-implementing
+                # ranking.
+                engine_types = [MemoryType(layer)]
+            results = await self._recall_engine.recall(
+                query=query,
+                limit=fetch_limit,
+                types=engine_types,
+                min_importance=min_importance,
+                requester_id=requester_id,
+                bond_strength=bond_strength,
+                bond_threshold=bond_threshold,
+                progressive=progressive,
+            )
+
         if user_id is not None:
             results = [
                 entry for entry in results if entry.user_id == user_id or entry.user_id is None
             ]
-            results = results[:limit]
+        if domain is not None:
+            results = [entry for entry in results if entry.domain == domain]
+        results = results[:limit]
         logger.debug("Recall query_len=%d returned %d results", len(query), len(results))
         return results
 
@@ -1659,6 +1953,8 @@ class MemoryManager:
         self._episodic = EpisodicStore(max_entries=self._settings.episodic_max_entries)
         self._semantic = SemanticStore(max_facts=self._settings.semantic_max_facts)
         self._procedural = ProceduralStore()
+        self._social = SocialStore()
+        self._custom_layers = {}
         self._graph = KnowledgeGraph()
         self._general_events = {}
 
@@ -1686,6 +1982,15 @@ class MemoryManager:
     # ---- Serialization ----
 
     def to_dict(self) -> dict:
+        # v0.4.0 (#41) — Custom layer entries grouped by layer name. Built-in
+        # layers (episodic, semantic, procedural, social) keep their own keys
+        # in the dict so legacy readers can still load them; custom layers
+        # only show up under "custom_layers".
+        custom_dump: dict[str, list[dict]] = {}
+        for layer_name, store in self._custom_layers.items():
+            if not store:
+                continue
+            custom_dump[layer_name] = [e.model_dump(mode="json") for e in store.values()]
         return {
             "core": self._core_manager.get().model_dump(),
             "episodic": [entry.model_dump(mode="json") for entry in self._episodic.entries()],
@@ -1694,12 +1999,17 @@ class MemoryManager:
                 for fact in self._semantic.facts(include_superseded=True)
             ],
             "procedural": [proc.model_dump(mode="json") for proc in self._procedural.entries()],
+            # v0.4.0 (#41) — Social layer for relationship memories.
+            "social": [entry.model_dump(mode="json") for entry in self._social.entries()],
             "graph": self._graph.to_dict(),
             "self_model": self._self_model.to_dict(),
             "general_events": [ge.model_dump(mode="json") for ge in self._general_events.values()],
             "archives": [
                 archive.model_dump(mode="json") for archive in self._archival.all_archives()
             ],
+            # v0.4.0 (#41) — User-defined layer entries. Empty when only
+            # built-in layers are populated.
+            "custom_layers": custom_dump,
         }
 
     @classmethod
@@ -1748,6 +2058,19 @@ class MemoryManager:
         for proc_data in data.get("procedural", []):
             proc = MemoryEntry.model_validate(proc_data)
             manager._procedural._procedures[proc.id] = proc
+
+        # v0.4.0 (#41) — Social layer.
+        for soc_data in data.get("social", []):
+            soc = MemoryEntry.model_validate(soc_data)
+            manager._social._entries[soc.id] = soc
+
+        # v0.4.0 (#41) — Custom layers.
+        custom_layers = data.get("custom_layers", {}) or {}
+        for layer_name, entries_list in custom_layers.items():
+            store = manager._custom_store(layer_name)
+            for raw in entries_list or []:
+                entry = MemoryEntry.model_validate(raw)
+                store[entry.id] = entry
 
         graph_data = data.get("graph", {})
         if graph_data:

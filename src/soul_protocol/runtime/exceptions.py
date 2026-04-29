@@ -3,6 +3,9 @@
 #   SoulRetireError for proper error handling in awaken(), export(), retire().
 # Updated: feat/onboarding-full — added SoulProtectedError, raised when callers try
 #   to delete or retire a root governance soul (Org Architecture RFC #164, layer 1).
+# Updated: 2026-04-29 (#41) — added DomainAccessError, raised by
+#   :class:`soul_protocol.runtime.middleware.DomainIsolationMiddleware` when
+#   the wrapped soul tries to write to a domain outside the allowed list.
 
 from __future__ import annotations
 
@@ -82,4 +85,23 @@ class SoulProtectedError(SoulProtocolError):
         super().__init__(
             f"Refusing to delete {who}: role={role!r} is protected. "
             "Use `soul org destroy` to tear down an org instance."
+        )
+
+
+class DomainAccessError(SoulProtocolError):
+    """Raised when a wrapped soul tries to use a memory domain it is not
+    allowed to access.
+
+    Used by :class:`soul_protocol.runtime.middleware.DomainIsolationMiddleware`
+    on writes to a domain that isn't in the middleware's allow-list. Reads
+    silently filter to the allowed domains instead of raising.
+    """
+
+    def __init__(self, requested: str, allowed: list[str]) -> None:
+        self.requested = requested
+        self.allowed = list(allowed)
+        super().__init__(
+            f"Domain {requested!r} is not in the allowed list "
+            f"({', '.join(repr(a) for a in self.allowed) or 'none'}). "
+            "DomainIsolationMiddleware blocks writes to disallowed domains."
         )

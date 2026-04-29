@@ -1,4 +1,14 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-04-29 (#41) — User-defined memory layers + domain isolation.
+#   MemoryType keeps the four built-in StrEnum members (CORE, EPISODIC,
+#   SEMANTIC, PROCEDURAL) plus SOCIAL for the new relationship layer; the
+#   value strings double as layer names since StrEnum members compare
+#   equal to their string values. MemoryEntry grows two new fields:
+#   ``layer: str`` (canonical going forward — defaults to ``type.value``
+#   when empty) and ``domain: str = "default"`` (sub-namespace for
+#   isolating context like "finance" vs "legal"). A model_validator
+#   coerces blank layer back to type.value and reads ``layer`` first on
+#   load (falling back to ``type``) so 0.3.x souls round-trip.
 # Updated: 2026-04-29 (#46) — Multi-user soul support. MemoryEntry gains an
 #   optional ``user_id: str | None`` field. None = legacy/orphan entry that
 #   belongs to the soul's default bond and is visible to any user_id query.
@@ -270,10 +280,15 @@ class MemoryVisibility(StrEnum):
 
 
 class MemoryType(StrEnum):
+    """Built-in memory tiers. v0.4.0 (#41) treats these as ergonomic
+    constants for layer names — runtimes can use any string layer they
+    want via :class:`soul_protocol.runtime.memory.manager.LayerView`."""
+
     CORE = "core"
     EPISODIC = "episodic"
     SEMANTIC = "semantic"
     PROCEDURAL = "procedural"
+    SOCIAL = "social"  # v0.4.0 (#41) — relationship memory tier
 
 
 class MemoryCategory(StrEnum):
@@ -304,6 +319,13 @@ class MemoryCategory(StrEnum):
 
 class MemoryEntry(BaseModel):
     """A single memory with metadata.
+
+    v0.4.0 (#41) additions: ``layer`` is the canonical going-forward layer
+    name (free-form string). Defaults to the ``type`` value when not given,
+    so legacy callers using ``MemoryEntry(type=MemoryType.SEMANTIC)`` get
+    ``layer="semantic"`` for free. ``domain`` is a sub-namespace inside the
+    layer (``"finance"``, ``"legal"``, ``"default"``); defaults to
+    ``"default"`` so 0.3.x entries round-trip without migration.
 
     v0.3.4 additions: category (extraction taxonomy), abstract (L0 ~100 tokens),
     overview (L1 ~1K tokens) for progressive content loading, salience (retrieval
@@ -356,6 +378,43 @@ class MemoryEntry(BaseModel):
     # When set, recall filters entries to those matching the requested
     # user_id (plus None entries for back-compat).
     user_id: str | None = None
+    # v0.4.0 (#41) — Free-form layer namespace. Empty string is coerced to
+    # ``type.value`` by ``_coerce_layer_domain`` so legacy callers keep
+    # working. When both ``layer`` and ``type`` round-trip on disk, ``layer``
+    # is the canonical field; ``type`` exists for back-compat.
+    layer: str = ""
+    # v0.4.0 (#41) — Domain sub-namespace inside the layer. Use to isolate
+    # context like "finance" vs "legal" inside the same layer of facts.
+    # Empty string is coerced to "default" by ``_coerce_layer_domain``.
+    domain: str = "default"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_layer_domain(cls, data: Any) -> Any:
+        """Fill in ``layer``/``domain`` defaults from legacy fields.
+
+        - When ``layer`` is missing or blank, derive it from ``type``.
+        - When ``domain`` is missing or blank, set it to ``"default"``.
+
+        This runs at deserialize time, so 0.3.x souls (which carry only
+        ``type``) come back with a sensible layer + domain without a
+        separate migration pass.
+        """
+        if isinstance(data, dict):
+            layer_val = data.get("layer", "")
+            if not layer_val:
+                # Pull from type — accepts MemoryType enum or raw string.
+                tval = data.get("type")
+                if tval is None:
+                    pass
+                elif isinstance(tval, MemoryType):
+                    data["layer"] = tval.value
+                elif isinstance(tval, str):
+                    data["layer"] = tval
+            domain_val = data.get("domain", "")
+            if not domain_val:
+                data["domain"] = "default"
+        return data
 
 
 class CoreMemory(BaseModel):

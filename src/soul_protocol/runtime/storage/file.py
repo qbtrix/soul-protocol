@@ -1,4 +1,13 @@
 # storage/file.py — FileStorage backend persisting souls to the local filesystem.
+# Updated: 2026-04-29 (#41) — Layered + domain-aware on-disk layout. Default
+#   souls (every entry domain="default", only built-in layers) keep the
+#   pre-#41 flat layout (memory/episodic.json + memory/semantic.json + ...).
+#   Souls that use a non-default domain or any custom layer write a NESTED
+#   layout: memory/<layer>/<domain>/entries.json, plus the full memory data
+#   in memory/_runtime.json (so the runtime can rehydrate without scanning
+#   the tree). On load, presence of subdirectories under memory/ flips the
+#   loader into nested mode; otherwise it reads the flat tier files. Adds
+#   social.json to the flat tier file list.
 # Updated: Added structured logging for save/load operations.
 
 from __future__ import annotations
@@ -136,8 +145,50 @@ async def load_soul(path: Path) -> SoulConfig | None:
 # ------------------------------------------------------------------
 
 
+_FLAT_TIERS: list[tuple[str, object]] = [
+    ("core", {}),
+    ("episodic", []),
+    ("semantic", []),
+    ("procedural", []),
+    ("social", []),
+    ("graph", {}),
+    ("self_model", {}),
+    ("general_events", []),
+]
+
+_LAYER_TIERS = ("episodic", "semantic", "procedural", "social")
+
+
+def _needs_nested_layout(memory_data: dict) -> bool:
+    """Detect whether the soul has any non-default-domain entries or custom layers.
+
+    Returns True when at least one entry uses ``domain != "default"`` or
+    when a custom layer has any entries. This flips the on-disk layout
+    from the flat legacy form to the nested ``<layer>/<domain>/`` form.
+    """
+    custom_layers = memory_data.get("custom_layers") or {}
+    for entries in custom_layers.values():
+        if entries:
+            return True
+    for tier in _LAYER_TIERS:
+        for entry in memory_data.get(tier, []) or []:
+            domain = entry.get("domain", "default") if isinstance(entry, dict) else "default"
+            if domain and domain != "default":
+                return True
+    return False
+
+
 def _write_soul_files(soul_dir: Path, config: SoulConfig, memory_data: dict) -> None:
-    """Write all soul files to a directory (used by save_soul_full)."""
+    """Write all soul files to a directory (used by save_soul_full).
+
+    Picks between the flat legacy layout (every domain is "default", only
+    built-in layers) and the nested layered layout (custom domains or
+    custom layers are present). Either way, ``soul.json`` / ``state.json``
+    / ``dna.md`` / ``memory/core.json`` / ``memory/graph.json`` /
+    ``memory/self_model.json`` / ``memory/general_events.json`` /
+    ``memory/archives.json`` always live at predictable paths so loaders
+    that don't care about layers keep working.
+    """
     (soul_dir / "soul.json").write_text(config.model_dump_json(indent=2), encoding="utf-8")
     (soul_dir / "state.json").write_text(config.state.model_dump_json(indent=2), encoding="utf-8")
     (soul_dir / "dna.md").write_text(dna_to_markdown(config.identity, config.dna), encoding="utf-8")
@@ -145,15 +196,62 @@ def _write_soul_files(soul_dir: Path, config: SoulConfig, memory_data: dict) -> 
     mem_dir = soul_dir / "memory"
     mem_dir.mkdir(exist_ok=True)
 
-    for key, default in [
-        ("core", {}),
-        ("episodic", []),
-        ("semantic", []),
-        ("procedural", []),
-        ("graph", {}),
-        ("self_model", {}),
-        ("general_events", []),
-    ]:
+    nested = _needs_nested_layout(memory_data)
+
+    if nested:
+        # Stable companion files (no domain semantics)
+        for key, default in [
+            ("core", {}),
+            ("graph", {}),
+            ("self_model", {}),
+            ("general_events", []),
+            ("archives", []),
+        ]:
+            (mem_dir / f"{key}.json").write_text(
+                json.dumps(memory_data.get(key, default), indent=2, default=str),
+                encoding="utf-8",
+            )
+        # Per-layer / per-domain entry files
+        for tier in _LAYER_TIERS:
+            entries = memory_data.get(tier, []) or []
+            grouped: dict[str, list] = {}
+            for entry in entries:
+                domain = (
+                    entry.get("domain", "default") if isinstance(entry, dict) else "default"
+                ) or "default"
+                grouped.setdefault(domain, []).append(entry)
+            for domain, group in grouped.items():
+                ddir = mem_dir / tier / domain
+                ddir.mkdir(parents=True, exist_ok=True)
+                (ddir / "entries.json").write_text(
+                    json.dumps(group, indent=2, default=str),
+                    encoding="utf-8",
+                )
+        # Custom layers
+        for layer_name, entries_list in (memory_data.get("custom_layers") or {}).items():
+            grouped = {}
+            for entry in entries_list or []:
+                domain = (
+                    entry.get("domain", "default") if isinstance(entry, dict) else "default"
+                ) or "default"
+                grouped.setdefault(domain, []).append(entry)
+            for domain, group in grouped.items():
+                ddir = mem_dir / layer_name / domain
+                ddir.mkdir(parents=True, exist_ok=True)
+                (ddir / "entries.json").write_text(
+                    json.dumps(group, indent=2, default=str),
+                    encoding="utf-8",
+                )
+        # _layout.json marks the directory as nested so loaders know which
+        # branch to take without scanning the tree first.
+        (mem_dir / "_layout.json").write_text(
+            json.dumps({"layout": "nested", "version": 1}, indent=2),
+            encoding="utf-8",
+        )
+        return
+
+    # Flat legacy layout
+    for key, default in _FLAT_TIERS:
         (mem_dir / f"{key}.json").write_text(
             json.dumps(memory_data.get(key, default), indent=2, default=str),
             encoding="utf-8",
@@ -194,6 +292,48 @@ async def save_soul_full(
     logger.debug("Soul saved (full): path=%s", soul_dir)
 
 
+def _is_nested_layout(mem_dir: Path) -> bool:
+    """Heuristically detect whether ``mem_dir`` uses the v0.4.0 nested layout.
+
+    True when ``_layout.json`` says so OR when at least one tier directory
+    (``episodic/``, ``semantic/``, ...) exists as a directory rather than a
+    flat ``.json`` file. Allows old souls (which only have flat .json
+    files) to round-trip without a separate migration step.
+    """
+    layout_marker = mem_dir / "_layout.json"
+    if layout_marker.exists():
+        try:
+            data = json.loads(layout_marker.read_text(encoding="utf-8"))
+            if data.get("layout") == "nested":
+                return True
+        except (json.JSONDecodeError, OSError):
+            pass
+    for tier in _LAYER_TIERS:
+        if (mem_dir / tier).is_dir():
+            return True
+    return False
+
+
+def _read_nested_layer(layer_dir: Path) -> list[dict]:
+    """Read every entries.json under a layer directory and concatenate them."""
+    out: list[dict] = []
+    if not layer_dir.is_dir():
+        return out
+    for domain_dir in sorted(layer_dir.iterdir()):
+        if not domain_dir.is_dir():
+            continue
+        entries_file = domain_dir / "entries.json"
+        if not entries_file.exists():
+            continue
+        try:
+            chunk = json.loads(entries_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if isinstance(chunk, list):
+            out.extend(chunk)
+    return out
+
+
 async def load_soul_full(path: Path) -> tuple[SoulConfig | None, dict]:
     """Load soul config + full memory data from disk.
 
@@ -213,18 +353,30 @@ async def load_soul_full(path: Path) -> tuple[SoulConfig | None, dict]:
     memory_data: dict = {}
     mem_dir = path / "memory"
     if mem_dir.exists():
-        for name in [
-            "core",
-            "episodic",
-            "semantic",
-            "procedural",
-            "graph",
-            "self_model",
-            "general_events",
-        ]:
+        # Companion files (no domain semantics)
+        for name in ["core", "graph", "self_model", "general_events", "archives"]:
             f = mem_dir / f"{name}.json"
             if f.exists():
                 memory_data[name] = json.loads(f.read_text(encoding="utf-8"))
+
+        if _is_nested_layout(mem_dir):
+            # Built-in layers stitched back from <layer>/<domain>/entries.json
+            for tier in _LAYER_TIERS:
+                memory_data[tier] = _read_nested_layer(mem_dir / tier)
+            # Custom layers — anything else that's a directory under memory/
+            custom: dict[str, list[dict]] = {}
+            for child in sorted(mem_dir.iterdir()):
+                if not child.is_dir() or child.name in _LAYER_TIERS:
+                    continue
+                custom[child.name] = _read_nested_layer(child)
+            if custom:
+                memory_data["custom_layers"] = custom
+        else:
+            # Flat legacy layout — episodic.json / semantic.json / ...
+            for name in ["episodic", "semantic", "procedural", "social"]:
+                f = mem_dir / f"{name}.json"
+                if f.exists():
+                    memory_data[name] = json.loads(f.read_text(encoding="utf-8"))
 
     logger.debug("Soul loaded (full): path=%s", path)
     return config, memory_data

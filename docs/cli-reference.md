@@ -523,8 +523,15 @@ soul remember aria.soul "Shipped v0.3 today" --type episodic --importance 8
 # Procedural — how to do things
 soul remember aria.soul "To deploy: run make deploy" --type procedural
 
+# Social — relationship memories (#41)
+soul remember aria.soul "Alice prefers async messages" --type social
+
 # With emotion tagging
 soul remember aria.soul "Had a productive session" --emotion happy
+
+# Domain-scoped memory (#41)
+soul remember aria.soul "Q3 revenue up 12 percent" --domain finance --importance 8
+soul remember aria.soul "NDA expires in March" --domain legal --importance 7
 ```
 
 **Arguments:**
@@ -540,17 +547,19 @@ soul remember aria.soul "Had a productive session" --emotion happy
 |--------|---------|-------------|
 | `--importance, -i INT` | `5` | Importance score 1-10. |
 | `--emotion, -e TEXT` | | Emotion tag (e.g. `happy`, `sad`, `excited`). |
-| `--type, -t [episodic\|semantic\|procedural]` | `semantic` | Memory tier (v0.2.9+). |
+| `--type, -t [episodic\|semantic\|procedural\|social]` | `semantic` | Memory tier. `social` added in v0.4.0 (#41). |
+| `--domain, -d TEXT` | `default` | Domain sub-namespace inside the layer (#41), e.g. `finance` or `legal`. |
 
 **Memory tiers:**
 
 - **episodic** — what happened. Events, sessions, shipped work, decisions. Use when the memory answers *"when did that happen?"*
 - **semantic** — what the soul knows. Facts, preferences, project knowledge. Use when the memory answers *"what do I know about X?"*
 - **procedural** — how to do things. Commands, recipes, debugging tips. Use when the memory answers *"how do I...?"*
+- **social** — relationship memories (#41). Communication preferences, trust signals, per-user context.
 
 Core memory (persona and human knowledge) is not writable through `remember`. Use `soul edit-core` instead.
 
-**Output:** A confirmation panel showing the stored text, tier, importance, emotion, and memory ID. The soul is saved automatically.
+**Output:** A confirmation panel showing the stored text, tier, domain, importance, emotion, and memory ID. The soul is saved automatically.
 
 ---
 
@@ -574,6 +583,11 @@ soul recall aria.soul --recent 5 --json          # Recent memories as JSON
 # Multi-user (#46) — scope recall to one user
 soul recall aria.soul "preferences" --user alice
 soul recall aria.soul --recent 10 --user alice
+
+# Layer + domain filters (#41)
+soul recall aria.soul "revenue" --layer semantic --domain finance
+soul recall aria.soul "alice" --layer social
+soul recall aria.soul --recent 5 --domain legal
 ```
 
 **Arguments:**
@@ -593,8 +607,35 @@ soul recall aria.soul --recent 10 --user alice
 | `--full` | off | Return untruncated content (for LLM consumption). |
 | `--json` | off | Return results as JSON (for scripting). |
 | `--user TEXT` | | Filter results to memories attributed to this `user_id` (#46). Legacy entries with no `user_id` are also returned. |
+| `--layer TEXT` | | Filter to one layer (`episodic`, `semantic`, `procedural`, `social`, or any custom layer name) (#41). |
+| `--domain, -d TEXT` | | Filter to one domain sub-namespace, e.g. `finance` (#41). |
 
-**Output:** A table of ranked memories with type, content, importance, emotion, and timestamp. Use `--full` or `--json` when an agent or script needs machine-readable output. The JSON payload includes a `user_id` field per entry.
+**Output:** A table of ranked memories with type, content, importance, emotion, and timestamp. Use `--full` or `--json` when an agent or script needs machine-readable output. The JSON payload includes `user_id`, `layer`, and `domain` fields per entry.
+
+---
+
+### `soul layers`
+
+Inspect a soul's memory layers (#41). Lists every populated layer with per-domain entry counts. Useful for verifying that domain isolation worked as expected and for spotting unexpected custom layers.
+
+```bash
+soul layers aria.soul
+soul layers .soul/ --json
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output as a JSON object with shape `{"soul": "<name>", "layers": {"<layer>": {"<domain>": count}}}`. |
+
+**Output:** A table of layer / per-domain counts. Built-in layers (`episodic`, `semantic`, `procedural`, `social`) appear first, then any user-defined layers in alphabetical order.
 
 ---
 

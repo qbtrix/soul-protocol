@@ -602,15 +602,18 @@ async def soul_remember(
     memory_type: str = "semantic",
     emotion: str | None = None,
     soul: str | None = None,
+    domain: str = "default",
 ) -> str:
     """Store a memory directly.
 
     Args:
         content: The memory content
         importance: 1-10 scale
-        memory_type: One of: episodic, semantic, procedural
+        memory_type: One of: episodic, semantic, procedural, social
         emotion: Optional emotion label
         soul: Target soul name (uses active soul if omitted)
+        domain: Sub-namespace inside the layer (#41). Defaults to "default".
+            Use values like "finance" or "legal" to scope memories.
     """
     s = await _resolve_soul(soul)
     mt = _validate_memory_type(memory_type)
@@ -620,6 +623,7 @@ async def soul_remember(
         type=mt,
         importance=importance,
         emotion=emotion,
+        domain=domain,
     )
     _registry.mark_modified(soul)
     return json.dumps(
@@ -627,6 +631,7 @@ async def soul_remember(
             "memory_id": memory_id,
             "soul": s.name,
             "type": memory_type,
+            "domain": domain,
             "importance": importance,
         }
     )
@@ -638,6 +643,8 @@ async def soul_recall(
     limit: int = 5,
     soul: str | None = None,
     user_id: str | None = None,
+    layer: str | None = None,
+    domain: str | None = None,
 ) -> str:
     """Search the soul's memories by natural language query.
 
@@ -648,13 +655,20 @@ async def soul_recall(
         user_id: When set, restrict results to memories attributed to this
             user_id, plus legacy entries with no user_id (multi-user souls,
             #46). When unset, returns all memories regardless of attribution.
+        layer: When set, restrict recall to a single layer (#41). Accepts
+            built-in names (episodic, semantic, procedural, social) or any
+            custom layer name.
+        domain: When set, restrict recall to a single domain sub-namespace
+            (#41), e.g. "finance" or "legal".
     """
     s = await _resolve_soul(soul)
-    results = await s.recall(query, limit=limit, user_id=user_id)
+    results = await s.recall(query, limit=limit, user_id=user_id, layer=layer, domain=domain)
     memories = [
         {
             "id": r.id,
             "type": r.type.value,
+            "layer": r.layer or r.type.value,
+            "domain": r.domain or "default",
             "content": r.content,
             "importance": r.importance,
             "emotion": r.emotion,

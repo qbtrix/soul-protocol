@@ -1041,11 +1041,20 @@ def eternal_status(path):
     "--type",
     "-t",
     "memory_type",
-    type=click.Choice(["episodic", "semantic", "procedural"], case_sensitive=False),
+    type=click.Choice(["episodic", "semantic", "procedural", "social"], case_sensitive=False),
     default="semantic",
-    help="Memory tier (default: semantic). Use episodic for events, procedural for skills.",
+    help="Memory tier (default: semantic). Use episodic for events, procedural for skills, "
+    "social for relationship context.",
 )
-def remember_cmd(path, text, importance, emotion, memory_type):
+@click.option(
+    "--domain",
+    "-d",
+    type=str,
+    default="default",
+    help="Domain sub-namespace inside the layer (e.g. finance, legal). "
+    "Defaults to 'default' (#41).",
+)
+def remember_cmd(path, text, importance, emotion, memory_type, domain):
     """Store a memory in a Soul.
 
     \b
@@ -1053,6 +1062,7 @@ def remember_cmd(path, text, importance, emotion, memory_type):
       episodic   — events that happened (what, when, where)
       semantic   — facts the soul knows (default)
       procedural — skills and how-to knowledge
+      social     — relationship memories (#41)
 
     \b
     Examples:
@@ -1060,6 +1070,7 @@ def remember_cmd(path, text, importance, emotion, memory_type):
       soul remember aria.soul "Likes Python" --importance 7
       soul remember aria.soul "Had a great day" --emotion happy
       soul remember aria.soul "Shipped v0.3" --type episodic --importance 8
+      soul remember aria.soul "Q3 revenue up 12%" --domain finance --importance 8
     """
     from soul_protocol.runtime.types import MemoryType
 
@@ -1074,6 +1085,7 @@ def remember_cmd(path, text, importance, emotion, memory_type):
             type=tier,
             importance=importance,
             emotion=emotion,
+            domain=domain,
         )
         if Path(path).is_dir():
             await soul.save_local(path)
@@ -1085,6 +1097,7 @@ def remember_cmd(path, text, importance, emotion, memory_type):
                 f"[bold]{soul.name}[/bold] will remember:\n\n"
                 f"  [cyan]{text}[/cyan]\n\n"
                 f"  Tier        [magenta]{tier.value}[/magenta]\n"
+                f"  Domain      [magenta]{domain}[/magenta]\n"
                 f"  Importance  [yellow]{importance}/10[/yellow]\n"
                 f"  Emotion     {emotion or '[dim]none[/dim]'}\n"
                 f"  ID          [dim]{memory_id}[/dim]",
@@ -1140,7 +1153,21 @@ def remember_cmd(path, text, importance, emotion, memory_type):
     help="Filter memories to a specific user_id (multi-user souls, #46). "
     "Legacy entries with no user_id are also returned.",
 )
-def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_id):
+@click.option(
+    "--layer",
+    "layer",
+    default=None,
+    help="Filter recall to a specific memory layer (episodic, semantic, procedural, social, "
+    "or any custom layer name) (#41).",
+)
+@click.option(
+    "--domain",
+    "-d",
+    "domain",
+    default=None,
+    help="Filter recall to a specific domain sub-namespace, e.g. 'finance' (#41).",
+)
+def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_id, layer, domain):
     """Query a Soul's memories.
 
     \b
@@ -1151,6 +1178,8 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
       soul recall aria.soul "python" --full
       soul recall aria.soul --recent 5 --json
       soul recall aria.soul "preferences" --user alice
+      soul recall aria.soul "revenue" --layer semantic --domain finance
+      soul recall aria.soul "alice" --layer social
     """
 
     async def _recall():
@@ -1162,11 +1191,20 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
             # Show N most recent memories across all stores. Apply --user
             # filter post-hoc so the legacy --recent path keeps its
             # cross-tier ordering.
-            all_memories = (
-                soul._memory._episodic.entries()
-                + soul._memory._semantic.facts()
-                + soul._memory._procedural.entries()
-            )
+            if layer is not None:
+                all_memories = soul._memory.layer(layer).entries(domain=domain)
+            else:
+                all_memories = (
+                    soul._memory._episodic.entries()
+                    + soul._memory._semantic.facts()
+                    + soul._memory._procedural.entries()
+                    + soul._memory._social.entries()
+                )
+                # Include custom layers in --recent across-the-board view
+                for store in soul._memory._custom_layers.values():
+                    all_memories.extend(store.values())
+                if domain is not None:
+                    all_memories = [m for m in all_memories if m.domain == domain]
             if user_id is not None:
                 all_memories = [
                     m for m in all_memories if m.user_id == user_id or m.user_id is None
@@ -1183,6 +1221,8 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
                 limit=limit,
                 min_importance=min_importance,
                 user_id=user_id,
+                layer=layer,
+                domain=domain,
             )
             title = f'Recall — {soul.name} — "{query}"'
         else:
@@ -1201,6 +1241,8 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
             items = [
                 {
                     "type": entry.type.value,
+                    "layer": entry.layer or entry.type.value,
+                    "domain": entry.domain or "default",
                     "content": entry.content,
                     "importance": entry.importance,
                     "emotion": entry.emotion,
@@ -1251,6 +1293,70 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
         console.print(f"[dim]{len(entries)} memor{'y' if len(entries) == 1 else 'ies'} found[/dim]")
 
     asyncio.run(_recall())
+
+
+@cli.command("layers")
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Output as a JSON object (machine-readable).",
+)
+def layers_cmd(path, as_json):
+    """List the memory layers in a Soul, with per-layer + per-domain counts.
+
+    Useful for inspecting how a soul has organised its memories — built-in
+    layers (episodic / semantic / procedural / social) plus any custom
+    user-defined layer names. Per-domain counts surface domain isolation
+    inside each layer (e.g. ``finance: 12, legal: 5, default: 3``).
+
+    \b
+    Examples:
+      soul layers aria.soul
+      soul layers .soul/ --json
+    """
+
+    async def _layers():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        layer_names = soul._memory.known_layers()
+        layout: dict[str, dict[str, int]] = {}
+        for layer_name in layer_names:
+            layout[layer_name] = soul._memory.domains_in_layer(layer_name)
+
+        if as_json:
+            click.echo(json.dumps({"soul": soul.name, "layers": layout}, indent=2))
+            return
+
+        if not layout:
+            console.print(f"[dim]{soul.name} has no stored memories yet.[/dim]")
+            return
+
+        table = Table(
+            title=f"Layers — {soul.name}",
+            border_style="blue",
+            show_lines=True,
+        )
+        table.add_column("Layer", style="cyan")
+        table.add_column("Domains", style="magenta")
+        table.add_column("Total", justify="right", style="yellow")
+
+        for layer_name, domain_counts in layout.items():
+            total = sum(domain_counts.values())
+            domain_text = ", ".join(
+                f"{d}: {c}"
+                for d, c in sorted(domain_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            )
+            table.add_row(layer_name, domain_text or "[dim]none[/dim]", str(total))
+
+        console.print(table)
+        grand_total = sum(sum(c.values()) for c in layout.values())
+        console.print(f"[dim]{grand_total} total memories across {len(layout)} layers[/dim]")
+
+    asyncio.run(_layers())
 
 
 @cli.command("inject")

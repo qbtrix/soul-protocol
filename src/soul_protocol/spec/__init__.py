@@ -60,6 +60,12 @@ from .journal import ACTION_NAMESPACES, Actor, DataRef, EventEntry
 from .learning import LearningEvent
 from .manifest import Manifest
 from .memory import (
+    DEFAULT_DOMAIN,
+    LAYER_CORE,
+    LAYER_EPISODIC,
+    LAYER_PROCEDURAL,
+    LAYER_SEMANTIC,
+    LAYER_SOCIAL,
     DictMemoryStore,
     Interaction,
     MemoryEntry,
@@ -132,6 +138,13 @@ __all__ = [
     "MemoryStore",
     "MemoryVisibility",
     "DictMemoryStore",
+    # Layer constants (#41) — conventions, not constraints
+    "LAYER_CORE",
+    "LAYER_EPISODIC",
+    "LAYER_SEMANTIC",
+    "LAYER_PROCEDURAL",
+    "LAYER_SOCIAL",
+    "DEFAULT_DOMAIN",
     # Scope
     "match_scope",
     "normalise_scopes",

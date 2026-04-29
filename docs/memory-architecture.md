@@ -15,6 +15,10 @@
        superseded_by infrastructure, plus the parallel supersede_audit
        trail. Internal supersession (dream-cycle dedup, contradiction
        detector) is unchanged.
+     Updated: 2026-04-29 (#41) — Added "Memory Layers and Domains" section
+       covering open-string layers, the new social layer, domain isolation,
+       the LayerView accessor, DomainIsolationMiddleware, and the on-disk
+       layout switch (flat legacy vs nested layered).
      Updated: 2026-03-29 — added v0.2.9 features. -->
 
 # Memory Architecture
@@ -117,6 +121,103 @@ Acme --[builds]--> User
 FastAPI --[uses]--> User
 ```
 
+
+## Memory Layers and Domains (v0.4.0, #41)
+
+Up to 0.3.x the four built-in tiers (`core`, `episodic`, `semantic`, `procedural`) were the only memory namespaces. v0.4.0 generalises this in two directions:
+
+- **Layers** are free-form strings. The four built-ins keep their names and dedicated stores. A new `social` layer ships for relationship memories. Anything else is allowed — `MemoryEntry(layer="preferences")` is fine.
+- **Domains** are sub-namespaces inside a layer. An entry can sit in `layer="semantic"` with `domain="finance"` while another sits in `layer="semantic"` with `domain="legal"`. Domain defaults to `"default"` so 0.3.x souls round-trip without migration.
+
+### Layer constants
+
+The well-known names live in `soul_protocol.spec.memory`:
+
+```python
+from soul_protocol.spec.memory import (
+    LAYER_CORE,        # "core"
+    LAYER_EPISODIC,    # "episodic"
+    LAYER_SEMANTIC,    # "semantic"
+    LAYER_PROCEDURAL,  # "procedural"
+    LAYER_SOCIAL,      # "social"
+    DEFAULT_DOMAIN,    # "default"
+)
+```
+
+The runtime `MemoryType` StrEnum keeps the same value strings so existing code that compares `entry.type == MemoryType.SEMANTIC` keeps working.
+
+### LayerView — uniform accessor
+
+`MemoryManager.layer(name)` returns a `LayerView` that exposes the same small API for every layer regardless of which store actually backs it:
+
+```python
+view = soul._memory.layer("social")
+sid = await view.store(MemoryEntry(
+    type=MemoryType.SEMANTIC,
+    content="Alice prefers async messages",
+    importance=8,
+))
+results = await view.query("alice")          # search the layer
+recent = view.entries(domain="finance")      # cross-domain or filtered
+n = view.count(domain="finance")
+```
+
+Custom layer names are created lazily on first `store()` call. The legacy attribute access (`manager._semantic`, `manager._episodic`, ...) keeps working; `LayerView` is additive.
+
+### Domain stamping
+
+`Soul.remember()` and `Soul.observe()` accept a `domain` keyword:
+
+```python
+await soul.remember("Q3 revenue up 12%", domain="finance", importance=8)
+await soul.observe(interaction, domain="finance")
+```
+
+The stamp lands on every memory written by that call (episodic + extracted facts).
+
+### Domain-aware recall
+
+`Soul.recall()` and `MemoryManager.recall()` accept `layer` and `domain` filters:
+
+```python
+fin = await soul.recall("revenue", layer="semantic", domain="finance")
+all_finance = await soul.recall("budget", domain="finance")  # any layer
+all_semantic = await soul.recall("python", layer="semantic")  # any domain
+```
+
+When neither filter is set, behaviour matches pre-#41 (cross-tier search across every domain).
+
+### DomainIsolationMiddleware
+
+When you want to hand one user / agent a sandboxed view of the soul, wrap it:
+
+```python
+from soul_protocol.runtime.middleware import DomainIsolationMiddleware
+
+finance_only = DomainIsolationMiddleware(
+    soul, allowed_domains=["finance", "default"]
+)
+await finance_only.remember("New OPEX line", importance=7)  # → "finance"
+results = await finance_only.recall("revenue")              # filtered
+await finance_only.remember("NDA fact", domain="legal")      # raises
+```
+
+Reads silently filter to the allow-list. Writes to a disallowed domain raise `DomainAccessError`. When no domain is given, the middleware defaults to `allowed_domains[0]`.
+
+### On-disk layout
+
+The persistence layer picks between two shapes:
+
+- **Flat (legacy)**: every entry has `domain="default"` and uses a built-in layer. The on-disk shape is the pre-#41 `memory/episodic.json` + `memory/semantic.json` + `memory/procedural.json` + `memory/social.json` form, plus the unchanged companion files (`core.json`, `graph.json`, `self_model.json`, `general_events.json`).
+- **Nested (layered)**: as soon as one entry uses a non-default domain or a custom layer name appears, the layout switches to `memory/<layer>/<domain>/entries.json`. A small `memory/_layout.json` marker records the choice. Custom layers (`memory/preferences/finance/entries.json`, ...) live alongside built-ins. Loaders auto-detect the layout — flat souls keep working, nested souls round-trip cleanly.
+
+Both shapes are read transparently on awaken; you never have to call `soul migrate` for #41.
+
+### Auto-migration
+
+Loading a 0.3.x soul (no `domain` field, no `layer` field on `MemoryEntry`) populates `domain="default"` and derives `layer` from `type` automatically via a Pydantic `model_validator`. There is no separate migration step.
+
+---
 
 ## Memory Visibility Tiers (v0.2.5)
 

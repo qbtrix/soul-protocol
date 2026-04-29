@@ -132,10 +132,11 @@ Store a memory directly, bypassing the observe pipeline.
 |-----------|------|---------|-------------|
 | `content` | `str` | required | The memory content |
 | `importance` | `int` | `5` | Importance on a 1-10 scale |
-| `memory_type` | `str` | `"semantic"` | One of: `episodic`, `semantic`, `procedural`. The `core` type is rejected — use `soul://memory/core` resource to read core memory. |
+| `memory_type` | `str` | `"semantic"` | One of: `episodic`, `semantic`, `procedural`, `social`. The `core` type is rejected — use `soul://memory/core` resource to read core memory. The `social` value (#41) targets the relationship layer. |
 | `emotion` | `str` | `None` | Optional emotion label (e.g. "joy", "frustration") |
+| `domain` | `str` | `"default"` | Domain sub-namespace inside the layer (#41), e.g. `"finance"` or `"legal"`. |
 
-**Returns:** JSON with `memory_id`, `type`, and `importance`.
+**Returns:** JSON with `memory_id`, `type`, `domain`, and `importance`.
 
 ---
 
@@ -149,8 +150,10 @@ Search the soul's memories by natural language query. Results are ranked by ACT-
 | `limit` | `int` | `5` | Maximum number of results |
 | `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
 | `user_id` | `str \| None` | `None` | Multi-user filter (#46). When set, restrict results to memories attributed to this `user_id`, plus any legacy entries with no `user_id`. When unset, returns all memories regardless of attribution. |
+| `layer` | `str \| None` | `None` | Restrict recall to one layer (#41). Accepts built-in names (`episodic`, `semantic`, `procedural`, `social`) or any custom layer name. |
+| `domain` | `str \| None` | `None` | Restrict recall to one domain sub-namespace (#41), e.g. `"finance"`. |
 
-**Returns:** JSON with `count`, `soul`, and `memories` array. Each memory includes `id`, `type`, `content`, `importance`, `emotion`, and `user_id`.
+**Returns:** JSON with `count`, `soul`, and `memories` array. Each memory includes `id`, `type`, `layer`, `domain`, `content`, `importance`, `emotion`, and `user_id`.
 
 ---
 
