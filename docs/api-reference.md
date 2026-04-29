@@ -1174,3 +1174,129 @@ from soul_protocol import EvolutionMode
 | `EvolutionMode.DISABLED` | `"disabled"` | No mutations allowed |
 | `EvolutionMode.SUPERVISED` | `"supervised"` | Mutations require explicit approval |
 | `EvolutionMode.AUTONOMOUS` | `"autonomous"` | Mutations auto-approved on proposal |
+
+---
+
+## Trust Chain (#42)
+
+Verifiable signed history of every audit-worthy soul action. See [trust-chain.md](trust-chain.md) for the threat model and detailed treatment.
+
+### `soul.trust_chain`
+
+```python
+@property
+def trust_chain(self) -> TrustChain
+```
+
+Read-only `TrustChain` view. The chain is mutated by Soul's lifecycle hooks; for direct mutation use `soul.trust_chain_manager`.
+
+### `soul.trust_chain_manager`
+
+```python
+@property
+def trust_chain_manager(self) -> TrustChainManager
+```
+
+The `TrustChainManager` instance. Use `manager.append(action, payload)` to record a custom action that the built-in hooks don't cover.
+
+### `soul.verify_chain()`
+
+```python
+def verify_chain(self) -> tuple[bool, str | None]
+```
+
+Returns `(True, None)` on a fully valid chain, or `(False, "reason at seq N")` on the first failure.
+
+### `soul.audit_log()`
+
+```python
+def audit_log(
+    self,
+    *,
+    action_prefix: str | None = None,
+    limit: int | None = None,
+) -> list[dict]
+```
+
+Returns a list of `{seq, timestamp, action, actor_did, payload_hash}` dicts. Filter by dot-namespaced action prefix (e.g. `"memory."`) and/or take only the most recent N rows.
+
+### `Soul.export(include_keys=...)`
+
+```python
+async def export(
+    self,
+    path: str | Path,
+    *,
+    password: str | None = None,
+    archive: bool = False,
+    archive_tiers: list[str] | None = None,
+    include_keys: bool = False,
+) -> None
+```
+
+When `include_keys=False` (default for `export`), the soul's private signing key is dropped from the archive. The recipient can verify the chain but cannot append. Set `include_keys=True` only when migrating to a trusted destination.
+
+`Soul.save()` and `Soul.save_local()` default `include_keys=True` because they're meant for the owner's own machine.
+
+### `TrustEntry`
+
+```python
+class TrustEntry(BaseModel):
+    seq: int                                # 0-indexed monotonic
+    timestamp: datetime                     # UTC, validator-normalized
+    actor_did: str                          # signer DID
+    action: str                             # dot-namespaced (memory.write, …)
+    payload_hash: str                       # SHA-256 hex of canonical payload JSON
+    prev_hash: str                          # hash of previous entry (or GENESIS_PREV_HASH)
+    signature: str                          # base64 Ed25519 signature
+    algorithm: str = "ed25519"
+    public_key: str                         # base64 raw 32-byte public key
+```
+
+### `TrustChain`
+
+```python
+class TrustChain(BaseModel):
+    did: str
+    entries: list[TrustEntry]
+
+    @property
+    def length(self) -> int
+    def head(self) -> TrustEntry | None
+    def genesis_entry(self) -> TrustEntry | None
+```
+
+### `SignatureProvider` Protocol
+
+```python
+@runtime_checkable
+class SignatureProvider(Protocol):
+    @property
+    def algorithm(self) -> str: ...
+    @property
+    def public_key(self) -> str: ...
+    def sign(self, message: bytes) -> str: ...
+    def verify(self, message: bytes, signature: str, public_key: str) -> bool: ...
+```
+
+The default implementation is `Ed25519SignatureProvider` from `soul_protocol.runtime.crypto`.
+
+### Verification functions
+
+```python
+from soul_protocol.spec.trust import (
+    verify_entry,
+    verify_chain,
+    chain_integrity_check,
+    compute_payload_hash,
+    compute_entry_hash,
+    GENESIS_PREV_HASH,
+)
+```
+
+- `verify_entry(entry, prev_entry, provider=None) -> bool` — single-entry verification (signature + chain link)
+- `verify_chain(chain) -> tuple[bool, str | None]` — full chain, returns first failure reason
+- `chain_integrity_check(chain) -> dict` — `{valid, length, first_failure, signers}` summary
+- `compute_payload_hash(payload) -> str` — canonical-JSON SHA-256 hex of an arbitrary payload
+- `compute_entry_hash(entry) -> str` — canonical-JSON SHA-256 hex of the entry minus its signature
+- `GENESIS_PREV_HASH` — the constant `"0" * 64` used as the prev_hash of seq=0

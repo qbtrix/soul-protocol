@@ -1,4 +1,10 @@
 # export/pack.py — Create .soul zip archives from a SoulConfig.
+# Updated: 2026-04-29 (#42) — Trust chain is written to ``trust_chain/chain.json``
+#   (canonical Pydantic-serialized form) plus ``trust_chain/entry_NNN.json`` for
+#   human inspection. Soul keys are persisted under ``keys/`` — public.key always,
+#   private.key only when ``include_keys=True``. Trust chain + key files are
+#   passed in via ``trust_chain_data`` and ``key_files`` so this module stays
+#   ignorant of the runtime managers.
 # Updated: 2026-04-29 (#41) — Added social tier and custom_layers to the
 #   archive. Social entries get their own ``memory/social.json`` so legacy
 #   flat-layout readers see them. Custom layers (any user-defined layer
@@ -29,6 +35,8 @@ async def pack_soul(
     memory_data: dict | None = None,
     *,
     password: str | None = None,
+    trust_chain_data: dict | None = None,
+    key_files: dict[str, bytes] | None = None,
 ) -> bytes:
     """Create a ``.soul`` zip archive from a ``SoulConfig``.
 
@@ -40,6 +48,11 @@ async def pack_soul(
     - ``state.json`` — current ``SoulState`` snapshot
     - ``memory/core.json`` — ``CoreMemory`` (persona + human)
 
+    Optionally:
+
+    - ``trust_chain/chain.json`` + ``trust_chain/entry_NNN.json`` (#42)
+    - ``keys/public.key`` + ``keys/private.key`` (#42 — private only when included)
+
     When ``password`` is provided, all files except ``manifest.json`` are
     encrypted with AES-256-GCM. Encrypted files get a ``.enc`` extension.
 
@@ -47,6 +60,13 @@ async def pack_soul(
         config: The SoulConfig to archive.
         memory_data: Optional full memory state dict.
         password: Optional password for encryption. If None, no encryption.
+        trust_chain_data: Optional Pydantic-serialized TrustChain dict
+            (i.e. TrustChain.model_dump(mode='json')). When present, the
+            chain is written to ``trust_chain/chain.json`` and each entry
+            to ``trust_chain/entry_NNN.json``.
+        key_files: Optional ``{filename: bytes}`` keystore mapping. The
+            caller (Soul.export) decides whether to include the private
+            key. Empty/None skips the keys/ directory entirely.
 
     Returns:
         The zip archive as raw bytes.
@@ -115,6 +135,28 @@ async def pack_soul(
                     "memory/custom_layers.json",
                     json.dumps(custom_layers, indent=2, default=str),
                 )
+
+        # v0.4.0 (#42) — Trust chain. Skipped entirely when no chain or empty
+        # entries — keeps legacy souls free of trust_chain/.
+        if trust_chain_data and trust_chain_data.get("entries"):
+            _write(
+                zf,
+                "trust_chain/chain.json",
+                json.dumps(trust_chain_data, indent=2, default=str),
+            )
+            for entry in trust_chain_data.get("entries", []):
+                seq = entry.get("seq", 0)
+                _write(
+                    zf,
+                    f"trust_chain/entry_{seq:03d}.json",
+                    json.dumps(entry, indent=2, default=str),
+                )
+
+        # v0.4.0 (#42) — Keystore. public.key always when present; private.key
+        # only when the caller (Soul.export) opted into include_keys=True.
+        if key_files:
+            for fname, data_bytes in key_files.items():
+                _write(zf, fname, data_bytes)
 
         # manifest.json — archive metadata (always unencrypted, written last)
         manifest = SoulManifest(

@@ -1,4 +1,8 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-04-29 (#42) — Trust chain commands: ``soul verify`` checks
+#   integrity of a soul's signed action history. ``soul audit`` prints a
+#   human-readable timeline; supports --filter <prefix> and --limit; --json
+#   for machine output.
 # Updated: 2026-04-29 (#46) — Multi-user soul support. ``soul observe`` and
 #   ``soul recall`` accept ``--user <id>``; the user_id pipes through to
 #   Soul.observe() / Soul.recall() so memory writes get attributed and
@@ -230,7 +234,7 @@ def birth(
                 )
 
         out = output or f"./{_safe_name(soul.name)}.soul"
-        await soul.export(out)
+        await soul.export(out, include_keys=True)
         console.print(f"[dim]Saved to {out}[/dim]")
 
     asyncio.run(_birth())
@@ -603,7 +607,7 @@ def export_cmd(source, output, fmt):
         out = output or f"{_safe_name(soul.name)}.{fmt}"
 
         if fmt == "soul":
-            await soul.export(out)
+            await soul.export(out, include_keys=True)
         elif fmt == "json":
             Path(out).write_text(soul.serialize().model_dump_json(indent=2))
         elif fmt == "yaml":
@@ -661,7 +665,7 @@ def migrate(source, output):
 
         content = Path(source).read_text()
         soul = await Soul.from_markdown(content)
-        await soul.export(output)
+        await soul.export(output, include_keys=True)
         console.print(f"[green]Migrated[/green] {soul.name} from SOUL.md to {output}")
 
     asyncio.run(_migrate())
@@ -1090,7 +1094,7 @@ def remember_cmd(path, text, importance, emotion, memory_type, domain):
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         console.print(
             Panel(
@@ -1463,7 +1467,7 @@ def import_soulspec_cmd(source, output):
 
         soul = await SoulSpecImporter.from_directory(source)
         out = output or f"{_safe_name(soul.name)}.soul"
-        await soul.export(out)
+        await soul.export(out, include_keys=True)
         console.print(
             f"[green]Imported[/green] SoulSpec [bold]{soul.name}[/bold] from {source} -> {out}"
         )
@@ -1527,7 +1531,7 @@ def import_tavernai_cmd(source, output):
             soul = await TavernAIImporter.from_json(data)
 
         out = output or f"{_safe_name(soul.name)}.soul"
-        await soul.export(out)
+        await soul.export(out, include_keys=True)
         console.print(
             f"[green]Imported[/green] TavernAI card [bold]{soul.name}[/bold] from {source} -> {out}"
         )
@@ -1624,7 +1628,7 @@ def import_a2a_cmd(file, output):
         card_data = json.loads(Path(file).read_text())
         soul = A2AAgentCardBridge.agent_card_to_soul(card_data)
         out = output or f"{_safe_name(soul.name)}.soul"
-        await soul.export(out)
+        await soul.export(out, include_keys=True)
         console.print(
             f"[green]Imported[/green] soul [bold]{soul.name}[/bold] from Agent Card → {out}"
         )
@@ -1642,7 +1646,7 @@ def _save_soul(soul, path):
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
     asyncio.run(_do_save())
 
@@ -1688,7 +1692,7 @@ def observe_cmd(path, user_input, agent_output, channel, user_id):
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         mood = soul.state.mood.value
         energy = soul.state.energy
@@ -1737,7 +1741,7 @@ def reflect_cmd(path, no_apply):
             if Path(path).is_dir():
                 await soul.save_local(path)
             else:
-                await soul.export(path)
+                await soul.export(path, include_keys=True)
 
         lines = []
         if result.themes:
@@ -1823,7 +1827,7 @@ def dream_cmd(path, since, no_archive, no_synthesize, dry_run, as_json):
             if Path(path).is_dir():
                 await soul.save_local(path)
             else:
-                await soul.export(path)
+                await soul.export(path, include_keys=True)
 
         if as_json:
             import dataclasses
@@ -1984,7 +1988,7 @@ def feel_cmd(path, mood, energy, focus):
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         state = soul.state
         focus_label = state.focus
@@ -2142,7 +2146,7 @@ def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confi
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         msg = (
             f"[yellow]Forgot[/yellow] {total} memor{'y' if total == 1 else 'ies'} "
@@ -2237,7 +2241,7 @@ def supersede_cmd(path, new_content, old_id, reason, importance, emotion, memory
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         console.print(
             Panel(
@@ -2284,7 +2288,7 @@ def edit_core_cmd(path, persona, human):
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         core = soul.get_core_memory()
         console.print(
@@ -2342,7 +2346,7 @@ def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_
             if Path(path).is_dir():
                 await soul.save_local(path)
             else:
-                await soul.export(path)
+                await soul.export(path, include_keys=True)
             console.print(
                 f"[green]Proposed[/green] mutation [bold]{mutation.id}[/bold]\n"
                 f"  Trait:  {mutation.trait}\n"
@@ -2356,7 +2360,7 @@ def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_
                 if Path(path).is_dir():
                     await soul.save_local(path)
                 else:
-                    await soul.export(path)
+                    await soul.export(path, include_keys=True)
                 console.print(f"[green]Approved[/green] mutation {approve_id}")
             else:
                 console.print(f"[red]Could not approve[/red] mutation {approve_id}")
@@ -2366,7 +2370,7 @@ def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_
                 if Path(path).is_dir():
                     await soul.save_local(path)
                 else:
-                    await soul.export(path)
+                    await soul.export(path, include_keys=True)
                 console.print(f"[yellow]Rejected[/yellow] mutation {reject_id}")
             else:
                 console.print(f"[red]Could not reject[/red] mutation {reject_id}")
@@ -2446,7 +2450,7 @@ def evaluate_cmd(path, user_input, agent_output, domain):
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         # Display results
         lines = [
@@ -2508,7 +2512,7 @@ def learn_cmd(path, user_input, agent_output, domain):
         if Path(path).is_dir():
             await soul.save_local(path)
         else:
-            await soul.export(path)
+            await soul.export(path, include_keys=True)
 
         if event is None:
             console.print("[dim]No notable learning from this interaction.[/dim]")
@@ -2598,7 +2602,7 @@ def bond_cmd(path, strengthen):
             if Path(path).is_dir():
                 await soul.save_local(path)
             else:
-                await soul.export(path)
+                await soul.export(path, include_keys=True)
             console.print(f"[green]Strengthened[/green] bond for [bold]{soul.name}[/bold]")
 
         strength = bond.bond_strength
@@ -3020,7 +3024,7 @@ def cleanup_cmd(
         from soul_protocol.runtime.backup import backup_soul_file
 
         bak = backup_soul_file(path)
-        await soul.export(path)
+        await soul.export(path, include_keys=True)
         msg = f"\n[green]✓ Cleaned {removed} items. Soul saved.[/]"
         if bak is not None:
             msg += f" [dim](backup: {bak.name})[/dim]"
@@ -3106,7 +3110,7 @@ def repair_cmd(
             return
 
         # Save
-        await soul.export(path)
+        await soul.export(path, include_keys=True)
 
         lines = [f"[bold]{soul.name}[/bold] — Repairs Applied", ""]
         for change in changes:
@@ -3116,6 +3120,140 @@ def repair_cmd(
         console.print(Panel("\n".join(lines), title="Soul Repair", border_style="green"))
 
     asyncio.run(_repair())
+
+
+# ============================================================================
+# Trust chain (#42) — verify + audit commands
+# ============================================================================
+
+
+@cli.command("verify")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit machine-readable JSON.")
+def verify_cmd(path, as_json):
+    """Verify the trust chain of a .soul file or directory.
+
+    \b
+    Examples:
+      soul verify .soul/
+      soul verify aria.soul
+      soul verify aria.soul --json
+
+    Exits 0 on a valid chain, 1 on any verification failure.
+    """
+
+    async def _verify():
+        from soul_protocol.runtime.soul import Soul
+        from soul_protocol.spec.trust import chain_integrity_check
+
+        soul = await Soul.awaken(path)
+        summary = chain_integrity_check(soul.trust_chain)
+
+        # Compute time span (first → last entry)
+        entries = soul.trust_chain.entries
+        time_span = None
+        if entries:
+            first = entries[0].timestamp
+            last = entries[-1].timestamp
+            time_span = (last - first).total_seconds()
+
+        if as_json:
+            payload = {
+                "soul": soul.name,
+                "did": soul.did,
+                "valid": summary["valid"],
+                "length": summary["length"],
+                "signers": builtins.list(summary["signers"]),
+                "first_failure": summary["first_failure"],
+                "time_span_seconds": time_span,
+            }
+            console.print_json(data=payload)
+            sys.exit(0 if summary["valid"] else 1)
+
+        if summary["valid"]:
+            console.print(f"[green]✓[/green] Chain verified for [bold]{soul.name}[/bold]")
+            console.print(f"  Entries: [cyan]{summary['length']}[/cyan]")
+            console.print(f"  Signers: [cyan]{len(summary['signers'])}[/cyan]")
+            if time_span is not None:
+                # Pretty time span
+                if time_span < 60:
+                    span_text = f"{time_span:.1f}s"
+                elif time_span < 3600:
+                    span_text = f"{time_span / 60:.1f}m"
+                elif time_span < 86400:
+                    span_text = f"{time_span / 3600:.1f}h"
+                else:
+                    span_text = f"{time_span / 86400:.1f}d"
+                console.print(f"  Time span: [cyan]{span_text}[/cyan]")
+            sys.exit(0)
+        else:
+            failure = summary["first_failure"] or {}
+            seq = failure.get("seq")
+            reason = failure.get("reason", "unknown")
+            console.print(f"[red]✗[/red] Chain verification failed for [bold]{soul.name}[/bold]")
+            console.print(f"  First failure at seq [red]{seq}[/red]: {reason}")
+            sys.exit(1)
+
+    asyncio.run(_verify())
+
+
+@cli.command("audit")
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--filter",
+    "action_prefix",
+    default=None,
+    help="Filter actions by prefix (e.g. 'memory.').",
+)
+@click.option("--limit", type=int, default=None, help="Show only the most recent N entries.")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit machine-readable JSON.")
+def audit_cmd(path, action_prefix, limit, as_json):
+    """Print a human-readable timeline of signed actions.
+
+    \b
+    Examples:
+      soul audit .soul/
+      soul audit .soul/ --filter memory.
+      soul audit aria.soul --limit 20
+      soul audit aria.soul --json
+    """
+
+    async def _audit():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        log = soul.audit_log(action_prefix=action_prefix, limit=limit)
+
+        if as_json:
+            console.print_json(data={"soul": soul.name, "did": soul.did, "entries": log})
+            return
+
+        if not log:
+            scope = f" (filter: {action_prefix})" if action_prefix else ""
+            console.print(f"[yellow]No audit entries{scope} for {soul.name}.[/yellow]")
+            return
+
+        table = Table(title=f"{soul.name} — Trust Chain Audit", show_lines=False)
+        table.add_column("Seq", style="cyan", justify="right")
+        table.add_column("Timestamp", style="dim")
+        table.add_column("Action", style="bold")
+        table.add_column("Actor", style="green")
+        table.add_column("Payload Hash", style="dim")
+        for row in log:
+            ts = row["timestamp"]
+            # Trim microseconds for display
+            if "." in ts:
+                ts = ts.split(".", 1)[0] + ts[ts.index("+") :] if "+" in ts else ts.split(".", 1)[0]
+            table.add_row(
+                str(row["seq"]),
+                ts,
+                row["action"],
+                row["actor_did"],
+                row["payload_hash"][:12] + "…",
+            )
+        console.print(table)
+
+    asyncio.run(_audit())
 
 
 if __name__ == "__main__":

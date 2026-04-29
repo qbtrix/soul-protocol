@@ -1,4 +1,9 @@
 # bond.py — Human-Soul Bond model for tracking relationship strength
+# Updated: 2026-04-29 (#42) — BondRegistry now accepts an optional
+#   ``on_change`` callback ``(action, user_id, delta, new_strength) -> None``
+#   that fires after each strengthen/weaken. Soul wires it to its
+#   TrustChainManager so bond mutations land in the signed audit log.
+#   Pure additive: existing callers that ignore the callback see no change.
 # Updated: 2026-04-29 (#46) — Added BondRegistry for multi-user soul support.
 #   Wraps a default Bond plus a dict of per-user bonds keyed by user_id.
 #   Exposes Bond-like proxy attributes (bond_strength, interaction_count,
@@ -18,11 +23,19 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
 
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+
+# Callback signature: (action, user_id, delta, new_strength).
+# action ∈ {"bond.strengthen", "bond.weaken"}; user_id is None for the
+# default bond. Used by Soul to bridge bond mutations into the trust chain
+# without leaking trust-chain knowledge into Bond/BondRegistry.
+BondChangeCallback = Callable[[str, str | None, float, float], None]
 
 
 class Bond(BaseModel):
@@ -74,9 +87,15 @@ class BondRegistry:
         self,
         default: Bond | None = None,
         per_user: dict[str, Bond] | None = None,
+        on_change: BondChangeCallback | None = None,
     ) -> None:
         self._default = default if default is not None else Bond()
         self._per_user: dict[str, Bond] = dict(per_user) if per_user else {}
+        self._on_change: BondChangeCallback | None = on_change
+
+    def set_on_change(self, callback: BondChangeCallback | None) -> None:
+        """Install or replace the change callback. Use ``None`` to detach."""
+        self._on_change = callback
 
     # ---- Bond proxy attributes (default bond) ----
 
@@ -146,18 +165,30 @@ class BondRegistry:
         """Strengthen the bond — default bond if user_id is None, else per-user.
 
         Per-user bonds are created on first call with default strength=50.
+        Fires ``on_change("bond.strengthen", user_id, amount, new_strength)``
+        when a callback is installed (#42).
         """
-        if user_id is None:
-            self._default.strengthen(amount)
-        else:
-            self.for_user(user_id).strengthen(amount)
+        bond = self._default if user_id is None else self.for_user(user_id)
+        bond.strengthen(amount)
+        if self._on_change is not None:
+            try:
+                self._on_change("bond.strengthen", user_id, amount, bond.bond_strength)
+            except Exception as e:  # pragma: no cover — defensive
+                logger.warning("BondRegistry on_change callback failed: %s", e)
 
     def weaken(self, amount: float = 0.5, *, user_id: str | None = None) -> None:
-        """Weaken the bond — default if user_id is None, else per-user."""
-        if user_id is None:
-            self._default.weaken(amount)
-        else:
-            self.for_user(user_id).weaken(amount)
+        """Weaken the bond — default if user_id is None, else per-user.
+
+        Fires ``on_change("bond.weaken", user_id, amount, new_strength)`` when
+        a callback is installed (#42).
+        """
+        bond = self._default if user_id is None else self.for_user(user_id)
+        bond.weaken(amount)
+        if self._on_change is not None:
+            try:
+                self._on_change("bond.weaken", user_id, amount, bond.bond_strength)
+            except Exception as e:  # pragma: no cover — defensive
+                logger.warning("BondRegistry on_change callback failed: %s", e)
 
     # ---- Serialization ----
 

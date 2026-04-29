@@ -1,5 +1,9 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 28 tools (23 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# 30 tools (25 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-04-29 (#42) — Trust chain tools: ``soul_verify`` returns chain
+#   integrity status; ``soul_audit`` returns the human-readable timeline of
+#   signed actions, with optional action_prefix and limit. JSON-only output —
+#   designed for agent consumption.
 # Updated: 2026-04-29 (#46) — Multi-user soul support. ``soul_observe`` and
 #   ``soul_recall`` accept an optional ``user_id`` parameter that pipes
 #   through to the runtime so memories get attributed and recall results
@@ -1615,6 +1619,62 @@ async def soul_context_describe(
             ],
         }
     )
+
+
+# --- Trust chain tools (#42, 2 tools) ---
+
+
+@mcp.tool
+async def soul_verify(
+    soul: str | None = None,
+) -> str:
+    """Verify the trust chain integrity for a soul.
+
+    Returns JSON ``{soul, did, valid, length, signers, first_failure}``.
+    The chain is the soul's append-only signed history of all
+    audit-worthy actions (memory writes, supersedes, evolution events,
+    learning events, bond changes). A chain that fails verification has
+    been tampered with — never trust the soul's claimed history.
+
+    Args:
+        soul: Target soul name (uses active soul if omitted).
+    """
+    from soul_protocol.spec.trust import chain_integrity_check
+
+    s = await _resolve_soul(soul)
+    summary = chain_integrity_check(s.trust_chain)
+    return json.dumps(
+        {
+            "soul": s.name,
+            "did": s.did,
+            "valid": summary["valid"],
+            "length": summary["length"],
+            "signers": list(summary["signers"]),
+            "first_failure": summary["first_failure"],
+        }
+    )
+
+
+@mcp.tool
+async def soul_audit(
+    action_prefix: str | None = None,
+    limit: int | None = None,
+    soul: str | None = None,
+) -> str:
+    """Return a human-readable timeline of signed actions on the soul's chain.
+
+    Each row carries ``{seq, timestamp, action, actor_did, payload_hash}``.
+    Use ``action_prefix`` (e.g. ``"memory."``) to scope to one category.
+    Use ``limit`` to take only the most recent N rows (tail behaviour).
+
+    Args:
+        action_prefix: Optional dot-namespaced prefix filter.
+        limit: Optional cap on number of rows (most-recent-N).
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    log = s.audit_log(action_prefix=action_prefix, limit=limit)
+    return json.dumps({"soul": s.name, "did": s.did, "entries": log})
 
 
 # --- Resources (3) ---

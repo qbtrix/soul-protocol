@@ -1,4 +1,7 @@
-<!-- Covers: CLI installation, all 45 commands with usage examples, options tables, and output descriptions.
+<!-- Covers: CLI installation, all 47 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-04-29 — v0.4.0 (#42): Added `soul verify` and `soul audit` for trust-chain
+       integrity checks and signed-action timelines. Both support --json. `soul verify` exits
+       1 on a tampered chain. Count: 45 → 47.
      Updated: 2026-04-27 — Added `soul supersede` for user-driven memory updates (writes a new
        memory and links the old one's `superseded_by`, preserving provenance). Added `--id`
        option to `soul forget` for surgical single-id deletion (audited). Updated `soul forget`
@@ -1362,12 +1365,78 @@ soul eternal-status .soul/
 
 ---
 
+## Trust chain (#42)
+
+### `soul verify`
+
+Verify the trust chain integrity of a soul. Exits 0 on a valid chain, 1 on tampering.
+
+```bash
+soul verify <path>
+soul verify <path> --json
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a `.soul` file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--json` | flag | false | Emit machine-readable JSON. |
+
+**Examples:**
+
+```bash
+soul verify .soul/
+soul verify aria.soul
+soul verify aria.soul --json | jq .valid
+```
+
+**Human output:** soul name, chain length, signer count, and time span between first/last entry.
+
+**JSON output:** `{soul, did, valid, length, signers, first_failure, time_span_seconds}`.
+
+---
+
+### `soul audit`
+
+Print a human-readable timeline of every signed action on the soul's trust chain.
+
+```bash
+soul audit <path>
+soul audit <path> --filter memory.
+soul audit <path> --limit 20
+soul audit <path> --json
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a `.soul` file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--filter <prefix>` | str | none | Filter to actions starting with `<prefix>` (e.g. `memory.`). |
+| `--limit <N>` | int | none | Show only the most recent N entries. |
+| `--json` | flag | false | Emit machine-readable JSON. |
+
+The default output is a Rich table (Seq, Timestamp, Action, Actor, Payload Hash). Payloads are stored as hashes only — the table shows *what changed when*, not *what was written*.
+
+---
+
 ## Exit Codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Error (missing file, invalid format, user cancelled) |
+| 1 | Error (missing file, invalid format, user cancelled, chain verification failed) |
 
 ## File Format Support
 

@@ -1,4 +1,9 @@
 # export/unpack.py — Load a SoulConfig from a .soul zip archive.
+# Updated: 2026-04-29 (#42) — Read the trust chain (trust_chain/chain.json)
+#   and key files (keys/public.key, keys/private.key) when present. Both are
+#   optional — souls predating #42 just have an empty chain. Returns the
+#   chain dict under ``memory_data["trust_chain"]`` and key bytes under
+#   ``memory_data["keys"]`` so the Soul layer can rehydrate cleanly.
 # Updated: 2026-04-29 (#41) — Read the social tier (memory/social.json) and
 #   user-defined layers (memory/custom_layers.json) when present. Both are
 #   optional, so older archives without these entries keep loading cleanly.
@@ -119,6 +124,25 @@ async def unpack_soul(
         dna_exists = ("dna.md.enc" in names) if is_encrypted else ("dna.md" in names)
         if dna_exists:
             memory_data["dna_md"] = _read("dna.md").decode("utf-8")
+
+        # v0.4.0 (#42) — Trust chain. Empty/absent for legacy souls — that's
+        # the equivalent of an empty TrustChain so the Soul awakens cleanly.
+        chain_path = "trust_chain/chain.json"
+        chain_exists = (f"{chain_path}.enc" in names) if is_encrypted else (chain_path in names)
+        if chain_exists:
+            memory_data["trust_chain"] = json.loads(_read(chain_path))
+
+        # v0.4.0 (#42) — Keystore (raw 32-byte Ed25519 keys). Public is
+        # always optional; private is only present when ``include_keys=True``
+        # was used at export time. We expose them as a flat dict so the Soul
+        # layer can hand the bytes to Keystore.from_archive_files().
+        keys: dict[str, bytes] = {}
+        for kf in ("keys/public.key", "keys/private.key"):
+            kf_exists = (f"{kf}.enc" in names) if is_encrypted else (kf in names)
+            if kf_exists:
+                keys[kf] = _read(kf)
+        if keys:
+            memory_data["keys"] = keys
 
     config = SoulConfig.model_validate(payload)
     logger.debug(
