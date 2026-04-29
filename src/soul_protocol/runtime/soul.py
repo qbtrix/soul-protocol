@@ -1,4 +1,13 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-29 (#42) — Trust chain integration. Soul.__init__ instantiates
+#   a TrustChainManager + Ed25519SignatureProvider; keys load from the soul's
+#   keystore when available, generated otherwise. Memory writes (observe),
+#   supersedes, forgets, evolution proposed/applied, learning events, and bond
+#   strengthen/weaken now append signed entries to the chain. New properties:
+#   soul.trust_chain, soul.trust_chain_manager, soul.verify_chain(),
+#   soul.audit_log(). New export option: include_keys=False (default) drops the
+#   private key but keeps the public key so verification works on the receiving
+#   side without giving the recipient the soul's signing power.
 # Updated: 2026-04-29 (#41) — User-defined layers + domain isolation. The
 #   remember(), observe(), and recall() methods accept a ``domain`` keyword
 #   that stamps / filters memories by sub-namespace. recall() also accepts
@@ -123,9 +132,14 @@ from typing import Any
 
 from soul_protocol.spec.learning import LearningEvent
 from soul_protocol.spec.trace import RetrievalTrace, TraceCandidate
+from soul_protocol.spec.trust import TrustChain
 
 from .bond import Bond, BondRegistry
 from .cognitive.engine import CognitiveEngine
+from .crypto.ed25519 import Ed25519SignatureProvider
+from .crypto.keystore import (
+    Keystore,
+)
 from .dna.prompt import dna_to_system_prompt
 from .dream import Dreamer, DreamReport
 from .eternal.manager import EternalStorageManager
@@ -138,6 +152,7 @@ from .memory.manager import MemoryManager
 from .memory.strategy import SearchStrategy
 from .skills import Skill, SkillRegistry
 from .state.manager import StateManager
+from .trust.manager import TrustChainManager
 from .types import (
     DNA,
     Biorhythms,
@@ -165,6 +180,41 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Engine resolution helper
 # ---------------------------------------------------------------------------
+
+
+class _PublicOnlyProvider:
+    """A SignatureProvider stub for souls loaded without a private key.
+
+    Implements ``verify`` by delegating to the entry's embedded ``public_key``;
+    ``sign`` raises ``RuntimeError`` so callers know they can't append. Only
+    used internally by :meth:`Soul._restore_trust_chain` when the keystore
+    has a public key but no private key.
+    """
+
+    algorithm: str = "ed25519"
+
+    def __init__(self, public_key_bytes: bytes) -> None:
+        import base64
+
+        self._pub_b64 = (
+            base64.b64encode(public_key_bytes).decode("ascii") if public_key_bytes else ""
+        )
+
+    @property
+    def public_key(self) -> str:
+        return self._pub_b64
+
+    def sign(self, message: bytes) -> str:  # pragma: no cover — guarded above
+        raise RuntimeError(
+            "This soul was loaded without a private key (verification-only). "
+            "Restore the private key to append new trust chain entries."
+        )
+
+    def verify(self, message: bytes, signature: str, public_key: str) -> bool:
+        # Delegate to the spec-side ed25519 verifier.
+        from soul_protocol.spec.trust import _verify_with_algorithm
+
+        return _verify_with_algorithm("ed25519", message, signature, public_key)
 
 
 def _resolve_engine(engine: Any) -> CognitiveEngine | None:
@@ -412,6 +462,146 @@ class Soul:
         # each call to construct a RetrievalTrace receipt. In-memory only —
         # never serialised into the .soul file.
         self._last_retrieval: RetrievalTrace | None = None
+
+        # v0.4.0 (#42) — Trust chain. Initialized lazily-but-eagerly: provider
+        # is generated fresh on every __init__; awaken() replaces it via
+        # _restore_trust_chain() when a keystore is found in the archive.
+        # Hook bond mutations into the chain via the registry's on_change
+        # callback so bond.strengthen / bond.weaken append signed entries.
+        self._keystore: Keystore = Keystore()
+        self._signature_provider: Ed25519SignatureProvider = Ed25519SignatureProvider()
+        self._keystore.private_key_bytes = self._signature_provider.private_key_bytes
+        self._keystore.public_key_bytes = self._signature_provider.public_key_bytes
+        self._trust_chain_manager: TrustChainManager = TrustChainManager(
+            did=self._identity.did,
+            provider=self._signature_provider,
+        )
+        self._bonds.set_on_change(self._on_bond_change)
+
+    # ============ Trust chain helpers ============
+
+    def _restore_trust_chain(self, memory_data: dict) -> None:
+        """Re-hydrate the trust chain + keystore from awaken-time memory_data.
+
+        Called by ``awaken`` after the soul instance is built. Looks for
+        ``trust_chain`` (Pydantic-serialised TrustChain) and ``keys`` (dict
+        of {filename: bytes}). When the private key is missing, the soul
+        becomes verification-only — TrustChainManager.append() raises until
+        a key is restored.
+        """
+        keys = memory_data.get("keys") or {}
+        if keys:
+            self._keystore = Keystore.from_archive_files(keys)
+            if self._keystore.has_private_key:
+                self._signature_provider = Ed25519SignatureProvider(
+                    private_key_bytes=self._keystore.private_key_bytes
+                )
+            else:
+                # Public-key-only mode. Verification still works because
+                # every entry carries its own pubkey, but append() will
+                # raise. We still construct a provider so the manager has
+                # something to point at — verification path uses the
+                # entry's embedded public_key, not this provider.
+                self._signature_provider = _PublicOnlyProvider(
+                    self._keystore.public_key_bytes or b""
+                )
+
+        chain_data = memory_data.get("trust_chain")
+        chain = TrustChain.model_validate(chain_data) if chain_data else None
+        self._trust_chain_manager = TrustChainManager(
+            did=self._identity.did,
+            provider=self._signature_provider,
+            chain=chain,
+        )
+
+    def _on_bond_change(
+        self,
+        action: str,
+        user_id: str | None,
+        delta: float,
+        new_strength: float,
+    ) -> None:
+        """Bridge BondRegistry events into the trust chain (#42)."""
+        # Defensive: if the chain manager doesn't have a private key, skip
+        # silently rather than break read-only flows. Same for the no-public
+        # case which can happen during __init__ before keys are restored.
+        if not self._signature_provider.public_key:
+            return
+        self._safe_append_chain(
+            action,
+            {
+                "user_id": user_id,
+                "delta": delta,
+                "new_strength": new_strength,
+            },
+        )
+
+    def _safe_append_chain(self, action: str, payload: dict) -> None:
+        """Append an entry to the trust chain, swallowing read-only failures.
+
+        Wrapper used by every callsite (observe, supersede, forget_one,
+        propose_evolution, approve_evolution, learn, bond callback). Souls
+        loaded without a private key cannot sign — we swallow the resulting
+        error rather than break the action that just happened. Verification
+        on the receiving side still works because every entry carries its
+        own embedded public key.
+        """
+        if not self._signature_provider.public_key:
+            return
+        if isinstance(self._signature_provider, _PublicOnlyProvider):
+            return
+        try:
+            self._trust_chain_manager.append(action, payload)
+        except (ValueError, RuntimeError):
+            logger.debug(
+                "Skipping trust chain append for action=%s (no private key)",
+                action,
+            )
+
+    # ============ Trust chain public API (#42) ============
+
+    @property
+    def trust_chain(self) -> TrustChain:
+        """The soul's signed trust chain (read-only view).
+
+        For mutation API see :attr:`trust_chain_manager`.
+        """
+        return self._trust_chain_manager.chain
+
+    @property
+    def trust_chain_manager(self) -> TrustChainManager:
+        """The :class:`TrustChainManager` for advanced callers.
+
+        Most users only need :attr:`trust_chain`, :meth:`verify_chain`, and
+        :meth:`audit_log`. Reach for the manager when you need to append a
+        custom-action entry directly.
+        """
+        return self._trust_chain_manager
+
+    def verify_chain(self) -> tuple[bool, str | None]:
+        """Verify the integrity of this soul's trust chain.
+
+        Returns ``(True, None)`` on a fully valid chain, or
+        ``(False, "<reason> at seq N")`` on the first failure.
+        """
+        return self._trust_chain_manager.verify()
+
+    def audit_log(
+        self,
+        *,
+        action_prefix: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict]:
+        """Human-readable timeline of signed actions.
+
+        Each item is ``{seq, timestamp, action, actor_did, payload_hash}``.
+        Use ``action_prefix`` (e.g. ``"memory."``) to scope. Use ``limit``
+        to take only the most recent N entries.
+        """
+        return self._trust_chain_manager.audit_log(
+            action_prefix=action_prefix,
+            limit=limit,
+        )
 
     # ============ Lifecycle ============
 
@@ -754,6 +944,13 @@ class Soul:
                 search_strategy=search_strategy,
                 personality=config.dna.personality,
             )
+
+        # v0.4.0 (#42) — Restore trust chain + keystore from the archive.
+        # Legacy souls have no trust_chain entry, in which case the chain
+        # stays empty and the freshly-generated provider keeps signing.
+        # Done after MemoryManager swap so any future reactive logic that
+        # depends on memory state runs on the final manager.
+        soul._restore_trust_chain(memory_data)
 
         # F4 — Wire eternal storage
         soul._eternal = eternal
@@ -1311,6 +1508,26 @@ class Soul:
                         len(reflection.summaries),
                     )
 
+        # v0.4.0 (#42) — Append a memory.write entry to the trust chain summarising
+        # what got persisted by this observe(). We list IDs and counts only —
+        # not contents — so the chain stays compact and doesn't redundantly
+        # store memory that already lives in the tier files.
+        episodic_id = result.get("episodic_id")
+        fact_ids = [getattr(f, "id", None) for f in result.get("facts") or []]
+        all_ids = [mid for mid in [episodic_id, *fact_ids] if mid]
+        self._safe_append_chain(
+            "memory.write",
+            {
+                "user_id": user_id,
+                "domain": domain,
+                "layer": None,  # observe writes through layer-aware paths but
+                # mixes episodic + semantic; per-entry layers
+                # are recorded on the entries themselves.
+                "count": len(all_ids),
+                "ids": all_ids,
+            },
+        )
+
     async def forget_by_id(self, memory_id: str) -> bool:
         """Soul forgets a specific memory by ID. Returns True on hit.
 
@@ -1327,8 +1544,17 @@ class Soul:
         Same shape as :meth:`forget` / :meth:`forget_entity` / :meth:`forget_before`
         plus ``found`` and ``tier`` keys.  Records a deletion audit entry
         (without the deleted content) when the entry exists.
+
+        Appends a ``memory.forget`` entry to the trust chain on success
+        with ``{id, tier}`` payload (#42).
         """
-        return await self._memory.forget_by_id(memory_id)
+        result = await self._memory.forget_by_id(memory_id)
+        if result.get("found"):
+            self._safe_append_chain(
+                "memory.forget",
+                {"id": memory_id, "tier": result.get("tier")},
+            )
+        return result
 
     async def supersede(
         self,
@@ -1356,7 +1582,7 @@ class Soul:
         ``reason``.  If ``old_id`` does not resolve, ``found`` is False and
         no new memory is written.
         """
-        return await self._memory.supersede(
+        result = await self._memory.supersede(
             old_id,
             new_content,
             reason=reason,
@@ -1365,6 +1591,17 @@ class Soul:
             emotion=emotion,
             entities=entities,
         )
+        if result.get("found"):
+            # v0.4.0 (#42) — Trust chain entry for the supersede action.
+            self._safe_append_chain(
+                "memory.supersede",
+                {
+                    "old_id": result.get("old_id"),
+                    "new_id": result.get("new_id"),
+                    "reason": result.get("reason"),
+                },
+            )
+        return result
 
     async def forget(self, query: str) -> dict:
         """Forget memories matching a query across all tiers.
@@ -1729,6 +1966,16 @@ class Soul:
             event.domain,
             event.evaluation_score or 0.0,
         )
+        # v0.4.0 (#42) — Trust chain entry for the learning event.
+        self._safe_append_chain(
+            "learning.event",
+            {
+                "domain": event.domain,
+                "skill_id": getattr(event, "skill_id", None),
+                "score": event.evaluation_score,
+                "interaction_id": getattr(event, "interaction_id", None),
+            },
+        )
         return event
 
     @property
@@ -1758,20 +2005,42 @@ class Soul:
     # ============ Evolution ============
 
     async def propose_evolution(self, trait: str, new_value: str, reason: str) -> Mutation:
-        """Propose a trait mutation."""
-        return await self._evolution.propose(
+        """Propose a trait mutation.
+
+        Appends an ``evolution.proposed`` entry to the trust chain (#42)
+        with ``{mutation_id, trait, new_value, reason}``.
+        """
+        mutation = await self._evolution.propose(
             dna=self._dna,
             trait=trait,
             new_value=new_value,
             reason=reason,
         )
+        self._safe_append_chain(
+            "evolution.proposed",
+            {
+                "mutation_id": getattr(mutation, "id", None),
+                "trait": trait,
+                "new_value": new_value,
+                "reason": reason,
+            },
+        )
+        return mutation
 
     async def approve_evolution(self, mutation_id: str) -> bool:
-        """Approve a pending mutation."""
+        """Approve a pending mutation.
+
+        Appends an ``evolution.applied`` entry to the trust chain (#42)
+        when the apply step succeeds.
+        """
         result = await self._evolution.approve(mutation_id)
         if result:
             self._dna = self._evolution.apply(self._dna, mutation_id)
             logger.info("Evolution approved and applied: mutation_id=%s", mutation_id)
+            self._safe_append_chain(
+                "evolution.applied",
+                {"mutation_id": mutation_id},
+            )
         return result
 
     async def reject_evolution(self, mutation_id: str) -> bool:
@@ -1788,29 +2057,61 @@ class Soul:
 
     # ============ Persistence ============
 
-    async def save(self, path: str | Path | None = None) -> None:
-        """Save soul to file storage (config + full memory)."""
+    async def save(
+        self,
+        path: str | Path | None = None,
+        *,
+        include_keys: bool = True,
+    ) -> None:
+        """Save soul to file storage (config + full memory + trust chain).
+
+        ``include_keys`` defaults to ``True`` for save() — local saves on the
+        owner's machine should retain the private key so the soul can keep
+        appending signed entries. Use ``Soul.export(include_keys=False)`` for
+        shareable bundles that drop the private key.
+        """
         from .storage.file import save_soul_full
 
         save_path = Path(path) if path else None
-        memory_data = self._memory.to_dict()
+        memory_data = self._build_storage_memory_data(include_keys=include_keys)
         await save_soul_full(self.serialize(), memory_data, path=save_path)
         logger.info("Soul saved: name=%s, path=%s", self.name, save_path)
 
-    async def save_local(self, path: str | Path = ".soul") -> None:
+    async def save_local(
+        self,
+        path: str | Path = ".soul",
+        *,
+        include_keys: bool = True,
+    ) -> None:
         """Save to a local directory (flat, no soul_id nesting).
 
         Designed for .soul/ project folders where the directory IS the soul.
 
+        ``include_keys`` defaults to ``True`` — see :meth:`save` for rationale.
+
         Args:
             path: Target directory (default ``".soul"``).
+            include_keys: Include the private signing key in the on-disk
+                keystore. Default True for local saves.
         """
         from .storage.file import save_soul_flat
 
         config = self.serialize()
-        memory_data = self._memory.to_dict()
+        memory_data = self._build_storage_memory_data(include_keys=include_keys)
         await save_soul_flat(config, memory_data, Path(path))
         logger.info("Soul saved locally: name=%s, path=%s", self.name, path)
+
+    def _build_storage_memory_data(self, *, include_keys: bool) -> dict:
+        """Assemble the memory_data dict that storage backends consume.
+
+        Layers the trust chain (#42) and keystore (#42) on top of the
+        MemoryManager's own to_dict(). Keeps storage backends free of
+        knowledge about trust chains.
+        """
+        memory_data = self._memory.to_dict()
+        memory_data["trust_chain"] = self._trust_chain_manager.to_dict()
+        memory_data["keys"] = self._keystore.to_archive_files(include_private=include_keys)
+        return memory_data
 
     async def archive(self, tiers: list[str] | None = None) -> list:
         """Archive this soul to eternal storage (Arweave/IPFS).
@@ -1840,6 +2141,7 @@ class Soul:
         password: str | None = None,
         archive: bool = False,
         archive_tiers: list[str] | None = None,
+        include_keys: bool = False,
     ) -> None:
         """Export soul as a portable .soul file with full memory data.
 
@@ -1847,12 +2149,27 @@ class Soul:
             path: File path for the exported .soul archive.
             password: Optional password for AES-256-GCM encryption at rest.
                 When provided, all content except the manifest is encrypted.
+            include_keys: When False (default), the soul's PRIVATE signing key
+                is dropped from the archive. The PUBLIC key still ships so
+                the recipient can verify the chain. This is the safe choice
+                for sharing souls — the recipient cannot append new entries
+                under your DID. Set to True only when you explicitly want to
+                hand off signing power (e.g. migrating between your own
+                devices). See docs/trust-chain.md for the threat model.
         """
         from .exceptions import SoulExportError
 
         try:
             memory_data = self._memory.to_dict()
-            data = await pack_soul(self.serialize(), memory_data=memory_data, password=password)
+            trust_chain_data = self._trust_chain_manager.to_dict()
+            key_files = self._keystore.to_archive_files(include_private=include_keys)
+            data = await pack_soul(
+                self.serialize(),
+                memory_data=memory_data,
+                password=password,
+                trust_chain_data=trust_chain_data,
+                key_files=key_files,
+            )
             Path(path).write_bytes(data)
             logger.info(
                 "Soul exported: name=%s, path=%s, size=%d bytes",

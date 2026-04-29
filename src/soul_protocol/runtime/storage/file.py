@@ -1,4 +1,9 @@
 # storage/file.py — FileStorage backend persisting souls to the local filesystem.
+# Updated: 2026-04-29 (#42) — Trust chain + keystore land alongside the soul.
+#   ``trust_chain/chain.json`` and per-entry ``trust_chain/entry_NNN.json`` are
+#   written when the chain has any entries. ``keys/public.key`` is always
+#   written when present; ``keys/private.key`` is written only when the
+#   caller (Soul.save / Soul.save_local) opts in via include_keys=True.
 # Updated: 2026-04-29 (#41) — Layered + domain-aware on-disk layout. Default
 #   souls (every entry domain="default", only built-in layers) keep the
 #   pre-#41 flat layout (memory/episodic.json + memory/semantic.json + ...).
@@ -178,7 +183,11 @@ def _needs_nested_layout(memory_data: dict) -> bool:
     return False
 
 
-def _write_soul_files(soul_dir: Path, config: SoulConfig, memory_data: dict) -> None:
+def _write_soul_files(
+    soul_dir: Path,
+    config: SoulConfig,
+    memory_data: dict,
+) -> None:
     """Write all soul files to a directory (used by save_soul_full).
 
     Picks between the flat legacy layout (every domain is "default", only
@@ -188,10 +197,42 @@ def _write_soul_files(soul_dir: Path, config: SoulConfig, memory_data: dict) -> 
     ``memory/self_model.json`` / ``memory/general_events.json`` /
     ``memory/archives.json`` always live at predictable paths so loaders
     that don't care about layers keep working.
+
+    Trust chain (#42) and keystore (#42) are written when present. The
+    ``trust_chain`` and ``keys`` keys in memory_data carry the data — see
+    Soul.serialize_for_storage() for the producer.
     """
     (soul_dir / "soul.json").write_text(config.model_dump_json(indent=2), encoding="utf-8")
     (soul_dir / "state.json").write_text(config.state.model_dump_json(indent=2), encoding="utf-8")
     (soul_dir / "dna.md").write_text(dna_to_markdown(config.identity, config.dna), encoding="utf-8")
+
+    # v0.4.0 (#42) — Trust chain on disk: chain.json + per-entry files.
+    trust_chain_data = memory_data.get("trust_chain")
+    if trust_chain_data and trust_chain_data.get("entries"):
+        tc_dir = soul_dir / "trust_chain"
+        tc_dir.mkdir(parents=True, exist_ok=True)
+        (tc_dir / "chain.json").write_text(
+            json.dumps(trust_chain_data, indent=2, default=str),
+            encoding="utf-8",
+        )
+        for entry in trust_chain_data.get("entries", []):
+            seq = entry.get("seq", 0)
+            (tc_dir / f"entry_{seq:03d}.json").write_text(
+                json.dumps(entry, indent=2, default=str),
+                encoding="utf-8",
+            )
+
+    # v0.4.0 (#42) — Keystore. Pass-through whatever bytes the Soul layer
+    # decides to ship (public always, private only when include_keys=True).
+    key_files = memory_data.get("keys")
+    if key_files:
+        keys_dir = soul_dir / "keys"
+        keys_dir.mkdir(parents=True, exist_ok=True)
+        for fname, data in key_files.items():
+            # fname is like "keys/public.key" or "keys/private.key"
+            target = soul_dir / fname
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
 
     mem_dir = soul_dir / "memory"
     mem_dir.mkdir(exist_ok=True)
@@ -377,6 +418,29 @@ async def load_soul_full(path: Path) -> tuple[SoulConfig | None, dict]:
                 f = mem_dir / f"{name}.json"
                 if f.exists():
                     memory_data[name] = json.loads(f.read_text(encoding="utf-8"))
+
+    # v0.4.0 (#42) — Trust chain. Optional; legacy souls have no chain dir.
+    chain_file = path / "trust_chain" / "chain.json"
+    if chain_file.exists():
+        try:
+            memory_data["trust_chain"] = json.loads(chain_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Could not load trust_chain/chain.json: %s", e)
+
+    # v0.4.0 (#42) — Keystore. public.key alone is enough to verify; private.key
+    # is required to append new entries.
+    keys_dir = path / "keys"
+    if keys_dir.exists():
+        keys: dict[str, bytes] = {}
+        for kf in ("keys/public.key", "keys/private.key"):
+            kp = path / kf
+            if kp.exists():
+                try:
+                    keys[kf] = kp.read_bytes()
+                except OSError as e:
+                    logger.warning("Could not read %s: %s", kf, e)
+        if keys:
+            memory_data["keys"] = keys
 
     logger.debug("Soul loaded (full): path=%s", path)
     return config, memory_data

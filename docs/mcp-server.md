@@ -1,6 +1,8 @@
-<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 24 tools
-     (14 soul/memory + 5 context + 5 psychology), 3 resources, 2 prompts, auto-detect,
-     MCP Sampling Engine, programmatic usage, and design notes.
+<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 26 tools
+     (14 soul/memory + 5 context + 5 psychology + 2 trust chain), 3 resources, 2 prompts,
+     auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
+     Updated: 2026-04-29 — v0.4.0 (#42): Added soul_verify and soul_audit MCP tools for
+     trust-chain integrity checks and signed-action timelines. Tool count: 24 → 26.
      Updated: 2026-04-06 — Added soul_dream tool for offline batch memory consolidation.
      Updated: 2026-03-27 — v0.2.8: Fixed section header "Tools (18)" → "Tools (23)".
      Updated: 2026-03-26 — v0.2.7: Added 5 psychology pipeline tools (soul_skills,
@@ -86,7 +88,7 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (24)
+## Tools (26)
 
 All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 24 tools break down as: 9 soul management, 5 memory, 5 context (LCM), and 5 psychology pipeline (v0.2.7).
 
@@ -420,6 +422,36 @@ Get a metadata snapshot of the soul's context store. Returns message count, toke
 | `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
 
 **Returns:** JSON with `soul`, `total_messages`, `total_nodes`, `total_tokens`, `compaction_stats`, and `date_range`.
+
+---
+
+### `soul_verify`
+
+Verify the trust chain integrity for a soul (#42). The trust chain is the soul's append-only signed history of audit-worthy actions (memory writes, supersedes, evolution events, learning events, bond changes). A chain that fails verification has been tampered with.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{soul, did, valid, length, signers, first_failure}`.
+
+`first_failure` is `null` on a valid chain, or `{seq, reason}` on a tampered chain.
+
+---
+
+### `soul_audit`
+
+Return a human-readable timeline of signed actions on the soul's trust chain (#42). Each row carries `{seq, timestamp, action, actor_did, payload_hash}`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `action_prefix` | `str` | `None` | Filter to actions starting with this prefix (e.g. `memory.`) |
+| `limit` | `int` | `None` | Show only the most recent N entries |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{soul, did, entries: [...]}`.
+
+Payloads themselves are not on chain — only their hashes — so this tool surfaces *what changed when*, not *what was written*.
 
 ---
 
