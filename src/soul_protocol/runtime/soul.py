@@ -1,4 +1,15 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-27 — User-facing memory update primitives.
+#   - `Soul.forget_one(id)`: audited single-id deletion returning the same
+#     dict shape as `forget()`. Powers `soul forget --id`.
+#   - `Soul.supersede(old_id, new_content, *, reason, importance, memory_type, ...)`:
+#     writes a new memory and links the old one's `superseded_by`. Old entry
+#     stays for provenance; recall surfaces the new one because superseded
+#     entries are filtered out of search.
+#   - `Soul.supersede_audit` property exposes the user-driven supersede log
+#     (parallel to `deletion_audit`).
+#   - The original `forget_by_id(id) -> bool` is preserved unchanged so
+#     existing callers (and the GDPR test) keep working.
 # Updated: 2026-04-14 (v0.3.1 polish) — smart_recall() now populates
 #   ``self._last_retrieval`` with a RetrievalTrace for the final returned
 #   set (source="soul.smart"). The receipt that recall() wrote internally
@@ -1213,13 +1224,59 @@ class Soul:
                     )
 
     async def forget_by_id(self, memory_id: str) -> bool:
-        """Soul forgets a specific memory by ID.
+        """Soul forgets a specific memory by ID. Returns True on hit.
 
-        For targeted deletion, prefer forget(), forget_entity(), or
-        forget_before() which provide GDPR-compliant bulk deletion
-        with audit trails.
+        Bool-returning shortcut kept for backward compatibility. For an
+        audited single-id deletion that returns the same dict shape as the
+        bulk forget methods (used by ``soul forget --id``), use
+        :meth:`forget_one`.
         """
         return await self._memory.remove(memory_id)
+
+    async def forget_one(self, memory_id: str) -> dict:
+        """Audited single-id deletion. Returns a dict with deletion results.
+
+        Same shape as :meth:`forget` / :meth:`forget_entity` / :meth:`forget_before`
+        plus ``found`` and ``tier`` keys.  Records a deletion audit entry
+        (without the deleted content) when the entry exists.
+        """
+        return await self._memory.forget_by_id(memory_id)
+
+    async def supersede(
+        self,
+        old_id: str,
+        new_content: str,
+        *,
+        reason: str | None = None,
+        importance: int = 5,
+        memory_type: MemoryType | None = None,
+        emotion: str | None = None,
+        entities: list[str] | None = None,
+    ) -> dict:
+        """Mark ``old_id`` as superseded by a newly-written memory.
+
+        Brain-aligned alternative to delete-and-rewrite: the old entry stays
+        in storage with ``superseded_by`` pointing at the new entry, so
+        provenance is preserved.  Search filters out superseded entries by
+        default, so recall surfaces the new memory.
+
+        ``memory_type`` defaults to the old entry's tier — pass it only when
+        correcting a fact stored in the wrong tier.  Records to the
+        :attr:`supersede_audit` trail.
+
+        Returns a dict with ``found`` / ``old_id`` / ``new_id`` / ``tier`` /
+        ``reason``.  If ``old_id`` does not resolve, ``found`` is False and
+        no new memory is written.
+        """
+        return await self._memory.supersede(
+            old_id,
+            new_content,
+            reason=reason,
+            importance=importance,
+            memory_type=memory_type,
+            emotion=emotion,
+            entities=entities,
+        )
 
     async def forget(self, query: str) -> dict:
         """Forget memories matching a query across all tiers.
@@ -1277,6 +1334,17 @@ class Soul:
         No deleted content is stored in the audit trail.
         """
         return self._memory.deletion_audit
+
+    @property
+    def supersede_audit(self) -> list[dict]:
+        """Access the user-driven supersede audit trail.
+
+        Each record contains: ``superseded_at`` (ISO timestamp), ``old_id``,
+        ``new_id``, ``tier``, ``reason``.  Internal supersession (dream-cycle
+        dedup, contradiction resolution) is not recorded here — only explicit
+        :meth:`supersede` calls.
+        """
+        return self._memory.supersede_audit
 
     def get_core_memory(self) -> CoreMemory:
         """Get the always-loaded core memory."""

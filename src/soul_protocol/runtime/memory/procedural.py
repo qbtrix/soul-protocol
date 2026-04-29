@@ -62,6 +62,10 @@ class ProceduralStore:
             return True
         return False
 
+    async def get(self, memory_id: str) -> MemoryEntry | None:
+        """Return a procedure by ID, or None if absent."""
+        return self._procedures.get(memory_id)
+
     async def search_and_delete(self, query: str) -> list[str]:
         """Search for procedures matching a query and delete them.
 

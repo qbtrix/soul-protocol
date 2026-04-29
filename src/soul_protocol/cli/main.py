@@ -1,4 +1,15 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-04-27 — Memory update primitives + forget display fix.
+#   - `soul forget --id <id>` for surgical single-memory deletion (audited).
+#   - `soul supersede <path> <new_content> --old-id <id> [--reason ...]` writes
+#     a new memory and links the old one's `superseded_by`. Old is preserved
+#     for provenance, recall surfaces the new one because superseded entries
+#     are filtered out of search.
+#   - Fixed forget result display: `manager.forget*()` returns `{"total": N}`
+#     and per-tier list keys, but the CLI was reading `total_deleted` and
+#     `tiers` (which never existed) so preview always showed 0 and apply
+#     mode silently deleted while reporting 0. Now reads the real keys and
+#     reconstructs per-tier counts from the list lengths.
 # Updated: 2026-04-14 — v0.3.1: `soul org init / status / destroy` and `soul template`
 #   land. Org init creates an org dir, root soul, Ed25519 key, journal, and
 #   genesis events. Destroy archives to ~/.soul-archives/ before wiping.
@@ -1854,6 +1865,9 @@ def prompt_cmd(path):
 @cli.command("forget")
 @click.argument("path", type=click.Path(exists=True))
 @click.argument("query", required=False, default=None)
+@click.option(
+    "--id", "memory_id", type=str, default=None, help="Delete a single memory by exact ID"
+)
 @click.option("--entity", type=str, default=None, help="Delete by entity name instead of query")
 @click.option("--before", type=str, default=None, help="Delete before ISO timestamp")
 @click.option(
@@ -1869,8 +1883,8 @@ def prompt_cmd(path):
     default=False,
     help="Skip confirmation prompt (requires --apply)",
 )
-def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
-    """Delete memories by query, entity, or timestamp (GDPR-compliant).
+def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confirm):
+    """Delete memories by ID, query, entity, or timestamp (GDPR-compliant).
 
     Dry-run by default — shows what would be deleted without touching the
     soul. Pass --apply to actually execute. A .soul.bak backup is written
@@ -1878,9 +1892,10 @@ def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
 
     \b
     Examples:
-      soul forget .soul/ "credit card"                      # preview
+      soul forget .soul/ "credit card"                      # preview by query
       soul forget .soul/ "credit card" --apply              # prompt + delete
       soul forget aria.soul --entity "John Doe" --apply --confirm
+      soul forget .soul/ --id bf0ee3453983 --apply          # surgical single-id
     """
 
     async def _forget():
@@ -1889,7 +1904,15 @@ def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
         soul = await Soul.awaken(path)
         timestamp = None
 
-        if entity:
+        # Mutually-exclusive selector check — pick exactly one.
+        selectors = [bool(memory_id), bool(entity), bool(before), bool(query)]
+        if sum(selectors) != 1:
+            console.print("[red]Provide exactly one of: QUERY, --id, --entity, --before[/red]")
+            raise SystemExit(1)
+
+        if memory_id:
+            description = f"id '{memory_id}'"
+        elif entity:
             description = f"entity '{entity}'"
         elif before:
             from datetime import datetime as dt
@@ -1900,33 +1923,41 @@ def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
                 console.print(f"[red]Invalid ISO timestamp:[/red] '{before}'")
                 raise SystemExit(1)
             description = f"memories before {before}"
-        elif query:
-            description = f"query '{query}'"
         else:
-            console.print("[red]Provide a QUERY, --entity, or --before[/red]")
-            raise SystemExit(1)
+            description = f"query '{query}'"
 
         async def _execute_forget() -> dict:
+            if memory_id:
+                return await soul.forget_one(memory_id)
             if entity:
                 return await soul.forget_entity(entity)
             if timestamp is not None:
                 return await soul.forget_before(timestamp)
             return await soul.forget(query)
 
+        def _tier_counts(res: dict) -> dict[str, int]:
+            counts = {
+                "episodic": len(res.get("episodic", [])),
+                "semantic": len(res.get("semantic", [])),
+                "procedural": len(res.get("procedural", [])),
+            }
+            if "edges_removed" in res:
+                counts["graph_edges"] = res["edges_removed"]
+            return counts
+
         if not apply_changes:
             # Preview mode — run forget against an in-memory soul and report
             # what would have been deleted without saving.
             result = await _execute_forget()
-            total = result.get("total_deleted", 0)
+            total = result["total"]
             console.print(
                 f"[dim]Preview:[/dim] would forget "
                 f"{total} memor{'y' if total == 1 else 'ies'} "
                 f"from [bold]{soul.name}[/bold] ({description})"
             )
-            if result.get("tiers"):
-                for tier, count in result["tiers"].items():
-                    if count > 0:
-                        console.print(f"  {tier}: {count}")
+            for tier, count in _tier_counts(result).items():
+                if count > 0:
+                    console.print(f"  {tier}: {count}")
             console.print(
                 "\n[dim]Pass --apply to execute "
                 "(a .soul.bak backup is written before any changes).[/]"
@@ -1938,7 +1969,7 @@ def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
             return
 
         result = await _execute_forget()
-        total = result.get("total_deleted", 0)
+        total = result["total"]
 
         # Back up before the destructive save.
         from soul_protocol.runtime.backup import backup_soul_file
@@ -1958,12 +1989,108 @@ def forget_cmd(path, query, entity, before, apply_changes, skip_confirm):
         if bak is not None:
             msg += f" [dim](backup: {bak.name})[/dim]"
         console.print(msg)
-        if result.get("tiers"):
-            for tier, count in result["tiers"].items():
-                if count > 0:
-                    console.print(f"  {tier}: {count}")
+        for tier, count in _tier_counts(result).items():
+            if count > 0:
+                console.print(f"  {tier}: {count}")
 
     asyncio.run(_forget())
+
+
+@cli.command("supersede")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("new_content")
+@click.option(
+    "--old-id",
+    "old_id",
+    type=str,
+    required=True,
+    help="ID of the memory being superseded",
+)
+@click.option(
+    "--reason",
+    type=str,
+    default=None,
+    help="Why the old memory is wrong or out-of-date (recorded in the supersede audit)",
+)
+@click.option(
+    "--importance",
+    "-i",
+    type=click.IntRange(1, 10),
+    default=5,
+    help="Importance score for the new memory (1-10, default: 5)",
+)
+@click.option(
+    "--emotion",
+    "-e",
+    type=str,
+    default=None,
+    help="Emotion tag for the new memory",
+)
+@click.option(
+    "--type",
+    "-t",
+    "memory_type",
+    type=click.Choice(["episodic", "semantic", "procedural"], case_sensitive=False),
+    default=None,
+    help="Tier for the new memory (default: same tier as the old one).",
+)
+def supersede_cmd(path, new_content, old_id, reason, importance, emotion, memory_type):
+    """Mark a memory as superseded by a new one. Old persists for provenance.
+
+    Writes a new memory chunk, sets ``old.superseded_by = new.id``, damps the
+    old chunk so recall surfaces the new one, and records a supersede audit
+    entry. The old memory is not deleted — use ``soul forget --id`` for that.
+
+    \b
+    Examples:
+      soul supersede .soul/ "X actually shipped on 2026-04-21" \\
+          --old-id bf0ee345 --reason "verified against current code"
+      soul supersede aria.soul "User now prefers light mode" \\
+          --old-id 4c19e2 --type semantic -i 7
+    """
+    from soul_protocol.runtime.types import MemoryType
+
+    tier_override = MemoryType(memory_type.lower()) if memory_type else None
+
+    async def _supersede():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        result = await soul.supersede(
+            old_id,
+            new_content,
+            reason=reason,
+            importance=importance,
+            emotion=emotion,
+            memory_type=tier_override,
+        )
+
+        if not result["found"]:
+            console.print(
+                f"[red]No memory with id[/red] [bold]{old_id}[/bold] "
+                f"found in [bold]{soul.name}[/bold]. Nothing changed."
+            )
+            raise SystemExit(1)
+
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path)
+
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] superseded:\n\n"
+                f"  Old ID      [dim]{result['old_id']}[/dim]\n"
+                f"  New ID      [dim]{result['new_id']}[/dim]\n"
+                f"  Tier        [magenta]{result['tier']}[/magenta]\n"
+                f"  Reason      {reason or '[dim]none[/dim]'}\n\n"
+                f"  [cyan]{new_content}[/cyan]",
+                title="Memory Superseded",
+                border_style="green",
+            )
+        )
+
+    asyncio.run(_supersede())
 
 
 @cli.command("edit-core")

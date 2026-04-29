@@ -1,6 +1,11 @@
 <!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
      memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
+     Updated: 2026-04-27 — Documented user-driven memory update primitives: Soul.forget_one
+       (audited single-id delete), Soul.supersede (write new memory + link old.superseded_by),
+       Soul.supersede_audit property. Rewrote stale soul.forget() entry to match the real
+       signature (forget(query) → dict, not forget(memory_id) → bool). Added forget_entity /
+       forget_before / forget_by_id signatures alongside.
      Updated: 2026-04-06 — Added soul.dream() method and DreamReport type. -->
 
 # API Reference
@@ -267,12 +272,106 @@ await soul.observe(Interaction(user_input="Hi!", agent_output="Hello there!"))
 #### `soul.forget()`
 
 ```python
-async def forget(self, memory_id: str) -> bool
+async def forget(self, query: str) -> dict
 ```
 
-Remove a specific memory by ID.
+Bulk-delete memories matching `query` across episodic, semantic, and procedural tiers. Records a deletion audit entry. Token-overlap match.
 
-**Returns:** `True` if the memory was found and removed, `False` otherwise.
+**Returns:** dict with keys:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `episodic` | `list[str]` | IDs of deleted episodic memories. |
+| `semantic` | `list[str]` | IDs of deleted semantic facts. |
+| `procedural` | `list[str]` | IDs of deleted procedural memories. |
+| `total` | `int` | Total deleted across tiers. |
+
+#### `soul.forget_entity()`
+
+```python
+async def forget_entity(self, entity: str) -> dict
+```
+
+Bulk-delete by entity. Removes the entity from the knowledge graph and any memories mentioning it. Returns the same dict shape as `forget()` plus `edges_removed: int`.
+
+#### `soul.forget_before()`
+
+```python
+async def forget_before(self, timestamp: datetime) -> dict
+```
+
+Bulk-delete memories created before `timestamp`. Returns the same dict shape as `forget()`.
+
+#### `soul.forget_by_id()`
+
+```python
+async def forget_by_id(self, memory_id: str) -> bool
+```
+
+Legacy single-id deletion. Returns `True` on hit. Kept for backward compatibility — for an audited single-id deletion that returns the full result dict (used by `soul forget --id`), prefer `forget_one()`.
+
+#### `soul.forget_one()`
+
+```python
+async def forget_one(self, memory_id: str) -> dict
+```
+
+Audited single-id deletion. Records a deletion audit entry when the entry exists. Returns:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `episodic` / `semantic` / `procedural` | `list[str]` | The deleted ID (length 0 or 1) by tier. |
+| `total` | `int` | 0 if not found, 1 if deleted. |
+| `found` | `bool` | Whether `memory_id` resolved. |
+| `tier` | `str \| None` | Tier the entry lived in, or `None`. |
+
+#### `soul.supersede()`
+
+```python
+async def supersede(
+    self,
+    old_id: str,
+    new_content: str,
+    *,
+    reason: str | None = None,
+    importance: int = 5,
+    memory_type: MemoryType | None = None,
+    emotion: str | None = None,
+    entities: list[str] | None = None,
+) -> dict
+```
+
+Mark `old_id` as superseded by a newly-written memory. The old entry is preserved with `superseded_by = new_id`; search filters out superseded entries by default, so recall surfaces the new one. `memory_type` defaults to the old entry's tier. Records a supersede audit entry.
+
+**Returns:** dict with `found` / `old_id` / `new_id` / `tier` / `reason`. If `old_id` does not resolve, `found` is False and no new memory is written.
+
+```python
+result = await soul.supersede(
+    old_fact_id,
+    "User now prefers light mode",
+    reason="changed during onboarding redesign",
+    importance=7,
+)
+print(result["new_id"])
+```
+
+#### `soul.deletion_audit`
+
+```python
+@property
+def deletion_audit(self) -> list[dict]
+```
+
+Read-only copy of the deletion audit trail. Each entry: `deleted_at` (ISO timestamp), `count`, `reason`, `tiers` (per-tier breakdown). The audit does not contain deleted content (GDPR).
+
+#### `soul.supersede_audit`
+
+```python
+@property
+def supersede_audit(self) -> list[dict]
+```
+
+Read-only copy of the user-driven supersede audit trail. Each entry: `superseded_at` (ISO timestamp), `old_id`, `new_id`, `tier`, `reason`. Internal supersession (dream-cycle dedup, contradiction resolution during `learn`) does not append here — only explicit `supersede()` calls.
 
 #### `soul.get_core_memory()`
 
