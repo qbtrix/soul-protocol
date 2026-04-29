@@ -1,4 +1,7 @@
 <!-- Covers: Documentation index, quick links to all guides (including integrations), version info, project links -->
+<!-- Updated: 2026-04-29 — v0.4.0 identity bundle: added Trust Chain entry,
+     bumped Current release to 0.4.0, mentioned multi-user souls + memory
+     layers + domain isolation in the at-a-glance example. -->
 <!-- Updated: 2026-04-14 — v0.3.1: added org-journal-spec, org, decision-traces,
      manual-testing entries; bumped Current release to 0.3.1. -->
 <!-- Updated: 2026-03-13 — added Tier 1.5 soul inject guide link -->
@@ -28,6 +31,7 @@ A soul remembers. A soul grows. A soul migrates.
 | [Org Management](org.md) | `soul org init / status / destroy` walkthrough |
 | [Org Journal Spec](org-journal-spec.md) | Framework-agnostic protocol: journal, root agent, retrieval router, credential broker |
 | [Decision Traces](decision-traces.md) | `agent.proposed` → `human.corrected` → `decision.graduated` event chains |
+| [Trust Chain](trust-chain.md) | Verifiable action history — Ed25519-signed Merkle-style chain, threat model, key management (v0.4.0) |
 | [Manual Testing](manual-testing.md) | Hands-on validation for the v0.3 org-layer primitives |
 
 
@@ -38,22 +42,34 @@ from soul_protocol import Soul, Interaction
 
 soul = await Soul.birth(name="Aria", values=["empathy", "creativity"])
 
-await soul.observe(Interaction(
-    user_input="I love building with Python",
-    agent_output="Python is a great choice!",
-    channel="chat",
-))
+# v0.4.0 — multi-user observe + domain stamping
+await soul.observe(
+    Interaction(
+        user_input="I love building with Python",
+        agent_output="Python is a great choice!",
+        channel="chat",
+    ),
+    user_id="alice",
+    domain="default",
+)
 
-memories = await soul.recall("Python")
+# Recall scoped to alice's view, default domain
+memories = await soul.recall("Python", user_id="alice", domain="default")
+
+# Verify the trust chain — every observe / supersede / forget appended a signed entry
+ok, reason = soul.verify_chain()
+assert ok, reason
+
 prompt = soul.to_system_prompt()
 
+# Share without leaking signing power (default include_keys=False)
 await soul.export("aria.soul")
 ```
 
 
 ## Version
 
-Current release: **v0.3.1**
+Current release: **v0.4.0** (April 2026 — identity bundle: multi-user souls, memory layers + domain isolation, trust chain)
 
 Requires Python 3.11+.
 

@@ -1,5 +1,12 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-04-19 (v0.3.2) — retrieval infrastructure (Router, Broker
+<!-- Updated: 2026-04-29 (v0.4.0) — Identity bundle release: multi-user souls
+     (#46), user-defined memory layers + domain isolation (#41), Ed25519-signed
+     trust chain (#42). Plus rolled-in polish: density-driven focus (#194),
+     memory update primitives — supersede + forget --id (#193), wiki rebuild
+     (#186). Schema migrates automatically on awaken. Soul.export now defaults
+     to include_keys=False so shared souls cannot be impersonated. Test count
+     2371 → 2551.
+     Updated: 2026-04-19 (v0.3.2) — retrieval infrastructure (Router, Broker
      impl, ProjectionAdapter) pruned from soul-protocol; spec/retrieval.py
      now holds only the vocabulary (Protocols + types + exceptions) that a
      third-party implementation needs. Concrete orchestration moved to the
@@ -23,11 +30,11 @@
 
 # Soul Protocol
 
-**Portable AI identity, memory, and emotion -- plus an org-level journal and decision traces. An open standard.**
+**Portable AI identity, memory, and emotion -- plus an org-level journal, decision traces, and a verifiable trust chain. An open standard.**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 2371 passing](https://img.shields.io/badge/tests-2371%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
+[![Tests: 2551 passing](https://img.shields.io/badge/tests-2551%20passing-brightgreen)](https://github.com/qbtrix/soul-protocol)
 
 ---
 
@@ -41,6 +48,8 @@
 AI memory systems optimize for retrieval: find the most similar text, stuff it into context, move on. They treat persistence as an IQ problem. But what makes a companion feel real isn't similarity search. It's knowing what matters, what to forget, and who it's becoming.
 
 Soul Protocol gives AI agents persistent identity with psychology-informed memory. Your agent remembers selectively, forms emotional bonds, develops skills, and maintains a personality that evolves over time. The entire state exports as a portable `.soul` file. Switch LLMs, switch platforms, keep the soul.
+
+**v0.4.0 — Identity bundle (April 2026):** one soul can serve multiple users without bleeding context (`soul.observe(user_id=...)`), memory layers are open strings instead of a fixed enum (build a custom `social` or `finance` layer), domain isolation enforces who can read/write which slice, and every learning event, memory mutation, and bond change appends a signed entry to a verifiable trust chain. Read [docs/trust-chain.md](docs/trust-chain.md) for the threat model.
 
 As of v0.3.1, the protocol also covers the layer *above* a single soul: an org-scoped append-only event journal, a root governance agent, scope-tagged memory, decision traces (`agent.proposed` → `human.corrected` → `decision.graduated`), and a zero-copy retrieval router for federating external data without copying it into the org boundary.
 

@@ -338,6 +338,63 @@ The default is `TokenOverlapStrategy`, which uses Jaccard token overlap (fractio
 See [CognitiveEngine Guide](cognitive-engine.md) for full documentation on search strategies.
 
 
+## Identity Bundle Concepts (v0.4.0)
+
+The 0.4.0 release adds three new top-level concepts to a single soul. None of these require the org layer; they all work on a standalone soul.
+
+### Multi-User Soul
+
+A soul can serve multiple users — a support agent answering 100 customers, a family assistant, a coding buddy that pairs with several teammates. Pass `user_id` to `observe()` and `recall()` to scope memory and bond strength per user.
+
+```python
+await soul.observe(interaction, user_id="alice")
+await soul.observe(interaction, user_id="bob")
+
+# Alice-scoped recall — sees alice's memories + legacy (None-attributed) entries
+mems = await soul.recall("project", user_id="alice")
+
+# Each user has their own bond
+soul.bond_for("alice").bond_strength  # alice's bond
+soul.bond_for("bob").bond_strength    # independent
+```
+
+Per-user bonds live in a `BondRegistry`; the default bond stays available for legacy single-user code.
+
+### Memory Layers (open strings) + Domains
+
+`MemoryType` is no longer a fixed enum at the spec layer. The runtime ships seven built-in layers — `core`, `episodic`, `semantic`, `procedural`, `graph`, `social`, plus any user-defined string. `manager.layer("custom_namespace").store(entry)` is valid.
+
+Within a layer, `MemoryEntry.domain` is a sub-namespace defaulting to `"default"`. Use it to isolate context: `"finance"`, `"legal"`, `"personal"`. A `DomainIsolationMiddleware` wraps a soul and enforces a domain allow-list — reads silently filter, writes raise `DomainAccessError`. Use it to give a sub-agent a sandboxed view of the soul without handing them full access.
+
+```python
+finance_view = DomainIsolationMiddleware(soul, allowed_domains=["finance"])
+await finance_view.remember("Q3 revenue $4.2M", domain="finance")  # ok
+await finance_view.remember("Friend's birthday March 5", domain="personal")  # DomainAccessError
+```
+
+The new `social` layer is for relationship memory — bonds, trust signals, communication preferences per user.
+
+### Trust Chain
+
+Every memory write, supersede, forget, evolution proposal, evolution apply, learning event, and bond change appends a signed entry to the soul's trust chain. The chain is an Ed25519-signed Merkle-style hash chain — alter any past entry and every entry after it is invalid.
+
+```python
+ok, reason = soul.verify_chain()  # True or (False, "<reason> at seq N")
+log = soul.audit_log()             # human-readable timeline
+```
+
+`Soul.export(include_keys=False)` (the new default) drops the private signing key from the archive. The recipient can verify the chain but cannot append new entries — the soul is shareable without giving away signing power. See [docs/trust-chain.md](trust-chain.md) for the full threat model.
+
+### How they fit together
+
+- **Multi-user** attributes memories to a `user_id`.
+- **Layers + domains** organize memories into namespaces.
+- **Trust chain** signs every consequential change so the soul's history is verifiable.
+
+A soul can use any subset. Single-user souls in the default domain with no chain still work — every new field has a backward-compatible default.
+
+---
+
 ## Org-Level Concepts (v0.3.1)
 
 Everything above describes a single soul. A soul can live on its own forever — a personal assistant doesn't need an org. But when multiple agents and humans share context, audit history, and access boundaries, the **org layer** provides the container.

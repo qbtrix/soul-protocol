@@ -337,6 +337,15 @@ See the [CognitiveEngine Guide](cognitive-engine.md) for details.
 - **[Decision Traces](decision-traces.md)** -- `agent.proposed` → `human.corrected` → `decision.graduated` event chains
 - **[Manual Testing](manual-testing.md)** -- Hands-on walkthrough for every org-layer primitive
 
+### What's new in v0.4.0 — Identity bundle
+
+- **Multi-user souls** -- `soul.observe(user_id="alice")` and `soul.recall(user_id="alice")` filter memory and bond context per user. One soul can serve multiple humans without bleeding context.
+- **Memory layers as open strings** -- `MemoryType` is no longer a fixed enum at the spec layer. The runtime ships seven built-in layers (`core`, `episodic`, `semantic`, `procedural`, `graph`, `social`, plus user-defined). `manager.layer("custom_layer").store(entry)` works.
+- **Domain isolation** -- `MemoryEntry.domain` (default `"default"`) namespaces memories. `DomainIsolationMiddleware(soul, allowed_domains=["finance"])` sandboxes a soul to a domain allow-list.
+- **Trust chain** -- every memory write, supersede, forget, evolution event, and bond change appends an Ed25519-signed entry. `soul verify` checks chain integrity. `soul audit` shows the timeline. `Soul.export(include_keys=False)` is the new default — shared souls cannot be impersonated.
+- **Density-driven focus** -- `SoulState.focus` is computed from a sliding window of recent interactions. `soul.feel(focus="max")` for manual lock; `soul.feel(focus="auto")` reverts.
+- **Memory update primitives** -- `soul supersede` writes a new memory and links the old via `superseded_by`; `soul forget --id` for audited single-id deletion.
+
 ### What's new in v0.3.1
 
 - `soul org init / status / destroy` -- bootstrap a governance journal with a root agent
