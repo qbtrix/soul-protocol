@@ -7,6 +7,9 @@
 # Updated: 2026-03-13 — Added TestBiorhythmsConfig and TestAutoRegen test classes covering
 #   configurable Biorhythms parameter: drain rates, tired threshold, mood inertia, mood
 #   sensitivity, auto-regen on/off, and the "always-on" agent preset.
+# Updated: 2026-04-29 — Added TestFocusDensity covering density-driven focus calc,
+#   manual override via update(focus="<level>"), "auto" reset, window pruning, and
+#   the public recompute_focus() refresh hook.
 
 from __future__ import annotations
 
@@ -604,3 +607,224 @@ class TestAutoRegen:
         assert manager.current.energy == pytest.approx(70.0)
         # social recovers at half rate: 100 + 10*1 = 100 (capped)
         assert manager.current.social_battery == pytest.approx(100.0)
+
+
+# ---------------------------------------------------------------------------
+# Density-driven focus
+# ---------------------------------------------------------------------------
+
+
+class TestFocusDensity:
+    """focus is recomputed from a sliding window of interaction timestamps,
+    unless focus_override is set (manual lock)."""
+
+    # ------------------------------------------------------------------
+    # Default thresholds (low=0, medium=1-2, high=3-9, max=10+)
+    # ------------------------------------------------------------------
+
+    def test_default_focus_is_medium(self):
+        """A fresh state has focus='medium' (the field default)."""
+        manager = StateManager(_make_state())
+        assert manager.current.focus == "medium"
+        assert manager.current.focus_override is None
+
+    def test_zero_interactions_in_window_recomputes_to_low(self):
+        """recompute with empty history → 'low'."""
+        manager = StateManager(_make_state())
+        # Past time so any default state is irrelevant
+        manager.recompute_focus(datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+        assert manager.current.focus == "low"
+
+    def test_one_interaction_yields_medium(self):
+        """Single interaction → density=1 → 'medium' (below high_threshold=3)."""
+        manager = StateManager(_make_state())
+        t = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        manager.on_interaction(_make_interaction_at(t))
+        assert manager.current.focus == "medium"
+
+    def test_two_interactions_still_medium(self):
+        """2 interactions in window → still 'medium'."""
+        manager = StateManager(_make_state())
+        t = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        for i in range(2):
+            manager.on_interaction(_make_interaction_at(t + timedelta(seconds=i * 10)))
+        assert manager.current.focus == "medium"
+
+    def test_three_interactions_promotes_to_high(self):
+        """3 interactions in window → 'high' (== high_threshold)."""
+        manager = StateManager(_make_state())
+        t = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        for i in range(3):
+            manager.on_interaction(_make_interaction_at(t + timedelta(seconds=i * 10)))
+        assert manager.current.focus == "high"
+
+    def test_ten_interactions_promotes_to_max(self):
+        """10 interactions in window → 'max' (== max_threshold)."""
+        manager = StateManager(_make_state())
+        t = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        for i in range(10):
+            manager.on_interaction(_make_interaction_at(t + timedelta(seconds=i * 10)))
+        assert manager.current.focus == "max"
+
+    # ------------------------------------------------------------------
+    # Window pruning
+    # ------------------------------------------------------------------
+
+    def test_old_interactions_outside_window_are_pruned(self):
+        """Interactions older than focus_window_seconds drop from the count."""
+        bio = Biorhythms(focus_window_seconds=600.0)  # 10-min window
+        manager = StateManager(_make_state(), biorhythms=bio)
+        t0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        # 5 interactions packed into 60 seconds at t0
+        for i in range(5):
+            manager.on_interaction(_make_interaction_at(t0 + timedelta(seconds=i)))
+        assert manager.current.focus == "high"
+
+        # One interaction 30 minutes later → original 5 are outside window
+        t1 = t0 + timedelta(minutes=30)
+        manager.on_interaction(_make_interaction_at(t1))
+        # Only the t1 interaction remains in window → density=1 → medium
+        assert manager.current.focus == "medium"
+        assert len(manager.current.recent_interactions) == 1
+
+    def test_recompute_focus_at_later_time_drops_stale_density(self):
+        """recompute_focus(now) re-prunes and recomputes — high → low after long idle."""
+        manager = StateManager(_make_state())
+        t0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        for i in range(5):
+            manager.on_interaction(_make_interaction_at(t0 + timedelta(seconds=i)))
+        assert manager.current.focus == "high"
+
+        # 2 hours later, no interaction — focus should drop to low
+        t1 = t0 + timedelta(hours=2)
+        result = manager.recompute_focus(t1)
+        assert result == "low"
+        assert manager.current.focus == "low"
+        assert manager.current.recent_interactions == []
+
+    def test_window_zero_disables_auto_focus(self):
+        """focus_window_seconds=0 → recompute is a no-op, focus stays at default."""
+        bio = Biorhythms(focus_window_seconds=0.0)
+        manager = StateManager(_make_state(), biorhythms=bio)
+        t = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        for i in range(20):
+            manager.on_interaction(_make_interaction_at(t + timedelta(seconds=i)))
+        # Density would be 'max' but auto-focus is disabled → stays at default 'medium'
+        assert manager.current.focus == "medium"
+
+    # ------------------------------------------------------------------
+    # Configurable thresholds
+    # ------------------------------------------------------------------
+
+    def test_custom_thresholds_respected(self):
+        """Custom high/max thresholds shift the bands."""
+        bio = Biorhythms(focus_high_threshold=5, focus_max_threshold=20)
+        manager = StateManager(_make_state(), biorhythms=bio)
+        t = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        # 4 interactions → below high_threshold=5 → medium
+        for i in range(4):
+            manager.on_interaction(_make_interaction_at(t + timedelta(seconds=i)))
+        assert manager.current.focus == "medium"
+        # 5th → reaches high
+        manager.on_interaction(_make_interaction_at(t + timedelta(seconds=5)))
+        assert manager.current.focus == "high"
+
+    # ------------------------------------------------------------------
+    # Manual override
+    # ------------------------------------------------------------------
+
+    def test_manual_override_locks_focus(self):
+        """update(focus='max') sets override and pins focus."""
+        manager = StateManager(_make_state())
+        manager.update(focus="max")
+        assert manager.current.focus == "max"
+        assert manager.current.focus_override == "max"
+
+        # Even with zero interactions, recompute respects the override
+        manager.recompute_focus(datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
+        assert manager.current.focus == "max"
+
+    def test_override_survives_density_changes(self):
+        """While override is set, on_interaction should not change focus."""
+        manager = StateManager(_make_state())
+        manager.update(focus="low")
+        t = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        for i in range(15):
+            manager.on_interaction(_make_interaction_at(t + timedelta(seconds=i)))
+        # Density would be 'max', but override pins it to 'low'
+        assert manager.current.focus == "low"
+
+    def test_focus_auto_clears_override_and_recomputes(self):
+        """update(focus='auto') clears override and triggers recalc."""
+        manager = StateManager(_make_state())
+        manager.update(focus="high")
+        assert manager.current.focus_override == "high"
+
+        # Clear and recompute — empty history → low
+        manager.update(focus="auto")
+        assert manager.current.focus_override is None
+        assert manager.current.focus == "low"
+
+    def test_focus_none_also_clears_override(self):
+        """update(focus=None) is equivalent to focus='auto'."""
+        manager = StateManager(_make_state())
+        manager.update(focus="medium")
+        assert manager.current.focus_override == "medium"
+
+        manager.update(focus=None)
+        assert manager.current.focus_override is None
+
+    def test_invalid_focus_value_raises(self):
+        """update(focus='banana') raises ValueError."""
+        manager = StateManager(_make_state())
+        with pytest.raises(ValueError, match="focus must be one of"):
+            manager.update(focus="banana")
+
+    def test_all_focus_levels_are_settable(self):
+        """Every level in FOCUS_LEVELS is a valid override target."""
+        manager = StateManager(_make_state())
+        for level in ("low", "medium", "high", "max"):
+            manager.update(focus=level)
+            assert manager.current.focus == level
+            assert manager.current.focus_override == level
+
+    # ------------------------------------------------------------------
+    # reset()
+    # ------------------------------------------------------------------
+
+    def test_reset_clears_focus_override_and_history(self):
+        """reset() returns focus to default and clears recent_interactions + override."""
+        manager = StateManager(_make_state())
+        manager.update(focus="max")
+        t = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        for i in range(5):
+            manager.on_interaction(_make_interaction_at(t + timedelta(seconds=i)))
+
+        manager.reset()
+        assert manager.current.focus == "medium"
+        assert manager.current.focus_override is None
+        assert manager.current.recent_interactions == []
+
+    # ------------------------------------------------------------------
+    # Public recompute_focus() return value
+    # ------------------------------------------------------------------
+
+    def test_recompute_focus_returns_resulting_level(self):
+        """recompute_focus(now) returns the new focus level."""
+        manager = StateManager(_make_state())
+        t = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        for i in range(3):
+            manager.on_interaction(_make_interaction_at(t + timedelta(seconds=i)))
+        assert manager.recompute_focus(t + timedelta(seconds=10)) == "high"
+
+    def test_recompute_focus_with_naive_timestamps_in_history(self):
+        """Timestamps stored without tz must not crash window comparison."""
+        state = _make_state()
+        # Inject a naive datetime as if from an older soul file
+        naive_ts = datetime(2026, 1, 1, 12, 0)  # no tzinfo
+        state.recent_interactions = [naive_ts]
+        manager = StateManager(state)
+        # Should compute without raising
+        result = manager.recompute_focus(datetime(2026, 1, 1, 12, 0, 30, tzinfo=UTC))
+        # Within window → medium
+        assert result == "medium"

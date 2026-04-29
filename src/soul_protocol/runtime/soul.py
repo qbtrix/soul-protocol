@@ -1438,6 +1438,16 @@ class Soul:
         """
         self._state.update(**kwargs)
 
+    def recompute_focus(self, now: datetime | None = None) -> str:
+        """Refresh density-driven focus before reading state.
+
+        Call before displaying focus in CLI/MCP/API surfaces so the value
+        reflects current interaction density, not the last tick. No-op when
+        focus_override is set or focus_window_seconds is 0. Returns the
+        resulting focus level.
+        """
+        return self._state.recompute_focus(now)
+
     # ============ Evolution ============
 
     async def propose_evolution(self, trait: str, new_value: str, reason: str) -> Mutation:

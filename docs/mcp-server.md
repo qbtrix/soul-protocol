@@ -185,6 +185,8 @@ Get the soul's current mood, energy, focus, social battery, and lifecycle stage.
 
 **Returns:** JSON with `mood`, `energy`, `focus`, `social_battery`, and `lifecycle`.
 
+`focus` is recomputed from interaction density at call time (unless a manual override is in place — see `soul_feel` below). Bands with default thresholds: `low` (no interactions in the last hour), `medium` (1-2), `high` (3-9), `max` (10+).
+
 ---
 
 ### `soul_feel`
@@ -195,10 +197,11 @@ Update the soul's emotional state directly.
 |-----------|------|---------|-------------|
 | `mood` | `str` | `None` | One of: `neutral`, `curious`, `focused`, `tired`, `excited`, `contemplative`, `satisfied`, `concerned` |
 | `energy` | `float` | `None` | Energy **delta** (-100 to 100). Positive increases, negative decreases. Clamped to 0-100 after application. |
+| `focus` | `str` | `None` | Lock focus to `low`, `medium`, `high`, or `max`. Pass `auto` to clear the lock and re-enable density-driven focus. |
 
-**Returns:** JSON with updated `mood` and `energy`.
+**Returns:** JSON with updated `mood`, `energy`, `focus`, and `focus_override`.
 
-Note: `energy` is a delta, not an absolute value. Passing `energy: -10` drains 10 points from the current level.
+Note: `energy` is a delta, not an absolute value. Passing `energy: -10` drains 10 points from the current level. `focus` is an absolute level, not a delta.
 
 ---
 

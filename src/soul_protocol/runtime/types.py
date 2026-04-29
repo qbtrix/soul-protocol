@@ -1,4 +1,8 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-04-29 — Density-driven focus: SoulState gains focus_override and
+#   recent_interactions; Biorhythms gains focus_window_seconds, focus_high_threshold,
+#   focus_max_threshold. focus is now computed from interaction density unless
+#   focus_override is set.
 # Updated: 2026-04-04 — Added skip_deep_processing_on_low_significance to
 #   MemorySettings. When True (default), observe() skips entity extraction
 #   (step 5) and self-model update (step 6) for non-significant interactions,
@@ -160,6 +164,23 @@ class Biorhythms(BaseModel):
     auto_regen: bool = Field(
         default=False,
         description="Recover energy automatically based on elapsed time (enable for companion souls)",
+    )
+
+    # Focus dynamics — density-driven
+    focus_window_seconds: float = Field(
+        default=3600.0,
+        ge=0.0,
+        description="Sliding window for interaction-density focus calc (0 disables auto-focus)",
+    )
+    focus_high_threshold: int = Field(
+        default=3,
+        ge=1,
+        description="Interactions in window at or above which focus rises to 'high'",
+    )
+    focus_max_threshold: int = Field(
+        default=10,
+        ge=1,
+        description="Interactions in window at or above which focus rises to 'max'",
     )
 
 
@@ -372,14 +393,27 @@ class Mood(StrEnum):
     CONCERNED = "concerned"
 
 
+FOCUS_LEVELS: tuple[str, ...] = ("low", "medium", "high", "max")
+
+
 class SoulState(BaseModel):
-    """The soul's current emotional and energy state."""
+    """The soul's current emotional and energy state.
+
+    ``focus`` is the effective level (one of FOCUS_LEVELS). When
+    ``focus_override`` is None, StateManager recomputes focus from
+    ``recent_interactions`` density on each interaction or status read.
+    Setting ``focus_override`` to a level locks focus to that value
+    until cleared (set focus_override back to None or call
+    ``manager.update(focus="auto")``).
+    """
 
     mood: Mood = Mood.NEUTRAL
     energy: float = Field(default=100.0, ge=0.0, le=100.0)
     focus: str = "medium"
+    focus_override: str | None = None
     social_battery: float = Field(default=100.0, ge=0.0, le=100.0)
     last_interaction: datetime | None = None
+    recent_interactions: list[datetime] = Field(default_factory=list)
 
 
 # ============ Evolution ============
