@@ -1,4 +1,8 @@
 # export/pack.py — Create .soul zip archives from a SoulConfig.
+# Updated: 2026-04-29 (#41) — Added social tier and custom_layers to the
+#   archive. Social entries get their own ``memory/social.json`` so legacy
+#   flat-layout readers see them. Custom layers (any user-defined layer
+#   name) round-trip via ``memory/custom_layers.json`` keyed by layer name.
 # Updated: feat/soul-encryption — Added optional password parameter for AES-256-GCM
 #   encryption at rest. Encrypted files use .enc extension, manifest stays readable.
 # Updated: v0.2.2 — Added general_events.json to memory/ directory in archives.
@@ -89,6 +93,7 @@ async def pack_soul(
                 "episodic",
                 "semantic",
                 "procedural",
+                "social",  # v0.4.0 (#41) — relationship layer
                 "graph",
                 "self_model",
                 "general_events",
@@ -99,6 +104,16 @@ async def pack_soul(
                     zf,
                     f"memory/{tier_name}.json",
                     json.dumps(tier_data, indent=2, default=str),
+                )
+            # v0.4.0 (#41) — Custom layer entries keyed by layer name. Only
+            # written when at least one custom layer has data, so default
+            # souls keep the pre-#41 archive shape.
+            custom_layers = memory_data.get("custom_layers") or {}
+            if any(custom_layers.values()):
+                _write(
+                    zf,
+                    "memory/custom_layers.json",
+                    json.dumps(custom_layers, indent=2, default=str),
                 )
 
         # manifest.json — archive metadata (always unencrypted, written last)

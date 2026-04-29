@@ -1,4 +1,7 @@
 # export/unpack.py — Load a SoulConfig from a .soul zip archive.
+# Updated: 2026-04-29 (#41) — Read the social tier (memory/social.json) and
+#   user-defined layers (memory/custom_layers.json) when present. Both are
+#   optional, so older archives without these entries keep loading cleanly.
 # Updated: feat/soul-encryption — Added password parameter for decrypting encrypted
 #   .soul files. Raises SoulEncryptedError without password, SoulDecryptionError on
 #   wrong password. Backward compatible with unencrypted archives.
@@ -94,6 +97,7 @@ async def unpack_soul(
             "episodic",
             "semantic",
             "procedural",
+            "social",  # v0.4.0 (#41)
             "graph",
             "self_model",
             "general_events",
@@ -103,6 +107,13 @@ async def unpack_soul(
             if exists:
                 tier_raw = _read(mem_path)
                 memory_data[tier_name] = json.loads(tier_raw)
+
+        # v0.4.0 (#41) — User-defined layers, keyed by layer name. Optional;
+        # only present when the soul actually used a custom layer.
+        custom_path = "memory/custom_layers.json"
+        custom_exists = (f"{custom_path}.enc" in names) if is_encrypted else (custom_path in names)
+        if custom_exists:
+            memory_data["custom_layers"] = json.loads(_read(custom_path))
 
         # Read dna.md if present (human-readable personality snapshot)
         dna_exists = ("dna.md.enc" in names) if is_encrypted else ("dna.md" in names)

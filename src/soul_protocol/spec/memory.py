@@ -1,4 +1,11 @@
 # memory.py — Memory primitives for the core layer.
+# Updated: v0.4.0 (#41) — Open layer namespaces + domain isolation. Added
+#   LAYER_* string constants (LAYER_CORE, LAYER_EPISODIC, LAYER_SEMANTIC,
+#   LAYER_PROCEDURAL, LAYER_SOCIAL) so runtimes have well-known names without
+#   freezing them into an enum. Added ``MemoryEntry.domain: str = "default"``
+#   for sub-namespacing inside a layer (e.g. "finance" vs "legal" facts).
+#   ``MemoryStore`` protocol grew optional ``domain`` filters on ``recall``
+#   and ``search`` so callers can scope queries without iterating all layers.
 # Updated: v0.4.0 — Added ingested_at and superseded fields to MemoryEntry
 #   for bi-temporal timestamps and contradiction detection support.
 # Updated: feat/spec-multi-participant — Added Participant model and Interaction model
@@ -16,6 +23,26 @@ from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
+
+# ---------------------------------------------------------------------------
+# Standard layer names. These are conventions, not constraints — runtimes are
+# free to define any layer string they want. The constants exist so callers
+# don't have to spell the strings literally.
+# ---------------------------------------------------------------------------
+
+LAYER_CORE: str = "core"
+LAYER_EPISODIC: str = "episodic"
+LAYER_SEMANTIC: str = "semantic"
+LAYER_PROCEDURAL: str = "procedural"
+LAYER_SOCIAL: str = "social"
+
+# ---------------------------------------------------------------------------
+# Default domain. Domains are sub-namespaces inside a layer — "finance" vs.
+# "legal" inside the same layer of facts. Entries without an explicit domain
+# get this value so legacy data round-trips with no migration step.
+# ---------------------------------------------------------------------------
+
+DEFAULT_DOMAIN: str = "default"
 
 
 class MemoryVisibility(StrEnum):
@@ -96,6 +123,12 @@ class MemoryEntry(BaseModel):
 
     Every memory has content, a timestamp, and an optional layer namespace.
     Metadata is an open dict for runtime-specific extensions.
+
+    ``domain`` is a sub-namespace inside ``layer``. Two entries can share a
+    layer (``"semantic"``) but live in different domains (``"finance"`` vs.
+    ``"legal"``) so runtimes can scope queries without spinning up a separate
+    layer per topic. Defaults to ``"default"`` so pre-#41 entries load with
+    no migration step.
     """
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -103,6 +136,14 @@ class MemoryEntry(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     source: str = ""
     layer: str = ""
+    domain: str = Field(
+        default=DEFAULT_DOMAIN,
+        description=(
+            "Sub-namespace inside the layer. Use to isolate context like"
+            " 'finance', 'legal', 'personal'. Empty string is coerced to"
+            " 'default' on access."
+        ),
+    )
     visibility: MemoryVisibility = MemoryVisibility.BONDED
     scope: list[str] = Field(
         default_factory=list,
@@ -124,18 +165,45 @@ class MemoryStore(Protocol):
 
     Implementations can be in-memory dicts, SQLite, Redis, vector DBs, etc.
     The protocol only requires these five operations.
+
+    ``domain`` filters on ``recall`` and ``search`` are optional. When
+    ``domain`` is ``None`` (the default), the store returns entries from
+    every domain. When a domain is given, only entries matching it are
+    returned. Stamping a domain on stored entries happens via
+    ``MemoryEntry.domain`` before calling ``store()``.
     """
 
     def store(self, layer: str, entry: MemoryEntry) -> str:
         """Store a memory entry in the given layer. Returns the entry ID."""
         ...
 
-    def recall(self, layer: str, *, limit: int = 10) -> list[MemoryEntry]:
-        """Recall recent memories from a layer, newest first."""
+    def recall(
+        self,
+        layer: str,
+        *,
+        limit: int = 10,
+        domain: str | None = None,
+    ) -> list[MemoryEntry]:
+        """Recall recent memories from a layer, newest first.
+
+        ``domain`` filters to entries whose ``domain`` matches when set;
+        defaults to None which returns every domain.
+        """
         ...
 
-    def search(self, query: str, *, limit: int = 10) -> list[MemoryEntry]:
-        """Search across all layers by content. Returns best matches."""
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        layer: str | None = None,
+        domain: str | None = None,
+    ) -> list[MemoryEntry]:
+        """Search across all layers by content. Returns best matches.
+
+        ``layer`` and ``domain`` filter the result set when set; both
+        default to None (search every layer + domain).
+        """
         ...
 
     def delete(self, memory_id: str) -> bool:
@@ -165,20 +233,46 @@ class DictMemoryStore:
         self._data[layer].append(entry)
         return entry.id
 
-    def recall(self, layer: str, *, limit: int = 10) -> list[MemoryEntry]:
-        """Return the most recent memories from a layer."""
+    def recall(
+        self,
+        layer: str,
+        *,
+        limit: int = 10,
+        domain: str | None = None,
+    ) -> list[MemoryEntry]:
+        """Return the most recent memories from a layer.
+
+        Filters to ``domain`` when set; otherwise returns every domain.
+        """
         entries = self._data.get(layer, [])
+        if domain is not None:
+            entries = [e for e in entries if e.domain == domain]
         return sorted(entries, key=lambda e: e.timestamp, reverse=True)[:limit]
 
-    def search(self, query: str, *, limit: int = 10) -> list[MemoryEntry]:
-        """Search all layers using basic token overlap scoring."""
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        layer: str | None = None,
+        domain: str | None = None,
+    ) -> list[MemoryEntry]:
+        """Search layers using basic token overlap scoring.
+
+        ``layer`` and ``domain`` narrow the search when set.
+        """
         query_tokens = set(query.lower().split())
         if not query_tokens:
             return []
 
         scored: list[tuple[float, MemoryEntry]] = []
-        for entries in self._data.values():
+        layer_iter = (
+            [(layer, self._data.get(layer, []))] if layer is not None else list(self._data.items())
+        )
+        for _, entries in layer_iter:
             for entry in entries:
+                if domain is not None and entry.domain != domain:
+                    continue
                 entry_tokens = set(entry.content.lower().split())
                 if not entry_tokens:
                     continue

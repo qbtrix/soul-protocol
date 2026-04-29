@@ -208,11 +208,18 @@ Store a new memory. Returns the generated memory ID.
 | `importance` | `int` | `5` | 1-10 scale |
 | `emotion` | `str \| None` | `None` | Emotional tag |
 | `entities` | `list[str] \| None` | `None` | Referenced entities |
+| `domain` | `str` | `"default"` | Sub-namespace inside the layer (#41), e.g. `"finance"` or `"legal"` |
+| `user_id` | `str \| None` | `None` | Multi-user attribution (#46) |
 
 **Returns:** `str` -- memory ID
 
 ```python
 mid = await soul.remember("User prefers dark mode", importance=7)
+
+# Domain-scoped memory (#41)
+mid = await soul.remember(
+    "Q3 revenue up 12 percent", domain="finance", importance=8
+)
 ```
 
 #### `soul.recall()`
@@ -226,6 +233,8 @@ async def recall(
     types: list[MemoryType] | None = None,
     min_importance: int = 0,
     user_id: str | None = None,
+    layer: str | None = None,
+    domain: str | None = None,
 ) -> list[MemoryEntry]
 ```
 
@@ -238,6 +247,8 @@ Search memories ranked by ACT-R activation (recency, frequency, relevance). Rele
 | `types` | `list[MemoryType] \| None` | `None` | Filter by memory type(s). `None` = all types. |
 | `min_importance` | `int` | `0` | Minimum importance threshold |
 | `user_id` | `str \| None` | `None` | Multi-user filter (#46). When set, results restrict to memories whose `user_id` matches OR is `None` (legacy/orphan entries are visible to every user). When unset, returns all memories regardless of attribution. |
+| `layer` | `str \| None` | `None` | Restrict recall to one layer (#41). Accepts built-in names (`"episodic"`, `"semantic"`, `"procedural"`, `"social"`) or any custom layer name. |
+| `domain` | `str \| None` | `None` | Restrict recall to one domain sub-namespace (#41), e.g. `"finance"`. |
 
 **Returns:** `list[MemoryEntry]`
 
@@ -247,6 +258,11 @@ memories = await soul.recall("dark mode preference", limit=5)
 
 # Multi-user soul: scope to alice
 alice_memories = await soul.recall("preferences", user_id="alice", limit=5)
+
+# Domain-scoped recall (#41)
+finance_only = await soul.recall("revenue", domain="finance")
+all_semantic = await soul.recall("python", layer="semantic")
+combo = await soul.recall("revenue", layer="semantic", domain="finance")
 ```
 
 #### `soul.observe()`
@@ -257,6 +273,7 @@ async def observe(
     interaction: Interaction,
     *,
     user_id: str | None = None,
+    domain: str = "default",
 ) -> None
 ```
 
@@ -276,6 +293,7 @@ The primary learning hook. Call after every user-agent exchange. Runs the full p
 |-----------|------|---------|-------------|
 | `interaction` | `Interaction` | required | The user-agent exchange |
 | `user_id` | `str \| None` | `None` | Multi-user attribution (#46). When set, every memory written during this call is stamped with the user_id, and the per-user bond is strengthened instead of the default bond. When unset, behaviour is unchanged: orphan entries with `user_id=None`. |
+| `domain` | `str` | `"default"` | Domain stamp for memories written by this call (#41). Pass e.g. `"finance"` to scope all derived memories to that domain. |
 
 ```python
 # Legacy (single-user) observe
@@ -286,7 +304,44 @@ await soul.observe(
     Interaction(user_input="My favorite color is blue", agent_output="Got it!"),
     user_id="alice",
 )
+
+# Domain-scoped observe (#41)
+await soul.observe(
+    Interaction(user_input="Q3 revenue up 12 percent", agent_output="Noted."),
+    domain="finance",
+)
 ```
+
+#### `soul._memory.layer(name)` — LayerView accessor (#41)
+
+```python
+view = soul._memory.layer("social")
+sid = await view.store(MemoryEntry(
+    type=MemoryType.SEMANTIC,
+    content="Alice prefers async messages",
+    importance=7,
+))
+results = await view.query("alice", domain="finance")
+recent = view.entries(domain="legal")
+n = view.count()
+```
+
+`MemoryManager.layer(name)` returns a `LayerView` with a uniform API (`store`, `query`, `get`, `delete`, `entries`, `count`) that works for built-in layers (`episodic`, `semantic`, `procedural`, `social`) and any user-defined layer name. Custom layers are created lazily on first `store()`.
+
+#### `DomainIsolationMiddleware` (#41)
+
+```python
+from soul_protocol.runtime.middleware import DomainIsolationMiddleware
+
+finance_only = DomainIsolationMiddleware(
+    soul, allowed_domains=["finance", "default"]
+)
+await finance_only.remember("New OPEX line", importance=7)  # stamped "finance"
+results = await finance_only.recall("revenue", limit=5)
+await finance_only.remember("NDA fact", domain="legal")  # raises DomainAccessError
+```
+
+Wraps a `Soul` and enforces a domain allow-list. Reads silently filter to the allowed list. Writes to a disallowed domain raise `DomainAccessError`. When no domain is given on `remember`/`observe`, the middleware defaults to `allowed_domains[0]`.
 
 #### `soul.bond_for()`
 
@@ -794,6 +849,9 @@ A single memory with metadata, emotional context, and psychology-informed fields
 | `significance` | `float` | `0.0` | | LIDA significance score |
 | `general_event_id` | `str \| None` | `None` | | Conway hierarchy link |
 | `superseded_by` | `str \| None` | `None` | | ID of newer conflicting fact (v0.2.2) |
+| `user_id` | `str \| None` | `None` | | Multi-user attribution (#46) |
+| `layer` | `str` | `""` | | Free-form layer namespace (#41). Empty string is coerced to `type.value`. |
+| `domain` | `str` | `"default"` | | Sub-namespace inside the layer (#41), e.g. `"finance"` |
 
 #### `CoreMemory`
 

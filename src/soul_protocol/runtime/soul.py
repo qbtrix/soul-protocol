@@ -1,4 +1,9 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-29 (#41) — User-defined layers + domain isolation. The
+#   remember(), observe(), and recall() methods accept a ``domain`` keyword
+#   that stamps / filters memories by sub-namespace. recall() also accepts
+#   a ``layer`` keyword to scope to one layer (built-in or custom). All
+#   defaults preserve pre-#41 behaviour (domain="default", layer=None).
 # Updated: 2026-04-29 (#46) — Multi-user soul support. observe() and recall()
 #   accept a keyword-only ``user_id`` argument. recall filters memories by
 #   user attribution. observe stamps the user_id onto written memories and
@@ -1000,12 +1005,22 @@ class Soul:
         entities: list[str] | None = None,
         visibility: MemoryVisibility = MemoryVisibility.BONDED,
         scope: list[str] | None = None,
+        domain: str = "default",
+        user_id: str | None = None,
     ) -> str:
         """Soul remembers something. Returns memory ID.
 
         ``scope`` accepts hierarchical RBAC/ABAC tags (e.g. ``["org:sales:*"]``)
         that pair with :func:`soul_protocol.spec.match_scope` at recall time.
         Defaults to an empty list (no scope — visible to any caller).
+
+        ``domain`` (#41) is a sub-namespace inside the layer — pass values
+        like ``"finance"`` or ``"legal"`` to scope the memory. Defaults to
+        ``"default"`` so legacy callers see no behaviour change.
+
+        ``user_id`` (#46) attributes the memory to a specific bonded user.
+        ``None`` (default) leaves the memory unattributed (visible to every
+        recall regardless of ``user_id`` filter).
         """
         return await self._memory.add(
             MemoryEntry(
@@ -1016,6 +1031,8 @@ class Soul:
                 entities=entities or [],
                 visibility=visibility,
                 scope=scope or [],
+                domain=domain,
+                user_id=user_id,
             )
         )
 
@@ -1032,6 +1049,8 @@ class Soul:
         progressive: bool = False,
         scopes: list[str] | None = None,
         user_id: str | None = None,
+        layer: str | None = None,
+        domain: str | None = None,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories with visibility + scope filtering.
 
@@ -1049,6 +1068,13 @@ class Soul:
         When unset, all memories are returned regardless of attribution —
         preserves pre-#46 behaviour. Per-user bond strength is used for
         the visibility filter when ``bond_strength`` isn't given explicitly.
+
+        ``layer`` (#41): when set to a layer name (built-in like
+        ``"semantic"`` or any custom string), only entries in that layer
+        are returned. Default ``None`` keeps the cross-tier behaviour.
+
+        ``domain`` (#41): when set, results are filtered to entries with
+        a matching ``domain``. Default ``None`` returns every domain.
 
         Populates ``self.last_retrieval`` with a :class:`RetrievalTrace`
         receipt every call, regardless of whether results were found. The
@@ -1076,6 +1102,8 @@ class Soul:
             bond_threshold=bond_threshold,
             progressive=progressive,
             user_id=user_id,
+            layer=layer,
+            domain=domain,
         )
         if scopes:
             from soul_protocol.spec.scope import match_scope
@@ -1168,6 +1196,7 @@ class Soul:
         interaction: Interaction,
         *,
         user_id: str | None = None,
+        domain: str = "default",
     ) -> None:
         """Soul observes an interaction and learns from it.
 
@@ -1178,6 +1207,10 @@ class Soul:
         strengthened instead of the default bond. When unset (legacy
         callers), behaviour is unchanged: memories carry ``user_id=None``
         and the default bond is strengthened.
+
+        ``domain`` (#41): sub-namespace stamp for memories written by this
+        call. Defaults to ``"default"``. Pass e.g. ``"finance"`` to scope
+        all derived memories (episodic + extracted facts) to that domain.
 
         v0.2.0 Pipeline (handled by MemoryManager.observe()):
           1. Detect sentiment → SomaticMarker
@@ -1198,7 +1231,7 @@ class Soul:
         self._skills.decay_all()
 
         # Delegate to psychology-informed memory pipeline
-        result = await self._memory.observe(interaction, user_id=user_id)
+        result = await self._memory.observe(interaction, user_id=user_id, domain=domain)
 
         # Update knowledge graph from extracted entities
         raw_entities = result["entities"]
