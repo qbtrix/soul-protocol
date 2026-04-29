@@ -1844,7 +1844,9 @@ def prompt_cmd(path):
 @cli.command("forget")
 @click.argument("path", type=click.Path(exists=True))
 @click.argument("query", required=False, default=None)
-@click.option("--id", "memory_id", type=str, default=None, help="Delete a single memory by exact ID")
+@click.option(
+    "--id", "memory_id", type=str, default=None, help="Delete a single memory by exact ID"
+)
 @click.option("--entity", type=str, default=None, help="Delete by entity name instead of query")
 @click.option("--before", type=str, default=None, help="Delete before ISO timestamp")
 @click.option(
@@ -1884,9 +1886,7 @@ def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confi
         # Mutually-exclusive selector check — pick exactly one.
         selectors = [bool(memory_id), bool(entity), bool(before), bool(query)]
         if sum(selectors) != 1:
-            console.print(
-                "[red]Provide exactly one of: QUERY, --id, --entity, --before[/red]"
-            )
+            console.print("[red]Provide exactly one of: QUERY, --id, --entity, --before[/red]")
             raise SystemExit(1)
 
         if memory_id:

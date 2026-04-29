@@ -117,9 +117,7 @@ class TestForgetById:
         assert "keep this other memory" in recall.output
 
         # The target memory is gone — recall by its content returns nothing.
-        gone = runner.invoke(
-            cli, ["recall", str(soul_path), "delete this exact memory", "--json"]
-        )
+        gone = runner.invoke(cli, ["recall", str(soul_path), "delete this exact memory", "--json"])
         assert target_id not in gone.output
 
     def test_forget_by_id_unknown_id_reports_zero(self, tmp_path):
@@ -127,9 +125,7 @@ class TestForgetById:
         _birth_soul_at(str(soul_path), "ForgetIdMissing")
 
         runner = CliRunner()
-        result = runner.invoke(
-            cli, ["forget", str(soul_path), "--id", "deadbeefdead"]
-        )
+        result = runner.invoke(cli, ["forget", str(soul_path), "--id", "deadbeefdead"])
         assert result.exit_code == 0, result.output
         assert "would forget 0 memor" in result.output
 
@@ -138,9 +134,7 @@ class TestForgetById:
         _birth_soul_at(str(soul_path), "ForgetIdConflict")
 
         runner = CliRunner()
-        result = runner.invoke(
-            cli, ["forget", str(soul_path), "some-query", "--id", "abc123"]
-        )
+        result = runner.invoke(cli, ["forget", str(soul_path), "some-query", "--id", "abc123"])
         # Mutually exclusive selector gate.
         assert result.exit_code == 1
         assert "exactly one of" in result.output.lower()

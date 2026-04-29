@@ -42,8 +42,7 @@ async def test_forget_by_id_returns_audited_dict_for_semantic(manager):
 
     # And the audit trail picked it up.
     assert any(
-        entry["reason"] == f"forget_by_id(memory_id='{mem_id}')"
-        for entry in manager.deletion_audit
+        entry["reason"] == f"forget_by_id(memory_id='{mem_id}')" for entry in manager.deletion_audit
     )
 
 
@@ -136,9 +135,7 @@ async def test_supersede_audit_records_user_intent(manager):
         MemoryEntry(type=MemoryType.SEMANTIC, content="X is missing", importance=5)
     )
 
-    result = await manager.supersede(
-        old_id, "X shipped on 2026-04-21", reason="PR #112"
-    )
+    result = await manager.supersede(old_id, "X shipped on 2026-04-21", reason="PR #112")
 
     audit = manager.supersede_audit
     assert len(audit) == 1
@@ -210,9 +207,7 @@ async def test_soul_forget_one_delegates_with_audit(tmp_path):
     result = await soul.forget_one(mem_id)
     assert result["found"] is True
     assert result["total"] == 1
-    assert any(
-        entry["reason"].startswith("forget_by_id") for entry in soul.deletion_audit
-    )
+    assert any(entry["reason"].startswith("forget_by_id") for entry in soul.deletion_audit)
 
 
 @pytest.mark.asyncio

@@ -1121,9 +1121,7 @@ class MemoryManager:
             "total": total,
         }
 
-    async def _find_entry_by_id(
-        self, memory_id: str
-    ) -> tuple[MemoryEntry | None, str | None]:
+    async def _find_entry_by_id(self, memory_id: str) -> tuple[MemoryEntry | None, str | None]:
         """Look up a memory entry by ID across episodic, semantic, procedural.
 
         Returns a (entry, tier_name) pair or (None, None) if absent.
