@@ -581,9 +581,28 @@ class Soul:
     def verify_chain(self) -> tuple[bool, str | None]:
         """Verify the integrity of this soul's trust chain.
 
-        Returns ``(True, None)`` on a fully valid chain, or
+        Two-stage check:
+        1. Every entry's ``public_key`` matches the soul's loaded public key
+           (binds the chain to *this* identity, not just any key that signed
+           a self-consistent chain).
+        2. The chain itself is internally valid via :func:`verify_chain` —
+           signatures, hash chain, seq monotonicity, future-timestamp skew.
+
+        The pubkey binding is skipped when the keystore has no public key
+        (e.g. a freshly-birthed soul before its first save). It is the
+        load-time path — saved/awakened souls always have a public key.
+
+        Returns ``(True, None)`` on success, or
         ``(False, "<reason> at seq N")`` on the first failure.
         """
+        import base64
+
+        pub_bytes = self._keystore.public_key_bytes
+        if pub_bytes:
+            expected_pk = base64.b64encode(pub_bytes).decode("ascii")
+            for entry in self._trust_chain_manager.chain.entries:
+                if entry.public_key != expected_pk:
+                    return False, f"public key mismatch at seq {entry.seq}"
         return self._trust_chain_manager.verify()
 
     def audit_log(
