@@ -225,6 +225,7 @@ async def recall(
     limit: int = 10,
     types: list[MemoryType] | None = None,
     min_importance: int = 0,
+    user_id: str | None = None,
 ) -> list[MemoryEntry]
 ```
 
@@ -236,17 +237,27 @@ Search memories ranked by ACT-R activation (recency, frequency, relevance). Rele
 | `limit` | `int` | `10` | Max results |
 | `types` | `list[MemoryType] \| None` | `None` | Filter by memory type(s). `None` = all types. |
 | `min_importance` | `int` | `0` | Minimum importance threshold |
+| `user_id` | `str \| None` | `None` | Multi-user filter (#46). When set, results restrict to memories whose `user_id` matches OR is `None` (legacy/orphan entries are visible to every user). When unset, returns all memories regardless of attribution. |
 
 **Returns:** `list[MemoryEntry]`
 
 ```python
+# Legacy (single-user) recall
 memories = await soul.recall("dark mode preference", limit=5)
+
+# Multi-user soul: scope to alice
+alice_memories = await soul.recall("preferences", user_id="alice", limit=5)
 ```
 
 #### `soul.observe()`
 
 ```python
-async def observe(self, interaction: Interaction) -> None
+async def observe(
+    self,
+    interaction: Interaction,
+    *,
+    user_id: str | None = None,
+) -> None
 ```
 
 The primary learning hook. Call after every user-agent exchange. Runs the full psychology pipeline:
@@ -264,10 +275,37 @@ The primary learning hook. Call after every user-agent exchange. Runs the full p
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `interaction` | `Interaction` | required | The user-agent exchange |
+| `user_id` | `str \| None` | `None` | Multi-user attribution (#46). When set, every memory written during this call is stamped with the user_id, and the per-user bond is strengthened instead of the default bond. When unset, behaviour is unchanged: orphan entries with `user_id=None`. |
 
 ```python
+# Legacy (single-user) observe
 await soul.observe(Interaction(user_input="Hi!", agent_output="Hello there!"))
+
+# Multi-user soul: attribute to alice
+await soul.observe(
+    Interaction(user_input="My favorite color is blue", agent_output="Got it!"),
+    user_id="alice",
+)
 ```
+
+#### `soul.bond_for()`
+
+```python
+def bond_for(self, user_id: str) -> Bond
+```
+
+Return the per-user `Bond` for a given `user_id` (multi-user souls, #46). Lazily creates the bond on first access (strength=50, count=0). Bonds survive export/awaken. Use this to inspect or mutate a single user's relationship without touching the default bond.
+
+```python
+alice_bond = soul.bond_for("alice")
+alice_bond.strengthen(2.0)  # only alice's bond moves
+
+# bond.strengthen() also accepts a user_id keyword for routing
+soul.bond.strengthen(2.0, user_id="alice")  # same as above
+soul.bond.strengthen(2.0)  # default bond (legacy)
+```
+
+`soul.bonded_users` returns the list of `user_id`s with their own per-user bonds (excludes the default bond's `bonded_to`).
 
 #### `soul.forget()`
 

@@ -1,4 +1,11 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-04-29 (#46) — Multi-user soul support. ``soul observe`` and
+#   ``soul recall`` accept ``--user <id>``; the user_id pipes through to
+#   Soul.observe() / Soul.recall() so memory writes get attributed and
+#   recall results filter by user. ``soul status`` renders per-user bond
+#   strengths when more than one user is bonded; falls back to the legacy
+#   single-bond view otherwise. The `--user` flag also includes legacy
+#   (user_id=None) entries — orphan memories stay visible to every user.
 # Updated: 2026-04-27 — Memory update primitives + forget display fix.
 #   - `soul forget --id <id>` for surgical single-memory deletion (audited).
 #   - `soul supersede <path> <new_content> --old-id <id> [--reason ...]` writes
@@ -513,7 +520,12 @@ def inspect(path):
 @cli.command()
 @click.argument("path", type=click.Path(exists=True))
 def status(path):
-    """Show a Soul's current status (quick view)."""
+    """Show a Soul's current status (quick view).
+
+    Shows per-user bond strengths when more than one user is bonded
+    (multi-user souls, #46). Falls back to the default single-bond view
+    for legacy souls.
+    """
 
     async def _status():
         from soul_protocol.runtime.soul import Soul
@@ -536,6 +548,26 @@ def status(path):
             f"  Focus           {soul.state.focus}",
             f"  Memories        {soul.memory_count}",
         ]
+
+        # Multi-user bond display when more than one user has a bond.
+        bonded_users = soul.bonded_users
+        if bonded_users:
+            lines.append("")
+            lines.append("  [dim]Per-user bonds:[/dim]")
+            # Show default bond first if it has a bonded_to identifier
+            default_label = soul.bond.default.bonded_to or "[dim]default[/dim]"
+            lines.append(
+                f"    {default_label:24}  "
+                f"strength={soul.bond.default.bond_strength:5.1f}, "
+                f"interactions={soul.bond.default.interaction_count}"
+            )
+            for uid in bonded_users:
+                b = soul.bond_for(uid)
+                lines.append(
+                    f"    {uid:24}  "
+                    f"strength={b.bond_strength:5.1f}, "
+                    f"interactions={b.interaction_count}"
+                )
 
         console.print(
             Panel(
@@ -1101,7 +1133,14 @@ def remember_cmd(path, text, importance, emotion, memory_type):
     default=False,
     help="Output results as a JSON array (machine-readable)",
 )
-def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
+@click.option(
+    "--user",
+    "user_id",
+    default=None,
+    help="Filter memories to a specific user_id (multi-user souls, #46). "
+    "Legacy entries with no user_id are also returned.",
+)
+def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_id):
     """Query a Soul's memories.
 
     \b
@@ -1111,6 +1150,7 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
       soul recall aria.soul "python" --min-importance 5
       soul recall aria.soul "python" --full
       soul recall aria.soul --recent 5 --json
+      soul recall aria.soul "preferences" --user alice
     """
 
     async def _recall():
@@ -1119,12 +1159,18 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
         soul = await Soul.awaken(path)
 
         if recent is not None:
-            # Show N most recent memories across all stores
+            # Show N most recent memories across all stores. Apply --user
+            # filter post-hoc so the legacy --recent path keeps its
+            # cross-tier ordering.
             all_memories = (
                 soul._memory._episodic.entries()
                 + soul._memory._semantic.facts()
                 + soul._memory._procedural.entries()
             )
+            if user_id is not None:
+                all_memories = [
+                    m for m in all_memories if m.user_id == user_id or m.user_id is None
+                ]
             all_memories.sort(
                 key=lambda m: m.created_at or "",
                 reverse=True,
@@ -1136,6 +1182,7 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
                 query,
                 limit=limit,
                 min_importance=min_importance,
+                user_id=user_id,
             )
             title = f'Recall — {soul.name} — "{query}"'
         else:
@@ -1158,6 +1205,7 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json):
                     "importance": entry.importance,
                     "emotion": entry.emotion,
                     "created": entry.created_at.isoformat(),
+                    "user_id": entry.user_id,
                 }
                 for entry in entries
             ]
@@ -1498,7 +1546,14 @@ def _save_soul(soul, path):
 @click.option("--user-input", "user_input", required=True, help="User's message")
 @click.option("--agent-output", "agent_output", required=True, help="Agent's response")
 @click.option("--channel", default="cli", help="Channel name (default: cli)")
-def observe_cmd(path, user_input, agent_output, channel):
+@click.option(
+    "--user",
+    "user_id",
+    default=None,
+    help="Attribute the observed memory to this user_id (multi-user souls, #46). "
+    "Per-user bond is strengthened instead of the default bond.",
+)
+def observe_cmd(path, user_input, agent_output, channel, user_id):
     """Process an interaction through the full cognitive pipeline.
 
     Runs sentiment detection, significance gating, memory storage,
@@ -1508,6 +1563,7 @@ def observe_cmd(path, user_input, agent_output, channel):
     Examples:
       soul observe .soul/ --user-input "Hello" --agent-output "Hi there!"
       soul observe aria.soul --user-input "Tell me a joke" --agent-output "Why did..." --channel discord
+      soul observe aria.soul --user-input "Hi" --agent-output "Hello!" --user alice
     """
 
     async def _observe():
@@ -1520,7 +1576,7 @@ def observe_cmd(path, user_input, agent_output, channel):
             agent_output=agent_output,
             channel=channel,
         )
-        await soul.observe(interaction)
+        await soul.observe(interaction, user_id=user_id)
 
         # Save
         if Path(path).is_dir():

@@ -1,4 +1,8 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-04-29 (#46) — Multi-user soul support. observe() and recall()
+#   accept a ``user_id`` keyword that is stamped onto stored MemoryEntry
+#   instances and used to filter recall results. None preserves legacy
+#   behaviour: orphan entries are visible to any user_id query.
 # Updated: 2026-04-27 — User-driven memory update primitives.
 #   - `forget_by_id(id)` audits a single-id deletion and returns a dict in the
 #     same shape as `forget()` so the CLI can use one display path.
@@ -644,8 +648,18 @@ class MemoryManager:
         interaction: Interaction,
         core_values: list[str] | None = None,
         detect_contradictions: bool = True,
+        user_id: str | None = None,
     ) -> dict:
-        """Process an interaction through the psychology-informed pipeline."""
+        """Process an interaction through the psychology-informed pipeline.
+
+        Args:
+            interaction: The interaction to observe.
+            core_values: Override for significance scoring.
+            detect_contradictions: Whether to run contradiction detection.
+            user_id: When set, stamp the user_id on every memory written
+                during this observe call (episodic + semantic facts).
+                None leaves new entries unattributed (legacy behaviour).
+        """
         from soul_protocol.runtime.cognitive.engine import (
             compute_salience,
             generate_abstract,
@@ -693,6 +707,10 @@ class MemoryManager:
                 )
                 salience = compute_salience(sig_score)
                 self._episodic.update_entry(episodic_id, abstract=abstract, salience=salience)
+                # v0.4.0 (#46) — stamp user_id on the new episodic entry so
+                # multi-user recall can filter by attribution.
+                if user_id is not None:
+                    self._episodic.update_entry(episodic_id, user_id=user_id)
             logger.debug("Episodic memory stored: id=%s", episodic_id)
 
         # --- 4. Extract and store semantic facts ---
@@ -701,6 +719,12 @@ class MemoryManager:
             self._semantic.facts(),
             significance=sig_score,
         )
+        # v0.4.0 (#46) — stamp user_id on each newly extracted fact before
+        # dedup. Stamping pre-storage keeps the entry consistent across the
+        # MERGE/CREATE branches without re-walking after add().
+        if user_id is not None:
+            for fact in facts:
+                fact.user_id = user_id
         await self._resolve_fact_conflicts(facts)
         # Phase 2: dedup pipeline before storing
         stored_facts: list[MemoryEntry] = []
@@ -746,6 +770,9 @@ class MemoryManager:
                 )
                 salience = compute_salience(sig_score)
                 self._episodic.update_entry(episodic_id, abstract=abstract, salience=salience)
+                # v0.4.0 (#46) — stamp user_id for promoted episodic too.
+                if user_id is not None:
+                    self._episodic.update_entry(episodic_id, user_id=user_id)
             logger.debug(
                 "Promoted to episodic (facts found): id=%s, sig=%.3f",
                 episodic_id,
@@ -875,10 +902,21 @@ class MemoryManager:
         bond_strength: float = 100.0,
         bond_threshold: float = 30.0,
         progressive: bool = False,
+        user_id: str | None = None,
     ) -> list[MemoryEntry]:
+        """Recall memories from the appropriate stores.
+
+        ``user_id``: when set, filter results to entries whose ``user_id``
+        matches OR is ``None`` (legacy entries are visible to every user).
+        When ``user_id`` is ``None``, all entries are returned regardless
+        of attribution — preserves pre-#46 behaviour.
+        """
+        # Fetch a larger candidate pool when user_id filter is active so the
+        # filter doesn't shrink the result set below ``limit``.
+        fetch_limit = limit * 3 if user_id is not None else limit
         results = await self._recall_engine.recall(
             query=query,
-            limit=limit,
+            limit=fetch_limit,
             types=types,
             min_importance=min_importance,
             requester_id=requester_id,
@@ -886,6 +924,11 @@ class MemoryManager:
             bond_threshold=bond_threshold,
             progressive=progressive,
         )
+        if user_id is not None:
+            results = [
+                entry for entry in results if entry.user_id == user_id or entry.user_id is None
+            ]
+            results = results[:limit]
         logger.debug("Recall query_len=%d returned %d results", len(query), len(results))
         return results
 

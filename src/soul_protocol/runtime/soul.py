@@ -1,4 +1,12 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-29 (#46) — Multi-user soul support. observe() and recall()
+#   accept a keyword-only ``user_id`` argument. recall filters memories by
+#   user attribution. observe stamps the user_id onto written memories and
+#   strengthens the per-user bond. Soul.bond now returns a BondRegistry
+#   that quacks like the old Bond for back-compat (default bond proxy)
+#   while also routing strengthen/weaken to per-user bonds when given a
+#   user_id. New helpers: ``Soul.bond_for(user_id) -> Bond``,
+#   ``Soul.bonded_users``, ``Soul.migrate_to_multi_user()``.
 # Updated: 2026-04-27 — User-facing memory update primitives.
 #   - `Soul.forget_one(id)`: audited single-id deletion returning the same
 #     dict shape as `forget()`. Powers `soul forget --id`.
@@ -111,7 +119,7 @@ from typing import Any
 from soul_protocol.spec.learning import LearningEvent
 from soul_protocol.spec.trace import RetrievalTrace, TraceCandidate
 
-from .bond import Bond
+from .bond import Bond, BondRegistry
 from .cognitive.engine import CognitiveEngine
 from .dna.prompt import dna_to_system_prompt
 from .dream import Dreamer, DreamReport
@@ -128,6 +136,7 @@ from .state.manager import StateManager
 from .types import (
     DNA,
     Biorhythms,
+    BondTarget,
     CommunicationStyle,
     CoreMemory,
     GeneralEvent,
@@ -373,6 +382,25 @@ class Soul:
 
         # F5: Interaction counter for auto-consolidation (persisted in SoulConfig)
         self._interaction_count: int = getattr(config, "interaction_count", 0)
+
+        # v0.4.0 (#46) — Multi-user bond registry. Wraps the default bond on
+        # ``identity.bond`` plus any per-user bonds carried in
+        # ``config.bonds_per_user``. ``Soul.bond`` returns this registry; it
+        # quacks like a Bond for back-compat readers (``soul.bond.bond_strength``
+        # etc. proxy to the default bond) and also routes strengthen/weaken
+        # to per-user bonds when given a user_id.
+        self._bonds = BondRegistry.from_dict(
+            default=config.identity.bond,
+            per_user_data=getattr(config, "bonds_per_user", None) or {},
+        )
+
+        # Auto-migrate legacy souls: if Identity.bonded_to is set and the
+        # default bond doesn't yet record it, propagate. The actual
+        # bond/memory migration happens in :meth:`migrate_to_multi_user`,
+        # but we keep this lightweight sync here so existing code that
+        # reads ``soul.bond.bonded_to`` keeps working immediately.
+        if config.identity.bonded_to and not self._bonds.default.bonded_to:
+            self._bonds.default.bonded_to = config.identity.bonded_to
 
         # Retrieval trace for the most recent recall() call.
         # Consumers (paw-runtime JSONL sink, graduation policy) read this after
@@ -944,7 +972,7 @@ class Soul:
             memories = await self._memory.recall(
                 query=user_input,
                 limit=max_memories,
-                bond_strength=self._identity.bond.bond_strength,
+                bond_strength=self._bonds.default.bond_strength,
             )
             if memories:
                 lines = [f"- {m.content}" for m in memories]
@@ -1003,6 +1031,7 @@ class Soul:
         bond_threshold: float = 30.0,
         progressive: bool = False,
         scopes: list[str] | None = None,
+        user_id: str | None = None,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories with visibility + scope filtering.
 
@@ -1014,6 +1043,13 @@ class Soul:
         returned. Filtering happens after scoring so the underlying recall
         order is unchanged.
 
+        ``user_id`` (#46): when set, results are restricted to memories
+        attributed to that user_id, plus any legacy entries where
+        ``user_id is None`` (orphan entries are visible to every user).
+        When unset, all memories are returned regardless of attribution —
+        preserves pre-#46 behaviour. Per-user bond strength is used for
+        the visibility filter when ``bond_strength`` isn't given explicitly.
+
         Populates ``self.last_retrieval`` with a :class:`RetrievalTrace`
         receipt every call, regardless of whether results were found. The
         receipt is in-memory only — never serialised into the ``.soul``
@@ -1021,9 +1057,14 @@ class Soul:
         """
         import time as _time
 
-        effective_bond = (
-            bond_strength if bond_strength is not None else self._identity.bond.bond_strength
-        )
+        # Resolve effective bond strength: caller-supplied wins, else per-user
+        # bond when user_id is set, else default bond.
+        if bond_strength is not None:
+            effective_bond = bond_strength
+        elif user_id is not None and self._bonds.has_user(user_id):
+            effective_bond = self._bonds.for_user(user_id).bond_strength
+        else:
+            effective_bond = self._bonds.default.bond_strength
         start = _time.monotonic()
         results = await self._memory.recall(
             query=query,
@@ -1034,6 +1075,7 @@ class Soul:
             bond_strength=effective_bond,
             bond_threshold=bond_threshold,
             progressive=progressive,
+            user_id=user_id,
         )
         if scopes:
             from soul_protocol.spec.scope import match_scope
@@ -1121,10 +1163,21 @@ class Soul:
         )
         return results
 
-    async def observe(self, interaction: Interaction) -> None:
+    async def observe(
+        self,
+        interaction: Interaction,
+        *,
+        user_id: str | None = None,
+    ) -> None:
         """Soul observes an interaction and learns from it.
 
         This is the main learning hook — call after every user-agent exchange.
+
+        ``user_id`` (#46): when set, every memory written during this observe
+        call is stamped with the user_id, and the per-user bond is
+        strengthened instead of the default bond. When unset (legacy
+        callers), behaviour is unchanged: memories carry ``user_id=None``
+        and the default bond is strengthened.
 
         v0.2.0 Pipeline (handled by MemoryManager.observe()):
           1. Detect sentiment → SomaticMarker
@@ -1145,7 +1198,7 @@ class Soul:
         self._skills.decay_all()
 
         # Delegate to psychology-informed memory pipeline
-        result = await self._memory.observe(interaction)
+        result = await self._memory.observe(interaction, user_id=user_id)
 
         # Update knowledge graph from extracted entities
         raw_entities = result["entities"]
@@ -1167,12 +1220,14 @@ class Soul:
         # Update state based on interaction + detected sentiment
         self._state.on_interaction(interaction, somatic=result.get("somatic"))
 
-        # Strengthen bond on each interaction
+        # Strengthen bond on each interaction. When user_id is supplied
+        # (#46), bump the per-user bond; otherwise mutate the default bond.
+        # The registry handles the routing.
         somatic = result.get("somatic")
         if somatic and somatic.valence >= 0:
-            self._identity.bond.strengthen(amount=1.0 + somatic.valence)
+            self._bonds.strengthen(amount=1.0 + somatic.valence, user_id=user_id)
         else:
-            self._identity.bond.strengthen(amount=0.5)
+            self._bonds.strengthen(amount=0.5, user_id=user_id)
 
         # Grant XP to skills matching extracted entities/topics
         # Significance-weighted XP: range 5-30 based on interaction significance
@@ -1465,9 +1520,92 @@ class Soul:
     # ============ Bond / Skills ============
 
     @property
-    def bond(self) -> Bond:
-        """Access the soul's bond with its bonded entity."""
-        return self._identity.bond
+    def bond(self) -> BondRegistry:
+        """Access the soul's bond registry (v0.4.0 / #46).
+
+        Backwards compatible: reading ``soul.bond.bond_strength``,
+        ``soul.bond.bonded_to``, ``soul.bond.interaction_count`` etc.
+        proxies to the default bond. Calling ``soul.bond.strengthen(amount)``
+        or ``soul.bond.weaken(amount)`` mutates the default bond.
+
+        Multi-user support: pass ``user_id`` keyword to strengthen/weaken to
+        route per-user. Use :meth:`bond_for` to get a specific user's
+        :class:`Bond` instance directly.
+        """
+        return self._bonds
+
+    def bond_for(self, user_id: str) -> Bond:
+        """Return the per-user :class:`Bond` for ``user_id``.
+
+        Lazily creates the per-user bond on first access (strength=50,
+        count=0). Bonds are persisted across export/awaken so once a
+        user has a bond, it survives soul migration.
+        """
+        return self._bonds.for_user(user_id)
+
+    @property
+    def bonded_users(self) -> list[str]:
+        """List of user_ids that have their own per-user bonds.
+
+        Does not include the default bond's ``bonded_to`` (that's the
+        soul's primary user, exposed via ``identity.bonded_to``).
+        """
+        return self._bonds.users()
+
+    def migrate_to_multi_user(self) -> dict:
+        """Auto-migrate a legacy single-bond soul into the multi-user shape.
+
+        - If ``Identity.bonded_to`` is set and ``Identity.bonds`` is empty,
+          synthesise a :class:`BondTarget` so the spec list is populated.
+        - If memory entries have ``user_id=None`` and a ``bonded_to`` exists,
+          stamp them with the legacy user_id so per-user filtering surfaces
+          them when the legacy user queries by their own id.
+
+        Returns a summary dict::
+
+            {
+                "synthesized_bond_target": bool,
+                "memory_entries_stamped": int,
+                "default_user_id": str | None,
+            }
+
+        Idempotent — running it twice is a no-op.
+        """
+        result: dict = {
+            "synthesized_bond_target": False,
+            "memory_entries_stamped": 0,
+            "default_user_id": None,
+        }
+
+        # Pick a default user_id: prefer Identity.bonded_to, else first bond target.
+        default_uid = self._identity.bonded_to
+        if not default_uid and self._identity.bonds:
+            default_uid = self._identity.bonds[0].id
+        result["default_user_id"] = default_uid
+
+        # Synthesize BondTarget if missing.
+        if self._identity.bonded_to and not self._identity.bonds:
+            self._identity.bonds.append(BondTarget(id=self._identity.bonded_to, bond_type="human"))
+            result["synthesized_bond_target"] = True
+
+        # Stamp legacy memories with the default user_id.
+        if default_uid:
+            count = 0
+            for entry in self._memory._episodic._memories.values():
+                if entry.user_id is None:
+                    entry.user_id = default_uid
+                    count += 1
+            for entry in self._memory._semantic._facts.values():
+                if entry.user_id is None:
+                    entry.user_id = default_uid
+                    count += 1
+            for entry in self._memory._procedural._procedures.values():
+                if entry.user_id is None:
+                    entry.user_id = default_uid
+                    count += 1
+            result["memory_entries_stamped"] = count
+
+        return result
 
     @property
     def skills(self) -> SkillRegistry:
@@ -1729,6 +1867,10 @@ class Soul:
 
     def serialize(self) -> SoulConfig:
         """Serialize to a SoulConfig for storage/export."""
+        # The default bond lives on Identity.bond (set during __init__ from
+        # the same source). Per-user bonds get serialised into
+        # SoulConfig.bonds_per_user so they survive round-trips.
+        self._identity.bond = self._bonds.default
         return SoulConfig(
             version="1.0.0",
             identity=self._identity,
@@ -1741,4 +1883,5 @@ class Soul:
             skills=[s.model_dump(mode="json") for s in self._skills.skills],
             evaluation_history=[r.model_dump(mode="json") for r in self._evaluator._history],
             interaction_count=self._interaction_count,
+            bonds_per_user=self._bonds.all_bonds(),
         )

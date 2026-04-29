@@ -150,7 +150,8 @@ class StateManager:
             return
         cutoff = now.timestamp() - window
         self._state.recent_interactions = [
-            ts for ts in self._state.recent_interactions
+            ts
+            for ts in self._state.recent_interactions
             if (ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts).timestamp() >= cutoff
         ]
 
