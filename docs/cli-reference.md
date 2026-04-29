@@ -693,6 +693,8 @@ Update a soul's emotional state directly.
 soul feel .soul/ --mood excited
 soul feel aria.soul --energy -10
 soul feel .soul/ --mood focused --energy 5
+soul feel .soul/ --focus max
+soul feel .soul/ --focus auto
 ```
 
 **Arguments:**
@@ -707,8 +709,13 @@ soul feel .soul/ --mood focused --energy 5
 |--------|-------------|
 | `--mood TEXT` | Set mood. One of: `neutral`, `curious`, `focused`, `tired`, `excited`, `contemplative`, `satisfied`, `concerned`. |
 | `--energy FLOAT` | Adjust energy (can be negative, e.g. `-10`). Applied as a delta. |
+| `--focus TEXT` | Lock focus to one of `low`, `medium`, `high`, `max`. Pass `auto` to clear the lock and re-enable density-driven focus (default behavior). |
 
-At least one of `--mood` or `--energy` is required.
+At least one of `--mood`, `--energy`, or `--focus` is required.
+
+**Focus modes:**
+
+By default, focus is computed from a sliding window of recent interactions (1 hour, configurable via `Biorhythms.focus_window_seconds`). Bands are: `low` (no interactions in window), `medium` (1-2), `high` (3-9), `max` (10+). Setting `--focus <level>` pins the value until you pass `--focus auto`.
 
 **Output:** Prints the updated mood and energy. Saves the soul automatically.
 

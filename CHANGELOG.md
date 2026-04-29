@@ -7,17 +7,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Added
+---
 
-- **`Soul.supersede(old_id, new_content, *, reason, importance, memory_type, ...)`** — first-class user-driven memory update. Writes a new memory and links the old one's `superseded_by` so the trace is preserved (search filters out superseded entries by default). Records to a parallel `supersede_audit` trail accessible via `Soul.supersede_audit`. The old `superseded_by` infrastructure was previously only set internally during dream-cycle dedup and contradiction detection. (#192-companion)
-- **`Soul.forget_one(memory_id) -> dict`** — audited single-id deletion. Returns the same dict shape as `forget()` / `forget_entity()` / `forget_before()` plus `found` and `tier` keys. The legacy `forget_by_id(memory_id) -> bool` is preserved for back-compat.
-- **`soul forget --id <id>`** — CLI flag for surgical single-memory deletion. Mutually exclusive with `QUERY` / `--entity` / `--before`. Honours the existing dry-run + `--apply` gate.
-- **`soul supersede <path> <new_content> --old-id <id> [--reason ...]`** — CLI for the supersede primitive.
-- **`SemanticStore.get(memory_id)`** and **`ProceduralStore.get(memory_id)`** — read-by-ID lookup, parity with `EpisodicStore.get`.
+## [0.4.0] -- 2026-04-29
 
-### Fixed
+The **identity bundle** release. Major bump because the schema grows and the API surface gains new top-level concepts: users, memory layers + domains, and signed action history. One coherent migration; not three rounds.
 
-- **`soul forget` count display** — both preview and `--apply` modes were reading `result.get("total_deleted", 0)` and `result.get("tiers")`, but `MemoryManager.forget*()` returns `{"total": N}` and per-tier list keys. Preview always reported 0; `--apply` silently deleted but still reported 0. The CLI now reads the real keys and reconstructs per-tier counts from list lengths.
+### Identity bundle
+
+- **Multi-user soul support (#46)** — a single soul can now serve multiple humans without bleeding context. `soul.observe()` and `soul.recall()` accept a `user_id` parameter; memory retrieval filters by user context; the bond system tracks per-user relationship strength. The `.soul` file already supported multiple bond entries — this wires runtime context-switching on top.
+- **User-defined memory layers + domain isolation (#41)** — `MemoryType` graduates from a fixed enum (`core`/`episodic`/`semantic`/`procedural`) to open string-based layer names. `MemoryEntry` gains an optional `domain` field (e.g. `"finance"`, `"legal"`, `"personal"`). `MemoryStore` queries can scope to layer + domain. Default layers preserve backward compatibility; existing `.soul` files load with `domain="default"`. New `social` layer for relationship memory. `DomainIsolationMiddleware` enforces that callers only read their authorized domains.
+- **Trust chain — verifiable action history (#42)** — every learning event, memory mutation, and evolution step is signed and traceable. New spec primitives: `TrustEntry`, `TrustChain`, `SignatureProvider` protocol. Default `Ed25519SignatureProvider` ships with the runtime. Append-only log per soul (`trust_chain/entry_NNN.json`), Merkle-style hash chain. New CLIs: `soul verify <path>` checks chain integrity; `soul audit <path>` prints a human-readable history of what changed and when. Foundation for reputation systems and provenance proofs.
+
+### Rolled-in polish
+
+- **Density-driven focus (#194)** — `SoulState.focus` is now computed from a sliding window of recent interactions instead of being a static default. Bands: 0 in window → `low`, 1-2 → `medium`, 3-9 → `high`, 10+ → `max`. Manual lock via `soul.feel(focus="<level>")`; `feel(focus="auto")` clears the lock. New `Soul.recompute_focus(now)` for read-time freshness. CLI status + MCP `soul_state` refresh focus before display.
+- **Memory update primitives (#193)** — `Soul.supersede(old_id, new_content, *, reason, ...)` writes a new memory and links the old one's `superseded_by` for provenance. `Soul.forget_one(memory_id) -> dict` for audited single-id deletion. New CLIs: `soul supersede` and `soul forget --id`. Fixes a long-standing bug where `soul forget` reported `0 memories` even on successful deletion (was reading the wrong dict key).
+- **Wiki rebuild (#186)** — fresh wiki regeneration covering 328 articles after the 0.3.3/0.3.4 surface changes.
+
+### Schema migrations
+
+Existing `.soul` files load cleanly. The migration tool (`soul migrate <path>`) upgrades older souls in place:
+
+- `MemoryEntry` gains optional `user_id` (None for legacy entries — they belong to the soul's default bond) and `domain` (defaults to `"default"`).
+- Memory directory layout migrates from `memory/{episodic,semantic,procedural}.json` to `memory/{layer}/{domain}/entries.json` on first save. The legacy flat layout is read transparently for back-compat.
+- `trust_chain/` directory is created on first signed action; older souls have an empty chain until they perform a signed action.
+
+### Breaking changes
+
+- `MemoryType` is no longer a fixed StrEnum at the spec layer; it's `str` with the original four names preserved as constants for runtime convenience. Downstream code that imported `MemoryType` from `soul_protocol.spec` and pattern-matched its enum values needs to compare strings instead.
+- `Soul.observe(user_id=None, ...)` adds a keyword-only parameter ahead of the existing args. Positional callers should switch to keyword form (the existing tests already do).
+- `Soul.recall(query, *, user_id=None, layer=None, domain=None, ...)` similarly adds keyword-only filters. Default behavior is unchanged when these are omitted.
+
+### Notes
+
+- This release rolls in three polish PRs (#194, #193, #186) that were in flight on `dev` between 0.3.4 and 0.4.0. Their commits are preserved in the release branch as separate logical units.
+- Closes issues #46, #41, #42 (the identity bundle umbrella tracker #183 stays open as the parent and gets closed when this release tags).
 
 ---
 

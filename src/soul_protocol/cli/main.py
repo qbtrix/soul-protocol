@@ -423,6 +423,7 @@ def inspect(path):
         )
 
         # ── State panel ──
+        soul.recompute_focus()
         mood = soul.state.mood.value
         energy = soul.state.energy
         social = soul.state.social_battery
@@ -518,6 +519,7 @@ def status(path):
         from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
+        soul.recompute_focus()
         mood = soul.state.mood.value
         energy = soul.state.energy
         social = soul.state.social_battery
@@ -1768,7 +1770,13 @@ def dream_cmd(path, since, no_archive, no_synthesize, dry_run, as_json):
 @click.option(
     "--energy", type=float, default=None, help="Adjust energy (can be negative, e.g. -10)"
 )
-def feel_cmd(path, mood, energy):
+@click.option(
+    "--focus",
+    type=str,
+    default=None,
+    help="Lock focus to a level (low, medium, high, max) or 'auto' to clear and re-enable density-driven focus",
+)
+def feel_cmd(path, mood, energy, focus):
     """Update a soul's emotional state.
 
     \b
@@ -1776,11 +1784,13 @@ def feel_cmd(path, mood, energy):
       soul feel .soul/ --mood excited
       soul feel aria.soul --energy -10
       soul feel .soul/ --mood focused --energy 5
+      soul feel .soul/ --focus max
+      soul feel .soul/ --focus auto
     """
 
     async def _feel():
         from soul_protocol.runtime.soul import Soul
-        from soul_protocol.runtime.types import Mood
+        from soul_protocol.runtime.types import FOCUS_LEVELS, Mood
 
         soul = await Soul.awaken(path)
 
@@ -1794,12 +1804,19 @@ def feel_cmd(path, mood, energy):
                 raise SystemExit(1)
         if energy is not None:
             kwargs["energy"] = energy
+        if focus is not None:
+            if focus != "auto" and focus not in FOCUS_LEVELS:
+                valid = ", ".join(FOCUS_LEVELS) + ", auto"
+                console.print(f"[red]Invalid focus:[/red] '{focus}'. Valid: {valid}")
+                raise SystemExit(1)
+            kwargs["focus"] = focus
 
         if not kwargs:
-            console.print("[red]Provide at least --mood or --energy[/red]")
+            console.print("[red]Provide at least --mood, --energy, or --focus[/red]")
             raise SystemExit(1)
 
         soul.feel(**kwargs)
+        soul.recompute_focus()
 
         # Save
         if Path(path).is_dir():
@@ -1808,10 +1825,14 @@ def feel_cmd(path, mood, energy):
             await soul.export(path)
 
         state = soul.state
+        focus_label = state.focus
+        if state.focus_override is None:
+            focus_label = f"{state.focus} (auto)"
         console.print(
             f"[green]Updated[/green] [bold]{soul.name}[/bold]\n"
             f"  Mood:   [cyan]{state.mood.value}[/cyan]\n"
-            f"  Energy: {state.energy:.0f}%"
+            f"  Energy: {state.energy:.0f}%\n"
+            f"  Focus:  {focus_label}"
         )
 
     asyncio.run(_feel())

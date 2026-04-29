@@ -1,5 +1,12 @@
 # soul-protocol — Portable AI identity and memory
-# Updated: 2026-04-14 — v0.3.1 release: org-layer (journal, root agent, retrieval router,
+# Updated: 2026-04-29 — v0.4.0 identity bundle release: multi-user souls (#46),
+#   user-defined memory layers + domain isolation (#41), trust chain — verifiable
+#   action history with signatures (#42). Plus rolled-in polish: density-driven focus
+#   (#194), memory update primitives — supersede + forget --id (#193), wiki rebuild (#186).
+# Previous: 2026-04-24 — v0.3.4 hotfix release: wheel duplicate-filename fix.
+# Previous: 2026-04-24 — v0.3.3 headless standard release: SPEC.md, journal primitives,
+#   spec-level retrieval vocabulary, system prompt safety guardrails, public_profile().
+# Previous: 2026-04-14 — v0.3.1 release: org-layer (journal, root agent, retrieval router,
 #   decision traces, soul org CLI), reconciliation work (scope tags, RetrievalTrace,
 #   templates), and #157 fix (bare pip install produces working CLI).
 # Previous: 2026-04-10 — v0.3.0 release: smart-recall, dream-cycle, significance-short-circuit,
@@ -14,7 +21,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soul-protocol"
-version = "0.3.4"
+version = "0.4.0"
 description = "The open standard for portable AI identity and memory"
 readme = "README.md"
 license = "MIT"

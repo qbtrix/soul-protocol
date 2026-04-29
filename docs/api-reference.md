@@ -461,12 +461,21 @@ def feel(self, **kwargs) -> None
 
 Update the soul's emotional state. Not async.
 
-For `energy` and `social_battery`, values are **deltas** (added to current value, clamped 0-100). All other fields (`mood`, `focus`, `last_interaction`) are **set directly**.
+For `energy` and `social_battery`, values are **deltas** (added to current value, clamped 0-100). `mood` and `last_interaction` are set directly. `focus` accepts a level (`"low"`, `"medium"`, `"high"`, `"max"`) which sets `focus_override` and locks focus to that value, or `"auto"` / `None` to clear the lock and re-enable density-driven focus.
 
 ```python
 soul.feel(energy=-10, mood=Mood.TIRED)
-soul.feel(social_battery=15, focus="high")
+soul.feel(social_battery=15, focus="high")  # locked
+soul.feel(focus="auto")                     # density-driven again
 ```
+
+#### `soul.recompute_focus()`
+
+```python
+def recompute_focus(self, now: datetime | None = None) -> str
+```
+
+Recompute density-driven focus at the given time and return the resulting level. Call before reading `soul.state.focus` if you need a value that reflects current interaction density rather than the last interaction tick. No-op when `focus_override` is set or `Biorhythms.focus_window_seconds` is 0.
 
 #### `soul.to_system_prompt()`
 
@@ -642,6 +651,9 @@ Simulated vitality and energy patterns.
 | `chronotype` | `str` | `"neutral"` | |
 | `social_battery` | `float` | `100.0` | `ge=0.0, le=100.0` |
 | `energy_regen_rate` | `float` | `5.0` | |
+| `focus_window_seconds` | `float` | `3600.0` | `ge=0.0` (set to 0 to disable density-driven focus) |
+| `focus_high_threshold` | `int` | `3` | `ge=1` (interactions in window at or above which focus rises to `high`) |
+| `focus_max_threshold` | `int` | `10` | `ge=1` (interactions in window at or above which focus rises to `max`) |
 
 #### `DNA`
 
@@ -789,9 +801,11 @@ The soul's current emotional and energy state.
 |-------|------|---------|-------------|
 | `mood` | `Mood` | `Mood.NEUTRAL` | |
 | `energy` | `float` | `100.0` | `ge=0.0, le=100.0` |
-| `focus` | `str` | `"medium"` | |
+| `focus` | `str` | `"medium"` | Effective level (one of `low`, `medium`, `high`, `max`). Computed from interaction density unless `focus_override` is set. |
+| `focus_override` | `str \| None` | `None` | When set, freezes `focus` to that level. Cleared via `feel(focus="auto")`. |
 | `social_battery` | `float` | `100.0` | `ge=0.0, le=100.0` |
 | `last_interaction` | `datetime \| None` | `None` | |
+| `recent_interactions` | `list[datetime]` | `[]` | Sliding-window timestamps for density-driven focus calc. |
 
 ### Evolution Types
 
