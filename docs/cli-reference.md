@@ -570,6 +570,10 @@ soul recall aria.soul --recent 10
 soul recall aria.soul "python" --full            # Untruncated content
 soul recall aria.soul "python" --json            # Machine-readable JSON
 soul recall aria.soul --recent 5 --json          # Recent memories as JSON
+
+# Multi-user (#46) — scope recall to one user
+soul recall aria.soul "preferences" --user alice
+soul recall aria.soul --recent 10 --user alice
 ```
 
 **Arguments:**
@@ -588,8 +592,9 @@ soul recall aria.soul --recent 5 --json          # Recent memories as JSON
 | `--recent, -r INT` | | Show N most recent memories instead of searching. |
 | `--full` | off | Return untruncated content (for LLM consumption). |
 | `--json` | off | Return results as JSON (for scripting). |
+| `--user TEXT` | | Filter results to memories attributed to this `user_id` (#46). Legacy entries with no `user_id` are also returned. |
 
-**Output:** A table of ranked memories with type, content, importance, emotion, and timestamp. Use `--full` or `--json` when an agent or script needs machine-readable output.
+**Output:** A table of ranked memories with type, content, importance, emotion, and timestamp. Use `--full` or `--json` when an agent or script needs machine-readable output. The JSON payload includes a `user_id` field per entry.
 
 ---
 
@@ -600,6 +605,9 @@ Process an interaction through the full cognitive pipeline. Runs sentiment detec
 ```bash
 soul observe .soul/ --user-input "Hello" --agent-output "Hi there!"
 soul observe aria.soul --user-input "Tell me a joke" --agent-output "Why did..." --channel discord
+
+# Multi-user (#46) — attribute the memory to one user
+soul observe aria.soul --user-input "Hi" --agent-output "Hello!" --user alice
 ```
 
 **Arguments:**
@@ -615,6 +623,7 @@ soul observe aria.soul --user-input "Tell me a joke" --agent-output "Why did..."
 | `--user-input TEXT` | User's message. **Required.** |
 | `--agent-output TEXT` | Agent's response. **Required.** |
 | `--channel TEXT` | Channel name. Defaults to `cli`. |
+| `--user TEXT` | Attribute observed memories to this `user_id` (#46). The per-user bond is strengthened instead of the default bond. |
 
 **Output:** Prints the soul's mood and energy after processing the interaction. Saves the soul automatically.
 

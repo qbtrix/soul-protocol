@@ -117,8 +117,10 @@ Process an interaction through the full psychology pipeline. Extracts facts, det
 | `user_input` | `str` | required | What the user said |
 | `agent_output` | `str` | required | What the agent responded |
 | `channel` | `str` | `"mcp"` | Source channel identifier |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+| `user_id` | `str \| None` | `None` | Multi-user attribution (#46). When set, every memory written during this call is stamped with the user_id, and the per-user bond is strengthened instead of the default bond. |
 
-**Returns:** JSON with `status`, `mood`, and `energy`.
+**Returns:** JSON with `status`, `soul`, `mood`, `energy`, and `user_id` (echoed back).
 
 ---
 
@@ -145,8 +147,10 @@ Search the soul's memories by natural language query. Results are ranked by ACT-
 |-----------|------|---------|-------------|
 | `query` | `str` | required | Search query |
 | `limit` | `int` | `5` | Maximum number of results |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+| `user_id` | `str \| None` | `None` | Multi-user filter (#46). When set, restrict results to memories attributed to this `user_id`, plus any legacy entries with no `user_id`. When unset, returns all memories regardless of attribution. |
 
-**Returns:** JSON with `count` and `memories` array. Each memory includes `id`, `type`, `content`, `importance`, and `emotion`.
+**Returns:** JSON with `count`, `soul`, and `memories` array. Each memory includes `id`, `type`, `content`, `importance`, `emotion`, and `user_id`.
 
 ---
 

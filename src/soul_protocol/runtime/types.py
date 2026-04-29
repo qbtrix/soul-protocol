@@ -1,4 +1,9 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-04-29 (#46) — Multi-user soul support. MemoryEntry gains an
+#   optional ``user_id: str | None`` field. None = legacy/orphan entry that
+#   belongs to the soul's default bond and is visible to any user_id query.
+#   SoulConfig gains an optional ``bonds_per_user: dict[str, Bond]`` so the
+#   per-user bond registry survives export/awaken.
 # Updated: 2026-04-29 — Density-driven focus: SoulState gains focus_override and
 #   recent_interactions; Biorhythms gains focus_window_seconds, focus_high_threshold,
 #   focus_max_threshold. focus is now computed from interaction density unless
@@ -346,6 +351,11 @@ class MemoryEntry(BaseModel):
     # "org:sales:leads". Filtered at retrieval time before results reach
     # the LLM.
     scope: list[str] = Field(default_factory=list)
+    # v0.4.0 (#46) — Per-user attribution. None = legacy / orphan entry that
+    # belongs to the soul's default bond and is visible to any user_id query.
+    # When set, recall filters entries to those matching the requested
+    # user_id (plus None entries for back-compat).
+    user_id: str | None = None
 
 
 class CoreMemory(BaseModel):
@@ -521,6 +531,10 @@ class SoulConfig(BaseModel):
     evaluation_history: list[dict] = Field(default_factory=list)
     # F5 auto-consolidation — tracks observe() call count for consolidation triggers
     interaction_count: int = 0
+    # v0.4.0 (#46) — Per-user bond registry. The default bond lives on
+    # ``identity.bond`` for back-compat; this dict carries any extra per-user
+    # bonds that the runtime accumulates. Empty when only one user is bonded.
+    bonds_per_user: dict[str, Bond] = Field(default_factory=dict)
 
 
 # ============ Interaction (input to observe()) ============

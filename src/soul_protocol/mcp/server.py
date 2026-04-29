@@ -1,5 +1,10 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
 # 28 tools (23 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-04-29 (#46) — Multi-user soul support. ``soul_observe`` and
+#   ``soul_recall`` accept an optional ``user_id`` parameter that pipes
+#   through to the runtime so memories get attributed and recall results
+#   filter by user. The recall payload now carries ``user_id`` per entry
+#   so consumers can render multi-user views.
 # Updated: 2026-04-06 — Added soul_dream tool for offline batch memory consolidation.
 #   Detects topic clusters, recurring procedures, behavioral trends, consolidates
 #   graph, and proposes personality evolution.
@@ -549,6 +554,7 @@ async def soul_observe(
     agent_output: str,
     channel: str = "mcp",
     soul: str | None = None,
+    user_id: str | None = None,
     ctx: Context | None = None,
 ) -> str:
     """Process an interaction through the psychology pipeline.
@@ -561,6 +567,9 @@ async def soul_observe(
         agent_output: What the agent responded
         channel: Source channel identifier
         soul: Target soul name (uses active soul if omitted)
+        user_id: When set, attribute the observed memory to this user_id
+            (multi-user souls, #46). Per-user bond is strengthened instead
+            of the default bond.
     """
     if ctx is not None:
         _get_or_create_engine(ctx)
@@ -570,7 +579,8 @@ async def soul_observe(
             user_input=user_input,
             agent_output=agent_output,
             channel=channel,
-        )
+        ),
+        user_id=user_id,
     )
     _registry.mark_modified(soul)
     state = s.state
@@ -580,6 +590,7 @@ async def soul_observe(
             "soul": s.name,
             "mood": state.mood.value,
             "energy": round(state.energy, 1),
+            "user_id": user_id,
         }
     )
 
@@ -626,6 +637,7 @@ async def soul_recall(
     query: str,
     limit: int = 5,
     soul: str | None = None,
+    user_id: str | None = None,
 ) -> str:
     """Search the soul's memories by natural language query.
 
@@ -633,9 +645,12 @@ async def soul_recall(
         query: Search query
         limit: Maximum results to return
         soul: Target soul name (uses active soul if omitted)
+        user_id: When set, restrict results to memories attributed to this
+            user_id, plus legacy entries with no user_id (multi-user souls,
+            #46). When unset, returns all memories regardless of attribution.
     """
     s = await _resolve_soul(soul)
-    results = await s.recall(query, limit=limit)
+    results = await s.recall(query, limit=limit, user_id=user_id)
     memories = [
         {
             "id": r.id,
@@ -643,6 +658,7 @@ async def soul_recall(
             "content": r.content,
             "importance": r.importance,
             "emotion": r.emotion,
+            "user_id": r.user_id,
         }
         for r in results
     ]
