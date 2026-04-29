@@ -7,6 +7,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Density-driven focus** — `SoulState.focus` is now computed from a sliding window of recent interactions instead of being a static default. `Biorhythms` gains `focus_window_seconds` (default 1 hour), `focus_high_threshold` (default 3), and `focus_max_threshold` (default 10). With defaults: 0 interactions in window → `low`, 1-2 → `medium`, 3-9 → `high`, 10+ → `max`. A new `recent_interactions: list[datetime]` field on `SoulState` carries the rolling window.
+- **Manual focus lock** — `SoulState.focus_override` (`str | None`) pins focus to a fixed level, bypassing the density calc. Set via `soul.feel(focus="max")` (or `manager.update(focus="max")`). Clear with `soul.feel(focus="auto")` to re-enable density-driven focus.
+- **`soul feel --focus`** CLI flag — set focus to `low`/`medium`/`high`/`max`/`auto`.
+- **MCP `soul_feel` `focus` parameter** — same surface for MCP clients.
+- **`Soul.recompute_focus(now=None)`** — public method to refresh focus before reading state, used by CLI status display and MCP `soul_state` so stale values never leak into a status check.
+
+### Changed
+
+- `StateManager.on_interaction` now appends timestamps to `recent_interactions` and recomputes focus on every call.
+- `StateManager.reset()` clears `focus_override` and `recent_interactions` along with the existing fields.
+
 ---
 
 ## [0.4.0] -- 2026-04-29

@@ -730,6 +730,7 @@ async def soul_state(soul: str | None = None) -> str:
         soul: Target soul name (uses active soul if omitted)
     """
     s = await _resolve_soul(soul)
+    s.recompute_focus()
     st = s.state
     return json.dumps(
         {
@@ -747,6 +748,7 @@ async def soul_state(soul: str | None = None) -> str:
 async def soul_feel(
     mood: str | None = None,
     energy: float | None = None,
+    focus: str | None = None,
     soul: str | None = None,
 ) -> str:
     """Update the soul's emotional state.
@@ -756,8 +758,12 @@ async def soul_feel(
               contemplative, satisfied, concerned
         energy: Energy delta (-100 to 100). Positive increases,
                 negative decreases. Clamped to 0-100.
+        focus: Lock focus to one of low/medium/high/max, or 'auto'
+                to clear the lock and re-enable density-driven focus.
         soul: Target soul name (uses active soul if omitted)
     """
+    from soul_protocol.runtime.types import FOCUS_LEVELS
+
     s = await _resolve_soul(soul)
     kwargs: dict[str, Any] = {}
     if mood is not None:
@@ -765,7 +771,13 @@ async def soul_feel(
     if energy is not None:
         energy = max(-100.0, min(100.0, energy))
         kwargs["energy"] = energy
+    if focus is not None:
+        if focus != "auto" and focus not in FOCUS_LEVELS:
+            valid = ", ".join(FOCUS_LEVELS) + ", auto"
+            raise ValueError(f"Invalid focus '{focus}'. Valid: {valid}")
+        kwargs["focus"] = focus
     s.feel(**kwargs)
+    s.recompute_focus()
     _registry.mark_modified(soul)
     st = s.state
     return json.dumps(
@@ -773,6 +785,8 @@ async def soul_feel(
             "soul": s.name,
             "mood": st.mood.value,
             "energy": round(st.energy, 1),
+            "focus": st.focus,
+            "focus_override": st.focus_override,
         }
     )
 
@@ -1611,6 +1625,7 @@ async def soul_core_memory_resource() -> str:
 async def soul_state_resource() -> str:
     """Current soul state: mood, energy, focus, social battery."""
     s = await _resolve_soul()
+    s.recompute_focus()
     st = s.state
     return json.dumps(
         {

@@ -1,4 +1,8 @@
 # state/manager.py — StateManager for tracking and mutating a soul's runtime state.
+# Updated: 2026-04-29 — Density-driven focus. on_interaction now records timestamps
+#   into a sliding window (Biorhythms.focus_window_seconds) and recomputes focus from
+#   the count. update(focus="<level>") sets focus_override (manual lock); focus="auto"
+#   clears the override. Public recompute_focus(now) lets callers refresh at read time.
 # Updated: Configurable biorhythms — all drain/regen/mood params read from Biorhythms
 #   instead of hardcoded constants. Added time-based auto-regen on elapsed time.
 
@@ -8,6 +12,7 @@ import logging
 from datetime import UTC, datetime
 
 from soul_protocol.runtime.types import (
+    FOCUS_LEVELS,
     Biorhythms,
     Interaction,
     Mood,
@@ -104,11 +109,17 @@ class StateManager:
         *deltas* (added to the current value) and the result is clamped to
         the 0-100 range.  All other fields are set directly.
 
+        ``focus`` accepts a level name (``"low"``, ``"medium"``, ``"high"``,
+        ``"max"``) which sets ``focus_override`` and locks focus to that
+        value, or ``"auto"`` / ``None`` which clears the override and
+        re-enables density-driven focus.
+
         Examples::
 
             manager.update(mood=Mood.TIRED)
             manager.update(energy=-10)        # decrease by 10
-            manager.update(focus="high")
+            manager.update(focus="high")      # lock focus
+            manager.update(focus="auto")      # back to density-driven
             manager.update(energy=5, social_battery=-3)
         """
         for key, value in kwargs.items():
@@ -118,8 +129,65 @@ class StateManager:
             elif key == "social_battery" and isinstance(value, (int, float)):
                 new_val = self._state.social_battery + float(value)
                 self._state.social_battery = max(0.0, min(100.0, new_val))
+            elif key == "focus":
+                if value is None or value == "auto":
+                    self._state.focus_override = None
+                    self._recompute_focus()
+                elif isinstance(value, str) and value in FOCUS_LEVELS:
+                    self._state.focus_override = value
+                    self._state.focus = value
+                else:
+                    raise ValueError(
+                        f"focus must be one of {FOCUS_LEVELS} or 'auto'/None, got {value!r}"
+                    )
             elif hasattr(self._state, key):
                 setattr(self._state, key, value)
+
+    def _trim_recent_interactions(self, now: datetime) -> None:
+        """Drop interaction timestamps older than the focus window."""
+        window = self._bio.focus_window_seconds
+        if window <= 0:
+            return
+        cutoff = now.timestamp() - window
+        self._state.recent_interactions = [
+            ts for ts in self._state.recent_interactions
+            if (ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts).timestamp() >= cutoff
+        ]
+
+    def _recompute_focus(self, now: datetime | None = None) -> None:
+        """Recompute focus from interaction density.
+
+        No-op when ``focus_override`` is set or ``focus_window_seconds`` is 0.
+        Bands: 0 in window → "low"; below high_threshold → "medium";
+        below max_threshold → "high"; at or above max_threshold → "max".
+        """
+        if self._state.focus_override is not None:
+            self._state.focus = self._state.focus_override
+            return
+        if self._bio.focus_window_seconds <= 0:
+            return
+        if now is None:
+            now = datetime.now(UTC)
+        self._trim_recent_interactions(now)
+        count = len(self._state.recent_interactions)
+        if count == 0:
+            self._state.focus = "low"
+        elif count < self._bio.focus_high_threshold:
+            self._state.focus = "medium"
+        elif count < self._bio.focus_max_threshold:
+            self._state.focus = "high"
+        else:
+            self._state.focus = "max"
+
+    def recompute_focus(self, now: datetime | None = None) -> str:
+        """Public hook to refresh focus before reading it.
+
+        Call this from CLI/MCP code paths that display focus, so the value
+        reflects current time rather than the moment of the last interaction.
+        Returns the resulting focus level.
+        """
+        self._recompute_focus(now)
+        return self._state.focus
 
     def _apply_auto_regen(self, now: datetime) -> None:
         """Recover energy based on elapsed time since last interaction.
@@ -204,6 +272,13 @@ class StateManager:
                 )
             self._state.mood = Mood.TIRED
 
+        # Record timestamp for density-driven focus and recompute
+        ts = interaction.timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        self._state.recent_interactions.append(ts)
+        self._recompute_focus(ts)
+
     def rest(self, hours: float = 1.0) -> None:
         """Recover energy and social battery over a rest period.
 
@@ -221,6 +296,8 @@ class StateManager:
         self._state.mood = Mood.NEUTRAL
         self._state.energy = 100.0
         self._state.focus = "medium"
+        self._state.focus_override = None
         self._state.social_battery = 100.0
         self._state.last_interaction = None
+        self._state.recent_interactions = []
         self._valence_ema = 0.0
