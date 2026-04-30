@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`soul journal` shell-hook subcommand (#189)** — three new commands wrap the org-level SQLite WAL journal as a CLI for shell hooks, CI scripts, and non-Python runtimes. `soul journal init <path>` bootstraps a standalone journal file (no root soul, no scope tree). `soul journal append <path>` writes one event from `--action` / `--actor` / `--payload` / `--scope` / `--causation-id` flags, or batches JSONL events from `--stdin`. The committed `EventEntry` is echoed to stdout as JSON (with backend-assigned `seq` and `prev_hash`) so callers can capture event ids for downstream causation chains. `soul journal query <path>` filters by `--action`, `--action-prefix` (with trailing-dot tolerance), `--scope`, `--correlation-id`, `--since` / `--until`, plus `--at <iso>` for point-in-time replay. Default output is a Rich table; `--json` emits a JSON array. Foundation for replacing memory-heavy `soul-sync.sh` hooks with structured journal events.
+
 ---
 
 ## [0.4.0] -- 2026-04-29

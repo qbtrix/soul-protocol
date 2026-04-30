@@ -1219,6 +1219,98 @@ soul user invite pat@acme.com
 
 ---
 
+## Journal (#189)
+
+The `soul journal` command group exposes the org-level event journal (the SQLite WAL backend behind `soul org init`) to shell hooks, CI scripts, and non-Python runtimes. Three subcommands cover the shell cases: `init`, `append`, `query`. The Python API stays the only surface for advanced cases (custom backends, typed payload models per action).
+
+This is the right answer when you want a queryable, append-only, hash-chained log keyed by action — not the same shape as `soul remember` (BM25 fuzzy memory). See [Org Journal Spec](org-journal-spec.md) for the wire-level contract.
+
+### `soul journal init`
+
+Bootstrap a standalone SQLite WAL journal file at `<path>`. Distinct from `soul org init` — no root soul, no founder, no scope tree. Useful for an event log without the full org bootstrap, like a workspace session log, a CI audit trail, or a migration scratch pad.
+
+```bash
+soul journal init ./.journal.db
+soul journal init /tmp/ci-audit.db --force
+```
+
+| Option | Description |
+|--------|-------------|
+| `--force` | Overwrite an existing journal file (and the `-wal` / `-shm` sidecars). |
+
+### `soul journal append`
+
+Append one or more events to a journal. Single-event mode takes flags; `--stdin` reads one JSON object per line and batches them into a single Journal session. The committed `EventEntry` is echoed to stdout as JSON (with backend-assigned `seq` and `prev_hash`), so scripts can capture the event id for a follow-up `--causation-id` chain.
+
+```bash
+soul journal append ./.journal.db \
+    --action session.pr.merged.pocketpaw \
+    --actor '{"kind":"agent","id":"did:soul:claude-code"}' \
+    --payload '{"pr":1021,"sha":"abc"}' \
+    --scope session:abc123 --scope repo:pocketpaw
+
+# Stdin batch
+echo '{"action":"foo","scope":["s:1"],"payload":{}}' \
+    | soul journal append ./.journal.db --stdin
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--action TEXT` | yes (single mode) | Dot-separated action name. Action namespace is open — see [Org Journal Spec](org-journal-spec.md#action-namespaces) for the catalog. |
+| `--actor JSON` | no | JSON object matching `Actor` (`kind` + `id`). Defaults to `{"kind":"system","id":"cli"}`. |
+| `--payload JSON` | no | JSON object stored as the event payload. Defaults to `{}`. |
+| `--scope TEXT` | yes (single mode) | Scope tag. Repeatable. Events without scope are rejected. |
+| `--causation-id UUID` | no | UUID of the prior event that caused this one (decision-trace chains). |
+| `--correlation-id UUID` | no | UUID grouping this event with related events (session/flow id). |
+| `--stdin` | no | Read JSONL events from stdin instead of using the flags. Mutually exclusive with the other event flags. |
+
+In `--stdin` mode each line is a JSON object with the same field names as the flag form (`action`, `scope`, `actor`, `payload`, `causation_id`, `correlation_id`, optional `id`, optional `ts`). Blank lines are skipped. Malformed lines abort the batch with a non-zero exit code so callers don't silently drop events.
+
+### `soul journal query`
+
+Query events from a journal. Default output is a Rich table; `--json` emits a JSON array of `EventEntry` records.
+
+```bash
+soul journal query ./.journal.db --action-prefix session.pr.
+soul journal query ./.journal.db --since 2026-04-24T00:00:00Z
+soul journal query ./.journal.db --at 2026-04-20T12:00:00Z
+soul journal query ./.journal.db --scope session:abc123 --limit 50 --json
+```
+
+| Option | Description |
+|--------|-------------|
+| `--action TEXT` | Exact action match. |
+| `--action-prefix TEXT` | Match action and any descendant in the dotted namespace. Trailing dot tolerated (`session.pr.` and `session.pr` are equivalent). Mutually exclusive with `--action`. |
+| `--scope TEXT` | Scope tag to match. Repeatable; conjunction. |
+| `--correlation-id UUID` | Filter to a single correlation_id (session/flow id). |
+| `--since ISO8601` | Lower bound on timestamp (inclusive). |
+| `--until ISO8601` | Upper bound on timestamp (inclusive). |
+| `--at ISO8601` | Point-in-time replay — only return events `<= this`. Mutually exclusive with `--until`. |
+| `--limit INT` | Max results (default 100). |
+| `--offset INT` | Pagination offset. |
+| `--json` | Emit a JSON array instead of the Rich table. |
+
+### Shell-hook example
+
+A minimal `post-commit` hook in `.git/hooks/post-commit` that records every commit into a per-workspace journal:
+
+```bash
+#!/usr/bin/env bash
+set -e
+SHA=$(git rev-parse HEAD)
+TITLE=$(git log -1 --pretty=%s)
+soul journal append ./.journal.db \
+    --action session.commit.pushed \
+    --actor "{\"kind\":\"agent\",\"id\":\"did:soul:$USER\"}" \
+    --payload "{\"sha\":\"$SHA\",\"title\":\"$TITLE\"}" \
+    --scope "repo:$(basename "$PWD")" \
+    --scope "session:$(date +%Y-%m-%d)" >/dev/null
+```
+
+A next-session `soul journal query ./.journal.db --action-prefix session.` returns clean structured history.
+
+---
+
 ## Environment Variables
 
 The CLI resolves paths in this order: **explicit flag > environment variable > default**. All three variables are honored by `soul org init`, `soul org status`, `soul org destroy`, and any other command that touches the org data-dir.

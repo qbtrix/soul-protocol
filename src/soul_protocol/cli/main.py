@@ -1,4 +1,7 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: feat/soul-journal-cli (#189) — Wire `soul journal {init,append,query}`
+#   subcommand group from cli/journal.py. Lets shell hooks, CI, and non-Python
+#   runtimes append structured events without spinning up a Python session.
 # Updated: 2026-04-29 (#42) — Trust chain commands: ``soul verify`` checks
 #   integrity of a soul's signed action history. ``soul audit`` prints a
 #   human-readable timeline; supports --filter <prefix> and --limit; --json
@@ -111,6 +114,11 @@ from soul_protocol.cli.org import user_group as _user_group  # noqa: E402
 
 cli.add_command(_org_group)
 cli.add_command(_user_group)
+
+# Journal subcommand group (feat/soul-journal-cli, #189)
+from soul_protocol.cli.journal import journal_group as _journal_group  # noqa: E402
+
+cli.add_command(_journal_group)
 
 
 @cli.command()
