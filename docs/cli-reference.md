@@ -1,4 +1,18 @@
-<!-- Covers: CLI installation, all 47 commands with usage examples, options tables, and output descriptions.
+<!-- Covers: CLI installation, all 50 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-04-30 — v0.5.0 (#203): Added `soul prune-chain` for touch-time chain
+       pruning. Dry-run by default; --apply to mutate; --keep N for the threshold;
+       falls back to Biorhythms.trust_chain_max_entries when --keep is omitted.
+       Count: 49 → 50.
+     Updated: 2026-04-30 — v0.5.0 (#201): `soul audit` adds a Summary column derived from
+       per-action human-readable descriptions and a `--no-summary` flag for users who want
+       the hash-only view from 0.4.0 back. JSON output always carries `summary`; pre-#201
+       entries return `summary=""`.
+     Updated: 2026-04-30 — v0.5.0 (#189): Added `soul journal init/append/query` subcommands
+       for shell-hook integration with the org-level SQLite WAL journal. Count: 48 → 49.
+     Updated: 2026-04-29 — v0.5.0 (#160): Added `soul eval` for YAML-driven soul-aware evals.
+       Runs cases against a soul seeded with explicit state (memories, OCEAN, bonds, mood,
+       energy). Supports keyword / regex / semantic / judge / structural scoring. --json,
+       --filter, --judge-engine, --verbose options. Exits 1 on any failure. Count: 47 → 48.
      Updated: 2026-04-29 — v0.4.0 (#42): Added `soul verify` and `soul audit` for trust-chain
        integrity checks and signed-action timelines. Both support --json. `soul verify` exits
        1 on a tampered chain. Count: 45 → 47.
@@ -1503,6 +1517,7 @@ soul audit <path>
 soul audit <path> --filter memory.
 soul audit <path> --limit 20
 soul audit <path> --json
+soul audit <path> --no-summary  # hash-only view
 ```
 
 **Arguments:**
@@ -1518,8 +1533,92 @@ soul audit <path> --json
 | `--filter <prefix>` | str | none | Filter to actions starting with `<prefix>` (e.g. `memory.`). |
 | `--limit <N>` | int | none | Show only the most recent N entries. |
 | `--json` | flag | false | Emit machine-readable JSON. |
+| `--no-summary` | flag | false | Hide the Summary column and show the hash only (#201). |
 
-The default output is a Rich table (Seq, Timestamp, Action, Actor, Payload Hash). Payloads are stored as hashes only — the table shows *what changed when*, not *what was written*.
+The default output is a Rich table with columns `Seq`, `Timestamp`, `Action`, `Actor`, `Summary`, `Payload Hash`. The `Summary` column shows a short human-readable description per entry — for example, `3 memories` for a `memory.write` action or `+0.50 for alice` for `bond.strengthen`. Pass `--no-summary` for the hash-only view that 0.4.0 shipped with.
+
+JSON output always includes `summary` on each row; `--no-summary` only affects the human table. Pre-#201 entries that have no `summary` field stored on disk return `summary=""` after Pydantic loads the legacy shape.
+
+Payloads are stored as hashes only — the table shows *what changed when*, not *what was written*.
+
+---
+
+### `soul eval`
+
+Run YAML-driven soul-aware evals against a freshly seeded soul. The eval framework lets you pin the soul's state (memories, OCEAN, bonds, mood, energy) before each test runs, so you can measure memory-driven behaviour rather than just stateless input-output. See [eval-format.md](eval-format.md) for the full schema.
+
+```bash
+soul eval <path>
+soul eval <directory>
+soul eval <path> --filter "creative"
+soul eval <path> --json
+soul eval <path> --judge-engine module:attr
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `TARGET` | Yes | Path to a `.yaml` / `.yml` eval file, or a directory of them. |
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--filter <substring>` | str | none | Run only cases whose name contains `<substring>`. |
+| `--judge-engine <module:attr>` | str | none | Engine for `judge` and `respond`-mode cases. The attribute can be a class (instantiated with no args) or a callable returning an engine. Without one, judge cases are marked SKIP. |
+| `--json` | flag | false | Emit machine-readable JSON instead of the Rich table. |
+| `--verbose / -v` | flag | false | Include per-case details / errors in table rows. |
+
+**Examples:**
+
+```bash
+soul eval tests/eval_examples/personality_expression.yaml
+soul eval tests/eval_examples/                                  # all .yaml in dir
+soul eval tests/eval_examples/ --filter "creative"
+soul eval my_eval.yaml --json | jq '.specs[].cases'
+soul eval my_eval.yaml --judge-engine my_module:make_engine
+```
+
+**Output:** one Rich table per spec (Case, Status, Score, Time, optional Details), plus a summary footer with totals. `--json` returns `{specs: [...], duration_ms, pass_count, fail_count, skip_count, error_count}`.
+
+**Exit codes:** `0` when every case passes (skipped cases don't fail the run); `1` when any case fails or any spec errors out.
+
+---
+
+### `soul prune-chain`
+
+Compress old trust-chain history into a signed `chain.pruned` marker (v0.5.0, issue #203). Dry-run by default — pass `--apply` to mutate the chain. Genesis (seq=0) is always preserved.
+
+```bash
+soul prune-chain <path>                       # preview, uses biorhythm cap
+soul prune-chain <path> --keep 100            # preview, custom threshold
+soul prune-chain <path> --keep 100 --apply    # execute the prune
+soul prune-chain <path> --json --apply        # machine-readable output
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a `.soul` file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--keep <N>` | int | from `Biorhythms.trust_chain_max_entries` | Length threshold. When the chain has more than `N` entries, every non-genesis entry is compressed into a single signed marker. |
+| `--apply` | flag | false | Actually run the prune. Without this flag, the command previews only. |
+| `--reason <str>` | str | `manual` | Free-form label written onto the marker payload. |
+| `--json` | flag | false | Emit machine-readable JSON. |
+
+When the chain is already at or below `--keep`, the command reports `applied=False` with a zero-count summary.
+
+**JSON output:** `{soul, did, applied, summary, chain_length, keep}`. `summary` carries `{count, low_seq, high_seq, reason, marker_seq}`.
+
+This is the touch-time stub. The full archival design (separate `trust_chain/archive/` directory with checkpoint entries) is deferred to v0.5.x. See [docs/trust-chain.md](trust-chain.md#chain-pruning).
+
+**Exit codes:** 0 on success (whether or not anything was pruned); 2 when no `--keep` is provided AND the soul has no biorhythm cap (auto-prune disabled).
 
 ---
 
@@ -1612,6 +1711,7 @@ The returned `SoulDiff` is a Pydantic model — see [API reference](api-referenc
 |------|---------|
 | 0 | Success |
 | 1 | Error (missing file, invalid format, user cancelled, chain verification failed) |
+| 2 | Configuration error (e.g. `soul prune-chain` invoked with no `--keep` and no biorhythm cap) |
 
 ## File Format Support
 

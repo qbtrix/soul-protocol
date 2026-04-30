@@ -1,4 +1,7 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-04-29 (#203) — Biorhythms.trust_chain_max_entries: configurable
+#   cap for touch-time chain pruning. Default 0 = unbounded (preserves prior
+#   behaviour). Positive values trigger pruning when the chain reaches the cap.
 # Updated: 2026-04-29 (#41) — User-defined memory layers + domain isolation.
 #   MemoryType keeps the four built-in StrEnum members (CORE, EPISODIC,
 #   SEMANTIC, PROCEDURAL) plus SOCIAL for the new relationship layer; the
@@ -196,6 +199,19 @@ class Biorhythms(BaseModel):
         default=10,
         ge=1,
         description="Interactions in window at or above which focus rises to 'max'",
+    )
+
+    # Trust chain pruning (#203) — touch-time stub
+    trust_chain_max_entries: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Maximum entries the trust chain may carry before touch-time pruning fires. "
+            "0 (default) disables pruning and preserves the unbounded-chain behaviour. "
+            "Positive values cause append() to compress the non-genesis history into a "
+            "single signed `chain.pruned` marker once the cap is reached. The full "
+            "archival design lives in v0.5.x."
+        ),
     )
 
 

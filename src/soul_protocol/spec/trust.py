@@ -1,22 +1,54 @@
 # spec/trust.py — Trust chain primitives: TrustEntry, TrustChain, SignatureProvider.
+# Updated: 2026-04-30 (#201) — TrustEntry gains a non-cryptographic ``summary``
+# field. Excluded from ``compute_entry_hash`` and ``_signing_message`` so it
+# can be added/edited without breaking chain verification — same exclusion
+# pattern already used for ``signature``. Pre-#201 chains load with
+# ``summary=""`` via the Pydantic default and verify unchanged.
+# Updated: 2026-04-29 (#199, #200, #205) — Verification hardening.
+#   * #199: verify_chain now rejects entries whose timestamp predates the
+#     previous entry's timestamp by more than 60s (skew tolerance). Closes
+#     a backdating gap where a brief private-key compromise could rewrite
+#     the chain head with past-dated entries.
+#   * #200: _canonical_json no longer silently stringifies non-JSON-native
+#     types via ``default=str``. A strict default raises TypeError with an
+#     actionable message so hash-determinism cannot drift across runtimes
+#     or Python versions.
+#   * #205: compute_payload_hash now refuses BaseModel inputs at the public
+#     entry point. Callers must pass dicts (or `model.model_dump(mode="json")`)
+#     so two callers with the "same" payload always produce the same hash.
 # Created: 2026-04-29 (#42) — Verifiable action history for digital souls.
 # Every learning event, memory mutation, and evolution step is signed and
 # traceable, forming a Merkle-style hash chain. Pure spec layer: zero
 # imports from opinionated modules — runtime concrete classes
 # (Ed25519SignatureProvider, TrustChainManager) live under runtime/.
+# Updated: 2026-04-29 (#203) — Touch-time chain pruning. Adds the
+#   ``CHAIN_PRUNED_ACTION`` constant and a single verification carve-out:
+#   when an entry's action equals this constant, the verifier permits a seq
+#   gap from the previous entry (the prev_hash linkage and signature still
+#   apply). This is the only action allowed to break monotonicity, and it is
+#   the only signal a chain has been compressed.
 #
 # Semantics locked here:
 #   - Canonical JSON is sorted-keys, separators=(",", ":"), no whitespace,
 #     ensure_ascii=True. Both signers and verifiers MUST use ``compute_payload_hash``
 #     and ``compute_entry_hash`` to stay byte-identical.
 #   - ``signature`` is base64 of the raw signature bytes over the canonical JSON
-#     of all OTHER fields of the entry (signature is excluded — it's the result).
+#     of all OTHER fields of the entry (signature AND summary are excluded —
+#     signature because it's the result, summary because it's a human-readable
+#     annotation that callers may want to add or rewrite without breaking
+#     verification).
 #   - ``prev_hash`` is the hash of the previous entry. Entry 0 (genesis) uses
 #     ``GENESIS_PREV_HASH = "0" * 64`` — a constant 64-zero hex string.
 #   - ``public_key`` travels with every entry so verification works without an
 #     external key registry. The key itself is base64 of the raw 32 bytes for
 #     Ed25519. ``algorithm`` is the lower-case algo name (default "ed25519").
-#   - ``timestamp`` is timezone-aware UTC. Serialized as ISO 8601.
+#   - ``timestamp`` is timezone-aware UTC. Serialized as ISO 8601. Each
+#     successive entry's timestamp must be at-or-after the previous entry's
+#     (within a 60s skew tolerance). Future timestamps beyond 60s of the
+#     verifier's clock are also rejected.
+#   - ``chain.pruned`` entries (action == ``CHAIN_PRUNED_ACTION``) MAY have a
+#     seq strictly greater than ``prev.seq + 1``. They still link via
+#     ``prev_hash`` and carry a valid signature. See ``verify_entry``.
 
 from __future__ import annotations
 
@@ -39,6 +71,16 @@ GENESIS_PREV_HASH: str = "0" * 64
 
 DEFAULT_ALGORITHM: str = "ed25519"
 """Default signing algorithm. Future algorithms (P-256, secp256k1) live alongside."""
+
+CHAIN_PRUNED_ACTION: str = "chain.pruned"
+"""Action name reserved for the touch-time pruning marker (#203).
+
+When a chain compresses old entries, a single signed entry with this action
+is appended. Its payload carries ``{count, low_seq, high_seq, reason}`` so an
+auditor can reconstruct what was dropped. The verifier permits a seq gap
+between this entry and its predecessor; all other actions remain strictly
+monotonic.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +128,16 @@ class TrustEntry(BaseModel):
     public_key: str = Field(
         default="",
         description="Base64 of the raw public key used to verify this entry.",
+    )
+    summary: str = Field(
+        default="",
+        description=(
+            "Human-readable, non-cryptographic per-action description "
+            "(e.g. '3 memories', '+0.50 for alice'). Excluded from the "
+            "canonical bytes used for hashing and signing — see "
+            "compute_entry_hash. Pre-#201 entries load with the empty "
+            "default and remain verifiable."
+        ),
     )
 
     @field_validator("timestamp")
@@ -163,14 +215,39 @@ class SignatureProvider(Protocol):
 # ---------------------------------------------------------------------------
 
 
+def _strict_default(o: Any) -> Any:
+    """``json.dumps(default=...)`` hook that refuses non-JSON-native types.
+
+    The trust chain's hash-stability story depends on canonical JSON being
+    byte-identical across runtimes and Python versions. The previous
+    ``default=str`` fallback silently stringified anything (datetimes,
+    Path, custom objects, Pydantic models) — that worked today but masked
+    drift: ``str(datetime)`` and ``str(Path)`` are runtime-defined and
+    not part of any spec. A different verifier could legitimately compute
+    a different hash for the "same" payload.
+
+    Refusing those values forces callers to pre-serialize. Concrete
+    guidance: datetimes via ``.isoformat()``, Pydantic models via
+    ``.model_dump(mode="json")``, Path via ``str()``. Then the resulting
+    structure is JSON-native and the hash is deterministic.
+    """
+    raise TypeError(
+        "compute_payload_hash payloads must be JSON-native (dict / list / str / "
+        f"int / float / bool / None). Got: {type(o).__name__}. Pre-serialize "
+        "datetimes via .isoformat(), Pydantic models via .model_dump(mode='json'), "
+        "Path objects via str()."
+    )
+
+
 def _canonical_json(data: Any) -> bytes:
     """Canonicalize a Python value to deterministic JSON bytes.
 
     Used by both signers and verifiers. The format is locked: sorted keys,
     minimal separators, ensure_ascii so unicode escapes are stable across
-    runtimes. Datetimes are serialized via isoformat() (UTC-normalized
-    upstream by TrustEntry validator). Pydantic models are dumped with
-    ``mode='json'``.
+    runtimes. Pydantic models are dumped with ``mode='json'`` first so
+    their datetimes and other rich types serialize via Pydantic's stable
+    rules. Anything left over that is not JSON-native trips
+    :func:`_strict_default` — see #200.
     """
     if isinstance(data, BaseModel):
         data = data.model_dump(mode="json")
@@ -179,7 +256,7 @@ def _canonical_json(data: Any) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,
-        default=str,
+        default=_strict_default,
     ).encode("utf-8")
 
 
@@ -189,31 +266,51 @@ def compute_payload_hash(payload: dict) -> str:
     Stored in ``TrustEntry.payload_hash``. The payload itself is NOT in the
     chain — only its hash. So a verifier with the original payload and the
     chain entry can prove the payload existed and was not tampered with.
+
+    ``payload`` MUST be a plain dict of JSON-native primitives. Passing a
+    Pydantic model raises :class:`TypeError` (see #205): two callers with
+    a logically-equivalent BaseModel and dict could otherwise produce
+    different hashes if the BaseModel's ``model_dump`` shape ever drifts.
+    Convert via ``model.model_dump(mode="json")`` before calling.
     """
+    if isinstance(payload, BaseModel):
+        raise TypeError(
+            "compute_payload_hash expects a dict of JSON-native primitives. "
+            "Pass payload.model_dump(mode='json') instead."
+        )
     return hashlib.sha256(_canonical_json(payload)).hexdigest()
 
 
 def compute_entry_hash(entry: TrustEntry) -> str:
-    """SHA-256 hex digest of the canonical JSON of an entry, EXCLUDING signature.
+    """SHA-256 hex digest of the canonical JSON of an entry, EXCLUDING signature and summary.
 
-    This is the value the next entry's ``prev_hash`` must equal. Excluding
-    the signature is critical: the signature is the result of signing this
-    hash (or the bytes hashed here), so it can't be part of its own input.
+    This is the value the next entry's ``prev_hash`` must equal. Two fields
+    are stripped before hashing:
+
+    - ``signature`` — it's the *result* of signing this hash (or the bytes
+      hashed here), so it can't be part of its own input.
+    - ``summary`` — added by #201 as a human-readable annotation. Excluding
+      it keeps the chain verifiable when callers add, edit, or remove the
+      summary text without re-signing every entry. Pre-#201 chains have
+      ``summary=""`` via the Pydantic default and produce identical hashes.
     """
     raw = entry.model_dump(mode="json")
     raw.pop("signature", None)
+    raw.pop("summary", None)
     return hashlib.sha256(_canonical_json(raw)).hexdigest()
 
 
 def _signing_message(entry: TrustEntry) -> bytes:
     """Bytes that must be signed for ``entry``.
 
-    Same canonical-JSON-minus-signature shape as ``compute_entry_hash``. We
-    sign the bytes directly (not the hash) so callers can use any signature
-    scheme — Ed25519 hashes internally, but other algorithms might not.
+    Same canonical-JSON-minus-signature-minus-summary shape as
+    :func:`compute_entry_hash`. We sign the bytes directly (not the hash)
+    so callers can use any signature scheme — Ed25519 hashes internally,
+    but other algorithms might not.
     """
     raw = entry.model_dump(mode="json")
     raw.pop("signature", None)
+    raw.pop("summary", None)
     return _canonical_json(raw)
 
 
@@ -249,7 +346,14 @@ def verify_entry(
         if entry.prev_hash != GENESIS_PREV_HASH:
             return False
     else:
-        if entry.seq != prev_entry.seq + 1:
+        # Pruning carve-out (#203): a chain.pruned marker may have a seq
+        # strictly greater than prev.seq + 1 — that gap encodes the entries
+        # the marker compressed away. Every other entry stays strictly
+        # monotonic. The prev_hash linkage and signature still apply.
+        if entry.action == CHAIN_PRUNED_ACTION:
+            if entry.seq <= prev_entry.seq:
+                return False
+        elif entry.seq != prev_entry.seq + 1:
             return False
         if entry.prev_hash != compute_entry_hash(prev_entry):
             return False
@@ -309,7 +413,9 @@ def verify_chain(chain: TrustChain) -> tuple[bool, str | None]:
 
     Catches: bad signature, broken hash chain, non-monotonic seq,
     duplicate seq, future timestamps (more than 60 seconds in the future
-    relative to ``datetime.now(UTC)``).
+    relative to ``datetime.now(UTC)``), and backdated timestamps (an
+    entry whose timestamp is more than 60 seconds before the previous
+    entry's timestamp — see #199).
     """
     if not chain.entries:
         return True, None
@@ -328,6 +434,13 @@ def verify_chain(chain: TrustChain) -> tuple[bool, str | None]:
         if (entry.timestamp - now).total_seconds() > 60:
             return False, f"timestamp in the future at seq {entry.seq}"
 
+        # Timestamp monotonicity (#199). 60s skew tolerance absorbs minor
+        # clock drift across runtimes. Anything beyond that points at a
+        # backdated entry — caught here even when the rest of the entry
+        # would otherwise verify.
+        if prev is not None and (entry.timestamp - prev.timestamp).total_seconds() < -60:
+            return False, f"timestamp before previous entry at seq {entry.seq}"
+
         if not verify_entry(entry, prev):
             # Distinguish chain-link failures from signature failures for the
             # message — re-derive the cause cheaply rather than instrument
@@ -338,7 +451,12 @@ def verify_chain(chain: TrustChain) -> tuple[bool, str | None]:
                 if entry.prev_hash != GENESIS_PREV_HASH:
                     return False, f"bad genesis prev_hash at seq {entry.seq}"
             else:
-                if entry.seq != prev.seq + 1:
+                # chain.pruned actions are allowed a seq gap; every other
+                # action must be strictly +1 from prev.
+                if entry.action == CHAIN_PRUNED_ACTION:
+                    if entry.seq <= prev.seq:
+                        return False, f"non-monotonic seq at seq {entry.seq}"
+                elif entry.seq != prev.seq + 1:
                     return False, f"non-monotonic seq at seq {entry.seq}"
                 if entry.prev_hash != compute_entry_hash(prev):
                     return False, f"broken hash chain at seq {entry.seq}"
@@ -382,6 +500,7 @@ def chain_integrity_check(chain: TrustChain) -> dict:
 __all__ = [
     "GENESIS_PREV_HASH",
     "DEFAULT_ALGORITHM",
+    "CHAIN_PRUNED_ACTION",
     "TrustEntry",
     "TrustChain",
     "SignatureProvider",

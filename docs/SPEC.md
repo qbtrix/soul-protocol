@@ -1,5 +1,15 @@
 <!--
   SPEC.md — Soul Protocol, the standard.
+  Updated: 2026-04-30 (v0.5.0, #203) — added §10A.10 documenting the optional
+  touch-time pruning extension. New action constant `chain.pruned` is the
+  only action permitted to break seq monotonicity (with a documented
+  carve-out in §10A.6). The full archival design (separate archive
+  directory + checkpoint entries) is deferred to v0.5.x.
+  Updated: 2026-04-30 (v0.5.0, #201) — TrustEntry gains a non-cryptographic
+  ``summary`` field for human-readable per-action descriptions. Excluded
+  from the canonical bytes used for hashing and signing — chain integrity
+  is preserved across summary edits. Pre-0.5.0 entries load with
+  summary="" (Pydantic default) and verify unchanged.
   Updated: 2026-04-29 (v0.4.0 identity bundle) — added user_id and domain
   fields on MemoryEntry, open-string layers replacing the fixed five-tier
   enum (with the original five preserved as built-in layer names + new
@@ -433,13 +443,21 @@ TrustEntry {
   action:       str         # dot-namespaced ("memory.write", "evolution.applied", ...)
   payload_hash: str         # SHA-256 hex of the canonical JSON of the action's payload
   prev_hash:    str         # SHA-256 hex of the previous entry, or GENESIS_PREV_HASH for seq=0
-  signature:    str         # base64 of the raw signature bytes
+  signature:    str         # base64 of the raw signature bytes (NOT in canonical bytes)
   algorithm:    str         # signing algorithm; default "ed25519"
   public_key:   str         # base64 of the raw public key used to verify (32 bytes for ed25519)
+  summary:      str = ""    # non-cryptographic human-readable per-action description (NOT in canonical bytes)
 }
 ```
 
 The full payload is **not stored** — only its SHA-256 hash. This keeps the chain compact and avoids redundant storage of memory contents that already live in their own tier files. A verifier with the original payload and the chain entry can prove the payload existed at signing time.
+
+Two fields are excluded from the canonical bytes used for hashing and signing:
+
+- **`signature`** — the result of signing the canonical JSON of the entry; cannot be its own input.
+- **`summary`** (added 0.5.0, #201) — a short human-readable description of the action, e.g. `"3 memories"` or `"+0.50 for alice"`. Excluded from the canonical bytes so callers can edit, localise, or rewrite the summary without breaking `compute_entry_hash` and therefore `verify_chain`. Implementations MAY ship a default formatter registry that fills in summaries at append time when callers don't supply an explicit value. The reference implementation does (`soul_protocol.runtime.trust.manager._SUMMARY_FORMATTERS`).
+
+Pre-0.5.0 chain entries that have no `summary` field on disk MUST load with `summary=""` (Pydantic default) and verify unchanged.
 
 ### 10A.2 · Canonical encoding
 
@@ -450,7 +468,7 @@ Both signers and verifiers must use the same canonical JSON encoding:
 - `ensure_ascii=true` (unicode escaped)
 - Datetimes serialized via `isoformat()`, UTC-normalized
 
-The hash of an entry is computed over the canonical JSON of every field **except `signature`** (the signature is the result of signing; it cannot be part of its own input). This hash is what the next entry's `prev_hash` must equal.
+The hash of an entry is computed over the canonical JSON of every field **except `signature` and `summary`**. The signature is the result of signing this hash (or the bytes hashed here); it cannot be part of its own input. The summary (added 0.5.0, #201) is a human-readable annotation; excluding it from the canonical bytes lets callers edit summaries without breaking the hash chain. This hash is what the next entry's `prev_hash` must equal.
 
 ### 10A.3 · GENESIS_PREV_HASH
 
@@ -487,16 +505,21 @@ The reference implementation ships `Ed25519SignatureProvider`. Other implementat
 
 A conforming verifier checks each entry sequentially. The chain is valid iff every entry passes:
 
-1. **Chain link.** For seq=0: `prev_hash == GENESIS_PREV_HASH`. For seq>0: `prev_hash` matches `compute_entry_hash(prev_entry)` AND `seq == prev.seq + 1`.
+1. **Chain link.** For seq=0: `prev_hash == GENESIS_PREV_HASH`. For seq>0: `prev_hash` matches `compute_entry_hash(prev_entry)`. AND one of:
+   - **Default rule:** `seq == prev.seq + 1`
+   - **Pruning carve-out (optional, see §10A.10):** when `entry.action == "chain.pruned"`, `seq` MAY be strictly greater than `prev.seq + 1`. This is the only action permitted to break monotonicity.
 2. **Signature.** `verify(canonical_json_minus_signature, signature, public_key) == true`.
 3. **No duplicates.** No two entries share a `seq` value.
 4. **Future timestamps.** Entry's timestamp is no more than 60 seconds beyond the verifier's local clock (skew tolerance).
+5. **Timestamp monotonicity.** Each entry's timestamp is no more than 60 seconds before the previous entry's timestamp (skew tolerance). Equal timestamps are valid; sub-second drift between successive entries is expected.
 
 The verifier returns the seq of the first failure plus a reason string. An empty chain is trivially valid.
 
 ### 10A.7 · Identity binding
 
 The chain itself proves *some key* signed these entries. To prove **this soul** signed them, an implementation must additionally check that every entry's `public_key` matches the soul's loaded keystore public key. The reference implementation enforces this in `Soul.verify_chain()`. Implementations that only verify chain-internal consistency MUST NOT claim "soul X performed these actions" — they can only claim "this is a self-consistent chain."
+
+Strict-current-key binding is the spec's recommended default. Implementations MAY support **key rotation** as an extension by maintaining a per-soul registry of rotated-out public keys and accepting an entry's `public_key` if it matches either the current keystore key OR any registered previous key. The reference implementation does this via `Keystore.previous_public_keys` (persisted as `keys/previous.keys` in the archive — newline-separated base64). Implementations that don't support the extension SHOULD reject rotated chains rather than silently treat them as foreign — that is the safe failure mode.
 
 ### 10A.8 · Threat model summary
 
@@ -507,6 +530,31 @@ The chain does NOT defend against: head truncation (a receiver-side concern — 
 ### 10A.9 · Optionality
 
 The trust chain is **optional** for 0.4.0 conformance. Souls without a `keys/` or `trust_chain/` directory in their archive remain valid 0.4.0 souls — they simply cannot prove provenance. An implementation that wants to claim full 0.4.0 conformance must also support the chain (read, write, verify); a partial implementation that only handles identity + memory + journal is allowed to ship as "0.4.0 (no trust chain)."
+
+### 10A.10 · Pruning extension (optional, v0.5.0)
+
+A long-lived soul accumulates an unbounded chain. v0.5.0 adds an optional **touch-time pruning** mechanism that compresses old non-genesis entries into a single signed marker. This is the stub form; the full archival design (separate `trust_chain/archive/` directory with checkpoint entries spanning archive files) lands in a later v0.5.x release.
+
+**Marker action.** Implementations that prune MUST use the action name `chain.pruned` (the constant `CHAIN_PRUNED_ACTION` in the reference implementation). The marker's payload SHOULD include:
+
+```
+{
+  "count":    int,    // entries dropped in this prune cycle
+  "low_seq":  int,    // lowest seq dropped
+  "high_seq": int,    // highest seq dropped
+  "reason":   str     // free-form, e.g. "touch-time" or "manual"
+}
+```
+
+The marker's `seq` MUST be strictly greater than its predecessor's seq (typically `high_seq + 1` so the audit counter is preserved across the gap). Its `prev_hash` MUST equal `compute_entry_hash(prev_entry)` per the normal chain-link rule.
+
+**Verification rule.** Conforming verifiers MUST allow exactly one carve-out: when `entry.action == "chain.pruned"` AND there is a previous entry, the verifier permits `entry.seq` to be strictly greater than `prev.seq + 1` (instead of strict equality). All other entries remain strictly monotonic. The signature, prev_hash, public_key, and timestamp checks all apply to chain.pruned entries normally — the carve-out is solely about the seq counter.
+
+**What this protects against.** A tampered chain that injects a forged seq gap to hide an inserted entry would have to use the `chain.pruned` action for that injection — but the marker itself is signed, so an attacker without the private key cannot forge one. Without the carve-out, pruning would either break verification or require a more invasive change to the verification model.
+
+**Configuration.** The reference implementation exposes the cap as `Biorhythms.trust_chain_max_entries` (int, ge=0). `0` (default) disables pruning; positive values cap the chain. Implementations are NOT required to expose pruning controls in any specific surface — they may auto-prune on policy, expose a CLI/MCP/API, or omit pruning entirely. The wire format of the `chain.pruned` marker is the only thing this spec section locks.
+
+**Conformance.** Pruning is OPTIONAL — an implementation MAY refuse to prune and remain conformant. An implementation that DOES prune MUST emit a marker that conforms to this section. An implementation that VERIFIES chains MUST honor the carve-out (i.e. accept a chain that contains correctly-formed `chain.pruned` markers) so chains migrating between implementations remain interoperable.
 
 ---
 
