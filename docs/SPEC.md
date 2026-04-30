@@ -491,12 +491,15 @@ A conforming verifier checks each entry sequentially. The chain is valid iff eve
 2. **Signature.** `verify(canonical_json_minus_signature, signature, public_key) == true`.
 3. **No duplicates.** No two entries share a `seq` value.
 4. **Future timestamps.** Entry's timestamp is no more than 60 seconds beyond the verifier's local clock (skew tolerance).
+5. **Timestamp monotonicity.** Each entry's timestamp is no more than 60 seconds before the previous entry's timestamp (skew tolerance). Equal timestamps are valid; sub-second drift between successive entries is expected.
 
 The verifier returns the seq of the first failure plus a reason string. An empty chain is trivially valid.
 
 ### 10A.7 · Identity binding
 
 The chain itself proves *some key* signed these entries. To prove **this soul** signed them, an implementation must additionally check that every entry's `public_key` matches the soul's loaded keystore public key. The reference implementation enforces this in `Soul.verify_chain()`. Implementations that only verify chain-internal consistency MUST NOT claim "soul X performed these actions" — they can only claim "this is a self-consistent chain."
+
+Strict-current-key binding is the spec's recommended default. Implementations MAY support **key rotation** as an extension by maintaining a per-soul registry of rotated-out public keys and accepting an entry's `public_key` if it matches either the current keystore key OR any registered previous key. The reference implementation does this via `Keystore.previous_public_keys` (persisted as `keys/previous.keys` in the archive — newline-separated base64). Implementations that don't support the extension SHOULD reject rotated chains rather than silently treat them as foreign — that is the safe failure mode.
 
 ### 10A.8 · Threat model summary
 

@@ -1,4 +1,16 @@
 # spec/trust.py — Trust chain primitives: TrustEntry, TrustChain, SignatureProvider.
+# Updated: 2026-04-29 (#199, #200, #205) — Verification hardening.
+#   * #199: verify_chain now rejects entries whose timestamp predates the
+#     previous entry's timestamp by more than 60s (skew tolerance). Closes
+#     a backdating gap where a brief private-key compromise could rewrite
+#     the chain head with past-dated entries.
+#   * #200: _canonical_json no longer silently stringifies non-JSON-native
+#     types via ``default=str``. A strict default raises TypeError with an
+#     actionable message so hash-determinism cannot drift across runtimes
+#     or Python versions.
+#   * #205: compute_payload_hash now refuses BaseModel inputs at the public
+#     entry point. Callers must pass dicts (or `model.model_dump(mode="json")`)
+#     so two callers with the "same" payload always produce the same hash.
 # Created: 2026-04-29 (#42) — Verifiable action history for digital souls.
 # Every learning event, memory mutation, and evolution step is signed and
 # traceable, forming a Merkle-style hash chain. Pure spec layer: zero
@@ -16,7 +28,10 @@
 #   - ``public_key`` travels with every entry so verification works without an
 #     external key registry. The key itself is base64 of the raw 32 bytes for
 #     Ed25519. ``algorithm`` is the lower-case algo name (default "ed25519").
-#   - ``timestamp`` is timezone-aware UTC. Serialized as ISO 8601.
+#   - ``timestamp`` is timezone-aware UTC. Serialized as ISO 8601. Each
+#     successive entry's timestamp must be at-or-after the previous entry's
+#     (within a 60s skew tolerance). Future timestamps beyond 60s of the
+#     verifier's clock are also rejected.
 
 from __future__ import annotations
 
@@ -163,14 +178,39 @@ class SignatureProvider(Protocol):
 # ---------------------------------------------------------------------------
 
 
+def _strict_default(o: Any) -> Any:
+    """``json.dumps(default=...)`` hook that refuses non-JSON-native types.
+
+    The trust chain's hash-stability story depends on canonical JSON being
+    byte-identical across runtimes and Python versions. The previous
+    ``default=str`` fallback silently stringified anything (datetimes,
+    Path, custom objects, Pydantic models) — that worked today but masked
+    drift: ``str(datetime)`` and ``str(Path)`` are runtime-defined and
+    not part of any spec. A different verifier could legitimately compute
+    a different hash for the "same" payload.
+
+    Refusing those values forces callers to pre-serialize. Concrete
+    guidance: datetimes via ``.isoformat()``, Pydantic models via
+    ``.model_dump(mode="json")``, Path via ``str()``. Then the resulting
+    structure is JSON-native and the hash is deterministic.
+    """
+    raise TypeError(
+        "compute_payload_hash payloads must be JSON-native (dict / list / str / "
+        f"int / float / bool / None). Got: {type(o).__name__}. Pre-serialize "
+        "datetimes via .isoformat(), Pydantic models via .model_dump(mode='json'), "
+        "Path objects via str()."
+    )
+
+
 def _canonical_json(data: Any) -> bytes:
     """Canonicalize a Python value to deterministic JSON bytes.
 
     Used by both signers and verifiers. The format is locked: sorted keys,
     minimal separators, ensure_ascii so unicode escapes are stable across
-    runtimes. Datetimes are serialized via isoformat() (UTC-normalized
-    upstream by TrustEntry validator). Pydantic models are dumped with
-    ``mode='json'``.
+    runtimes. Pydantic models are dumped with ``mode='json'`` first so
+    their datetimes and other rich types serialize via Pydantic's stable
+    rules. Anything left over that is not JSON-native trips
+    :func:`_strict_default` — see #200.
     """
     if isinstance(data, BaseModel):
         data = data.model_dump(mode="json")
@@ -179,7 +219,7 @@ def _canonical_json(data: Any) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,
-        default=str,
+        default=_strict_default,
     ).encode("utf-8")
 
 
@@ -189,7 +229,18 @@ def compute_payload_hash(payload: dict) -> str:
     Stored in ``TrustEntry.payload_hash``. The payload itself is NOT in the
     chain — only its hash. So a verifier with the original payload and the
     chain entry can prove the payload existed and was not tampered with.
+
+    ``payload`` MUST be a plain dict of JSON-native primitives. Passing a
+    Pydantic model raises :class:`TypeError` (see #205): two callers with
+    a logically-equivalent BaseModel and dict could otherwise produce
+    different hashes if the BaseModel's ``model_dump`` shape ever drifts.
+    Convert via ``model.model_dump(mode="json")`` before calling.
     """
+    if isinstance(payload, BaseModel):
+        raise TypeError(
+            "compute_payload_hash expects a dict of JSON-native primitives. "
+            "Pass payload.model_dump(mode='json') instead."
+        )
     return hashlib.sha256(_canonical_json(payload)).hexdigest()
 
 
@@ -309,7 +360,9 @@ def verify_chain(chain: TrustChain) -> tuple[bool, str | None]:
 
     Catches: bad signature, broken hash chain, non-monotonic seq,
     duplicate seq, future timestamps (more than 60 seconds in the future
-    relative to ``datetime.now(UTC)``).
+    relative to ``datetime.now(UTC)``), and backdated timestamps (an
+    entry whose timestamp is more than 60 seconds before the previous
+    entry's timestamp — see #199).
     """
     if not chain.entries:
         return True, None
@@ -327,6 +380,13 @@ def verify_chain(chain: TrustChain) -> tuple[bool, str | None]:
         # Future timestamp (allow 60s clock skew)
         if (entry.timestamp - now).total_seconds() > 60:
             return False, f"timestamp in the future at seq {entry.seq}"
+
+        # Timestamp monotonicity (#199). 60s skew tolerance absorbs minor
+        # clock drift across runtimes. Anything beyond that points at a
+        # backdated entry — caught here even when the rest of the entry
+        # would otherwise verify.
+        if prev is not None and (entry.timestamp - prev.timestamp).total_seconds() < -60:
+            return False, f"timestamp before previous entry at seq {entry.seq}"
 
         if not verify_entry(entry, prev):
             # Distinguish chain-link failures from signature failures for the

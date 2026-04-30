@@ -37,7 +37,8 @@ The trust chain protects against:
 | Inserting a fake entry in the middle | The next entry's `prev_hash` no longer matches; chain breaks |
 | Reordering entries | Sequence numbers go non-monotonic; chain breaks |
 | Replaying genesis entry | Duplicate seq detected by `verify_chain()` |
-| Backdating entries | Future-timestamped entries (>60s skew) are flagged; backdated entries can pass timestamp checks but break the hash chain when inserted |
+| Future-dated entries | Entries more than 60s ahead of the verifier's clock are rejected (clock-skew tolerance) |
+| Backdated entries | An entry whose timestamp falls more than 60s before its predecessor is rejected (#199). Combined with the hash chain, backdating into the middle of the chain breaks `prev_hash`; backdating into the head is now caught by the monotonicity rule |
 
 The trust chain does **not** protect against:
 
@@ -72,6 +73,8 @@ What is NOT in the chain:
 - **Recall results.** Recall is read-only — it doesn't mutate state, so it doesn't need a chain entry. (You can layer a separate retrieval-trace receipt on top via `RetrievalTrace`.)
 
 This is intentional: the chain stays compact (kilobytes per thousand entries instead of megabytes), and verification only needs the action sequence, not the action data.
+
+`compute_payload_hash` accepts a plain dict of JSON-native primitives and refuses Pydantic models at the public entry point (#205). If your action carries a BaseModel-shaped payload, call `payload.model_dump(mode="json")` first — this guarantees that two callers who think they are passing the same payload (one as a BaseModel, one as a dict) compute the same hash. The hashing helper also rejects `datetime`, `Path`, and other non-JSON-native nested values (#200) so canonical JSON stays byte-identical across Python versions; pre-serialize via `.isoformat()` or `str()` as appropriate.
 
 ## Verifying a chain externally
 
@@ -110,13 +113,41 @@ Each soul owns an Ed25519 keypair. The keys live under `keys/` inside the soul a
 
 ```
 keys/
-  public.key   — raw 32 bytes, always present after first save
-  private.key  — raw 32 bytes, present only when explicitly retained
+  public.key      — raw 32 bytes, always present after first save
+  private.key     — raw 32 bytes, present only when explicitly retained
+  previous.keys   — newline-separated base64 of rotated-out public keys
+                    (only written when the allow-list is non-empty; #204)
 ```
 
-The keypair is generated on first `Soul.birth()` and persists across saves and awakens. To regenerate a soul's identity (a destructive operation that breaks all prior chain verification), build a new soul from scratch — the trust chain has no in-protocol key rotation.
+The keypair is generated on first `Soul.birth()` and persists across saves and awakens.
 
 Verification needs only the public key, and every chain entry already embeds a copy of the public key it was signed under. So a soul shared without `private.key` is still verifiable — just not extensible.
+
+### Key rotation (#204)
+
+A soul can rotate its signing key without invalidating prior chain entries by registering the rotated-out public key in `Keystore.previous_public_keys` before installing the new keypair. `Soul.verify_chain` then accepts entries whose `public_key` matches either the current loaded key or any key in the allow-list.
+
+```python
+# Before installing the new keypair, record the old public key.
+old_pub = soul._keystore.public_key_bytes
+soul._keystore.add_previous_public_key(old_pub)
+
+# Install the new keypair (one of several ways — depends on your runtime).
+new_provider = Ed25519SignatureProvider()
+soul._signature_provider = new_provider
+soul._trust_chain_manager.provider = new_provider
+soul._keystore.public_key_bytes = new_provider.public_key_bytes
+soul._keystore.private_key_bytes = new_provider.private_key_bytes
+
+# Verification now accepts the mixed-signer chain.
+valid, _ = soul.verify_chain()
+```
+
+**Default behavior is unchanged.** An empty `previous_public_keys` keeps the v0.4.0 strict-current-key binding, so a soul that never rotates keys sees no behavioral difference.
+
+**Forward compatibility note.** `previous.keys` is a forward-compatible field. A runtime that doesn't recognize the file (older soul-protocol releases, third-party verifiers that haven't adopted #204) will simply ignore it and fall back to strict-current-key binding — which means they'll reject the rotated chain. This is the safe failure mode: a verifier never accepts a chain it can't fully validate.
+
+A `soul rotate-keys` CLI helper is planned for a follow-up v0.5.x release. Today the rotation flow is API-driven via `Keystore.add_previous_public_key()` plus a manual provider swap.
 
 ## Sharing a soul without leaking the signing key
 
@@ -154,6 +185,7 @@ trust_chain/
 keys/
   public.key
   private.key        — only when include_keys=True
+  previous.keys      — newline-separated base64; only when previous_public_keys is non-empty (#204)
 ```
 
 The per-entry JSON files are for human inspection and debugging — `chain.json` is what the runtime reads. Chains are not encrypted independently of the soul; if the surrounding soul archive is password-encrypted (`Soul.export(password=...)`), the chain entries are encrypted at rest too.

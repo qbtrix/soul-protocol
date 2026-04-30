@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Trust chain hardening
+
+- **Timestamp monotonicity in `verify_chain` (#199)** — the spec-layer verifier now rejects entries whose timestamp predates the previous entry's timestamp by more than 60 seconds (skew tolerance). Closes a backdating gap where an attacker who briefly held the private key could write entries with backdated timestamps to insert events "into the past" of the chain. The hash chain caught mid-chain insertion already; this rule catches head replacement with past-dated entries.
+- **Strict canonical JSON for hashing (#200)** — `spec.trust._canonical_json` no longer silently stringifies non-JSON-native values via `default=str`. A new `_strict_default` raises `TypeError` with an actionable message ("pre-serialize datetimes via `.isoformat()`, Pydantic models via `.model_dump(mode='json')`, Path objects via `str()`"). Hash determinism across Python versions is now enforced rather than assumed. Existing chain-append payloads in `runtime/soul.py` and `runtime/bond.py` were audited and continue to work — they were already JSON-native; `default=str` was masking nothing in production but could have masked drift if a future caller passed a `datetime` directly.
+- **Tighter typing on `compute_payload_hash` (#205)** — the public `compute_payload_hash(payload: dict)` now refuses `BaseModel` inputs at the entry point with a `TypeError`. Two callers passing a logically-equivalent BaseModel and dict could otherwise produce different hashes. The internal `compute_entry_hash` (which IS passed a Pydantic `TrustEntry`) is unchanged — only the public payload helper gets the guard.
+- **Key rotation support (#204)** — `Keystore` gains `previous_public_keys: list[bytes]`, persisted alongside `keys/public.key` and `keys/private.key` as `keys/previous.keys` (newline-separated base64). `Soul.verify_chain` now accepts entries whose `public_key` matches EITHER the current loaded key OR any key in the allow-list. Default empty allow-list keeps the v0.4.0 strict-current-key behavior — opt-in for callers that rotate keys. Older runtimes that don't honor the allow-list will reject rotated chains, which is the safe failure mode (forward-compatible field). The `soul rotate-keys` CLI is intentionally not part of this bundle — runtimes that want to rotate keys today can do so by appending the old public key bytes to `Keystore.previous_public_keys` before installing the new keypair.
+
 ---
 
 ## [0.4.0] -- 2026-04-29

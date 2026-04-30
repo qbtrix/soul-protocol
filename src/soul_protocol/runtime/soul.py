@@ -1,4 +1,11 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-29 (#199, #200, #205, #204) — Trust-chain hardening bundle.
+#   * #199 + #200 + #205 are spec-layer changes (see spec/trust.py); Soul
+#     callsites are unchanged but benefit from the stricter checks.
+#   * #204: Soul.verify_chain now accepts entries whose public_key matches
+#     the current keystore key OR any key in
+#     ``Keystore.previous_public_keys``. Default empty allow-list keeps
+#     the v0.4.0 strict-current-key behavior — opt-in for key rotation.
 # Updated: 2026-04-29 (#42) — Trust chain integration. Soul.__init__ instantiates
 #   a TrustChainManager + Ed25519SignatureProvider; keys load from the soul's
 #   keystore when available, generated otherwise. Memory writes (observe),
@@ -582,11 +589,16 @@ class Soul:
         """Verify the integrity of this soul's trust chain.
 
         Two-stage check:
-        1. Every entry's ``public_key`` matches the soul's loaded public key
-           (binds the chain to *this* identity, not just any key that signed
-           a self-consistent chain).
+        1. Every entry's ``public_key`` matches EITHER the soul's loaded
+           public key OR any key in the keystore's
+           ``previous_public_keys`` allow-list (#204). The allow-list
+           defaults to empty, in which case this collapses to the
+           strict-current-key check from v0.4.0. Populating it lets a
+           soul rotate its signing key while keeping older entries
+           verifiable.
         2. The chain itself is internally valid via :func:`verify_chain` —
-           signatures, hash chain, seq monotonicity, future-timestamp skew.
+           signatures, hash chain, seq monotonicity, future-timestamp
+           skew, and timestamp monotonicity (#199).
 
         The pubkey binding is skipped when the keystore has no public key
         (e.g. a freshly-birthed soul before its first save). It is the
@@ -599,9 +611,11 @@ class Soul:
 
         pub_bytes = self._keystore.public_key_bytes
         if pub_bytes:
-            expected_pk = base64.b64encode(pub_bytes).decode("ascii")
+            allowed = {base64.b64encode(pub_bytes).decode("ascii")}
+            for prev_bytes in self._keystore.previous_public_keys:
+                allowed.add(base64.b64encode(prev_bytes).decode("ascii"))
             for entry in self._trust_chain_manager.chain.entries:
-                if entry.public_key != expected_pk:
+                if entry.public_key not in allowed:
                     return False, f"public key mismatch at seq {entry.seq}"
         return self._trust_chain_manager.verify()
 
