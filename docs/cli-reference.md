@@ -1,4 +1,8 @@
 <!-- Covers: CLI installation, all 47 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-04-29 — v0.5.0 (#201): `soul audit` adds a Summary column derived from
+       per-action human-readable descriptions and a `--no-summary` flag for users who want
+       the hash-only view from 0.4.0 back. JSON output always carries `summary`; pre-#201
+       entries return `summary=""`.
      Updated: 2026-04-29 — v0.4.0 (#42): Added `soul verify` and `soul audit` for trust-chain
        integrity checks and signed-action timelines. Both support --json. `soul verify` exits
        1 on a tampered chain. Count: 45 → 47.
@@ -1411,6 +1415,7 @@ soul audit <path>
 soul audit <path> --filter memory.
 soul audit <path> --limit 20
 soul audit <path> --json
+soul audit <path> --no-summary  # hash-only view
 ```
 
 **Arguments:**
@@ -1426,8 +1431,13 @@ soul audit <path> --json
 | `--filter <prefix>` | str | none | Filter to actions starting with `<prefix>` (e.g. `memory.`). |
 | `--limit <N>` | int | none | Show only the most recent N entries. |
 | `--json` | flag | false | Emit machine-readable JSON. |
+| `--no-summary` | flag | false | Hide the Summary column and show the hash only (#201). |
 
-The default output is a Rich table (Seq, Timestamp, Action, Actor, Payload Hash). Payloads are stored as hashes only — the table shows *what changed when*, not *what was written*.
+The default output is a Rich table with columns `Seq`, `Timestamp`, `Action`, `Actor`, `Summary`, `Payload Hash`. The `Summary` column shows a short human-readable description per entry — for example, `3 memories` for a `memory.write` action or `+0.50 for alice` for `bond.strengthen`. Pass `--no-summary` for the hash-only view that 0.4.0 shipped with.
+
+JSON output always includes `summary` on each row; `--no-summary` only affects the human table. Pre-#201 entries that have no `summary` field stored on disk return `summary=""` after Pydantic loads the legacy shape.
+
+Payloads are stored as hashes only — the table shows *what changed when*, not *what was written*.
 
 ---
 

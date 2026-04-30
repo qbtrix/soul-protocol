@@ -1,5 +1,10 @@
 <!--
   SPEC.md — Soul Protocol, the standard.
+  Updated: 2026-04-29 (v0.5.0, #201) — TrustEntry gains a non-cryptographic
+  ``summary`` field for human-readable per-action descriptions. Excluded
+  from the canonical bytes used for hashing and signing — chain integrity
+  is preserved across summary edits. Pre-0.5.0 entries load with
+  summary="" (Pydantic default) and verify unchanged.
   Updated: 2026-04-29 (v0.4.0 identity bundle) — added user_id and domain
   fields on MemoryEntry, open-string layers replacing the fixed five-tier
   enum (with the original five preserved as built-in layer names + new
@@ -433,13 +438,21 @@ TrustEntry {
   action:       str         # dot-namespaced ("memory.write", "evolution.applied", ...)
   payload_hash: str         # SHA-256 hex of the canonical JSON of the action's payload
   prev_hash:    str         # SHA-256 hex of the previous entry, or GENESIS_PREV_HASH for seq=0
-  signature:    str         # base64 of the raw signature bytes
+  signature:    str         # base64 of the raw signature bytes (NOT in canonical bytes)
   algorithm:    str         # signing algorithm; default "ed25519"
   public_key:   str         # base64 of the raw public key used to verify (32 bytes for ed25519)
+  summary:      str = ""    # non-cryptographic human-readable per-action description (NOT in canonical bytes)
 }
 ```
 
 The full payload is **not stored** — only its SHA-256 hash. This keeps the chain compact and avoids redundant storage of memory contents that already live in their own tier files. A verifier with the original payload and the chain entry can prove the payload existed at signing time.
+
+Two fields are excluded from the canonical bytes used for hashing and signing:
+
+- **`signature`** — the result of signing the canonical JSON of the entry; cannot be its own input.
+- **`summary`** (added 0.5.0, #201) — a short human-readable description of the action, e.g. `"3 memories"` or `"+0.50 for alice"`. Excluded from the canonical bytes so callers can edit, localise, or rewrite the summary without breaking `compute_entry_hash` and therefore `verify_chain`. Implementations MAY ship a default formatter registry that fills in summaries at append time when callers don't supply an explicit value. The reference implementation does (`soul_protocol.runtime.trust.manager._SUMMARY_FORMATTERS`).
+
+Pre-0.5.0 chain entries that have no `summary` field on disk MUST load with `summary=""` (Pydantic default) and verify unchanged.
 
 ### 10A.2 · Canonical encoding
 
@@ -450,7 +463,7 @@ Both signers and verifiers must use the same canonical JSON encoding:
 - `ensure_ascii=true` (unicode escaped)
 - Datetimes serialized via `isoformat()`, UTC-normalized
 
-The hash of an entry is computed over the canonical JSON of every field **except `signature`** (the signature is the result of signing; it cannot be part of its own input). This hash is what the next entry's `prev_hash` must equal.
+The hash of an entry is computed over the canonical JSON of every field **except `signature` and `summary`**. The signature is the result of signing this hash (or the bytes hashed here); it cannot be part of its own input. The summary (added 0.5.0, #201) is a human-readable annotation; excluding it from the canonical bytes lets callers edit summaries without breaking the hash chain. This hash is what the next entry's `prev_hash` must equal.
 
 ### 10A.3 · GENESIS_PREV_HASH
 

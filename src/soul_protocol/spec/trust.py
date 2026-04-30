@@ -1,4 +1,9 @@
 # spec/trust.py — Trust chain primitives: TrustEntry, TrustChain, SignatureProvider.
+# Updated: 2026-04-29 (#201) — TrustEntry gains a non-cryptographic ``summary``
+# field. Excluded from ``compute_entry_hash`` and ``_signing_message`` so it
+# can be added/edited without breaking chain verification — same exclusion
+# pattern already used for ``signature``. Pre-#201 chains load with
+# ``summary=""`` via the Pydantic default and verify unchanged.
 # Created: 2026-04-29 (#42) — Verifiable action history for digital souls.
 # Every learning event, memory mutation, and evolution step is signed and
 # traceable, forming a Merkle-style hash chain. Pure spec layer: zero
@@ -10,7 +15,10 @@
 #     ensure_ascii=True. Both signers and verifiers MUST use ``compute_payload_hash``
 #     and ``compute_entry_hash`` to stay byte-identical.
 #   - ``signature`` is base64 of the raw signature bytes over the canonical JSON
-#     of all OTHER fields of the entry (signature is excluded — it's the result).
+#     of all OTHER fields of the entry (signature AND summary are excluded —
+#     signature because it's the result, summary because it's a human-readable
+#     annotation that callers may want to add or rewrite without breaking
+#     verification).
 #   - ``prev_hash`` is the hash of the previous entry. Entry 0 (genesis) uses
 #     ``GENESIS_PREV_HASH = "0" * 64`` — a constant 64-zero hex string.
 #   - ``public_key`` travels with every entry so verification works without an
@@ -86,6 +94,16 @@ class TrustEntry(BaseModel):
     public_key: str = Field(
         default="",
         description="Base64 of the raw public key used to verify this entry.",
+    )
+    summary: str = Field(
+        default="",
+        description=(
+            "Human-readable, non-cryptographic per-action description "
+            "(e.g. '3 memories', '+0.50 for alice'). Excluded from the "
+            "canonical bytes used for hashing and signing — see "
+            "compute_entry_hash. Pre-#201 entries load with the empty "
+            "default and remain verifiable."
+        ),
     )
 
     @field_validator("timestamp")
@@ -194,26 +212,35 @@ def compute_payload_hash(payload: dict) -> str:
 
 
 def compute_entry_hash(entry: TrustEntry) -> str:
-    """SHA-256 hex digest of the canonical JSON of an entry, EXCLUDING signature.
+    """SHA-256 hex digest of the canonical JSON of an entry, EXCLUDING signature and summary.
 
-    This is the value the next entry's ``prev_hash`` must equal. Excluding
-    the signature is critical: the signature is the result of signing this
-    hash (or the bytes hashed here), so it can't be part of its own input.
+    This is the value the next entry's ``prev_hash`` must equal. Two fields
+    are stripped before hashing:
+
+    - ``signature`` — it's the *result* of signing this hash (or the bytes
+      hashed here), so it can't be part of its own input.
+    - ``summary`` — added by #201 as a human-readable annotation. Excluding
+      it keeps the chain verifiable when callers add, edit, or remove the
+      summary text without re-signing every entry. Pre-#201 chains have
+      ``summary=""`` via the Pydantic default and produce identical hashes.
     """
     raw = entry.model_dump(mode="json")
     raw.pop("signature", None)
+    raw.pop("summary", None)
     return hashlib.sha256(_canonical_json(raw)).hexdigest()
 
 
 def _signing_message(entry: TrustEntry) -> bytes:
     """Bytes that must be signed for ``entry``.
 
-    Same canonical-JSON-minus-signature shape as ``compute_entry_hash``. We
-    sign the bytes directly (not the hash) so callers can use any signature
-    scheme — Ed25519 hashes internally, but other algorithms might not.
+    Same canonical-JSON-minus-signature-minus-summary shape as
+    :func:`compute_entry_hash`. We sign the bytes directly (not the hash)
+    so callers can use any signature scheme — Ed25519 hashes internally,
+    but other algorithms might not.
     """
     raw = entry.model_dump(mode="json")
     raw.pop("signature", None)
+    raw.pop("summary", None)
     return _canonical_json(raw)
 
 

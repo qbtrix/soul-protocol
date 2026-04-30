@@ -1,4 +1,10 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-04-29 (#201) — ``soul audit`` Rich table now includes a
+#   Summary column derived from each entry's per-action human-readable
+#   description (set at append time via TrustChainManager.append's new
+#   ``summary=`` parameter or the action-keyed default formatter
+#   registry). New ``--no-summary`` flag hides the column for callers
+#   who only want the hash. JSON output always includes ``summary``.
 # Updated: 2026-04-29 (#42) — Trust chain commands: ``soul verify`` checks
 #   integrity of a soul's signed action history. ``soul audit`` prints a
 #   human-readable timeline; supports --filter <prefix> and --limit; --json
@@ -3207,7 +3213,14 @@ def verify_cmd(path, as_json):
 )
 @click.option("--limit", type=int, default=None, help="Show only the most recent N entries.")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Emit machine-readable JSON.")
-def audit_cmd(path, action_prefix, limit, as_json):
+@click.option(
+    "--no-summary",
+    "no_summary",
+    is_flag=True,
+    default=False,
+    help="Hide the Summary column and show only the payload hash (#201).",
+)
+def audit_cmd(path, action_prefix, limit, as_json, no_summary):
     """Print a human-readable timeline of signed actions.
 
     \b
@@ -3216,6 +3229,7 @@ def audit_cmd(path, action_prefix, limit, as_json):
       soul audit .soul/ --filter memory.
       soul audit aria.soul --limit 20
       soul audit aria.soul --json
+      soul audit aria.soul --no-summary  # hash-only, hide Summary column
     """
 
     async def _audit():
@@ -3225,6 +3239,8 @@ def audit_cmd(path, action_prefix, limit, as_json):
         log = soul.audit_log(action_prefix=action_prefix, limit=limit)
 
         if as_json:
+            # JSON always includes summary — clients can drop it if they don't
+            # want it. --no-summary only affects the human table.
             console.print_json(data={"soul": soul.name, "did": soul.did, "entries": log})
             return
 
@@ -3238,19 +3254,24 @@ def audit_cmd(path, action_prefix, limit, as_json):
         table.add_column("Timestamp", style="dim")
         table.add_column("Action", style="bold")
         table.add_column("Actor", style="green")
+        if not no_summary:
+            table.add_column("Summary", style="white")
         table.add_column("Payload Hash", style="dim")
         for row in log:
             ts = row["timestamp"]
             # Trim microseconds for display
             if "." in ts:
                 ts = ts.split(".", 1)[0] + ts[ts.index("+") :] if "+" in ts else ts.split(".", 1)[0]
-            table.add_row(
+            cells = [
                 str(row["seq"]),
                 ts,
                 row["action"],
                 row["actor_did"],
-                row["payload_hash"][:12] + "…",
-            )
+            ]
+            if not no_summary:
+                cells.append(row.get("summary", "") or "")
+            cells.append(row["payload_hash"][:12] + "…")
+            table.add_row(*cells)
         console.print(table)
 
     asyncio.run(_audit())

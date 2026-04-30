@@ -1663,7 +1663,9 @@ async def soul_audit(
 ) -> str:
     """Return a human-readable timeline of signed actions on the soul's chain.
 
-    Each row carries ``{seq, timestamp, action, actor_did, payload_hash}``.
+    Each row carries ``{seq, timestamp, action, actor_did, payload_hash, summary}``.
+    The ``summary`` field (#201) is a short per-action human-readable
+    description set at append time — pre-#201 entries return ``""``.
     Use ``action_prefix`` (e.g. ``"memory."``) to scope to one category.
     Use ``limit`` to take only the most recent N rows (tail behaviour).
 

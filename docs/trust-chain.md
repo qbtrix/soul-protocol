@@ -60,14 +60,19 @@ actor_did     — DID of the signer (usually the soul's own DID)
 action        — dot-namespaced action name (memory.write, evolution.applied, …)
 payload_hash  — SHA-256 hex of canonical JSON of the action's payload
 prev_hash     — SHA-256 hex of the previous entry, or GENESIS_PREV_HASH
-signature     — Ed25519 signature (base64) over the canonical JSON of the entry minus signature
+signature     — Ed25519 signature (base64) over the canonical JSON of the entry minus signature minus summary
 algorithm     — "ed25519"
 public_key    — base64 of the raw 32-byte public key, embedded so verifiers don't need an external key registry
+summary       — short human-readable description of the action (e.g. "3 memories", "+0.50 for alice"). NOT signed
 ```
+
+Two fields are excluded from the canonical bytes used for hashing and signing: `signature` (because it's the result of signing, so it can't be part of its own input) and `summary` (a non-cryptographic annotation added in #201). Excluding `summary` from the canonical bytes means tooling can rewrite entry summaries — for example, to localise them or to match a more recent formatter — without breaking `verify_chain()`.
+
+The runtime ships an action-keyed default formatter registry (`_SUMMARY_FORMATTERS` in `soul_protocol.runtime.trust.manager`) that fills in a sensible summary at append time when the caller doesn't pass an explicit `summary=`. Callsites in `Soul` (memory writes, supersedes, forgets, evolution proposals/applies, learning events, bond changes) either accept the registry default or pass an explicit summary when the default would be lossy (e.g. `evolution.applied` resolves the trait name from history because the chain payload only carries `mutation_id`).
 
 What is NOT in the chain:
 
-- **The actual payload contents.** Only `payload_hash`. So a chain entry says "the soul wrote 3 memories with IDs `m1, m2, m3`" — not the text of those memories. The text lives in `memory/episodic.json` etc., outside the chain.
+- **The actual payload contents.** Only `payload_hash`. So a chain entry says "the soul wrote 3 memories with IDs `m1, m2, m3`" — not the text of those memories. The text lives in `memory/episodic.json` etc., outside the chain. The `summary` field is a short prose description, not the payload — it's the human-readable equivalent of the action namespace, not a recovery of the data.
 - **PII or content from the user side.** If the action.payload had a user's email in it, only the hash of the JSON containing that email is on chain. The hash is not reversible.
 - **Recall results.** Recall is read-only — it doesn't mutate state, so it doesn't need a chain entry. (You can layer a separate retrieval-trace receipt on top via `RetrievalTrace`.)
 
