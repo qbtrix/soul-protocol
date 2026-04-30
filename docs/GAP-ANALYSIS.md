@@ -71,7 +71,7 @@ Soul Protocol has implemented roughly **65-70% of the vision** described across 
 | Episodic memory | DSP.md, MEM-ARCH | DONE | `memory/episodic.py` | Full store with add, search, remove |
 | Semantic memory | DSP.md, MEM-ARCH | DONE | `memory/semantic.py` | Fact store with dedup |
 | Procedural memory | DSP.md, MEM-ARCH | DONE | `memory/procedural.py` | How-to store |
-| Knowledge graph | MEM-ARCH | DONE | `memory/graph.py` | Entities + directed edges, serializable |
+| Knowledge graph | MEM-ARCH | DONE | `memory/graph.py`, `memory/graph_view.py`, `memory/graph_types.py` | v0.5.0 (#108, #190): typed entity ontology (8 built-in kinds + open string), 8 built-in relation predicates, edge weight, entity provenance. `Soul.graph` returns a `GraphView` with `nodes`/`edges`/`neighbors`/`path`/`subgraph`/`to_mermaid`. `Soul.recall(graph_walk=...)` filters by traversal; `page_token` paginates; `token_budget` falls back to L0 abstracts. |
 | Archival memory | MEM-ARCH | NOT STARTED | -- | Vision describes compressed conversation transcripts; not implemented |
 | Memory recall (keyword) | MEM-ARCH | DONE | `memory/recall.py`, `memory/search.py` | Token overlap + ACT-R activation |
 | Memory recall (vector/embedding) | MEM-ARCH | NOT STARTED | -- | SearchStrategy protocol exists but no embedding implementation |

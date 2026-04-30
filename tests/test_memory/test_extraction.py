@@ -180,7 +180,11 @@ def test_extract_entities_proper_nouns(manager: MemoryManager):
 
 
 def test_extract_entities_with_relation(manager: MemoryManager):
-    """Entity has a relation inferred from context (e.g., 'I use Python')."""
+    """Entity has a relation inferred from context (e.g., 'I use Python').
+
+    v0.5.0 (#190): legacy ``technology`` heuristic type now translates to the
+    typed ontology's ``tool``. The first-person ``relation`` is unchanged.
+    """
     interaction = Interaction(
         user_input="I use Python daily",
         agent_output="Python is versatile.",
@@ -189,11 +193,16 @@ def test_extract_entities_with_relation(manager: MemoryManager):
     python_ents = [e for e in entities if e["name"].lower() == "python"]
     assert len(python_ents) == 1
     assert python_ents[0]["relation"] == "uses"
-    assert python_ents[0]["type"] == "technology"
+    assert python_ents[0]["type"] == "tool"
 
 
 def test_extract_entities_building_relation(manager: MemoryManager):
-    """'I'm building X' sets relation to 'builds' and type to 'project'."""
+    """'I'm building X' sets relation to 'builds' and the type stays as 'project'.
+
+    v0.5.0 (#190): the typed ontology accepts arbitrary type strings on top
+    of the built-ins, so app-specific types like ``project`` survive
+    translation untouched.
+    """
     interaction = Interaction(
         user_input="I'm building PocketPaw",
         agent_output="Cool project!",

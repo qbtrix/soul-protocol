@@ -50,6 +50,15 @@ from .runtime.exceptions import (
     SoulProtocolError,
     SoulRetireError,
 )
+from .runtime.memory.graph_recall import RecallResults
+from .runtime.memory.graph_types import (
+    EntityType,
+    GraphEdge,
+    GraphNode,
+    RelationType,
+    Subgraph,
+)
+from .runtime.memory.graph_view import GraphView
 from .runtime.memory.strategy import SearchStrategy, TokenOverlapStrategy
 from .runtime.skills import Skill, SkillRegistry
 from .runtime.soul import Soul
@@ -182,6 +191,14 @@ __all__ = [
     "find_corrections_for",
     "trace_decision_chain",
     "cluster_correction_patterns",
+    # v0.5.0 (#108, #190) — Graph traversal + typed entity ontology
+    "EntityType",
+    "RelationType",
+    "GraphNode",
+    "GraphEdge",
+    "Subgraph",
+    "GraphView",
+    "RecallResults",
 ]
 
 __version__ = "0.4.0"

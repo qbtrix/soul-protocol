@@ -235,6 +235,9 @@ async def recall(
     user_id: str | None = None,
     layer: str | None = None,
     domain: str | None = None,
+    graph_walk: dict | None = None,
+    page_token: str | None = None,
+    token_budget: int | None = None,
 ) -> list[MemoryEntry]
 ```
 
@@ -249,8 +252,11 @@ Search memories ranked by ACT-R activation (recency, frequency, relevance). Rele
 | `user_id` | `str \| None` | `None` | Multi-user filter (#46). When set, results restrict to memories whose `user_id` matches OR is `None` (legacy/orphan entries are visible to every user). When unset, returns all memories regardless of attribution. |
 | `layer` | `str \| None` | `None` | Restrict recall to one layer (#41). Accepts built-in names (`"episodic"`, `"semantic"`, `"procedural"`, `"social"`) or any custom layer name. |
 | `domain` | `str \| None` | `None` | Restrict recall to one domain sub-namespace (#41), e.g. `"finance"`. |
+| `graph_walk` | `dict \| None` | `None` | (#108) Filter results to memories linked to entities reachable from `graph_walk["start"]` within `graph_walk["depth"]` (default 2) hops. Optional `graph_walk["edge_types"]` whitelists relation predicates. |
+| `page_token` | `str \| None` | `None` | (#108) Resume a previous graph_walk recall. Pass the `next_page_token` attribute of a previous `RecallResults`. |
+| `token_budget` | `int \| None` | `None` | (#108) Cap cumulative content size of returned memories. Once exceeded, overflow entries fall back to their L0 abstract (F1 progressive disclosure). |
 
-**Returns:** `list[MemoryEntry]`
+**Returns:** `list[MemoryEntry]` for plain calls. When `graph_walk`, `page_token`, or `token_budget` is supplied, returns `RecallResults` (a `list` subclass) carrying `next_page_token`, `total_estimate`, and `truncated_for_budget` attributes.
 
 ```python
 # Legacy (single-user) recall
@@ -263,6 +269,21 @@ alice_memories = await soul.recall("preferences", user_id="alice", limit=5)
 finance_only = await soul.recall("revenue", domain="finance")
 all_semantic = await soul.recall("python", layer="semantic")
 combo = await soul.recall("revenue", layer="semantic", domain="finance")
+
+# Graph-walk recall (#108)
+results = await soul.recall(
+    "production rollout",
+    graph_walk={"start": "Acme", "depth": 2, "edge_types": ["mentions", "owned_by"]},
+    limit=10,
+    token_budget=4000,
+)
+if results.next_page_token:
+    page2 = await soul.recall(
+        "production rollout",
+        graph_walk={"start": "Acme", "depth": 2, "edge_types": ["mentions", "owned_by"]},
+        limit=10,
+        page_token=results.next_page_token,
+    )
 ```
 
 #### `soul.observe()`
@@ -543,6 +564,113 @@ print(report.summary())  # Human-readable summary
 print(f"Found {len(report.topic_clusters)} topic clusters")
 print(f"Created {report.procedures_created} procedures")
 ```
+
+### Graph (v0.5.0, #108, #190)
+
+#### `soul.graph`
+
+```python
+@property
+def graph(self) -> GraphView
+```
+
+Typed read view over the soul's knowledge graph. The backing `KnowledgeGraph` is updated by `observe()` (which also emits trust-chain entries). Direct mutation is possible via the storage class but bypasses auditing.
+
+#### `GraphView`
+
+```python
+class GraphView:
+    def nodes(*, type=None, name_match=None, limit=None) -> list[GraphNode]
+    def edges(*, source=None, target=None, relation=None) -> list[GraphEdge]
+    def neighbors(node_id, depth=1, types=None) -> list[GraphNode]
+    def path(source_id, target_id, max_depth=4) -> list[GraphEdge] | None
+    def subgraph(node_ids: list[str]) -> Subgraph
+    def to_mermaid() -> str
+    def reachable(start, depth=2, edge_types=None) -> dict[str, int]
+    def stats() -> dict
+```
+
+| Method | Returns | Notes |
+|--------|---------|-------|
+| `nodes()` | `list[GraphNode]` | Type filter accepts any string (built-in or custom). `name_match` is a case-insensitive substring filter. |
+| `edges()` | `list[GraphEdge]` | Active edges only (excludes expired ones). |
+| `neighbors()` | `list[GraphNode]` | BFS to `depth` hops. Source is always returned with `depth=0`. `types` whitelists non-source nodes. |
+| `path()` | `list[GraphEdge] \| None` | Shortest-path BFS bounded by `max_depth`. Returns `[]` when source equals target. |
+| `subgraph()` | `Subgraph` | Induced subgraph — nodes in input order, edges only between requested nodes. |
+| `to_mermaid()` | `str` | Mermaid `graph LR` block for human inspection. |
+| `reachable()` | `dict[str, int]` | Map of `node_id -> hop_distance` used by recall's `graph_walk`. |
+| `stats()` | `dict` | `{node_count, edge_count, types: {...}, relations: {...}}`. |
+
+```python
+# Browse the graph
+people = soul.graph.nodes(type="person", limit=10)
+edges = soul.graph.edges(source="Alice", relation="mentions")
+
+# Walk the neighborhood
+neighborhood = soul.graph.neighbors("Alice", depth=2, types=["person", "tool"])
+
+# Path between two entities
+chain = soul.graph.path("Captain", "PR-1024", max_depth=6)
+
+# Render for human inspection
+print(soul.graph.to_mermaid())
+```
+
+#### `GraphNode`
+
+```python
+class GraphNode(BaseModel):
+    id: str
+    type: str = "concept"
+    name: str = ""        # defaults to id when omitted
+    depth: int | None = None    # set by traversal queries
+    provenance: list[str] = []  # memory ids that produced this entity
+```
+
+#### `GraphEdge`
+
+```python
+class GraphEdge(BaseModel):
+    source: str
+    target: str
+    relation: str
+    weight: float | None = None       # 0..1 confidence (LLM extractor)
+    provenance: list[str] = []        # source memory ids
+    metadata: dict | None = None
+```
+
+#### `Subgraph`
+
+```python
+class Subgraph(BaseModel):
+    nodes: list[GraphNode] = []
+    edges: list[GraphEdge] = []
+
+    def to_mermaid() -> str
+```
+
+#### `EntityType`, `RelationType`
+
+```python
+class EntityType(StrEnum):
+    PERSON, PLACE, ORG, CONCEPT, TOOL, DOCUMENT, EVENT, RELATION
+
+class RelationType(StrEnum):
+    MENTIONS, RELATED, DEPENDS_ON, CONTRIBUTES_TO, CAUSES, FOLLOWS, SUPERSEDES, OWNED_BY
+```
+
+Both enums are open: any string is accepted as an entity type or relation predicate; the enums just name the well-known kinds for cross-module consistency.
+
+#### `RecallResults`
+
+```python
+class RecallResults(list[MemoryEntry]):
+    next_page_token: str | None
+    total_estimate: int | None
+    truncated_for_budget: bool
+```
+
+Returned by `soul.recall(graph_walk=..., page_token=..., token_budget=...)`. Iterable just like a regular list — the extra attributes carry pagination + budget metadata.
 
 ### State
 

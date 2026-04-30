@@ -1431,6 +1431,101 @@ The default output is a Rich table (Seq, Timestamp, Action, Actor, Payload Hash)
 
 ---
 
+## Graph layer (#108, #190)
+
+`soul graph` is a subcommand group for inspecting the knowledge graph. Five subcommands cover listing, traversal, and human-readable rendering.
+
+### `soul graph nodes <path>`
+
+```
+soul graph nodes <path> [--type TYPE] [--match SUBSTRING] [--limit N] [--json]
+```
+
+List nodes in the graph. The default output is a Rich table with id, type, and provenance (the memory ids that produced the entity). Pass `--json` for machine-readable output.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--type` | str | none | Filter by entity type (built-in or custom). |
+| `--match` | str | none | Case-insensitive substring filter on entity name. |
+| `--limit` | int | none | Cap the number of rows. |
+| `--json` | flag | false | Emit JSON. |
+
+```bash
+soul graph nodes mysoul.soul --type person --json
+soul graph nodes mysoul.soul --match alice
+```
+
+### `soul graph edges <path>`
+
+```
+soul graph edges <path> [--source X] [--target Y] [--relation R] [--json]
+```
+
+List active edges. Filters can be combined.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--source` | str | none | Filter by source entity id. |
+| `--target` | str | none | Filter by target entity id. |
+| `--relation` | str | none | Filter by relation predicate. |
+| `--json` | flag | false | Emit JSON. |
+
+```bash
+soul graph edges mysoul.soul --source Alice
+soul graph edges mysoul.soul --relation owned_by --json
+```
+
+### `soul graph neighbors <path> <node_id>`
+
+```
+soul graph neighbors <path> <node_id> [--depth N] [--types t1,t2] [--json]
+```
+
+List nodes within `--depth` hops of `node_id` (default 1). The starting node is always included with `depth=0`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--depth` | int | 1 | Maximum hops out from `node_id`. |
+| `--types` | str | none | Comma-separated whitelist of entity types for non-source nodes. |
+| `--json` | flag | false | Emit JSON. |
+
+```bash
+soul graph neighbors mysoul.soul Alice --depth 2 --types person,tool
+```
+
+### `soul graph path <path> <source_id> <target_id>`
+
+```
+soul graph path <path> <source_id> <target_id> [--max-depth N] [--json]
+```
+
+Find the shortest chain of edges from `source_id` to `target_id`. Returns the chain in traversal order. JSON output carries a `found` flag plus `edges` list.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--max-depth` | int | 4 | Maximum hops to consider. |
+| `--json` | flag | false | Emit JSON. |
+
+```bash
+soul graph path mysoul.soul Captain PR-1024 --max-depth 6
+```
+
+Exit code is `0` whether or not a path exists — the JSON `found` flag (or the textual "No path" message) signals the answer.
+
+### `soul graph mermaid <path>`
+
+```
+soul graph mermaid <path>
+```
+
+Print the full graph as a Mermaid `graph LR` block. Pipe into a Mermaid renderer (e.g. `mmdc`) for a visual:
+
+```bash
+soul graph mermaid mysoul.soul | mmdc -i - -o graph.png
+```
+
+---
+
 ## Exit Codes
 
 | Code | Meaning |

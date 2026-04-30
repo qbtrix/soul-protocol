@@ -274,6 +274,47 @@ FACT_PATTERNS: list[tuple[re.Pattern[str], int, str]] = [
 ]
 
 # ---------------------------------------------------------------------------
+# Heuristic-type → typed-ontology translation (#190).
+# The legacy heuristic extractor produces freeform type strings (technology,
+# person, project, role, topic, organization). The v0.5.0 typed ontology
+# uses person / place / org / concept / tool / document / event / relation.
+# We translate at the boundary so downstream consumers (GraphView, CLI,
+# trust chain) see the new ontology while the regex patterns can stay.
+# Unmapped types fall through unchanged so app-specific custom types still
+# round-trip without registering.
+# ---------------------------------------------------------------------------
+
+HEURISTIC_TYPE_TO_ONTOLOGY: dict[str, str] = {
+    # Pure synonyms that should normalize to a built-in ontology type.
+    # Anything not listed here passes through unchanged so custom types
+    # ("project", "pr", "channel", "library", ...) keep working.
+    "technology": "tool",
+    "tech": "tool",
+    "user": "person",
+    "organization": "org",
+    "company": "org",
+    "location": "place",
+    "doc": "document",
+}
+
+
+def translate_to_ontology(legacy_type: str) -> str:
+    """Map a legacy heuristic entity type to the v0.5.0 typed ontology.
+
+    Returns ``"concept"`` for ``"unknown"`` / ``""`` so untyped entities
+    still land in a sensible ontology slot. Built-in ontology types
+    (``person``, ``place``, ``org``, ``concept``, ``tool``, ``document``,
+    ``event``, ``relation``) and custom strings (e.g. ``"project"``,
+    ``"pr"``, ``"channel"``) pass through unchanged — only true synonyms
+    of the built-ins (``"technology"`` -> ``"tool"`` etc.) get normalized.
+    """
+    if not legacy_type or legacy_type == "unknown":
+        return "concept"
+    lower = legacy_type.lower()
+    return HEURISTIC_TYPE_TO_ONTOLOGY.get(lower, lower)
+
+
+# ---------------------------------------------------------------------------
 # Known technology names (lowercase) for entity extraction
 # ---------------------------------------------------------------------------
 
@@ -1807,17 +1848,39 @@ class MemoryManager:
                     ):
                         obj_rels.append({"target": subj_raw, "relation": "colleague"})
 
+        # v0.5.0 (#190): translate heuristic types to the typed ontology so
+        # downstream consumers see consistent types regardless of which
+        # extractor (LLM or heuristic) produced the entity.
+        for entity_info in entities.values():
+            entity_info["type"] = translate_to_ontology(entity_info.get("type", ""))
+
         return list(entities.values())
 
     # ---- Graph operations ----
 
     async def update_graph(self, entities: list[dict]) -> None:
+        """Apply extracted entities + relations to the knowledge graph.
+
+        Each entity dict can carry:
+          - ``name`` (required): the entity's canonical name
+          - ``entity_type``: one of the EntityType strings or any custom string
+          - ``relationships``: list of ``{target, relation, weight?}`` dicts
+          - ``edge_metadata``: dict propagated to each edge for provenance
+          - ``source_memory_id``: top-level provenance for the entity itself
+          - ``weight``: optional confidence score for the entity (currently
+            unused — passed through for future use)
+        """
         for entity in entities:
             name = entity.get("name", "")
             if not name:
                 continue
             entity_type = entity.get("entity_type", "unknown")
-            self._graph.add_entity(name, entity_type)
+            source_memory_id = entity.get("source_memory_id")
+            self._graph.add_entity(
+                name,
+                entity_type,
+                source_memory_id=source_memory_id,
+            )
 
             # Phase 2: forward edge_metadata for provenance tracking
             edge_metadata = entity.get("edge_metadata")
@@ -1825,12 +1888,14 @@ class MemoryManager:
             for rel in entity.get("relationships", []):
                 target = rel.get("target", "")
                 relation = rel.get("relation", "related_to")
+                rel_weight = rel.get("weight")
                 if target:
                     self._graph.add_relationship(
                         name,
                         target,
                         relation,
                         metadata=edge_metadata,
+                        weight=rel_weight,
                     )
 
     @property

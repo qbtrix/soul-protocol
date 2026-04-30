@@ -170,6 +170,53 @@ recall(query: str, *, limit: int, min_importance: float = 0) -> list[MemoryEntry
 - `access_count` and `last_accessed_at` updated on every return.
 - Filtering by `scope` (caller's scope context) applied before limit and ranking.
 
+#### 4.4.1 · Graph-walk recall (0.5.0)
+
+```
+recall(
+    query: str,
+    *,
+    limit: int,
+    graph_walk: { start: str, depth: int, edge_types?: [str] } | None = None,
+    page_token: str | None = None,
+    token_budget: int | None = None,
+) -> list[MemoryEntry] | RecallResults
+```
+
+When `graph_walk` is supplied, the implementation must restrict results to memories linked to entities reachable from `graph_walk.start` within `graph_walk.depth` hops. The optional `edge_types` filter prunes the BFS frontier to edges with matching relation predicates.
+
+When `token_budget` is supplied, the implementation must cap the cumulative content size of returned memories at the budget, with overflow entries falling back to their L0 abstract (the F1 progressive-disclosure mechanism). The flag `truncated_for_budget` on the response indicates whether truncation happened.
+
+When more results are reachable than `limit`, the implementation must mint a `next_page_token` that resumes from the next offset. Tokens must be bound to the original `(query, graph_walk)` pair — replaying with a different walk must raise an error rather than silently apply.
+
+### 4.5 · Graph layer typed entity model (0.5.0)
+
+The `graph` layer carries directed edges between entities. As of 0.5.0, every entity carries a `type` (string) and an optional `provenance` list of memory ids:
+
+```
+GraphEntity {
+  id:         str            # canonical name
+  type:       str            # ontology kind — see below
+  provenance: [memory_id]    # source memories that produced this entity
+}
+
+GraphEdge {
+  source:     str
+  target:     str
+  relation:   str            # predicate from controlled vocabulary
+  weight:     float | None   # 0..1 confidence (LLM extractor)
+  metadata:   dict | None    # source_memory_id, extracted_at, ...
+  valid_from: datetime
+  valid_to:   datetime | None
+}
+```
+
+The typed entity model is **part of the 0.4.0+ memory contract** — `graph` was always one of the seven layers. The typed extension (eight built-in entity kinds, eight built-in relation predicates, edge weight, entity provenance) is **new in 0.5.0**. Pre-0.5.0 graph data round-trips: implementations must accept entities without a `provenance` list (treat as empty) and edges without a `weight` (treat as None).
+
+Built-in entity kinds: `person`, `place`, `org`, `concept`, `tool`, `document`, `event`, `relation`. Both fields are open strings — any value is accepted. The names are conventions, not constraints.
+
+Built-in relation predicates: `mentions`, `related`, `depends_on`, `contributes_to`, `causes`, `follows`, `supersedes`, `owned_by`. Same open-string contract.
+
 ---
 
 ## 5 · DNA (personality)

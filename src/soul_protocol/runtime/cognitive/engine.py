@@ -546,10 +546,32 @@ class CognitiveProcessor:
         interaction: Interaction,
         source_memory_id: str | None = None,
     ) -> list[dict]:
-        """Extract named entities from an interaction.
+        """Extract named entities + relations from an interaction.
 
         Phase 2 enhancement: each entity dict includes an ``edge_metadata``
         field with source_memory_id and extracted_at for graph edge provenance.
+
+        v0.5.0 (#190): the LLM extractor returns the new typed ontology
+        (person/place/org/concept/tool/document/event/relation, plus any
+        free-form custom strings) and a ``relations`` list per entity with
+        ``{target, relation, weight}`` triples that update_graph() folds
+        into the graph as typed edges.
+
+        **Contract** (documented in module-level docstring):
+          - Returns ``list[dict]`` with each dict carrying:
+              - ``name``: the entity's canonical name (str, required)
+              - ``type``: ontology type (str, defaults to ``"concept"``)
+              - ``relation``: optional first-person relation to user
+              - ``relationships``: list of ``{target, relation, weight?}``
+                edge specs to other entities
+              - ``edge_metadata``: dict with ``source_memory_id`` +
+                ``extracted_at`` (auto-populated)
+              - ``source_memory_id``: top-level provenance for the entity
+          - Idempotent on re-extraction — calling twice on the same
+            interaction does not add duplicate entities (the graph dedups
+            on ``(source, target, relation)``).
+          - LLM path falls back to heuristic when the engine raises or
+            returns malformed JSON.
 
         Args:
             interaction: The interaction to extract entities from.
@@ -566,6 +588,8 @@ class CognitiveProcessor:
             entities = self._entity_extractor(interaction)
             for e in entities:
                 e["edge_metadata"] = edge_metadata
+                if source_memory_id:
+                    e["source_memory_id"] = source_memory_id
             return entities
 
         prompt = ENTITY_EXTRACTION_PROMPT.format(
@@ -580,12 +604,37 @@ class CognitiveProcessor:
 
             entities: list[dict] = []
             for item in data:
+                # The new prompt returns ``relations`` (list of edge specs);
+                # the legacy prompt returned only ``relation`` (a string).
+                # Map both into the canonical ``relationships`` field that
+                # MemoryManager.update_graph() consumes.
+                rel_list: list[dict] = []
+                relations_field = item.get("relations") or item.get("relationships") or []
+                if isinstance(relations_field, list):
+                    for rel in relations_field:
+                        if not isinstance(rel, dict):
+                            continue
+                        target = rel.get("target") or rel.get("name")
+                        relation = rel.get("relation") or rel.get("type") or "related"
+                        if not target:
+                            continue
+                        edge_spec: dict = {"target": target, "relation": relation}
+                        weight = rel.get("weight")
+                        if weight is not None:
+                            try:
+                                edge_spec["weight"] = float(weight)
+                            except (TypeError, ValueError):
+                                pass
+                        rel_list.append(edge_spec)
                 entities.append(
                     {
                         "name": item["name"],
-                        "type": item.get("type", "unknown"),
+                        "type": item.get("type", "concept"),
                         "relation": item.get("relation"),
+                        "relationships": rel_list,
                         "edge_metadata": edge_metadata,
+                        "source_memory_id": source_memory_id,
+                        "weight": item.get("weight"),
                     }
                 )
             return entities
@@ -595,6 +644,8 @@ class CognitiveProcessor:
                 entities = self._entity_extractor(interaction)
                 for e in entities:
                     e["edge_metadata"] = edge_metadata
+                    if source_memory_id:
+                        e["source_memory_id"] = source_memory_id
                 return entities
             return []
 

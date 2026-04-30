@@ -102,23 +102,92 @@ Procedural memory stores learned patterns, preferences, and how-to knowledge. Th
 
 ### Tier 5: Knowledge Graph
 
-The knowledge graph tracks entity relationships using directed edges.
+The knowledge graph tracks typed entity relationships using directed edges.
 
 Structure:
 
-- Entities: dict mapping name to type (technology, person, project, place)
-- Edges: list of `(source, target, relation)` tuples
-- Relations: `uses`, `builds`, `prefers`, `works_at`, `learns`, `related_to`
-- No external dependencies -- implemented with plain Python dicts
+- Entities: dict mapping name to type plus an optional list of memory-id provenance
+- Edges: list of `(source, target, relation)` tuples with optional `weight` and metadata
+- No external dependencies — implemented with plain Python dicts
 - Duplicate edges are silently ignored
 - Entities are auto-created when a relationship references them
+
+#### Typed entity ontology (v0.5.0, #190)
+
+Eight built-in entity kinds plus open-string extension. Use `EntityType.PERSON`, `EntityType.TOOL`, etc. when the well-known kinds fit; pass any string when they don't:
+
+| Built-in | Use for |
+|----------|---------|
+| `person` | Humans (Alice, the user) |
+| `place` | Geographic or virtual locations |
+| `org` | Companies, teams, projects with org-like ownership |
+| `concept` | Abstract ideas, topics, methodologies |
+| `tool` | Technologies, libraries, software |
+| `document` | Files, articles, written artefacts |
+| `event` | Time-bound activities |
+| `relation` | Reified relationships (when an edge needs to carry data) |
+
+Custom strings (`"pr"`, `"channel"`, `"library"`, `"issue"`) pass through untouched — `EntityType` just names the well-known ones so they don't drift across modules.
+
+Eight built-in relation predicates: `mentions`, `related`, `depends_on`, `contributes_to`, `causes`, `follows`, `supersedes`, `owned_by`. Same open-string contract — any predicate is accepted on an edge.
+
+#### Extraction contract
+
+The cognitive engine's `extract_entities` returns one dict per entity:
+
+```python
+{
+    "name": "Alice",
+    "type": "person",
+    "relation": "knows",          # optional first-person relation to user
+    "relationships": [             # entity-to-entity edges
+        {"target": "Acme", "relation": "owned_by", "weight": 0.9},
+    ],
+    "edge_metadata": {"source_memory_id": "ep-1", "extracted_at": "..."},
+    "source_memory_id": "ep-1",
+}
+```
+
+When an LLM `CognitiveEngine` is wired, the prompt asks for the typed ontology + relations + weight directly. When no engine is configured, the heuristic extractor produces typed entities via a translation table (`technology` -> `tool`, `organization` -> `org`, etc.) — the heuristic stays in place for offline / cost-constrained souls.
+
+Re-extraction on the same interaction is **idempotent**: identical entities and edges are deduped, but the `(source, target, relation)` triple's metadata picks up the second memory's id in its `provenance` list.
+
+#### Traversal API
+
+`Soul.graph` returns a `GraphView` with read methods:
+
+```python
+soul.graph.nodes(type="person", name_match="ali", limit=20)
+soul.graph.edges(source="Alice", relation="mentions")
+soul.graph.neighbors("Alice", depth=2, types=["person", "tool"])
+soul.graph.path("Alice", "Acme", max_depth=4)        # shortest path BFS
+soul.graph.subgraph(["Alice", "Bob", "Acme"])
+soul.graph.to_mermaid()                               # human inspection
+```
+
+`Soul.recall` accepts a `graph_walk` parameter that filters memories to those linked to entities reachable within `depth` hops:
+
+```python
+results = await soul.recall(
+    "production rollout",
+    graph_walk={"start": "Acme", "depth": 2, "edge_types": ["mentions", "owned_by"]},
+    limit=10,
+    token_budget=4000,   # overflow falls back to L0 abstracts (F1 mechanism)
+)
+if results.next_page_token:
+    next_page = await soul.recall(..., page_token=results.next_page_token)
+```
+
+Memories rank by combined relevance + graph distance — closer entities surface first.
+
+Trust chain entries (`graph.entity_added`, `graph.relation_added`) record net-new graph state on each `observe()` call. Payloads are compact (id/type/source) so the chain doesn't redundantly store memory content.
 
 Example graph state after a few interactions:
 
 ```
-Python --[uses]--> User
-Acme --[builds]--> User
-FastAPI --[uses]--> User
+Python  (tool)  --[uses]--> User       (person)
+Acme    (org)   --[builds]--> User
+FastAPI (tool)  --[uses]--> User
 ```
 
 

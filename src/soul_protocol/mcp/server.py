@@ -1677,6 +1677,122 @@ async def soul_audit(
     return json.dumps({"soul": s.name, "did": s.did, "entries": log})
 
 
+@mcp.tool
+async def soul_graph_query(
+    kind: str,
+    soul: str | None = None,
+    type: str | None = None,  # noqa: A002 - public param name
+    name_match: str | None = None,
+    limit: int | None = None,
+    source: str | None = None,
+    target: str | None = None,
+    relation: str | None = None,
+    node_id: str | None = None,
+    depth: int = 1,
+    types: list[str] | None = None,
+    source_id: str | None = None,
+    target_id: str | None = None,
+    max_depth: int = 4,
+    node_ids: list[str] | None = None,
+) -> str:
+    """Query the soul's knowledge graph (#108, #190).
+
+    Discriminated by ``kind`` over the GraphView operations:
+
+    - ``nodes``: list nodes; honors ``type``, ``name_match``, ``limit``.
+    - ``edges``: list active edges; honors ``source``, ``target``, ``relation``.
+    - ``neighbors``: list nodes within ``depth`` hops of ``node_id``.
+        ``types`` filters non-source nodes by type.
+    - ``path``: shortest path of edges from ``source_id`` to ``target_id``,
+        bounded by ``max_depth``.
+    - ``subgraph``: subgraph induced by ``node_ids``.
+    - ``mermaid``: render full graph as a Mermaid block.
+    - ``stats``: node/edge counts plus type and relation histograms.
+
+    All responses are JSON. Unknown ``kind`` values return an error.
+    """
+    s = await _resolve_soul(soul)
+    view = s.graph
+
+    if kind == "nodes":
+        nodes = view.nodes(type=type, name_match=name_match, limit=limit)
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "nodes",
+                "count": len(nodes),
+                "nodes": [n.model_dump() for n in nodes],
+            }
+        )
+    if kind == "edges":
+        edges = view.edges(source=source, target=target, relation=relation)
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "edges",
+                "count": len(edges),
+                "edges": [e.model_dump() for e in edges],
+            }
+        )
+    if kind == "neighbors":
+        if not node_id:
+            return json.dumps({"error": "neighbors requires node_id"})
+        result = view.neighbors(node_id, depth=depth, types=types)
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "neighbors",
+                "start": node_id,
+                "depth": depth,
+                "count": len(result),
+                "nodes": [n.model_dump() for n in result],
+            }
+        )
+    if kind == "path":
+        if not source_id or not target_id:
+            return json.dumps({"error": "path requires source_id and target_id"})
+        chain = view.path(source_id, target_id, max_depth=max_depth)
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "path",
+                "source": source_id,
+                "target": target_id,
+                "found": chain is not None,
+                "edges": [e.model_dump() for e in chain] if chain else [],
+            }
+        )
+    if kind == "subgraph":
+        if not node_ids:
+            return json.dumps({"error": "subgraph requires node_ids"})
+        sub = view.subgraph(node_ids)
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "subgraph",
+                "nodes": [n.model_dump() for n in sub.nodes],
+                "edges": [e.model_dump() for e in sub.edges],
+            }
+        )
+    if kind == "mermaid":
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "mermaid",
+                "mermaid": view.to_mermaid(),
+            }
+        )
+    if kind == "stats":
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "stats",
+                **view.stats(),
+            }
+        )
+    return json.dumps({"error": f"unknown kind: {kind}"})
+
+
 # --- Resources (3) ---
 
 

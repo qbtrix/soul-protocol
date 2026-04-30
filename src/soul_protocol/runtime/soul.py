@@ -1,4 +1,15 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-29 (#108, #190) — Graph traversal + typed entity ontology.
+#   - New ``Soul.graph`` property returns a GraphView for typed read access
+#     to the knowledge graph (nodes/edges/neighbors/path/subgraph/to_mermaid).
+#   - ``Soul.recall`` accepts three new kwargs: ``graph_walk`` (filter
+#     memories by entities reachable from a starting node), ``page_token``
+#     (resume a previous walk), ``token_budget`` (cap total content size,
+#     overflow falls back to L0 abstracts via the F1 mechanism).
+#   - ``Soul.observe`` now appends ``graph.entity_added`` and
+#     ``graph.relation_added`` trust-chain entries when the extractor
+#     pipeline lands new entities or edges. Payload is compact
+#     (id/type/source — never full content).
 # Updated: 2026-04-29 (#42) — Trust chain integration. Soul.__init__ instantiates
 #   a TrustChainManager + Ed25519SignatureProvider; keys load from the soul's
 #   keystore when available, generated otherwise. Memory writes (observe),
@@ -1097,6 +1108,20 @@ class Soul:
         """
         return self._memory.self_model
 
+    @property
+    def graph(self):
+        """Typed read view over the soul's knowledge graph.
+
+        Returns a :class:`GraphView` exposing ``nodes``, ``edges``,
+        ``neighbors``, ``path``, ``subgraph``, and ``to_mermaid``. The
+        backing :class:`KnowledgeGraph` is updated by ``observe()`` (which
+        also emits trust-chain entries) — direct mutation is possible via
+        the storage class but bypasses auditing.
+        """
+        from soul_protocol.runtime.memory.graph_view import GraphView
+
+        return GraphView(self._memory._graph)
+
     # ============ DNA & System Prompt ============
 
     def to_system_prompt(self, *, safety_guardrails: bool = True) -> str:
@@ -1267,6 +1292,9 @@ class Soul:
         user_id: str | None = None,
         layer: str | None = None,
         domain: str | None = None,
+        graph_walk: dict | None = None,
+        page_token: str | None = None,
+        token_budget: int | None = None,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories with visibility + scope filtering.
 
@@ -1292,12 +1320,60 @@ class Soul:
         ``domain`` (#41): when set, results are filtered to entries with
         a matching ``domain``. Default ``None`` returns every domain.
 
+        ``graph_walk`` (#108): when given, restrict results to memories
+        linked to entities reachable from ``graph_walk["start"]`` within
+        ``graph_walk["depth"]`` (default 2) hops. Optional
+        ``graph_walk["edge_types"]`` whitelists relation predicates during
+        traversal. Returned memories rank by combined relevance + graph
+        distance — closer entities surface first.
+
+        ``page_token`` (#108): resume a previous graph_walk recall. The
+        token encodes the original query + walk plus an offset. Pass the
+        ``next_page_token`` attribute of the previous :class:`RecallResults`
+        to read the next page. Mismatched query/walk raises ValueError.
+
+        ``token_budget`` (#108): cap the cumulative content size of returned
+        memories. Once the budget is reached, overflow entries fall back to
+        their L0 abstract (the F1 progressive disclosure mechanism). Budget
+        is in tokens; converted to characters via ~4 chars/token.
+
+        When ``graph_walk`` or ``token_budget`` is used, the return value
+        is a :class:`RecallResults` (a ``list`` subclass) carrying an
+        optional ``next_page_token`` attribute alongside the entries.
+        Existing callers that just iterate over the list keep working.
+
         Populates ``self.last_retrieval`` with a :class:`RetrievalTrace`
         receipt every call, regardless of whether results were found. The
         receipt is in-memory only — never serialised into the ``.soul``
         file. Consumers read it after the call to append to their own log.
         """
         import time as _time
+
+        from soul_protocol.runtime.memory.graph_recall import (
+            RecallResults,
+            apply_token_budget,
+            decode_page_token,
+            encode_page_token,
+            filter_by_graph_walk,
+            rank_with_graph_distance,
+            signature_for_walk,
+        )
+
+        # Resolve page_token first so a mismatched token short-circuits before
+        # we do any work. The token carries both the original walk and the
+        # offset, so we override graph_walk + start offset from the token.
+        token_offset = 0
+        if page_token is not None:
+            payload = decode_page_token(page_token)
+            expected_sig = signature_for_walk(query, graph_walk or payload.get("graph_walk"))
+            if payload.get("signature") != expected_sig:
+                raise ValueError(
+                    "page_token does not match the current query/graph_walk; "
+                    "tokens are bound to the original recall call"
+                )
+            token_offset = int(payload.get("offset", 0))
+            if graph_walk is None:
+                graph_walk = payload.get("graph_walk")
 
         # Resolve effective bond strength: caller-supplied wins, else per-user
         # bond when user_id is set, else default bond.
@@ -1308,9 +1384,16 @@ class Soul:
         else:
             effective_bond = self._bonds.default.bond_strength
         start = _time.monotonic()
+
+        # When graph_walk is active, fetch a wider candidate pool so post-walk
+        # filtering still has a shot at producing ``limit`` results.
+        fetch_limit = limit
+        if graph_walk is not None:
+            fetch_limit = max(limit * 4, 40)
+
         results = await self._memory.recall(
             query=query,
-            limit=limit,
+            limit=fetch_limit,
             types=types,
             min_importance=min_importance,
             requester_id=requester_id,
@@ -1327,6 +1410,64 @@ class Soul:
             results = [
                 entry for entry in results if match_scope(getattr(entry, "scope", None), scopes)
             ]
+
+        # ---- Graph-walk filter (#108) ----
+        next_token: str | None = None
+        truncated_for_budget = False
+        total_estimate: int | None = None
+        if graph_walk is not None:
+            graph_view = self.graph
+            distance_map = graph_view.reachable(
+                graph_walk.get("start", ""),
+                depth=int(graph_walk.get("depth", 2)),
+                edge_types=graph_walk.get("edge_types"),
+            )
+            # Build a large candidate pool. The user query gives the initial
+            # relevance order; we augment with all memories that mention any
+            # reachable entity so callers passing a weak query still see the
+            # graph neighborhood. Pulling the full memory set in one pass is
+            # more reliable than per-entity searches that each cap at small
+            # limits and overlap.
+            seen_ids = {r.id for r in results}
+            all_memories: list[MemoryEntry] = []
+            for store in (
+                self._memory._semantic.facts(),
+                self._memory._episodic.entries(),
+                self._memory._procedural.entries(),
+            ):
+                all_memories.extend(store)
+            for entry in all_memories:
+                if entry.id not in seen_ids:
+                    results.append(entry)
+                    seen_ids.add(entry.id)
+
+            filtered, _ = filter_by_graph_walk(results, graph_walk, graph_view)
+            ranked = rank_with_graph_distance(filtered, distance_map)
+            total_estimate = len(ranked)
+
+            # Apply offset for resuming pagination
+            page = ranked[token_offset : token_offset + limit]
+
+            # Pagination — if we have more, mint a token for the caller
+            consumed = token_offset + len(page)
+            if consumed < total_estimate:
+                next_token = encode_page_token(
+                    {
+                        "query": query,
+                        "graph_walk": graph_walk,
+                        "offset": consumed,
+                        "signature": signature_for_walk(query, graph_walk),
+                    }
+                )
+            results = page
+        else:
+            # No graph_walk — keep the standard slice semantics
+            results = list(results)[:limit]
+
+        # ---- Token-budget overflow (#108) ----
+        if token_budget is not None and token_budget > 0:
+            results, truncated_for_budget = apply_token_budget(results, token_budget)
+
         elapsed_ms = int((_time.monotonic() - start) * 1000)
         self._last_retrieval = _build_trace(
             query=query,
@@ -1337,6 +1478,16 @@ class Soul:
         )
         if not results:
             logger.debug("Recall returned no results: query_len=%d", len(query))
+
+        # Wrap when graph features are in play so the caller sees the token.
+        # Otherwise return a plain list to keep the legacy contract bit-stable.
+        if graph_walk is not None or token_budget is not None or page_token is not None:
+            return RecallResults(
+                results,
+                next_page_token=next_token,
+                total_estimate=total_estimate,
+                truncated_for_budget=truncated_for_budget,
+            )
         return results
 
     async def smart_recall(
@@ -1449,15 +1600,36 @@ class Soul:
         # Delegate to psychology-informed memory pipeline
         result = await self._memory.observe(interaction, user_id=user_id, domain=domain)
 
-        # Update knowledge graph from extracted entities
+        # Update knowledge graph from extracted entities. We snapshot
+        # entity/edge state before and after the update so we can emit
+        # trust-chain entries for the *net-new* additions only.
         raw_entities = result["entities"]
+        before_entities = set(self._memory._graph._entities.keys())
+        before_edges = {
+            (e.source, e.target, e.relation)
+            for e in self._memory._graph._edges
+            if e.is_currently_active()
+        }
         if raw_entities:
             graph_entities: list[dict] = []
             for ent in raw_entities:
                 graph_ent: dict = {
                     "name": ent["name"],
                     "entity_type": ent.get("type", "unknown"),
-                    "relationships": [],
+                    # Preserve any entity-to-entity edges the extractor
+                    # produced. The legacy code dropped these — keeping them
+                    # is required for the typed graph API to actually have
+                    # edges to traverse.
+                    "relationships": list(ent.get("relationships", [])),
+                    # Forward the LLM extractor's edge_metadata (carrying
+                    # source_memory_id + extracted_at) so edges record their
+                    # provenance. update_graph() reads this dict.
+                    "edge_metadata": ent.get("edge_metadata"),
+                    # New v0.5.0: forward source_memory_id so the entity's
+                    # provenance list grows on each touch.
+                    "source_memory_id": (ent.get("edge_metadata") or {}).get("source_memory_id"),
+                    # Optional weight from LLM extractor (#190 phase 2)
+                    "weight": ent.get("weight"),
                 }
                 relation = ent.get("relation")
                 if relation:
@@ -1465,6 +1637,36 @@ class Soul:
                 graph_entities.append(graph_ent)
 
             await self._memory.update_graph(graph_entities)
+
+        # Compute deltas and emit trust-chain entries for net-new graph state.
+        after_entities = set(self._memory._graph._entities.keys())
+        after_edges = {
+            (e.source, e.target, e.relation)
+            for e in self._memory._graph._edges
+            if e.is_currently_active()
+        }
+        new_entities = after_entities - before_entities
+        new_edges = after_edges - before_edges
+        for entity_name in sorted(new_entities):
+            etype = self._memory._graph._entities.get(entity_name, "unknown")
+            self._safe_append_chain(
+                "graph.entity_added",
+                {
+                    "entity_id": entity_name,
+                    "type": etype,
+                    "source": result.get("episodic_id"),
+                },
+            )
+        for source_name, target_name, relation_name in sorted(new_edges):
+            self._safe_append_chain(
+                "graph.relation_added",
+                {
+                    "source": source_name,
+                    "target": target_name,
+                    "relation": relation_name,
+                    "memory": result.get("episodic_id"),
+                },
+            )
 
         # Update state based on interaction + detected sentiment
         self._state.on_interaction(interaction, somatic=result.get("somatic"))

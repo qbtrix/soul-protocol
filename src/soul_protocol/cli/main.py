@@ -3256,5 +3256,188 @@ def audit_cmd(path, action_prefix, limit, as_json):
     asyncio.run(_audit())
 
 
+# ============ soul graph (#108, #190) ============
+
+
+@cli.group()
+def graph():
+    """Inspect the soul's knowledge graph (typed nodes + edges)."""
+
+
+@graph.command("nodes")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--type", "node_type", default=None, help="Filter by entity type.")
+@click.option("--match", "name_match", default=None, help="Substring match on entity name.")
+@click.option("--limit", type=int, default=None, help="Cap the number of rows.")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON.")
+def graph_nodes(path, node_type, name_match, limit, as_json):
+    """List nodes in the soul's knowledge graph."""
+
+    async def _go():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        nodes = soul.graph.nodes(type=node_type, name_match=name_match, limit=limit)
+        if as_json:
+            console.print_json(
+                data={
+                    "soul": soul.name,
+                    "count": len(nodes),
+                    "nodes": [n.model_dump() for n in nodes],
+                }
+            )
+            return
+        if not nodes:
+            console.print("[yellow]No matching nodes.[/yellow]")
+            return
+        table = Table(title=f"{soul.name} — Graph Nodes", border_style="blue")
+        table.add_column("ID", style="cyan")
+        table.add_column("Type", style="green")
+        table.add_column("Provenance", style="dim")
+        for node in nodes:
+            prov = ", ".join(node.provenance[:3]) + ("…" if len(node.provenance) > 3 else "")
+            table.add_row(node.id, node.type, prov or "—")
+        console.print(table)
+
+    asyncio.run(_go())
+
+
+@graph.command("edges")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--source", default=None, help="Filter by source entity.")
+@click.option("--target", default=None, help="Filter by target entity.")
+@click.option("--relation", default=None, help="Filter by relation predicate.")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON.")
+def graph_edges(path, source, target, relation, as_json):
+    """List active edges in the soul's knowledge graph."""
+
+    async def _go():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        edges = soul.graph.edges(source=source, target=target, relation=relation)
+        if as_json:
+            console.print_json(
+                data={
+                    "soul": soul.name,
+                    "count": len(edges),
+                    "edges": [e.model_dump() for e in edges],
+                }
+            )
+            return
+        if not edges:
+            console.print("[yellow]No matching edges.[/yellow]")
+            return
+        table = Table(title=f"{soul.name} — Graph Edges", border_style="blue")
+        table.add_column("Source", style="cyan")
+        table.add_column("Relation", style="green")
+        table.add_column("Target", style="cyan")
+        table.add_column("Weight", justify="right", style="dim")
+        for edge in edges:
+            w = f"{edge.weight:.2f}" if edge.weight is not None else "—"
+            table.add_row(edge.source, edge.relation, edge.target, w)
+        console.print(table)
+
+    asyncio.run(_go())
+
+
+@graph.command("neighbors")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("node_id")
+@click.option("--depth", type=int, default=1, help="Hops to expand (default: 1).")
+@click.option(
+    "--types",
+    default=None,
+    help="Comma-separated list of types to keep (e.g. 'person,tool').",
+)
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON.")
+def graph_neighbors(path, node_id, depth, types, as_json):
+    """List nodes within ``depth`` hops of NODE_ID."""
+
+    async def _go():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        type_list = [t.strip() for t in types.split(",")] if types else None
+        nodes = soul.graph.neighbors(node_id, depth=depth, types=type_list)
+        if as_json:
+            console.print_json(
+                data={
+                    "soul": soul.name,
+                    "start": node_id,
+                    "depth": depth,
+                    "count": len(nodes),
+                    "nodes": [n.model_dump() for n in nodes],
+                }
+            )
+            return
+        if not nodes:
+            console.print(f"[yellow]No neighbors found for {node_id}.[/yellow]")
+            return
+        table = Table(
+            title=f"{soul.name} — neighbors({node_id}, depth={depth})",
+            border_style="blue",
+        )
+        table.add_column("ID", style="cyan")
+        table.add_column("Type", style="green")
+        table.add_column("Hop", justify="right")
+        for node in nodes:
+            table.add_row(node.id, node.type, str(node.depth or 0))
+        console.print(table)
+
+    asyncio.run(_go())
+
+
+@graph.command("path")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("source_id")
+@click.argument("target_id")
+@click.option("--max-depth", type=int, default=4, help="Maximum hops (default: 4).")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON.")
+def graph_path(path, source_id, target_id, max_depth, as_json):
+    """Find the shortest path of edges from SOURCE_ID to TARGET_ID."""
+
+    async def _go():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        chain = soul.graph.path(source_id, target_id, max_depth=max_depth)
+        if as_json:
+            console.print_json(
+                data={
+                    "soul": soul.name,
+                    "source": source_id,
+                    "target": target_id,
+                    "found": chain is not None,
+                    "edges": [e.model_dump() for e in chain] if chain else [],
+                }
+            )
+            return
+        if chain is None:
+            console.print(f"[yellow]No path from {source_id} to {target_id}.[/yellow]")
+            return
+        if not chain:
+            console.print(f"[green]{source_id} == {target_id} (zero-length path)[/green]")
+            return
+        for edge in chain:
+            console.print(f"  {edge.source} -[{edge.relation}]-> {edge.target}")
+
+    asyncio.run(_go())
+
+
+@graph.command("mermaid")
+@click.argument("path", type=click.Path(exists=True))
+def graph_mermaid(path):
+    """Print the soul's full graph as a Mermaid ``graph LR`` block."""
+
+    async def _go():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        console.print(soul.graph.to_mermaid())
+
+    asyncio.run(_go())
+
+
 if __name__ == "__main__":
     cli()
