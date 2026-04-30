@@ -1,4 +1,10 @@
 # bond.py — Human-Soul Bond model for tracking relationship strength
+# Updated: 2026-04-29 (#202) — on_change callback failures are now logged
+#   with structured fields (action, user_id, error type, error message)
+#   under ``runtime.bond_callback_failed`` instead of a free-form WARNING.
+#   Same level (WARNING) — observability surfaces should treat this as a
+#   chain-append gap, mirroring the soul-side runtime.chain_append_skipped
+#   event.
 # Updated: 2026-04-29 (#42) — BondRegistry now accepts an optional
 #   ``on_change`` callback ``(action, user_id, delta, new_strength) -> None``
 #   that fires after each strengthen/weaken. Soul wires it to its
@@ -166,7 +172,10 @@ class BondRegistry:
 
         Per-user bonds are created on first call with default strength=50.
         Fires ``on_change("bond.strengthen", user_id, amount, new_strength)``
-        when a callback is installed (#42).
+        when a callback is installed (#42). Callback failures are logged
+        at WARNING under ``runtime.bond_callback_failed`` (#202) — they
+        indicate an audit-trail gap because the bond mutation succeeded
+        but the trust-chain bridge couldn't sign it.
         """
         bond = self._default if user_id is None else self.for_user(user_id)
         bond.strengthen(amount)
@@ -174,13 +183,20 @@ class BondRegistry:
             try:
                 self._on_change("bond.strengthen", user_id, amount, bond.bond_strength)
             except Exception as e:  # pragma: no cover — defensive
-                logger.warning("BondRegistry on_change callback failed: %s", e)
+                logger.warning(
+                    "runtime.bond_callback_failed action=bond.strengthen "
+                    "user_id=%s error_type=%s error=%s",
+                    user_id,
+                    type(e).__name__,
+                    str(e),
+                )
 
     def weaken(self, amount: float = 0.5, *, user_id: str | None = None) -> None:
         """Weaken the bond — default if user_id is None, else per-user.
 
         Fires ``on_change("bond.weaken", user_id, amount, new_strength)`` when
-        a callback is installed (#42).
+        a callback is installed (#42). Callback failures are logged at
+        WARNING under ``runtime.bond_callback_failed`` (#202).
         """
         bond = self._default if user_id is None else self.for_user(user_id)
         bond.weaken(amount)
@@ -188,7 +204,13 @@ class BondRegistry:
             try:
                 self._on_change("bond.weaken", user_id, amount, bond.bond_strength)
             except Exception as e:  # pragma: no cover — defensive
-                logger.warning("BondRegistry on_change callback failed: %s", e)
+                logger.warning(
+                    "runtime.bond_callback_failed action=bond.weaken "
+                    "user_id=%s error_type=%s error=%s",
+                    user_id,
+                    type(e).__name__,
+                    str(e),
+                )
 
     # ---- Serialization ----
 

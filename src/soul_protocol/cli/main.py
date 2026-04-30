@@ -1,4 +1,25 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-04-30 (#191) — Wire `soul diff <left> <right>` from cli/diff.py.
+#   Renders a structured comparison (identity / OCEAN / state / memories /
+#   bond / skills / trust chain / self-model / evolution) in text, json, or
+#   markdown. Read-only; raises a clean error on schema mismatch.
+# Updated: 2026-04-30 (#203) — `soul prune-chain` lands as the touch-time
+#   pruning stub for v0.5.0. Dry-run preview by default, --apply to execute,
+#   --keep N for explicit length, defaults to Biorhythms.trust_chain_max_entries.
+#   Mirrors the `soul cleanup` / `soul forget` safety pattern.
+# Updated: 2026-04-30 (#201) — ``soul audit`` Rich table now includes a
+#   Summary column derived from each entry's per-action human-readable
+#   description (set at append time via TrustChainManager.append's new
+#   ``summary=`` parameter or the action-keyed default formatter
+#   registry). New ``--no-summary`` flag hides the column for callers
+#   who only want the hash. JSON output always includes ``summary``.
+# Updated: 2026-04-30 (#189) — Wire `soul journal {init,append,query}`
+#   subcommand group from cli/journal.py. Lets shell hooks, CI, and non-Python
+#   runtimes append structured events without spinning up a Python session.
+# Updated: 2026-04-29 (#160) — `soul eval` command for YAML-driven soul-aware
+#   evals. Registers from cli/eval_cmd.py. Runs one .yaml spec or every
+#   .yaml under a directory; passes/fails based on per-case scoring; exit
+#   code 0 = all pass (skipped allowed), 1 = any fail/error.
 # Updated: 2026-04-29 (#42) — Trust chain commands: ``soul verify`` checks
 #   integrity of a soul's signed action history. ``soul audit`` prints a
 #   human-readable timeline; supports --filter <prefix> and --limit; --json
@@ -111,6 +132,21 @@ from soul_protocol.cli.org import user_group as _user_group  # noqa: E402
 
 cli.add_command(_org_group)
 cli.add_command(_user_group)
+
+# Journal subcommand group (#189)
+from soul_protocol.cli.journal import journal_group as _journal_group  # noqa: E402
+
+cli.add_command(_journal_group)
+
+# Soul diff command (#191)
+from soul_protocol.cli.diff import diff_cmd as _diff_cmd  # noqa: E402
+
+cli.add_command(_diff_cmd)
+
+# Soul-aware evals (#160) — registers `soul eval` on the cli group.
+from soul_protocol.cli.eval_cmd import register as _register_eval_cmd  # noqa: E402
+
+_register_eval_cmd(cli)
 
 
 @cli.command()
@@ -3207,7 +3243,14 @@ def verify_cmd(path, as_json):
 )
 @click.option("--limit", type=int, default=None, help="Show only the most recent N entries.")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Emit machine-readable JSON.")
-def audit_cmd(path, action_prefix, limit, as_json):
+@click.option(
+    "--no-summary",
+    "no_summary",
+    is_flag=True,
+    default=False,
+    help="Hide the Summary column and show only the payload hash (#201).",
+)
+def audit_cmd(path, action_prefix, limit, as_json, no_summary):
     """Print a human-readable timeline of signed actions.
 
     \b
@@ -3216,6 +3259,7 @@ def audit_cmd(path, action_prefix, limit, as_json):
       soul audit .soul/ --filter memory.
       soul audit aria.soul --limit 20
       soul audit aria.soul --json
+      soul audit aria.soul --no-summary  # hash-only, hide Summary column
     """
 
     async def _audit():
@@ -3225,6 +3269,8 @@ def audit_cmd(path, action_prefix, limit, as_json):
         log = soul.audit_log(action_prefix=action_prefix, limit=limit)
 
         if as_json:
+            # JSON always includes summary — clients can drop it if they don't
+            # want it. --no-summary only affects the human table.
             console.print_json(data={"soul": soul.name, "did": soul.did, "entries": log})
             return
 
@@ -3238,19 +3284,24 @@ def audit_cmd(path, action_prefix, limit, as_json):
         table.add_column("Timestamp", style="dim")
         table.add_column("Action", style="bold")
         table.add_column("Actor", style="green")
+        if not no_summary:
+            table.add_column("Summary", style="white")
         table.add_column("Payload Hash", style="dim")
         for row in log:
             ts = row["timestamp"]
             # Trim microseconds for display
             if "." in ts:
                 ts = ts.split(".", 1)[0] + ts[ts.index("+") :] if "+" in ts else ts.split(".", 1)[0]
-            table.add_row(
+            cells = [
                 str(row["seq"]),
                 ts,
                 row["action"],
                 row["actor_did"],
-                row["payload_hash"][:12] + "…",
-            )
+            ]
+            if not no_summary:
+                cells.append(row.get("summary", "") or "")
+            cells.append(row["payload_hash"][:12] + "…")
+            table.add_row(*cells)
         console.print(table)
 
     asyncio.run(_audit())
@@ -3437,6 +3488,173 @@ def graph_mermaid(path):
         console.print(soul.graph.to_mermaid())
 
     asyncio.run(_go())
+
+
+# ============================================================================
+# Trust chain (#203) — touch-time pruning command
+# ============================================================================
+
+
+@cli.command("prune-chain")
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--apply",
+    "apply_changes",
+    is_flag=True,
+    default=False,
+    help="Actually run the prune. Without this flag, prune-chain previews only.",
+)
+@click.option(
+    "--keep",
+    type=int,
+    default=None,
+    help=(
+        "Length threshold. When the chain has more than KEEP entries, "
+        "non-genesis history is compressed into a single chain.pruned marker. "
+        "Defaults to the soul's Biorhythms.trust_chain_max_entries (when set)."
+    ),
+)
+@click.option(
+    "--reason",
+    type=str,
+    default="manual",
+    help="Free-form label written onto the chain.pruned marker payload.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit machine-readable JSON.",
+)
+def prune_chain_cmd(path, apply_changes, keep, reason, as_json):
+    """Compress old trust-chain history into a signed chain.pruned marker.
+
+    Touch-time stub for the v0.5.0 unbounded-chain pain (#203). Dry-run by
+    default — pass --apply to actually mutate the chain. Genesis (seq=0) is
+    always preserved. The marker carries {count, low_seq, high_seq, reason}
+    so an auditor can reconstruct what was dropped.
+
+    \b
+    Examples:
+      soul prune-chain .soul/                       # preview, uses biorhythm cap
+      soul prune-chain .soul/ --keep 100            # preview, custom threshold
+      soul prune-chain .soul/ --keep 100 --apply    # execute the prune
+      soul prune-chain .soul/ --json --apply        # machine-readable output
+
+    The full archival design (separate trust_chain/archive/ directory with
+    checkpoint entries spanning archive files) is deferred to v0.5.x.
+    """
+
+    async def _prune():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        mgr = soul.trust_chain_manager
+
+        # Resolve the keep threshold. CLI override wins; otherwise fall
+        # back to the soul's biorhythm cap. We require at least one of
+        # the two — without it, there is no way to know what to prune.
+        effective_keep = keep
+        if effective_keep is None:
+            effective_keep = mgr.max_entries
+        if effective_keep is None or effective_keep <= 0:
+            msg = (
+                "No --keep value provided and the soul's "
+                "Biorhythms.trust_chain_max_entries is 0 (auto-prune disabled). "
+                "Pass --keep N to preview a manual prune."
+            )
+            if as_json:
+                console.print_json(data={"error": msg, "applied": False})
+            else:
+                console.print(f"[red]✗[/red] {msg}")
+            sys.exit(2)
+
+        preview = mgr.dry_run_prune(keep=effective_keep)
+
+        if preview["count"] == 0:
+            payload = {
+                "soul": soul.name,
+                "did": soul.did,
+                "applied": False,
+                "summary": preview,
+                "chain_length": mgr.length,
+                "keep": effective_keep,
+            }
+            if as_json:
+                console.print_json(data=payload)
+                return
+            console.print(
+                f"[green]Nothing to prune.[/] Chain length {mgr.length} ≤ keep {effective_keep}."
+            )
+            return
+
+        # Show plan
+        if not as_json:
+            console.print(
+                f"[bold]{soul.name}[/bold] — chain length [cyan]{mgr.length}[/cyan], "
+                f"keep [cyan]{effective_keep}[/cyan]"
+            )
+            console.print(
+                f"  Would drop [yellow]{preview['count']}[/yellow] entries "
+                f"(seq [cyan]{preview['low_seq']}[/cyan] → "
+                f"[cyan]{preview['high_seq']}[/cyan])"
+            )
+            console.print(
+                f"  Marker would land at seq [cyan]{preview['marker_seq']}[/cyan] "
+                f"with action [bold]chain.pruned[/bold]"
+            )
+
+        if not apply_changes:
+            preview_payload = {
+                "soul": soul.name,
+                "did": soul.did,
+                "applied": False,
+                "summary": preview,
+                "chain_length": mgr.length,
+                "keep": effective_keep,
+            }
+            if as_json:
+                console.print_json(data=preview_payload)
+                return
+            console.print("\n[dim]Dry run — preview only. Pass --apply to execute.[/]")
+            return
+
+        # Apply the prune
+        result = mgr.prune(keep=effective_keep, reason=reason)
+
+        # Persist the mutated chain back to disk. Mirror `soul cleanup` and
+        # `soul forget`: a directory path is a flat .soul/ folder, a file
+        # path is a portable .soul archive. ``include_keys=True`` so the
+        # private key survives the save (the soul was loaded with one).
+        path_obj = Path(path)
+        if path_obj.is_dir():
+            await soul.save_local(path, include_keys=True)
+        else:
+            await soul.export(path, include_keys=True)
+
+        applied_payload = {
+            "soul": soul.name,
+            "did": soul.did,
+            "applied": True,
+            "summary": result,
+            "chain_length": mgr.length,
+            "keep": effective_keep,
+        }
+        if as_json:
+            console.print_json(data=applied_payload)
+            return
+
+        console.print(
+            f"\n[green]✓[/] Pruned [yellow]{result['count']}[/] entries "
+            f"(seq {result['low_seq']} → {result['high_seq']})."
+        )
+        console.print(
+            f"  Marker at seq [cyan]{result['marker_seq']}[/cyan]; "
+            f"chain length now [cyan]{mgr.length}[/cyan]."
+        )
+
+    asyncio.run(_prune())
 
 
 if __name__ == "__main__":

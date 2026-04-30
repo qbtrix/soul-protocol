@@ -27,6 +27,8 @@
 #   chain_integrity_check, compute_payload_hash, compute_entry_hash,
 #   GENESIS_PREV_HASH, DEFAULT_ALGORITHM. These are pure spec — concrete
 #   Ed25519 implementation lives under runtime/crypto/.
+# Updated: 2026-04-29 (#203) — Exported CHAIN_PRUNED_ACTION for the touch-time
+#   pruning marker. Verifier carve-out lives in spec.trust.verify_entry.
 
 from __future__ import annotations
 
@@ -102,6 +104,7 @@ from .soul_file import pack_soul, unpack_soul, unpack_to_container
 from .template import SoulTemplate
 from .trace import RetrievalTrace, TraceCandidate
 from .trust import (
+    CHAIN_PRUNED_ACTION,
     DEFAULT_ALGORITHM,
     GENESIS_PREV_HASH,
     SignatureProvider,
@@ -208,6 +211,7 @@ __all__ = [
     # Trust chain (#42) — verifiable action history
     "DEFAULT_ALGORITHM",
     "GENESIS_PREV_HASH",
+    "CHAIN_PRUNED_ACTION",
     "SignatureProvider",
     "TrustChain",
     "TrustEntry",

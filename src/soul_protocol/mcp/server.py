@@ -1,5 +1,13 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 30 tools (25 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# 32 tools (27 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-04-30 (#203) — Touch-time chain pruning: ``soul_prune_chain``
+#   compresses a soul's old trust-chain history into a signed chain.pruned
+#   marker. Defaults to dry-run; pass ``apply=True`` to mutate the chain.
+#   Defers the full archival design to v0.5.x.
+# Updated: 2026-04-29 (#160) — `soul_eval` tool runs a YAML eval spec against
+#   the active soul (no birth, no seed) so agents can self-evaluate their
+#   current state. Accepts yaml_path or yaml_string. Returns the EvalResult
+#   as JSON.
 # Updated: 2026-04-29 (#42) — Trust chain tools: ``soul_verify`` returns chain
 #   integrity status; ``soul_audit`` returns the human-readable timeline of
 #   signed actions, with optional action_prefix and limit. JSON-only output —
@@ -1663,7 +1671,9 @@ async def soul_audit(
 ) -> str:
     """Return a human-readable timeline of signed actions on the soul's chain.
 
-    Each row carries ``{seq, timestamp, action, actor_did, payload_hash}``.
+    Each row carries ``{seq, timestamp, action, actor_did, payload_hash, summary}``.
+    The ``summary`` field (#201) is a short per-action human-readable
+    description set at append time — pre-#201 entries return ``""``.
     Use ``action_prefix`` (e.g. ``"memory."``) to scope to one category.
     Use ``limit`` to take only the most recent N rows (tail behaviour).
 
@@ -1791,6 +1801,155 @@ async def soul_graph_query(
             }
         )
     return json.dumps({"error": f"unknown kind: {kind}"})
+
+
+@mcp.tool
+async def soul_prune_chain(
+    keep: int | None = None,
+    apply: bool = False,
+    reason: str = "manual",
+    soul: str | None = None,
+) -> str:
+    """Compress old trust-chain history into a signed chain.pruned marker (#203).
+
+    Touch-time stub for v0.5.0. Returns dry-run preview by default; pass
+    ``apply=True`` to actually mutate the chain. Genesis (seq=0) is always
+    preserved. The marker carries ``{count, low_seq, high_seq, reason}`` so
+    an auditor can reconstruct what was dropped.
+
+    Returns JSON ``{soul, did, applied, summary, chain_length, keep}``.
+    ``summary`` is the prune summary (count/low_seq/high_seq/marker_seq).
+
+    The full archival design (separate trust_chain/archive/ directory with
+    checkpoint entries spanning archive files) is deferred to v0.5.x.
+
+    Args:
+        keep: Length threshold. When the chain has more than ``keep``
+            entries, non-genesis history is compressed into a single marker.
+            Defaults to the soul's Biorhythms.trust_chain_max_entries.
+        apply: When False (default), return a dry-run preview only. When
+            True, mutate the chain.
+        reason: Free-form label written onto the marker payload.
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    mgr = s.trust_chain_manager
+
+    effective_keep = keep if keep is not None else mgr.max_entries
+    if effective_keep is None or effective_keep <= 0:
+        return json.dumps(
+            {
+                "soul": s.name,
+                "did": s.did,
+                "applied": False,
+                "error": (
+                    "no keep value provided and the soul's Biorhythms."
+                    "trust_chain_max_entries is 0 (auto-prune disabled)"
+                ),
+            }
+        )
+
+    # Always preview first so we can avoid a mutation when there is
+    # nothing to drop. Reporting applied=True for a no-op would confuse
+    # auditors of the chain (no marker entry was actually written).
+    preview = mgr.dry_run_prune(keep=effective_keep)
+    if not apply or preview["count"] == 0:
+        return json.dumps(
+            {
+                "soul": s.name,
+                "did": s.did,
+                "applied": False,
+                "summary": preview,
+                "chain_length": mgr.length,
+                "keep": effective_keep,
+            }
+        )
+
+    summary = mgr.prune(keep=effective_keep, reason=reason)
+    # Mark the soul modified so the registry's auto-save persists the
+    # mutated chain on shutdown. Tools that mutate state follow this
+    # pattern (soul_observe, soul_remember, etc.).
+    _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "soul": s.name,
+            "did": s.did,
+            "applied": True,
+            "summary": summary,
+            "chain_length": mgr.length,
+            "keep": effective_keep,
+        }
+    )
+
+
+@mcp.tool
+async def soul_eval(
+    yaml_path: str | None = None,
+    yaml_string: str | None = None,
+    case_filter: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Run a YAML eval spec against the active soul (#160).
+
+    Unlike the CLI ``soul eval`` command — which births a fresh soul
+    from the spec's ``seed`` block — this MCP tool runs against the
+    soul that is already loaded so an agent can self-evaluate against
+    its current state.
+
+    Either ``yaml_path`` or ``yaml_string`` is required (not both):
+
+    - ``yaml_path``: filesystem path to a YAML eval file.
+    - ``yaml_string``: raw YAML text (handy when the agent generates
+      its own eval cases programmatically).
+
+    The ``seed`` block on the spec is intentionally ignored — the soul's
+    live memories, OCEAN, bonds, and state are the seed. Only ``cases``
+    run.
+
+    Args:
+        yaml_path: Path to a .yaml/.yml file (mutually exclusive with
+            yaml_string).
+        yaml_string: Raw YAML text.
+        case_filter: Optional substring filter on case names.
+        soul: Target soul name (uses active soul if omitted).
+
+    Returns:
+        JSON string with the EvalResult: spec_name, cases (each with
+        name, passed, score, skipped, output, details), pass/fail/skip
+        counts, and total duration_ms.
+    """
+    if (yaml_path is None) == (yaml_string is None):
+        return json.dumps(
+            {
+                "error": "exactly one of yaml_path / yaml_string is required",
+            }
+        )
+
+    from soul_protocol.eval import (  # lazy — keeps cold-start small
+        load_eval_spec,
+        parse_eval_spec,
+        run_eval_against_soul,
+    )
+
+    if yaml_string is not None:
+        try:
+            import yaml as _yaml
+
+            data = _yaml.safe_load(yaml_string)
+            if not isinstance(data, dict):
+                return json.dumps({"error": "yaml_string must contain a mapping at top level"})
+            spec = parse_eval_spec(data)
+        except Exception as e:
+            return json.dumps({"error": f"failed to parse yaml_string: {e}"})
+    else:
+        try:
+            spec = load_eval_spec(yaml_path)
+        except Exception as e:
+            return json.dumps({"error": f"failed to load {yaml_path}: {e}"})
+
+    s = await _resolve_soul(soul)
+    result = await run_eval_against_soul(spec, s, case_filter=case_filter)
+    return json.dumps(result.model_dump(mode="json"))
 
 
 # --- Resources (3) ---

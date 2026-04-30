@@ -1,4 +1,7 @@
 # tests/test_trust_chain/test_chain_manager.py — TrustChainManager API tests.
+# Updated: 2026-04-29 (#201) — audit_log() now returns a ``summary`` key on
+# every row. Existing assertions about the row shape were broadened to
+# include the new key.
 # Created: 2026-04-29 (#42) — append() correctness, query() prefix matching,
 # persistence round-trip, genesis-from-empty case.
 
@@ -114,7 +117,14 @@ def test_audit_log_shape_and_filtering():
     log = mgr.audit_log(action_prefix="memory.")
     assert len(log) == 2
     for row in log:
-        assert set(row.keys()) == {"seq", "timestamp", "action", "actor_did", "payload_hash"}
+        assert set(row.keys()) == {
+            "seq",
+            "timestamp",
+            "action",
+            "actor_did",
+            "payload_hash",
+            "summary",
+        }
         assert row["action"].startswith("memory.")
 
 
