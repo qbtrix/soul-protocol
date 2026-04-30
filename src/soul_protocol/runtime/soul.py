@@ -1,4 +1,22 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-30 (#201, #202) — Trust-chain observability fixes.
+#   - _safe_append_chain accepts an optional ``summary`` string forwarded to
+#     TrustChainManager.append. Callsites for memory.write, memory.forget,
+#     memory.supersede, evolution.proposed/applied, and learning.event now
+#     pass an explicit summary where the registry default would be lossy.
+#   - _safe_append_chain logging is split: the verification-only path
+#     (no public key, _PublicOnlyProvider) stays at DEBUG; an unexpected
+#     exception during ``append`` now logs at WARNING with structured
+#     fields (action, error type, error message, soul name) under the
+#     ``runtime.chain_append_skipped`` event so observability can surface
+#     real audit-trail gaps that were previously hidden in DEBUG noise.
+# Updated: 2026-04-29 (#199, #200, #205, #204) — Trust-chain hardening bundle.
+#   * #199 + #200 + #205 are spec-layer changes (see spec/trust.py); Soul
+#     callsites are unchanged but benefit from the stricter checks.
+#   * #204: Soul.verify_chain now accepts entries whose public_key matches
+#     the current keystore key OR any key in
+#     ``Keystore.previous_public_keys``. Default empty allow-list keeps
+#     the v0.4.0 strict-current-key behavior — opt-in for key rotation.
 # Updated: 2026-04-29 (#42) — Trust chain integration. Soul.__init__ instantiates
 #   a TrustChainManager + Ed25519SignatureProvider; keys load from the soul's
 #   keystore when available, generated otherwise. Memory writes (observe),
@@ -538,10 +556,14 @@ class Soul:
         delta: float,
         new_strength: float,
     ) -> None:
-        """Bridge BondRegistry events into the trust chain (#42)."""
-        # Defensive: if the chain manager doesn't have a private key, skip
-        # silently rather than break read-only flows. Same for the no-public
-        # case which can happen during __init__ before keys are restored.
+        """Bridge BondRegistry events into the trust chain (#42).
+
+        Routes through :meth:`_safe_append_chain` which handles the
+        verification-only/no-key cases. The registry's default formatter
+        for ``bond.strengthen`` / ``bond.weaken`` produces a useful
+        summary from this payload shape (#201) — no need to pass an
+        explicit ``summary=`` here.
+        """
         if not self._signature_provider.public_key:
             return
         self._safe_append_chain(
@@ -553,8 +575,15 @@ class Soul:
             },
         )
 
-    def _safe_append_chain(self, action: str, payload: dict) -> None:
-        """Append an entry to the trust chain, swallowing read-only failures.
+    def _safe_append_chain(
+        self,
+        action: str,
+        payload: dict,
+        *,
+        summary: str | None = None,
+    ) -> None:
+        """Append an entry to the trust chain. Swallow expected read-only
+        failures, log unexpected ones at WARNING.
 
         Wrapper used by every callsite (observe, supersede, forget_one,
         propose_evolution, approve_evolution, learn, bond callback). Souls
@@ -562,17 +591,47 @@ class Soul:
         error rather than break the action that just happened. Verification
         on the receiving side still works because every entry carries its
         own embedded public key.
+
+        Two failure paths, two log levels (#202):
+
+        - **Verification-only mode** (``_PublicOnlyProvider`` or empty
+          public key) is the documented flow for souls loaded without a
+          private key. Logged at DEBUG so observability isn't noisy for
+          this expected case.
+        - **Unexpected exception during ``append``** (a real ``ValueError``,
+          ``RuntimeError``, or ``TypeError`` from ``sign()`` or downstream)
+          is logged at WARNING with structured fields under the
+          ``runtime.chain_append_skipped`` event. Observability surfaces
+          should treat WARNING here as "audit-trail gap" — the operation
+          happened but no chain entry was signed.
+
+        ``summary`` is forwarded to :meth:`TrustChainManager.append` and
+        stored on the resulting entry. When ``None``, the action's default
+        formatter from :data:`_SUMMARY_FORMATTERS` is used (#201).
         """
         if not self._signature_provider.public_key:
+            logger.debug(
+                "Trust chain append skipped (no public key) action=%s soul=%s",
+                action,
+                self.name,
+            )
             return
         if isinstance(self._signature_provider, _PublicOnlyProvider):
+            logger.debug(
+                "Trust chain append skipped (verification-only mode) action=%s soul=%s",
+                action,
+                self.name,
+            )
             return
         try:
-            self._trust_chain_manager.append(action, payload)
-        except (ValueError, RuntimeError):
-            logger.debug(
-                "Skipping trust chain append for action=%s (no private key)",
+            self._trust_chain_manager.append(action, payload, summary=summary)
+        except (ValueError, RuntimeError, TypeError) as exc:
+            logger.warning(
+                "runtime.chain_append_skipped action=%s error_type=%s error=%s soul=%s",
                 action,
+                type(exc).__name__,
+                str(exc),
+                self.name,
             )
 
     # ============ Trust chain public API (#42) ============
@@ -599,11 +658,16 @@ class Soul:
         """Verify the integrity of this soul's trust chain.
 
         Two-stage check:
-        1. Every entry's ``public_key`` matches the soul's loaded public key
-           (binds the chain to *this* identity, not just any key that signed
-           a self-consistent chain).
+        1. Every entry's ``public_key`` matches EITHER the soul's loaded
+           public key OR any key in the keystore's
+           ``previous_public_keys`` allow-list (#204). The allow-list
+           defaults to empty, in which case this collapses to the
+           strict-current-key check from v0.4.0. Populating it lets a
+           soul rotate its signing key while keeping older entries
+           verifiable.
         2. The chain itself is internally valid via :func:`verify_chain` —
-           signatures, hash chain, seq monotonicity, future-timestamp skew.
+           signatures, hash chain, seq monotonicity, future-timestamp
+           skew, and timestamp monotonicity (#199).
 
         The pubkey binding is skipped when the keystore has no public key
         (e.g. a freshly-birthed soul before its first save). It is the
@@ -616,9 +680,11 @@ class Soul:
 
         pub_bytes = self._keystore.public_key_bytes
         if pub_bytes:
-            expected_pk = base64.b64encode(pub_bytes).decode("ascii")
+            allowed = {base64.b64encode(pub_bytes).decode("ascii")}
+            for prev_bytes in self._keystore.previous_public_keys:
+                allowed.add(base64.b64encode(prev_bytes).decode("ascii"))
             for entry in self._trust_chain_manager.chain.entries:
-                if entry.public_key != expected_pk:
+                if entry.public_key not in allowed:
                     return False, f"public key mismatch at seq {entry.seq}"
         return self._trust_chain_manager.verify()
 
@@ -1562,7 +1628,7 @@ class Soul:
                 "count": len(all_ids),
                 "ids": all_ids,
             },
-        )
+        )  # Summary defaults to the registry formatter — "<count> memor(y|ies)".
 
     async def forget_by_id(self, memory_id: str) -> bool:
         """Soul forgets a specific memory by ID. Returns True on hit.
@@ -1589,7 +1655,7 @@ class Soul:
             self._safe_append_chain(
                 "memory.forget",
                 {"id": memory_id, "tier": result.get("tier")},
-            )
+            )  # Summary defaults to "deleted <tier>/<id-prefix>".
         return result
 
     async def supersede(
@@ -1629,6 +1695,8 @@ class Soul:
         )
         if result.get("found"):
             # v0.4.0 (#42) — Trust chain entry for the supersede action.
+            # Summary defaults to "replaced <old_id-prefix> with <new_id-prefix>"
+            # — see _fmt_memory_supersede in trust/manager.py.
             self._safe_append_chain(
                 "memory.supersede",
                 {
@@ -2003,6 +2071,10 @@ class Soul:
             event.evaluation_score or 0.0,
         )
         # v0.4.0 (#42) — Trust chain entry for the learning event.
+        # Custom summary because the payload omits ``summary`` — the registry
+        # default would say "learning event" with no detail. Include domain
+        # and score so the audit log surfaces what was learned and how well.
+        score_text = f"{event.evaluation_score:.2f}" if event.evaluation_score is not None else "?"
         self._safe_append_chain(
             "learning.event",
             {
@@ -2011,6 +2083,7 @@ class Soul:
                 "score": event.evaluation_score,
                 "interaction_id": getattr(event, "interaction_id", None),
             },
+            summary=f"{event.domain} (score {score_text})",
         )
         return event
 
@@ -2052,6 +2125,8 @@ class Soul:
             new_value=new_value,
             reason=reason,
         )
+        # Custom summary so audit shows "<trait> -> <new_value>" instead of just
+        # the trait name (the registry default for evolution.proposed).
         self._safe_append_chain(
             "evolution.proposed",
             {
@@ -2060,6 +2135,7 @@ class Soul:
                 "new_value": new_value,
                 "reason": reason,
             },
+            summary=f"{trait} -> {new_value}",
         )
         return mutation
 
@@ -2073,9 +2149,21 @@ class Soul:
         if result:
             self._dna = self._evolution.apply(self._dna, mutation_id)
             logger.info("Evolution approved and applied: mutation_id=%s", mutation_id)
+            # The chain payload is just the id. Resolve the trait/new_value
+            # from history so the summary shows what actually changed
+            # ("applied warmth -> high"), not just "applied mutation".
+            applied = next(
+                (m for m in self._evolution.history if getattr(m, "id", None) == mutation_id),
+                None,
+            )
+            if applied is not None:
+                summary = f"applied {applied.trait} -> {applied.new_value}"
+            else:
+                summary = f"applied mutation {mutation_id[:8]}"
             self._safe_append_chain(
                 "evolution.applied",
                 {"mutation_id": mutation_id},
+                summary=summary,
             )
         return result
 

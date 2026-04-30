@@ -1,0 +1,65 @@
+# bond_strength_effect.yaml — Bond strength gates recall of bonded-visibility memories.
+# Created: 2026-04-29 (#160) — Memories tagged with default "bonded"
+#   visibility are gated at recall time by the caller's bond strength
+#   against bond_threshold (default 30). High-bond callers see them;
+#   low-bond callers do not. This eval pins that behaviour by seeding
+#   unattributed memories (user_id=None) and querying as both a high-bond
+#   and low-bond user.
+
+name: "Bond strength effect — high-bond access vs low-bond access"
+description: |
+  One soul, two users with very different bond strengths. The seed
+  memories are unattributed (user_id=None) with default "bonded"
+  visibility, so the recall-time bond_threshold gate does the filtering
+  rather than user attribution.
+
+seed:
+  soul:
+    name: "BondedSoul"
+    archetype: "Trusted Confidant"
+    ocean:
+      openness: 0.6
+      conscientiousness: 0.7
+      extraversion: 0.4
+      agreeableness: 0.8
+      neuroticism: 0.3
+  memories:
+    # Unattributed memory — visible to any caller whose bond exceeds threshold.
+    - content: "The IPO timeline is locked for Q4 — board confirmed Tuesday"
+      layer: semantic
+      importance: 8
+    - content: "Quarterly board call falls on the second Tuesday at 9am sharp"
+      layer: semantic
+      importance: 7
+  bond_strength:
+    alice: 90
+    eve: 5
+
+cases:
+  - name: "high_bond_alice_recalls_bonded_memory"
+    description: "alice (bond 90) is well above bond_threshold (30) so she sees bonded memories"
+    inputs:
+      message: "ipo board"
+      user_id: "alice"
+      mode: recall
+      recall_limit: 5
+    scoring:
+      kind: structural
+      expected:
+        recall_min_results: 1
+        recall_expected_substring: "IPO timeline"
+
+  - name: "low_bond_eve_filtered_out_of_bonded_memory"
+    description: |
+      eve has bond 5 (well below threshold 30). The bonded-visibility
+      memories should be filtered out by RecallEngine before they reach
+      her. Recall returns no IPO timeline content.
+    inputs:
+      message: "ipo board"
+      user_id: "eve"
+      mode: recall
+      recall_limit: 5
+    scoring:
+      kind: regex
+      pattern: "^(?!.*IPO).*$"
+      threshold: 1.0

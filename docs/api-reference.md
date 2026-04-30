@@ -1,9 +1,17 @@
 <!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
      memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
-     Updated: 2026-04-29 — v0.5.0 (#203): Added Biorhythms.trust_chain_max_entries (touch-time
+     Updated: 2026-04-30 — v0.5.0 (#203): Added Biorhythms.trust_chain_max_entries (touch-time
        chain pruning cap), TrustChainManager.prune(keep)/dry_run_prune(keep)/max_entries.
        Auto-prune fires at append() when the cap is reached.
+     Updated: 2026-04-30 — v0.5.0 #201/#202: TrustEntry gains a non-cryptographic
+       `summary` field. TrustChainManager.append accepts an optional `summary=` parameter
+       that defaults to an action-keyed formatter registry. Soul.audit_log() rows now
+       include a `summary` key.
+     Updated: 2026-04-29 — v0.5.0 (#160): Added Evaluation section documenting the
+       soul_protocol.eval module — EvalSpec, EvalCase, EvalResult, CaseResult, the five
+       scoring kinds (keyword/regex/semantic/judge/structural), and run_eval /
+       run_eval_against_soul / run_eval_file entry points.
      Updated: 2026-04-27 — Documented user-driven memory update primitives: Soul.forget_one
        (audited single-id delete), Soul.supersede (write new memory + link old.superseded_by),
        Soul.supersede_audit property. Rewrote stale soul.forget() entry to match the real
@@ -1196,12 +1204,31 @@ Read-only `TrustChain` view. The chain is mutated by Soul's lifecycle hooks; for
 
 ### `soul.trust_chain_manager`
 
+<a id="trustchainmanager-summary"></a>
+
 ```python
 @property
 def trust_chain_manager(self) -> TrustChainManager
 ```
 
-The `TrustChainManager` instance. Use `manager.append(action, payload)` to record a custom action that the built-in hooks don't cover. The manager also exposes `prune(keep)` and `dry_run_prune(keep)` for touch-time chain pruning (#203) — see [trust-chain.md](trust-chain.md#chain-pruning).
+The `TrustChainManager` instance. Public methods of interest:
+
+```python
+def append(
+    self,
+    action: str,
+    payload: dict,
+    actor_did: str | None = None,
+    timestamp: datetime | None = None,
+    summary: str | None = None,        # #201 — non-cryptographic per-action description
+) -> TrustEntry
+```
+
+Use `manager.append(action, payload)` to record a custom action that the built-in hooks don't cover. Pass `summary=` to attach a human-readable description; when omitted, an action-keyed default formatter from `_SUMMARY_FORMATTERS` runs against the payload. The summary is stored on the resulting `TrustEntry.summary` field and surfaces in `audit_log()` rows. It is excluded from the canonical bytes used for hashing and signing — chain integrity does not depend on it.
+
+Default formatters ship for the actions Soul emits (`memory.write`, `memory.forget`, `memory.supersede`, `bond.strengthen`, `bond.weaken`, `evolution.proposed`, `evolution.applied`, `learning.event`); custom actions without a registered formatter get `summary=""` unless one is passed explicitly.
+
+The manager also exposes `prune(keep)` and `dry_run_prune(keep)` for touch-time chain pruning (#203) — see [trust-chain.md](trust-chain.md#chain-pruning).
 
 `TrustChainManager.prune(keep=None, *, reason="touch-time") -> dict` compresses every non-genesis entry into a single signed `chain.pruned` marker when the chain has more than `keep` entries. `keep=None` falls back to the manager's `max_entries` (mirrored from `Biorhythms.trust_chain_max_entries`). Returns `{count, low_seq, high_seq, reason, marker_seq}` describing the prune; `count == 0` indicates a no-op.
 
@@ -1228,7 +1255,7 @@ def audit_log(
 ) -> list[dict]
 ```
 
-Returns a list of `{seq, timestamp, action, actor_did, payload_hash}` dicts. Filter by dot-namespaced action prefix (e.g. `"memory."`) and/or take only the most recent N rows.
+Returns a list of `{seq, timestamp, action, actor_did, payload_hash, summary}` dicts. Filter by dot-namespaced action prefix (e.g. `"memory."`) and/or take only the most recent N rows. The `summary` field (added in #201) is a short human-readable description set at append time — see [`TrustChainManager.append`](#trustchainmanager-summary). Pre-#201 entries return `summary=""`.
 
 ### `Soul.export(include_keys=...)`
 
@@ -1258,10 +1285,13 @@ class TrustEntry(BaseModel):
     action: str                             # dot-namespaced (memory.write, …)
     payload_hash: str                       # SHA-256 hex of canonical payload JSON
     prev_hash: str                          # hash of previous entry (or GENESIS_PREV_HASH)
-    signature: str                          # base64 Ed25519 signature
+    signature: str                          # base64 Ed25519 signature (excluded from canonical bytes)
     algorithm: str = "ed25519"
     public_key: str                         # base64 raw 32-byte public key
+    summary: str = ""                       # non-cryptographic per-action prose (excluded from canonical bytes, #201)
 ```
+
+`summary` is a short human-readable description set at append time. It is excluded from `compute_entry_hash` and `_signing_message` so callers can edit, localise, or rewrite the summary without breaking `verify_chain()`. Pre-#201 entries that have no `summary` field on disk load with the empty default.
 
 ### `TrustChain`
 
@@ -1310,3 +1340,87 @@ from soul_protocol.spec.trust import (
 - `compute_payload_hash(payload) -> str` — canonical-JSON SHA-256 hex of an arbitrary payload
 - `compute_entry_hash(entry) -> str` — canonical-JSON SHA-256 hex of the entry minus its signature
 - `GENESIS_PREV_HASH` — the constant `"0" * 64` used as the prev_hash of seq=0
+
+---
+
+## Evaluation
+
+The `soul_protocol.eval` module ships YAML-driven soul-aware evals (#160). Evals seed a soul with explicit state (memories, OCEAN, bonds, mood, energy) and then run cases against that state, so behaviour can be measured against a known starting point. See [eval-format.md](eval-format.md) for the full schema and [cli-reference.md](cli-reference.md#soul-eval) for the `soul eval` command.
+
+```python
+from soul_protocol.eval import (
+    EvalSpec,
+    EvalCase,
+    EvalResult,
+    CaseResult,
+    Scoring,
+    KeywordScoring,
+    RegexScoring,
+    SemanticScoring,
+    JudgeScoring,
+    StructuralScoring,
+    SoulSeed,
+    StateSeed,
+    MemorySeed,
+    BondSeed,
+    SchemaValidationError,
+    load_eval_spec,
+    parse_eval_spec,
+    run_eval,
+    run_eval_file,
+    run_eval_against_soul,
+)
+```
+
+### Loading
+
+- `load_eval_spec(path: str | Path) -> EvalSpec` — read and validate a YAML file. Raises `FileNotFoundError` or `SchemaValidationError`.
+- `parse_eval_spec(data: dict, *, source: str | None = None) -> EvalSpec` — validate a parsed dict. Raises `SchemaValidationError`.
+
+### Running
+
+- `run_eval(spec, *, engine=None, case_filter=None) -> EvalResult` — births a soul from `spec.seed`, applies state / memories / bonds, runs cases. When `engine` is None, judge-scoring cases skip cleanly.
+- `run_eval_file(path, *, engine=None, case_filter=None) -> EvalResult` — convenience wrapper that loads then runs.
+- `run_eval_against_soul(spec, soul, *, engine=None, case_filter=None) -> EvalResult` — run cases against an existing `Soul` without re-birthing. Used by the `soul_eval` MCP tool. The `seed` block is ignored — the soul's live state is the seed.
+
+### Result models
+
+`EvalResult`:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `spec_name` | `str` | Echo of `EvalSpec.name`. |
+| `cases` | `list[CaseResult]` | One per case that ran. |
+| `duration_ms` | `int` | Total time. |
+| `error` | `str \| None` | Set when seed application failed. |
+| `pass_count` | `int` | Cases that passed (excludes skips). |
+| `fail_count` | `int` | Cases that failed (excludes skips and errors). |
+| `skip_count` | `int` | Cases that were skipped (e.g. judge with no engine). |
+| `error_count` | `int` | Cases that raised. |
+| `total` | `int` | Length of `cases`. |
+| `all_passed` | `bool` | True when no failures and no errors. Skips do not count as failures. |
+
+`CaseResult`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `str` | Echoes `EvalCase.name`. |
+| `passed` | `bool` | Pass/fail per the scoring threshold. |
+| `score` | `float` | Normalized `[0, 1]`. |
+| `skipped` | `bool` | True for judge cases with no engine. |
+| `duration_ms` | `int` | Case wall-clock. |
+| `output` | `str` | First 1000 chars of soul output. |
+| `details` | `dict` | Kind-specific diagnostic info. |
+| `error` | `str \| None` | Set when the case raised. |
+
+### Scoring kinds
+
+`Scoring` is a discriminated union by `kind`:
+
+- `KeywordScoring(kind="keyword", expected: list[str], mode: "all"|"any" = "all", threshold: float = 1.0)`
+- `RegexScoring(kind="regex", pattern: str, threshold: float = 1.0)`
+- `SemanticScoring(kind="semantic", expected: str, threshold: float = 0.5)`
+- `JudgeScoring(kind="judge", criteria: str, threshold: float = 0.7)`
+- `StructuralScoring(kind="structural", expected: dict, threshold: float = 1.0)`
+
+For the structural keys (`output_contains_bonded_user`, `output_contains_user_id`, `mood_after`, `min_energy_after`, `max_energy_after`, `recall_min_results`, `recall_expected_substring`) see [eval-format.md](eval-format.md#structural).

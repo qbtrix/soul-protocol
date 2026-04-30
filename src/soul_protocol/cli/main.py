@@ -1,8 +1,21 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
-# Updated: 2026-04-29 (#203) — `soul prune-chain` lands as the touch-time
+# Updated: 2026-04-30 (#203) — `soul prune-chain` lands as the touch-time
 #   pruning stub for v0.5.0. Dry-run preview by default, --apply to execute,
 #   --keep N for explicit length, defaults to Biorhythms.trust_chain_max_entries.
 #   Mirrors the `soul cleanup` / `soul forget` safety pattern.
+# Updated: 2026-04-30 (#201) — ``soul audit`` Rich table now includes a
+#   Summary column derived from each entry's per-action human-readable
+#   description (set at append time via TrustChainManager.append's new
+#   ``summary=`` parameter or the action-keyed default formatter
+#   registry). New ``--no-summary`` flag hides the column for callers
+#   who only want the hash. JSON output always includes ``summary``.
+# Updated: 2026-04-30 (#189) — Wire `soul journal {init,append,query}`
+#   subcommand group from cli/journal.py. Lets shell hooks, CI, and non-Python
+#   runtimes append structured events without spinning up a Python session.
+# Updated: 2026-04-29 (#160) — `soul eval` command for YAML-driven soul-aware
+#   evals. Registers from cli/eval_cmd.py. Runs one .yaml spec or every
+#   .yaml under a directory; passes/fails based on per-case scoring; exit
+#   code 0 = all pass (skipped allowed), 1 = any fail/error.
 # Updated: 2026-04-29 (#42) — Trust chain commands: ``soul verify`` checks
 #   integrity of a soul's signed action history. ``soul audit`` prints a
 #   human-readable timeline; supports --filter <prefix> and --limit; --json
@@ -115,6 +128,16 @@ from soul_protocol.cli.org import user_group as _user_group  # noqa: E402
 
 cli.add_command(_org_group)
 cli.add_command(_user_group)
+
+# Journal subcommand group (#189)
+from soul_protocol.cli.journal import journal_group as _journal_group  # noqa: E402
+
+cli.add_command(_journal_group)
+
+# Soul-aware evals (#160) — registers `soul eval` on the cli group.
+from soul_protocol.cli.eval_cmd import register as _register_eval_cmd  # noqa: E402
+
+_register_eval_cmd(cli)
 
 
 @cli.command()
@@ -3211,7 +3234,14 @@ def verify_cmd(path, as_json):
 )
 @click.option("--limit", type=int, default=None, help="Show only the most recent N entries.")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Emit machine-readable JSON.")
-def audit_cmd(path, action_prefix, limit, as_json):
+@click.option(
+    "--no-summary",
+    "no_summary",
+    is_flag=True,
+    default=False,
+    help="Hide the Summary column and show only the payload hash (#201).",
+)
+def audit_cmd(path, action_prefix, limit, as_json, no_summary):
     """Print a human-readable timeline of signed actions.
 
     \b
@@ -3220,6 +3250,7 @@ def audit_cmd(path, action_prefix, limit, as_json):
       soul audit .soul/ --filter memory.
       soul audit aria.soul --limit 20
       soul audit aria.soul --json
+      soul audit aria.soul --no-summary  # hash-only, hide Summary column
     """
 
     async def _audit():
@@ -3229,6 +3260,8 @@ def audit_cmd(path, action_prefix, limit, as_json):
         log = soul.audit_log(action_prefix=action_prefix, limit=limit)
 
         if as_json:
+            # JSON always includes summary — clients can drop it if they don't
+            # want it. --no-summary only affects the human table.
             console.print_json(data={"soul": soul.name, "did": soul.did, "entries": log})
             return
 
@@ -3242,19 +3275,24 @@ def audit_cmd(path, action_prefix, limit, as_json):
         table.add_column("Timestamp", style="dim")
         table.add_column("Action", style="bold")
         table.add_column("Actor", style="green")
+        if not no_summary:
+            table.add_column("Summary", style="white")
         table.add_column("Payload Hash", style="dim")
         for row in log:
             ts = row["timestamp"]
             # Trim microseconds for display
             if "." in ts:
                 ts = ts.split(".", 1)[0] + ts[ts.index("+") :] if "+" in ts else ts.split(".", 1)[0]
-            table.add_row(
+            cells = [
                 str(row["seq"]),
                 ts,
                 row["action"],
                 row["actor_did"],
-                row["payload_hash"][:12] + "…",
-            )
+            ]
+            if not no_summary:
+                cells.append(row.get("summary", "") or "")
+            cells.append(row["payload_hash"][:12] + "…")
+            table.add_row(*cells)
         console.print(table)
 
     asyncio.run(_audit())
