@@ -1,4 +1,8 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: feat/soul-diff-cli (#191) — Wire `soul diff <left> <right>` from
+#   cli/diff.py. Renders a structured comparison (identity / OCEAN / state /
+#   memories / bond / skills / trust chain / self-model / evolution) in text,
+#   json, or markdown. Read-only; raises a clean error on schema mismatch.
 # Updated: feat/soul-journal-cli (#189) — Wire `soul journal {init,append,query}`
 #   subcommand group from cli/journal.py. Lets shell hooks, CI, and non-Python
 #   runtimes append structured events without spinning up a Python session.
@@ -119,6 +123,11 @@ cli.add_command(_user_group)
 from soul_protocol.cli.journal import journal_group as _journal_group  # noqa: E402
 
 cli.add_command(_journal_group)
+
+# Soul diff command (feat/soul-diff-cli, #191)
+from soul_protocol.cli.diff import diff_cmd as _diff_cmd  # noqa: E402
+
+cli.add_command(_diff_cmd)
 
 
 @cli.command()

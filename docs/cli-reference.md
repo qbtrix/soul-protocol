@@ -1523,6 +1523,89 @@ The default output is a Rich table (Seq, Timestamp, Action, Actor, Payload Hash)
 
 ---
 
+## Diff (#191)
+
+### `soul diff <left> <right>`
+
+Compare two soul files at the soul level — identity, OCEAN, state, core memory, memories, bond, skills, trust chain, self-model, evolution. Read-only; never modifies either input. Works for any combination of zip and dir formats.
+
+```bash
+soul diff aria.soul aria-after-week.soul
+soul diff aria.soul aria-after-week.soul --json
+soul diff aria.soul aria-after-week.soul --section memory
+soul diff aria.soul aria-after-week.soul --include-superseded
+soul diff aria.soul aria-after-week.soul --format markdown
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--format [text\|json\|markdown]` | Output format. `text` is the default Rich panel; `json` emits a `SoulDiff` dict; `markdown` emits a paste-ready table for PR bodies. |
+| `--json` | Shortcut for `--format json`. |
+| `--section <name>` | Narrow to one section. Accepts `identity`, `ocean` (alias `dna`), `state`, `core` (alias `core-memory`), `memory`, `bond`, `skills`, `trust` (alias `trust-chain`), `self` (alias `self-model`), `evolution`. |
+| `--include-superseded` | Show the supersession chain explicitly. By default, memories whose `superseded_by` field changed are filtered out of the modified list since they still live in the file — but reviewers usually want to see the new memory, not the chain. |
+| `--summary-only` | Print per-section counts instead of the full diff. |
+
+**Output structure (text mode):**
+
+```
+Soul diff: aria → aria-after-week
+
+Identity
+  (no changes — section omitted)
+
+OCEAN / DNA
+  openness          ↑ 0.020
+  conscientiousness ↓ 0.010
+
+Memories
+  Layer counts
+    semantic   2 → 4
+    procedural 0 → 1
+  + semantic   id=34e53f imp=8: 'Second test memory: this is the kind of...'
+  ~ semantic   id=78ef90: importance 7 → 9
+  + procedural id=11223344 imp=5: 'New how-to: ...'
+
+Bond
+  user            Strength             Interactions
+  (default)       50.0 ↑ 53.5          0 → 7
+  alice           50.0 ↑ 51.2          0 → 3
+  + new bonded users: alice
+
+Skills
+  + analyst (level 1, 0 XP)
+```
+
+Sections are omitted when empty so a no-op diff stays terse. JSON output always includes the full structure.
+
+**Schema mismatch:**
+
+Different schema versions on the two souls error out cleanly:
+
+```
+$ soul diff old.soul new.soul
+error: Schema version mismatch: left='1.0.0', right='1.1.0'. Soul diff
+requires both files to share a schema version. Migrate the older soul
+with `soul migrate <path>` first.
+```
+
+**Programmatic use:**
+
+```python
+from soul_protocol.runtime import Soul, diff_souls
+
+left = await Soul.awaken("aria.soul")
+right = await Soul.awaken("aria-after-week.soul")
+diff = diff_souls(left, right, include_superseded=False)
+print(diff.summary())
+# {"identity": 0, "memories_added": 2, "bonds": 1, ...}
+```
+
+The returned `SoulDiff` is a Pydantic model — see [API reference](api-reference.md#souldiff) for the full field list.
+
+---
+
 ## Exit Codes
 
 | Code | Meaning |
