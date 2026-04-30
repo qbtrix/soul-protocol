@@ -1,5 +1,9 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 30 tools (25 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# 31 tools (26 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-04-29 (#160) — `soul_eval` tool runs a YAML eval spec against
+#   the active soul (no birth, no seed) so agents can self-evaluate their
+#   current state. Accepts yaml_path or yaml_string. Returns the EvalResult
+#   as JSON.
 # Updated: 2026-04-29 (#42) — Trust chain tools: ``soul_verify`` returns chain
 #   integrity status; ``soul_audit`` returns the human-readable timeline of
 #   signed actions, with optional action_prefix and limit. JSON-only output —
@@ -1675,6 +1679,76 @@ async def soul_audit(
     s = await _resolve_soul(soul)
     log = s.audit_log(action_prefix=action_prefix, limit=limit)
     return json.dumps({"soul": s.name, "did": s.did, "entries": log})
+
+
+@mcp.tool
+async def soul_eval(
+    yaml_path: str | None = None,
+    yaml_string: str | None = None,
+    case_filter: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Run a YAML eval spec against the active soul (#160).
+
+    Unlike the CLI ``soul eval`` command — which births a fresh soul
+    from the spec's ``seed`` block — this MCP tool runs against the
+    soul that is already loaded so an agent can self-evaluate against
+    its current state.
+
+    Either ``yaml_path`` or ``yaml_string`` is required (not both):
+
+    - ``yaml_path``: filesystem path to a YAML eval file.
+    - ``yaml_string``: raw YAML text (handy when the agent generates
+      its own eval cases programmatically).
+
+    The ``seed`` block on the spec is intentionally ignored — the soul's
+    live memories, OCEAN, bonds, and state are the seed. Only ``cases``
+    run.
+
+    Args:
+        yaml_path: Path to a .yaml/.yml file (mutually exclusive with
+            yaml_string).
+        yaml_string: Raw YAML text.
+        case_filter: Optional substring filter on case names.
+        soul: Target soul name (uses active soul if omitted).
+
+    Returns:
+        JSON string with the EvalResult: spec_name, cases (each with
+        name, passed, score, skipped, output, details), pass/fail/skip
+        counts, and total duration_ms.
+    """
+    if (yaml_path is None) == (yaml_string is None):
+        return json.dumps(
+            {
+                "error": "exactly one of yaml_path / yaml_string is required",
+            }
+        )
+
+    from soul_protocol.eval import (  # lazy — keeps cold-start small
+        load_eval_spec,
+        parse_eval_spec,
+        run_eval_against_soul,
+    )
+
+    if yaml_string is not None:
+        try:
+            import yaml as _yaml
+
+            data = _yaml.safe_load(yaml_string)
+            if not isinstance(data, dict):
+                return json.dumps({"error": "yaml_string must contain a mapping at top level"})
+            spec = parse_eval_spec(data)
+        except Exception as e:
+            return json.dumps({"error": f"failed to parse yaml_string: {e}"})
+    else:
+        try:
+            spec = load_eval_spec(yaml_path)
+        except Exception as e:
+            return json.dumps({"error": f"failed to load {yaml_path}: {e}"})
+
+    s = await _resolve_soul(soul)
+    result = await run_eval_against_soul(spec, s, case_filter=case_filter)
+    return json.dumps(result.model_dump(mode="json"))
 
 
 # --- Resources (3) ---
