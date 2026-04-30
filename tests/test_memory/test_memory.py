@@ -279,14 +279,40 @@ class TestSignificanceShortCircuit:
         mgr._cognitive.update_self_model = AsyncMock()
         return mgr
 
-    async def test_skips_extraction_on_trivial_interaction(self, mocked_manager):
-        """Low-significance interaction should skip steps 5 and 6 when the
-        default flag is on."""
+    async def test_skips_self_model_on_trivial_interaction(self, mocked_manager):
+        """Low-significance interaction should skip the self-model update.
+
+        After #220, entity extraction is decoupled — it runs by default
+        regardless of significance so the entity graph keeps growing under
+        chitchat. Only the self-model update stays gated by significance.
+        See ``test_skips_extraction_with_legacy_flag`` below for the legacy
+        path that drops both together.
+        """
         from unittest.mock import AsyncMock
 
         mgr = mocked_manager
         mgr._cognitive.assess_significance = AsyncMock(return_value=self._trivial_score())
         assert mgr._settings.skip_deep_processing_on_low_significance is True
+        assert mgr._settings.always_extract_entities is True
+
+        result = await mgr.observe(Interaction(user_input="ok", agent_output="sure"))
+
+        # #220: entity extraction runs even on trivial interactions
+        mgr._cognitive.extract_entities.assert_called_once()
+        # Self-model gating preserved
+        mgr._cognitive.update_self_model.assert_not_called()
+        assert result["is_significant"] is False
+
+    async def test_skips_extraction_with_legacy_flag(self, mocked_manager):
+        """Pre-#220 behaviour: when ``always_extract_entities=False``, both
+        entity extraction and self-model are skipped on low-significance.
+        This is the escape hatch for callers who want the v0.4.x path back.
+        """
+        from unittest.mock import AsyncMock
+
+        mgr = mocked_manager
+        mgr._settings.always_extract_entities = False
+        mgr._cognitive.assess_significance = AsyncMock(return_value=self._trivial_score())
 
         result = await mgr.observe(Interaction(user_input="ok", agent_output="sure"))
 

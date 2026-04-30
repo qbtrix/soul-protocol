@@ -451,11 +451,19 @@ class MemorySettings(BaseModel):
     human_tokens: int = 500
     # F5 auto-consolidation — archive + reflect every N interactions
     consolidation_interval: int = 20
-    # When True, skip entity extraction (step 5) and self-model update (step 6)
-    # for interactions that are not significant after the full pipeline
-    # (including fact-based promotion in step 4b). Saves 2 LLM calls per
-    # low-value interaction.
+    # When True, skip the self-model update (step 6) for interactions that
+    # aren't significant after the full pipeline (including fact-based
+    # promotion in step 4b). Self-model gating is correct — chitchat doesn't
+    # add signal to the model.
     skip_deep_processing_on_low_significance: bool = True
+    # When True (default), run entity extraction (step 5) on every observed
+    # interaction regardless of significance. Trivial conversations still
+    # mention entities ("how's Alice?", "saw Project X update") and the
+    # graph should track them at reduced cost. Set False to restore pre-#220
+    # behaviour where significance-skipping also dropped entity extraction;
+    # in that mode the entity graph plateaus quickly under low-significance
+    # daily use. (#220)
+    always_extract_entities: bool = True
     # LLM-based reranking on recall. Off by default because it adds an LLM
     # call on every smart_recall invocation. Callers who need relevance
     # quality over latency can opt in by constructing MemorySettings with

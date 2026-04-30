@@ -1157,18 +1157,22 @@ class MemoryManager:
 
         # --- 5. Extract entities (with provenance metadata) ---
         # --- 6. Update self-model ---
-        # Short-circuit: skip expensive LLM steps 5 & 6 for low-significance
-        # interactions when the config flag is enabled. The `significant` flag
-        # accounts for both the initial significance gate (step 2) AND
-        # fact-based promotion (step 4b), so we only skip when the interaction
-        # truly had no meaningful content.
-        skip_deep = not significant and self._settings.skip_deep_processing_on_low_significance
+        # Two independent gates as of #220:
+        # - Self-model update is gated by ``skip_deep_processing_on_low_significance``.
+        #   Chitchat doesn't add signal to the self-model, so the gate stays.
+        # - Entity extraction now runs on every interaction by default (so the
+        #   graph keeps growing under low-significance daily use). Set
+        #   ``always_extract_entities=False`` on MemorySettings to restore the
+        #   pre-#220 behaviour where the significance gate also dropped extraction.
+        sig_skip = not significant and self._settings.skip_deep_processing_on_low_significance
+        skip_self_model = sig_skip
+        skip_entities = sig_skip and not self._settings.always_extract_entities
 
         entities: list[dict] = []
-        if skip_deep:
+        if skip_entities:
             logger.debug(
                 "Low-significance short-circuit: skipping entity extraction "
-                "and self-model update (sig=%.3f)",
+                "(sig=%.3f, always_extract_entities=False)",
                 sig_value,
             )
         else:
@@ -1182,6 +1186,12 @@ class MemoryManager:
                     [e.get("name") for e in entities],
                 )
 
+        if skip_self_model:
+            logger.debug(
+                "Low-significance short-circuit: skipping self-model update (sig=%.3f)",
+                sig_value,
+            )
+        else:
             await self._cognitive.update_self_model(interaction, facts, self._self_model)
             logger.debug("Self-model updated")
 
