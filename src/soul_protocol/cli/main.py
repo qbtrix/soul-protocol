@@ -1,10 +1,17 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
-# Updated: 2026-04-29 (#201) — ``soul audit`` Rich table now includes a
+# Updated: 2026-04-30 (#201) — ``soul audit`` Rich table now includes a
 #   Summary column derived from each entry's per-action human-readable
 #   description (set at append time via TrustChainManager.append's new
 #   ``summary=`` parameter or the action-keyed default formatter
 #   registry). New ``--no-summary`` flag hides the column for callers
 #   who only want the hash. JSON output always includes ``summary``.
+# Updated: 2026-04-30 (#189) — Wire `soul journal {init,append,query}`
+#   subcommand group from cli/journal.py. Lets shell hooks, CI, and non-Python
+#   runtimes append structured events without spinning up a Python session.
+# Updated: 2026-04-29 (#160) — `soul eval` command for YAML-driven soul-aware
+#   evals. Registers from cli/eval_cmd.py. Runs one .yaml spec or every
+#   .yaml under a directory; passes/fails based on per-case scoring; exit
+#   code 0 = all pass (skipped allowed), 1 = any fail/error.
 # Updated: 2026-04-29 (#42) — Trust chain commands: ``soul verify`` checks
 #   integrity of a soul's signed action history. ``soul audit`` prints a
 #   human-readable timeline; supports --filter <prefix> and --limit; --json
@@ -117,6 +124,16 @@ from soul_protocol.cli.org import user_group as _user_group  # noqa: E402
 
 cli.add_command(_org_group)
 cli.add_command(_user_group)
+
+# Journal subcommand group (#189)
+from soul_protocol.cli.journal import journal_group as _journal_group  # noqa: E402
+
+cli.add_command(_journal_group)
+
+# Soul-aware evals (#160) — registers `soul eval` on the cli group.
+from soul_protocol.cli.eval_cmd import register as _register_eval_cmd  # noqa: E402
+
+_register_eval_cmd(cli)
 
 
 @cli.command()
