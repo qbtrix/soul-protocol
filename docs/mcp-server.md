@@ -1,6 +1,9 @@
-<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 26 tools
-     (14 soul/memory + 5 context + 5 psychology + 2 trust chain), 3 resources, 2 prompts,
-     auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
+<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 27 tools
+     (14 soul/memory + 5 context + 5 psychology + 2 trust chain + 1 eval), 3 resources,
+     2 prompts, auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
+     Updated: 2026-04-29 — v0.5.0 (#160): Added soul_eval MCP tool for running YAML eval
+     specs against the active soul. Accepts yaml_path or yaml_string. Returns the EvalResult
+     as JSON. Tool count: 26 → 27.
      Updated: 2026-04-29 — v0.4.0 (#42): Added soul_verify and soul_audit MCP tools for
      trust-chain integrity checks and signed-action timelines. Tool count: 24 → 26.
      Updated: 2026-04-06 — Added soul_dream tool for offline batch memory consolidation.
@@ -88,9 +91,9 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (26)
+## Tools (27)
 
-All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 24 tools break down as: 9 soul management, 5 memory, 5 context (LCM), and 5 psychology pipeline (v0.2.7).
+All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 27 tools break down as: 9 soul management, 5 memory, 5 context (LCM), 5 psychology pipeline (v0.2.7), 2 trust chain (v0.4.0 #42), and 1 eval (v0.5.0 #160).
 
 **Multi-soul targeting:** When the server is running with `SOUL_DIR` and multiple souls are loaded, all tools accept an optional `soul` parameter (string) to target a specific soul by name or ID. If omitted, the tool operates on the currently active soul.
 
@@ -452,6 +455,25 @@ Return a human-readable timeline of signed actions on the soul's trust chain (#4
 **Returns:** JSON `{soul, did, entries: [...]}`.
 
 Payloads themselves are not on chain — only their hashes — so this tool surfaces *what changed when*, not *what was written*.
+
+---
+
+### `soul_eval`
+
+Run a YAML eval spec against the active soul (#160). Unlike the CLI `soul eval` command — which births a fresh soul from the spec's `seed` block — this MCP tool runs against the soul that is already loaded, so an agent can self-evaluate against its current state.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `yaml_path` | `str` | `None` | Filesystem path to a `.yaml` / `.yml` spec (mutually exclusive with `yaml_string`) |
+| `yaml_string` | `str` | `None` | Raw YAML text — handy when an agent generates its own cases |
+| `case_filter` | `str` | `None` | Run only cases whose name contains this substring |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{spec_name, cases: [...], duration_ms, pass_count, fail_count, skip_count, error_count}`.
+
+The `seed` block on the spec is intentionally ignored — the soul's live memories, OCEAN, bonds, and state are the seed. Only `cases` run. Pass `yaml_path` **or** `yaml_string`, not both.
+
+See [eval-format.md](eval-format.md) for the YAML schema and the supported scoring kinds (keyword / regex / semantic / judge / structural).
 
 ---
 

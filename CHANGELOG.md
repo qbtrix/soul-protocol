@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Soul-aware evals (#160)** — a YAML-driven format and runner for evaluating memory-driven agents. Specs seed the soul with explicit state (memories, OCEAN, bonds, mood, energy) before each case runs, so the eval measures behaviour against a known starting point rather than treating the soul as a stateless function. Five scoring kinds: `keyword` (case-insensitive substring match), `regex` (Python regex), `semantic` (Jaccard-with-containment token overlap), `judge` (LLM-as-judge against free-form criteria), and `structural` (programmatic checks on output and soul state — bonded-user mention, mood-after, energy bounds, recall set membership). Cases run in either `respond` mode (the runner builds a system prompt + per-turn context block and asks the engine for a reply) or `recall` mode (`Soul.recall(query=message, ...)`). Without an engine the runner produces a deterministic fallback so keyword / regex / semantic / structural cases still pass; judge cases skip cleanly rather than fail. New `soul eval` CLI command runs one spec or every `.yaml` under a directory; `--json`, `--filter`, `--judge-engine`, `--verbose` options. Exit code 0 when every case passes (skipped cases don't fail the run); 1 on any failure or spec error. New `soul_eval` MCP tool runs a YAML spec against the active soul (seed block ignored — the soul's live state is the seed) so an agent can self-evaluate. Five shipped example specs under `tests/eval_examples/` cover personality expression, multi-user memory filtering, domain isolation, bond-strength gating, and trust chain provenance — wired into pytest as smoke tests. Foundation for the v0.4.x intelligence bundle (#142 soul optimize will plug into this measurement signal). Full doc at `docs/eval-format.md`.
+
 ---
 
 ## [0.4.0] -- 2026-04-29
