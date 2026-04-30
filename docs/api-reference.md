@@ -1,6 +1,10 @@
 <!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
      memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
+     Updated: 2026-04-29 — v0.5.0 (#160): Added Evaluation section documenting the
+       soul_protocol.eval module — EvalSpec, EvalCase, EvalResult, CaseResult, the five
+       scoring kinds (keyword/regex/semantic/judge/structural), and run_eval /
+       run_eval_against_soul / run_eval_file entry points.
      Updated: 2026-04-27 — Documented user-driven memory update primitives: Soul.forget_one
        (audited single-id delete), Soul.supersede (write new memory + link old.superseded_by),
        Soul.supersede_audit property. Rewrote stale soul.forget() entry to match the real
@@ -1300,3 +1304,87 @@ from soul_protocol.spec.trust import (
 - `compute_payload_hash(payload) -> str` — canonical-JSON SHA-256 hex of an arbitrary payload
 - `compute_entry_hash(entry) -> str` — canonical-JSON SHA-256 hex of the entry minus its signature
 - `GENESIS_PREV_HASH` — the constant `"0" * 64` used as the prev_hash of seq=0
+
+---
+
+## Evaluation
+
+The `soul_protocol.eval` module ships YAML-driven soul-aware evals (#160). Evals seed a soul with explicit state (memories, OCEAN, bonds, mood, energy) and then run cases against that state, so behaviour can be measured against a known starting point. See [eval-format.md](eval-format.md) for the full schema and [cli-reference.md](cli-reference.md#soul-eval) for the `soul eval` command.
+
+```python
+from soul_protocol.eval import (
+    EvalSpec,
+    EvalCase,
+    EvalResult,
+    CaseResult,
+    Scoring,
+    KeywordScoring,
+    RegexScoring,
+    SemanticScoring,
+    JudgeScoring,
+    StructuralScoring,
+    SoulSeed,
+    StateSeed,
+    MemorySeed,
+    BondSeed,
+    SchemaValidationError,
+    load_eval_spec,
+    parse_eval_spec,
+    run_eval,
+    run_eval_file,
+    run_eval_against_soul,
+)
+```
+
+### Loading
+
+- `load_eval_spec(path: str | Path) -> EvalSpec` — read and validate a YAML file. Raises `FileNotFoundError` or `SchemaValidationError`.
+- `parse_eval_spec(data: dict, *, source: str | None = None) -> EvalSpec` — validate a parsed dict. Raises `SchemaValidationError`.
+
+### Running
+
+- `run_eval(spec, *, engine=None, case_filter=None) -> EvalResult` — births a soul from `spec.seed`, applies state / memories / bonds, runs cases. When `engine` is None, judge-scoring cases skip cleanly.
+- `run_eval_file(path, *, engine=None, case_filter=None) -> EvalResult` — convenience wrapper that loads then runs.
+- `run_eval_against_soul(spec, soul, *, engine=None, case_filter=None) -> EvalResult` — run cases against an existing `Soul` without re-birthing. Used by the `soul_eval` MCP tool. The `seed` block is ignored — the soul's live state is the seed.
+
+### Result models
+
+`EvalResult`:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `spec_name` | `str` | Echo of `EvalSpec.name`. |
+| `cases` | `list[CaseResult]` | One per case that ran. |
+| `duration_ms` | `int` | Total time. |
+| `error` | `str \| None` | Set when seed application failed. |
+| `pass_count` | `int` | Cases that passed (excludes skips). |
+| `fail_count` | `int` | Cases that failed (excludes skips and errors). |
+| `skip_count` | `int` | Cases that were skipped (e.g. judge with no engine). |
+| `error_count` | `int` | Cases that raised. |
+| `total` | `int` | Length of `cases`. |
+| `all_passed` | `bool` | True when no failures and no errors. Skips do not count as failures. |
+
+`CaseResult`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `str` | Echoes `EvalCase.name`. |
+| `passed` | `bool` | Pass/fail per the scoring threshold. |
+| `score` | `float` | Normalized `[0, 1]`. |
+| `skipped` | `bool` | True for judge cases with no engine. |
+| `duration_ms` | `int` | Case wall-clock. |
+| `output` | `str` | First 1000 chars of soul output. |
+| `details` | `dict` | Kind-specific diagnostic info. |
+| `error` | `str \| None` | Set when the case raised. |
+
+### Scoring kinds
+
+`Scoring` is a discriminated union by `kind`:
+
+- `KeywordScoring(kind="keyword", expected: list[str], mode: "all"|"any" = "all", threshold: float = 1.0)`
+- `RegexScoring(kind="regex", pattern: str, threshold: float = 1.0)`
+- `SemanticScoring(kind="semantic", expected: str, threshold: float = 0.5)`
+- `JudgeScoring(kind="judge", criteria: str, threshold: float = 0.7)`
+- `StructuralScoring(kind="structural", expected: dict, threshold: float = 1.0)`
+
+For the structural keys (`output_contains_bonded_user`, `output_contains_user_id`, `mood_after`, `min_energy_after`, `max_energy_after`, `recall_min_results`, `recall_expected_substring`) see [eval-format.md](eval-format.md#structural).

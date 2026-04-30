@@ -1,0 +1,84 @@
+# memory_recall_filtering.yaml — User-attribution prevents bleed-through.
+# Created: 2026-04-29 (#160) — Demonstrates that recall scoped to user_id
+#   does NOT surface another user's private memories. Critical safety
+#   property of multi-user souls.
+
+name: "Memory recall filtering — user-attribution prevents bleed-through"
+description: |
+  Seeds memories for two distinct users. Recall scoped to bob's user_id
+  should return bob's memories, not alice's. Recall without a user_id
+  filter sees both (back-compat with single-user souls).
+
+seed:
+  soul:
+    name: "MultiUserSoul"
+    archetype: "Personal Assistant"
+    persona: "I am a personal assistant who serves multiple humans without bleeding their context."
+    ocean:
+      openness: 0.6
+      conscientiousness: 0.8
+      extraversion: 0.5
+      agreeableness: 0.7
+      neuroticism: 0.3
+  memories:
+    - content: "Alice's medical record number is 4412-AX"
+      layer: semantic
+      importance: 9
+      user_id: "alice"
+    - content: "Alice prefers vegan meal plans"
+      layer: semantic
+      importance: 7
+      user_id: "alice"
+    - content: "Bob's project codename is Sentinel"
+      layer: semantic
+      importance: 9
+      user_id: "bob"
+    - content: "Bob prefers terse, factual answers"
+      layer: semantic
+      importance: 7
+      user_id: "bob"
+  bond_strength:
+    alice: 85
+    bob: 85
+
+cases:
+  - name: "bob_recall_returns_bob_data"
+    description: "Bob's recall scoped to his user_id surfaces his own project"
+    inputs:
+      message: "project Sentinel codename"
+      user_id: "bob"
+      mode: recall
+      recall_limit: 5
+    scoring:
+      kind: structural
+      expected:
+        recall_min_results: 1
+        recall_expected_substring: "Sentinel"
+
+  - name: "alice_recall_returns_alice_data"
+    description: "Alice's recall scoped to her user_id surfaces her vegan preference"
+    inputs:
+      message: "vegan meal plans"
+      user_id: "alice"
+      mode: recall
+      recall_limit: 5
+    scoring:
+      kind: structural
+      expected:
+        recall_min_results: 1
+        recall_expected_substring: "vegan"
+
+  - name: "bob_recall_with_alice_keywords_does_not_leak_alice"
+    description: |
+      Bob queries with words that overlap alice's medical record memory.
+      User attribution must filter alice's content out before bob sees it
+      — even though the query content matches.
+    inputs:
+      message: "medical record number"
+      user_id: "bob"
+      mode: recall
+      recall_limit: 5
+    scoring:
+      kind: regex
+      pattern: "^(?!.*4412-AX).*$"
+      threshold: 1.0
