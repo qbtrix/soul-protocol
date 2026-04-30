@@ -1,5 +1,10 @@
 <!--
   SPEC.md — Soul Protocol, the standard.
+  Updated: 2026-04-29 (v0.5.0, #203) — added §10A.10 documenting the optional
+  touch-time pruning extension. New action constant `chain.pruned` is the
+  only action permitted to break seq monotonicity (with a documented
+  carve-out in §10A.6). The full archival design (separate archive
+  directory + checkpoint entries) is deferred to v0.5.x.
   Updated: 2026-04-29 (v0.4.0 identity bundle) — added user_id and domain
   fields on MemoryEntry, open-string layers replacing the fixed five-tier
   enum (with the original five preserved as built-in layer names + new
@@ -487,7 +492,9 @@ The reference implementation ships `Ed25519SignatureProvider`. Other implementat
 
 A conforming verifier checks each entry sequentially. The chain is valid iff every entry passes:
 
-1. **Chain link.** For seq=0: `prev_hash == GENESIS_PREV_HASH`. For seq>0: `prev_hash` matches `compute_entry_hash(prev_entry)` AND `seq == prev.seq + 1`.
+1. **Chain link.** For seq=0: `prev_hash == GENESIS_PREV_HASH`. For seq>0: `prev_hash` matches `compute_entry_hash(prev_entry)`. AND one of:
+   - **Default rule:** `seq == prev.seq + 1`
+   - **Pruning carve-out (optional, see §10A.10):** when `entry.action == "chain.pruned"`, `seq` MAY be strictly greater than `prev.seq + 1`. This is the only action permitted to break monotonicity.
 2. **Signature.** `verify(canonical_json_minus_signature, signature, public_key) == true`.
 3. **No duplicates.** No two entries share a `seq` value.
 4. **Future timestamps.** Entry's timestamp is no more than 60 seconds beyond the verifier's local clock (skew tolerance).
@@ -507,6 +514,31 @@ The chain does NOT defend against: head truncation (a receiver-side concern — 
 ### 10A.9 · Optionality
 
 The trust chain is **optional** for 0.4.0 conformance. Souls without a `keys/` or `trust_chain/` directory in their archive remain valid 0.4.0 souls — they simply cannot prove provenance. An implementation that wants to claim full 0.4.0 conformance must also support the chain (read, write, verify); a partial implementation that only handles identity + memory + journal is allowed to ship as "0.4.0 (no trust chain)."
+
+### 10A.10 · Pruning extension (optional, v0.5.0)
+
+A long-lived soul accumulates an unbounded chain. v0.5.0 adds an optional **touch-time pruning** mechanism that compresses old non-genesis entries into a single signed marker. This is the stub form; the full archival design (separate `trust_chain/archive/` directory with checkpoint entries spanning archive files) lands in a later v0.5.x release.
+
+**Marker action.** Implementations that prune MUST use the action name `chain.pruned` (the constant `CHAIN_PRUNED_ACTION` in the reference implementation). The marker's payload SHOULD include:
+
+```
+{
+  "count":    int,    // entries dropped in this prune cycle
+  "low_seq":  int,    // lowest seq dropped
+  "high_seq": int,    // highest seq dropped
+  "reason":   str     // free-form, e.g. "touch-time" or "manual"
+}
+```
+
+The marker's `seq` MUST be strictly greater than its predecessor's seq (typically `high_seq + 1` so the audit counter is preserved across the gap). Its `prev_hash` MUST equal `compute_entry_hash(prev_entry)` per the normal chain-link rule.
+
+**Verification rule.** Conforming verifiers MUST allow exactly one carve-out: when `entry.action == "chain.pruned"` AND there is a previous entry, the verifier permits `entry.seq` to be strictly greater than `prev.seq + 1` (instead of strict equality). All other entries remain strictly monotonic. The signature, prev_hash, public_key, and timestamp checks all apply to chain.pruned entries normally — the carve-out is solely about the seq counter.
+
+**What this protects against.** A tampered chain that injects a forged seq gap to hide an inserted entry would have to use the `chain.pruned` action for that injection — but the marker itself is signed, so an attacker without the private key cannot forge one. Without the carve-out, pruning would either break verification or require a more invasive change to the verification model.
+
+**Configuration.** The reference implementation exposes the cap as `Biorhythms.trust_chain_max_entries` (int, ge=0). `0` (default) disables pruning; positive values cap the chain. Implementations are NOT required to expose pruning controls in any specific surface — they may auto-prune on policy, expose a CLI/MCP/API, or omit pruning entirely. The wire format of the `chain.pruned` marker is the only thing this spec section locks.
+
+**Conformance.** Pruning is OPTIONAL — an implementation MAY refuse to prune and remain conformant. An implementation that DOES prune MUST emit a marker that conforms to this section. An implementation that VERIFIES chains MUST honor the carve-out (i.e. accept a chain that contains correctly-formed `chain.pruned` markers) so chains migrating between implementations remain interoperable.
 
 ---
 

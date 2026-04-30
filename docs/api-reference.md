@@ -1,6 +1,9 @@
 <!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
      memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
+     Updated: 2026-04-29 — v0.5.0 (#203): Added Biorhythms.trust_chain_max_entries (touch-time
+       chain pruning cap), TrustChainManager.prune(keep)/dry_run_prune(keep)/max_entries.
+       Auto-prune fires at append() when the cap is reached.
      Updated: 2026-04-27 — Documented user-driven memory update primitives: Soul.forget_one
        (audited single-id delete), Soul.supersede (write new memory + link old.superseded_by),
        Soul.supersede_audit property. Rewrote stale soul.forget() entry to match the real
@@ -747,6 +750,7 @@ Simulated vitality and energy patterns.
 | `focus_window_seconds` | `float` | `3600.0` | `ge=0.0` (set to 0 to disable density-driven focus) |
 | `focus_high_threshold` | `int` | `3` | `ge=1` (interactions in window at or above which focus rises to `high`) |
 | `focus_max_threshold` | `int` | `10` | `ge=1` (interactions in window at or above which focus rises to `max`) |
+| `trust_chain_max_entries` | `int` | `0` | `ge=0` (cap for touch-time chain pruning; 0 = unbounded; positive = compress old history into a `chain.pruned` marker once the cap is reached). See [docs/trust-chain.md](trust-chain.md#chain-pruning). |
 
 #### `DNA`
 
@@ -1197,7 +1201,13 @@ Read-only `TrustChain` view. The chain is mutated by Soul's lifecycle hooks; for
 def trust_chain_manager(self) -> TrustChainManager
 ```
 
-The `TrustChainManager` instance. Use `manager.append(action, payload)` to record a custom action that the built-in hooks don't cover.
+The `TrustChainManager` instance. Use `manager.append(action, payload)` to record a custom action that the built-in hooks don't cover. The manager also exposes `prune(keep)` and `dry_run_prune(keep)` for touch-time chain pruning (#203) — see [trust-chain.md](trust-chain.md#chain-pruning).
+
+`TrustChainManager.prune(keep=None, *, reason="touch-time") -> dict` compresses every non-genesis entry into a single signed `chain.pruned` marker when the chain has more than `keep` entries. `keep=None` falls back to the manager's `max_entries` (mirrored from `Biorhythms.trust_chain_max_entries`). Returns `{count, low_seq, high_seq, reason, marker_seq}` describing the prune; `count == 0` indicates a no-op.
+
+`TrustChainManager.dry_run_prune(keep=None) -> dict` returns the same shape without mutating the chain — used by the CLI and MCP preview paths.
+
+The cap is enforced automatically at `append()` time: when `max_entries > 0` and the chain has reached the cap, `append()` runs `prune(keep=1)` before adding the new entry, so the chain is bounded as a hard ceiling.
 
 ### `soul.verify_chain()`
 

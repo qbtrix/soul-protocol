@@ -472,9 +472,13 @@ class Soul:
         self._signature_provider: Ed25519SignatureProvider = Ed25519SignatureProvider()
         self._keystore.private_key_bytes = self._signature_provider.private_key_bytes
         self._keystore.public_key_bytes = self._signature_provider.public_key_bytes
+        # Touch-time chain pruning cap (#203) is read from the soul's
+        # Biorhythms config. 0 (default) preserves the unbounded-chain
+        # behaviour from prior versions; positive values cap the chain.
         self._trust_chain_manager: TrustChainManager = TrustChainManager(
             did=self._identity.did,
             provider=self._signature_provider,
+            max_entries=self._chain_max_entries(),
         )
         self._bonds.set_on_change(self._on_bond_change)
 
@@ -512,7 +516,20 @@ class Soul:
             did=self._identity.did,
             provider=self._signature_provider,
             chain=chain,
+            max_entries=self._chain_max_entries(),
         )
+
+    def _chain_max_entries(self) -> int:
+        """Read the trust-chain pruning cap from biorhythms (#203).
+
+        Returns 0 when biorhythms is unavailable or the cap is unset, which
+        disables auto-pruning (the legacy unbounded-chain behaviour).
+        """
+        bio = getattr(getattr(self._dna, "biorhythms", None), "trust_chain_max_entries", 0)
+        try:
+            return max(0, int(bio))
+        except (TypeError, ValueError):
+            return 0
 
     def _on_bond_change(
         self,

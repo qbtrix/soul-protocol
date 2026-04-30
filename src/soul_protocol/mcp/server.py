@@ -1,5 +1,9 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 30 tools (25 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# 31 tools (26 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-04-29 (#203) — Touch-time chain pruning: ``soul_prune_chain``
+#   compresses a soul's old trust-chain history into a signed chain.pruned
+#   marker. Defaults to dry-run; pass ``apply=True`` to mutate the chain.
+#   Defers the full archival design to v0.5.x.
 # Updated: 2026-04-29 (#42) — Trust chain tools: ``soul_verify`` returns chain
 #   integrity status; ``soul_audit`` returns the human-readable timeline of
 #   signed actions, with optional action_prefix and limit. JSON-only output —
@@ -1675,6 +1679,85 @@ async def soul_audit(
     s = await _resolve_soul(soul)
     log = s.audit_log(action_prefix=action_prefix, limit=limit)
     return json.dumps({"soul": s.name, "did": s.did, "entries": log})
+
+
+@mcp.tool
+async def soul_prune_chain(
+    keep: int | None = None,
+    apply: bool = False,
+    reason: str = "manual",
+    soul: str | None = None,
+) -> str:
+    """Compress old trust-chain history into a signed chain.pruned marker (#203).
+
+    Touch-time stub for v0.5.0. Returns dry-run preview by default; pass
+    ``apply=True`` to actually mutate the chain. Genesis (seq=0) is always
+    preserved. The marker carries ``{count, low_seq, high_seq, reason}`` so
+    an auditor can reconstruct what was dropped.
+
+    Returns JSON ``{soul, did, applied, summary, chain_length, keep}``.
+    ``summary`` is the prune summary (count/low_seq/high_seq/marker_seq).
+
+    The full archival design (separate trust_chain/archive/ directory with
+    checkpoint entries spanning archive files) is deferred to v0.5.x.
+
+    Args:
+        keep: Length threshold. When the chain has more than ``keep``
+            entries, non-genesis history is compressed into a single marker.
+            Defaults to the soul's Biorhythms.trust_chain_max_entries.
+        apply: When False (default), return a dry-run preview only. When
+            True, mutate the chain.
+        reason: Free-form label written onto the marker payload.
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    mgr = s.trust_chain_manager
+
+    effective_keep = keep if keep is not None else mgr.max_entries
+    if effective_keep is None or effective_keep <= 0:
+        return json.dumps(
+            {
+                "soul": s.name,
+                "did": s.did,
+                "applied": False,
+                "error": (
+                    "no keep value provided and the soul's Biorhythms."
+                    "trust_chain_max_entries is 0 (auto-prune disabled)"
+                ),
+            }
+        )
+
+    # Always preview first so we can avoid a mutation when there is
+    # nothing to drop. Reporting applied=True for a no-op would confuse
+    # auditors of the chain (no marker entry was actually written).
+    preview = mgr.dry_run_prune(keep=effective_keep)
+    if not apply or preview["count"] == 0:
+        return json.dumps(
+            {
+                "soul": s.name,
+                "did": s.did,
+                "applied": False,
+                "summary": preview,
+                "chain_length": mgr.length,
+                "keep": effective_keep,
+            }
+        )
+
+    summary = mgr.prune(keep=effective_keep, reason=reason)
+    # Mark the soul modified so the registry's auto-save persists the
+    # mutated chain on shutdown. Tools that mutate state follow this
+    # pattern (soul_observe, soul_remember, etc.).
+    _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "soul": s.name,
+            "did": s.did,
+            "applied": True,
+            "summary": summary,
+            "chain_length": mgr.length,
+            "keep": effective_keep,
+        }
+    )
 
 
 # --- Resources (3) ---

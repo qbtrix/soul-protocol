@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Touch-time chain pruning (#203)** — a configurable cap on trust-chain length, enforced at append time. New `Biorhythms.trust_chain_max_entries: int = 0` (default 0 preserves the prior unbounded behaviour); positive values cause `append()` to compress every non-genesis entry into a single signed `chain.pruned` marker before adding the new entry, so the chain is bounded as a hard ceiling. The marker carries `{count, low_seq, high_seq, reason}` and uses a reserved action name (`CHAIN_PRUNED_ACTION` from `soul_protocol.spec.trust`); the verifier permits exactly one carve-out from strict seq monotonicity for entries with this action. New runtime API: `TrustChainManager.prune(keep=None, *, reason="touch-time")`, `TrustChainManager.dry_run_prune(keep=None)`, `TrustChainManager.max_entries`. New CLI: `soul prune-chain <path> [--keep N] [--apply] [--reason ...] [--json]`. New MCP tool: `soul_prune_chain(keep, apply, reason, soul)`. Spec extension lands as `SPEC.md §10A.10` (optional pruning extension). The full archival design — separate `trust_chain/archive/` directory with checkpoint entries — is deferred to v0.5.x; this release is the touch-time stub. Docs: `trust-chain.md` (new "Chain pruning" section), `cli-reference.md` (`soul prune-chain`), `mcp-server.md` (`soul_prune_chain`), `api-reference.md` (`Biorhythms.trust_chain_max_entries` + `TrustChainManager.prune`).
+
 ---
 
 ## [0.4.0] -- 2026-04-29

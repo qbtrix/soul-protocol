@@ -11,6 +11,7 @@ This page covers:
 - [Key management](#key-management)
 - [Sharing a soul without leaking the signing key](#sharing-a-soul-without-leaking-the-signing-key)
 - [On-disk layout](#on-disk-layout)
+- [Chain pruning](#chain-pruning)
 - [API quick reference](#api-quick-reference)
 
 ## Why a trust chain
@@ -38,6 +39,7 @@ The trust chain protects against:
 | Reordering entries | Sequence numbers go non-monotonic; chain breaks |
 | Replaying genesis entry | Duplicate seq detected by `verify_chain()` |
 | Backdating entries | Future-timestamped entries (>60s skew) are flagged; backdated entries can pass timestamp checks but break the hash chain when inserted |
+| Forging a seq gap to hide a tampered entry | Only `chain.pruned` entries may break monotonicity; every other action with a non-`prev.seq + 1` seq fails verification |
 
 The trust chain does **not** protect against:
 
@@ -158,6 +160,69 @@ keys/
 
 The per-entry JSON files are for human inspection and debugging — `chain.json` is what the runtime reads. Chains are not encrypted independently of the soul; if the surrounding soul archive is password-encrypted (`Soul.export(password=...)`), the chain entries are encrypted at rest too.
 
+## Chain pruning
+
+A soul that runs for years accumulates a long chain — every memory write, every bond change, every learning event becomes a signed entry. Without bounds, the chain grows unboundedly. Touch-time pruning (v0.5.0, issue #203) puts a configurable cap on the chain length and compresses old history into a single signed marker.
+
+### Configuring the cap
+
+`Biorhythms.trust_chain_max_entries` defaults to `0`, which disables pruning and preserves the prior unbounded-chain behaviour. Set it to a positive integer to cap the chain at that length:
+
+```python
+from soul_protocol import Soul
+
+soul = await Soul.birth(
+    "AlwaysOn",
+    biorhythms={"trust_chain_max_entries": 500},
+)
+```
+
+When the cap is reached, the next `append()` call collapses every non-genesis entry into a single signed `chain.pruned` marker before writing the new entry. With a cap of N, the chain steady-state length is bounded by `min(N, total_appends_since_last_prune + 2)`.
+
+### The `chain.pruned` marker
+
+Every prune writes one signed entry with `action == "chain.pruned"` and a payload that records what was dropped:
+
+```
+{
+  "count":     int,    // number of entries dropped
+  "low_seq":   int,    // lowest seq number that was dropped
+  "high_seq":  int,    // highest seq number that was dropped
+  "reason":    str,    // "touch-time" for auto-prune, "manual" for CLI/MCP, free-form
+}
+```
+
+The marker carries `seq = high_seq + 1` so the audit counter never resets — replays of the chain on a peer that observed the older entries can spot the gap. `prev_hash` links from the genesis entry's hash, NOT from the highest-pruned entry.
+
+### Verification rule
+
+The verifier permits exactly one carve-out from strict seq monotonicity: an entry whose `action == "chain.pruned"` MAY have a seq strictly greater than `prev.seq + 1`. The `prev_hash` linkage and signature still apply normally. Every other action remains strictly monotonic (`seq == prev.seq + 1`), so a tampered chain that injects a gap at any other action name fails verification.
+
+The constant `CHAIN_PRUNED_ACTION = "chain.pruned"` is exported from `soul_protocol.spec.trust` so external verifiers in other languages know which action receives the carve-out.
+
+### Manual pruning
+
+The `soul prune-chain` CLI command and the `soul_prune_chain` MCP tool let operators trigger a prune outside of the auto-prune path. Both default to dry-run; pass `--apply` (or `apply=True`) to mutate the chain:
+
+```bash
+soul prune-chain ./.soul --keep 100             # preview
+soul prune-chain ./.soul --keep 100 --apply     # execute
+soul prune-chain ./.soul --keep 100 --json      # machine-readable
+```
+
+When `--keep` is omitted the command falls back to the soul's `Biorhythms.trust_chain_max_entries`. With both unset the command exits non-zero with a clear error.
+
+### What the stub does NOT do (deferred to v0.5.x)
+
+This is the touch-time stub. The full archival design lands in a later v0.5.x release and adds:
+
+- A separate `trust_chain/archive/` directory that retains the dropped entries instead of discarding them
+- `chain.archived` checkpoint entries that span the active chain and the archive files
+- Compression of the archived entries
+- Verification across the active + archived chain split
+
+The stub trades full retention for simplicity: a single signed marker preserves the audit metadata about what was dropped (count, seq range, reason), but the original entries themselves are gone. An operator who needs full retention should either set the cap to 0 (unbounded) or wait for the v0.5.x archival release.
+
 ## API quick reference
 
 Spec layer (`soul_protocol.spec.trust`):
@@ -170,12 +235,16 @@ Spec layer (`soul_protocol.spec.trust`):
 - `compute_payload_hash(payload) -> str`
 - `compute_entry_hash(entry) -> str`
 - `GENESIS_PREV_HASH` — `"0" * 64`
+- `CHAIN_PRUNED_ACTION` — `"chain.pruned"` — the only action whose entries may break seq monotonicity
 
 Runtime layer:
 
 - `soul_protocol.runtime.crypto.ed25519.Ed25519SignatureProvider`
 - `soul_protocol.runtime.crypto.keystore.Keystore`
 - `soul_protocol.runtime.trust.manager.TrustChainManager`
+- `TrustChainManager.prune(keep=None, *, reason="touch-time") -> dict`
+- `TrustChainManager.dry_run_prune(keep=None) -> dict` — preview without mutation
+- `TrustChainManager.max_entries: int` — cap mirrored from `Biorhythms.trust_chain_max_entries`
 
 Soul-level convenience:
 
@@ -188,8 +257,10 @@ CLI:
 
 - `soul verify <path>` — exit 0/1
 - `soul audit <path> --filter memory. --limit 20` — Rich table or `--json`
+- `soul prune-chain <path> [--keep N] [--apply]` — touch-time prune, dry-run by default
 
 MCP tools:
 
 - `soul_verify` — JSON `{soul, did, valid, length, signers, first_failure}`
 - `soul_audit` — JSON `{soul, did, entries: […]}`
+- `soul_prune_chain` — JSON `{soul, did, applied, summary, chain_length, keep}`
