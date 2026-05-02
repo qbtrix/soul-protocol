@@ -1,4 +1,8 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-04-29 (#142) — Wire `soul optimize <soul-path> <eval.yaml>` from
+#   cli/optimize.py. Drives the autonomous self-improvement loop: eval → propose
+#   knob change → re-eval → keep/revert. Defaults to dry-run; --apply keeps the
+#   winning trajectory and appends soul.optimize.applied trust chain entries.
 # Updated: 2026-04-30 (#191) — Wire `soul diff <left> <right>` from cli/diff.py.
 #   Renders a structured comparison (identity / OCEAN / state / memories /
 #   bond / skills / trust chain / self-model / evolution) in text, json, or
@@ -147,6 +151,11 @@ cli.add_command(_diff_cmd)
 from soul_protocol.cli.eval_cmd import register as _register_eval_cmd  # noqa: E402
 
 _register_eval_cmd(cli)
+
+# Soul-optimize / autoresearch (#142) — registers `soul optimize` on the cli group.
+from soul_protocol.cli.optimize import register as _register_optimize_cmd  # noqa: E402
+
+_register_optimize_cmd(cli)
 
 
 @cli.command()

@@ -1,6 +1,10 @@
 <!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
      memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
+     Updated: 2026-04-29 — v0.5.0 (#142): Added Optimize section documenting
+       soul_protocol.optimize — optimize(), OptimizeRunner, the Knob protocol, the four
+       built-in knobs (OceanTraitKnob, PersonaTextKnob, SignificanceThresholdKnob,
+       BondThresholdKnob), Proposer, OptimizeResult, OptimizeStep, score_of.
      Updated: 2026-04-30 — v0.5.0 (#203): Added Biorhythms.trust_chain_max_entries (touch-time
        chain pruning cap), TrustChainManager.prune(keep)/dry_run_prune(keep)/max_entries.
        Auto-prune fires at append() when the cap is reached.
@@ -1621,3 +1625,153 @@ from soul_protocol.eval import (
 - `StructuralScoring(kind="structural", expected: dict, threshold: float = 1.0)`
 
 For the structural keys (`output_contains_bonded_user`, `output_contains_user_id`, `mood_after`, `min_energy_after`, `max_energy_after`, `recall_min_results`, `recall_expected_substring`) see [eval-format.md](eval-format.md#structural).
+
+---
+
+## Optimize
+
+The `soul_protocol.optimize` module ships the autonomous self-improvement loop (#142). It pairs with the eval module so a soul can run an eval against itself, propose changes to its own knobs, keep changes that move the eval score up, and revert those that don't. See [soul-optimize.md](soul-optimize.md) for the concept overview and [cli-reference.md](cli-reference.md#soul-optimize) for the `soul optimize` command.
+
+```python
+from soul_protocol.optimize import (
+    optimize,
+    OptimizeRunner,
+    OptimizeResult,
+    OptimizeStep,
+    KnobProposal,
+    Knob,
+    OceanTraitKnob,
+    PersonaTextKnob,
+    SignificanceThresholdKnob,
+    BondThresholdKnob,
+    default_knobs,
+    Proposer,
+    score_of,
+)
+```
+
+### Entry point
+
+```python
+async def optimize(
+    soul: Soul,
+    eval_spec_path: str | Path | EvalSpec,
+    *,
+    iterations: int = 10,
+    target_score: float = 1.0,
+    knobs: list[Knob] | None = None,
+    engine: CognitiveEngine | None = None,
+    proposer: Proposer | None = None,
+    apply: bool = False,
+) -> OptimizeResult
+```
+
+Run the eval-improve-eval loop. Pass a YAML path or a pre-parsed `EvalSpec`. The spec's `seed` block is ignored — the live soul is the seed.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `soul` | `Soul` | required | The soul to tune. Mutated in place when `apply=True`; restored to its starting state when `apply=False`. |
+| `eval_spec_path` | `str \| Path \| EvalSpec` | required | Path to a YAML eval spec, or an already-parsed instance. |
+| `iterations` | `int` | `10` | Maximum loop iterations. |
+| `target_score` | `float` | `1.0` | Stop early when the eval score reaches this threshold. |
+| `knobs` | `list[Knob] \| None` | `default_knobs()` | Custom knob list. |
+| `engine` | `CognitiveEngine \| None` | `None` | Engine for judge cases and the LLM-assisted proposer. Without one the heuristic proposer fires and judge cases skip. |
+| `proposer` | `Proposer \| None` | `Proposer()` | Custom proposer. |
+| `apply` | `bool` | `False` | Keep kept changes and append `soul.optimize.applied` chain entries when `True`. |
+
+### Runner class
+
+```python
+runner = OptimizeRunner(
+    soul,
+    eval_spec,
+    knobs=None,
+    engine=None,
+    proposer=None,
+)
+runner.register_knob(my_custom_knob)
+result = await runner.run(iterations=20, target_score=0.9, apply=False)
+```
+
+`register_knob(knob)` appends a custom knob to the runner's pool. Custom knobs sit below the built-ins in heuristic priority so they only fire when none of the defaults moved the score.
+
+### Knob protocol
+
+```python
+@runtime_checkable
+class Knob(Protocol):
+    name: str
+    async def current_value(self, soul: Soul) -> Any: ...
+    async def apply(self, soul: Soul, value: Any) -> None: ...
+    async def revert(self, soul: Soul, original: Any) -> None: ...
+    def candidates(self, current: Any) -> list[Any]: ...
+```
+
+`apply()` and `revert()` are pure mutations — they do **not** append trust-chain entries. Chain hooks live in the runner so probe attempts that get rolled back never pollute the audit log.
+
+### Built-in knobs
+
+- `OceanTraitKnob(trait: str, *, step_sizes=(0.1, 0.2))` — adjusts one of `openness` / `conscientiousness` / `extraversion` / `agreeableness` / `neuroticism`. Candidates are ±0.1 and ±0.2 around the current value, clamped to `[0.0, 1.0]`.
+- `PersonaTextKnob(engine=None, failing_cases=None, candidates_override=None)` — proposes alternate persona phrasings via the cognitive engine. Without an engine, the heuristic side returns no candidates and the runner skips it. The `async_candidates(current)` method is the LLM path; `candidates(current)` is the override / heuristic path. The proposer wires the engine + failing-case strings into the knob automatically before each round.
+- `SignificanceThresholdKnob(*, threshold_step=1, threshold_bounds=(1, 10))` — adjusts `MemorySettings.importance_threshold` (±1) plus the boolean `MemorySettings.skip_deep_processing_on_low_significance`. A "value" is the tuple `(threshold, skip_deep)`.
+- `BondThresholdKnob(*, step_sizes=(5.0, 10.0), bounds=(0.0, 100.0))` — adjusts the soul's default `bond.bond_strength` by ±5 / ±10. Direct attribute mutation bypasses the `BondRegistry` `on_change` callback so probe-and-revert experiments stay silent.
+- `default_knobs(*, engine=None) -> list[Knob]` — convenience: one OCEAN knob per trait, plus the persona / significance / bond knobs.
+
+### Proposer
+
+```python
+class Proposer:
+    def __init__(self, *, max_proposals: int = 24): ...
+    async def propose(
+        self,
+        soul: Soul,
+        eval_result: EvalResult,
+        knobs: list[Knob],
+        engine: CognitiveEngine | None = None,
+    ) -> list[KnobProposal]: ...
+```
+
+Two paths share one entry point. When an engine is wired, the proposer asks the LLM to rank knobs by likely impact and parses the JSON response. When the LLM returns proposals, heuristic exploration is appended below them so a single under-shot LLM proposal doesn't strand the loop. When the engine errors or returns no usable proposals, the proposer falls back to the pure heuristic ranker (OCEAN traits first, then persona, then thresholds; every candidate of every knob).
+
+### Result models
+
+`OptimizeStep`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `iteration` | `int` | 1-indexed loop iteration that produced the step. |
+| `knob_name` | `str` | Name of the knob the proposal targeted. |
+| `before` | `Any` | Knob value before the trial. |
+| `after` | `Any` | Candidate value the proposal applied. |
+| `score_before` | `float` | Eval score before the trial. |
+| `score_after` | `float` | Eval score after the trial. |
+| `kept` | `bool` | True when the change improved the score and was kept; False when reverted. |
+| `reason` | `str` | Free-form explanation from the proposer. |
+| `delta` | `float` (property) | `score_after - score_before`. |
+
+`OptimizeResult`:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `spec_name` | `str` | Echoes `EvalSpec.name`. |
+| `baseline_score` | `float` | Mean per-case score at iteration 0. |
+| `final_score` | `float` | Mean per-case score after the loop. |
+| `target_score` | `float` | Threshold passed to `optimize`. |
+| `iterations_run` | `int` | How many outer iterations executed. |
+| `convergence_iteration` | `int \| None` | Iteration at which the score crossed `target_score`, or `None` if never. |
+| `applied` | `bool` | Echoes the `apply=` argument. |
+| `steps` | `list[OptimizeStep]` | Per-trial record. |
+| `knobs_touched` | `list[str]` | Sorted list of knob names that produced at least one kept change. |
+| `duration_ms` | `int` | Total wall-clock time. |
+| `improved` | `bool` (property) | True when `final_score > baseline_score`. |
+| `converged` | `bool` (property) | True when `final_score >= target_score`. |
+| `kept_steps` | `list[OptimizeStep]` (property) | Subset of `steps` where `kept=True`. |
+| `stuck_iterations` | `int` (property) | Number of iterations where no proposal was kept. |
+
+### score_of
+
+```python
+def score_of(eval_result: EvalResult) -> float
+```
+
+Mean per-case score, ignoring skipped cases. Used by the runner to decide whether a candidate improved the score; exposed publicly so callers building custom proposers / knobs can score consistently.

@@ -1,5 +1,9 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
 # 32 tools (27 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-04-29 (#142) — `soul_optimize` tool runs the autonomous
+#   improvement loop against the active soul. Drives eval → propose → re-eval
+#   → keep/revert; defaults to dry-run (apply=False). Pairs with #160 (soul_eval)
+#   to make "improvement" a measurable signal.
 # Updated: 2026-04-30 (#203) — Touch-time chain pruning: ``soul_prune_chain``
 #   compresses a soul's old trust-chain history into a signed chain.pruned
 #   marker. Defaults to dry-run; pass ``apply=True`` to mutate the chain.
@@ -1949,6 +1953,82 @@ async def soul_eval(
 
     s = await _resolve_soul(soul)
     result = await run_eval_against_soul(spec, s, case_filter=case_filter)
+    return json.dumps(result.model_dump(mode="json"))
+
+
+@mcp.tool
+async def soul_optimize(
+    yaml_path: str | None = None,
+    yaml_string: str | None = None,
+    iterations: int = 10,
+    target_score: float = 1.0,
+    apply: bool = False,
+    soul: str | None = None,
+) -> str:
+    """Run the autonomous self-improvement loop against the active soul (#142).
+
+    Drives the eval-improve-eval cycle: run an eval, propose knob changes
+    (OCEAN traits, persona text, memory thresholds, bond strength) for
+    failing cases, re-run the eval, keep changes that improve the score,
+    revert otherwise. Pairs with ``soul_eval`` to make "improvement" a
+    measurable signal rather than a vibe.
+
+    Either ``yaml_path`` or ``yaml_string`` is required. The spec's
+    ``seed`` block is ignored — the active soul's live state is the seed.
+
+    Defaults to ``apply=False`` (dry-run): every change applied during the
+    run is reverted at the end so the soul remains byte-identical. Set
+    ``apply=True`` to keep the winning trajectory; per-kept-change
+    ``soul.optimize.applied`` trust chain entries are appended.
+
+    Args:
+        yaml_path: Path to a .yaml/.yml eval spec (mutually exclusive
+            with yaml_string).
+        yaml_string: Raw YAML eval spec text.
+        iterations: Maximum loop iterations (default 10).
+        target_score: Stop early when the eval score reaches this
+            threshold (default 1.0).
+        apply: Keep changes and write trust-chain entries when True
+            (default False — dry-run only).
+        soul: Target soul name (uses active soul if omitted).
+
+    Returns:
+        JSON string with the OptimizeResult: spec_name, baseline_score,
+        final_score, target_score, iterations_run, convergence_iteration,
+        steps (each with iteration, knob_name, before, after, scores,
+        kept), knobs_touched, duration_ms.
+    """
+    if (yaml_path is None) == (yaml_string is None):
+        return json.dumps({"error": "exactly one of yaml_path / yaml_string is required"})
+
+    from soul_protocol.eval import load_eval_spec, parse_eval_spec  # lazy
+    from soul_protocol.optimize import optimize as run_optimize
+
+    if yaml_string is not None:
+        try:
+            import yaml as _yaml
+
+            data = _yaml.safe_load(yaml_string)
+            if not isinstance(data, dict):
+                return json.dumps({"error": "yaml_string must contain a mapping at top level"})
+            spec = parse_eval_spec(data)
+        except Exception as e:
+            return json.dumps({"error": f"failed to parse yaml_string: {e}"})
+    else:
+        try:
+            spec = load_eval_spec(yaml_path)
+        except Exception as e:
+            return json.dumps({"error": f"failed to load {yaml_path}: {e}"})
+
+    s = await _resolve_soul(soul)
+    result = await run_optimize(
+        s,
+        spec,
+        iterations=iterations,
+        target_score=target_score,
+        engine=getattr(s, "_engine", None),
+        apply=apply,
+    )
     return json.dumps(result.model_dump(mode="json"))
 
 

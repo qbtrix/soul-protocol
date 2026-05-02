@@ -3,6 +3,9 @@
      2 prompts, auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
      Updated: 2026-04-30 — v0.5.0 (#203): Added soul_prune_chain MCP tool for touch-time
      chain pruning. Dry-run by default; pass apply=true to mutate the chain. Tool count: 27 → 28.
+     Updated: 2026-04-29 — v0.5.0 (#142): Added soul_optimize MCP tool for the autonomous
+       self-improvement loop. Defaults to apply=False (dry-run). When apply=True, kept
+       changes write soul.optimize.applied trust chain entries.
      Updated: 2026-04-29 — v0.5.0 (#160): Added soul_eval MCP tool for running YAML eval
      specs against the active soul. Accepts yaml_path or yaml_string. Returns the EvalResult
      as JSON. Tool count: 26 → 27.
@@ -524,6 +527,29 @@ Run a YAML eval spec against the active soul (#160). Unlike the CLI `soul eval` 
 The `seed` block on the spec is intentionally ignored — the soul's live memories, OCEAN, bonds, and state are the seed. Only `cases` run. Pass `yaml_path` **or** `yaml_string`, not both.
 
 See [eval-format.md](eval-format.md) for the YAML schema and the supported scoring kinds (keyword / regex / semantic / judge / structural).
+
+---
+
+### `soul_optimize`
+
+Run the autonomous self-improvement loop against the active soul (#142). Drives the eval-improve-eval cycle: run an eval, propose knob changes (OCEAN traits, persona text, memory thresholds, bond strength) for failing cases, re-run the eval, keep changes that improve the score, revert otherwise. Pairs with [`soul_eval`](#soul_eval) so "improvement" is a measurable signal rather than a vibe.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `yaml_path` | `str` | `None` | Filesystem path to a `.yaml` / `.yml` eval spec (mutually exclusive with `yaml_string`) |
+| `yaml_string` | `str` | `None` | Raw YAML eval spec text |
+| `iterations` | `int` | `10` | Maximum loop iterations |
+| `target_score` | `float` | `1.0` | Stop early when the eval score reaches this threshold |
+| `apply` | `bool` | `false` | Keep changes and append `soul.optimize.applied` chain entries when `true` (default `false` — dry-run) |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `OptimizeResult`: `spec_name`, `baseline_score`, `final_score`, `target_score`, `iterations_run`, `convergence_iteration`, `applied`, `steps` (each with `iteration`, `knob_name`, `before`, `after`, `score_before`, `score_after`, `kept`, `reason`), `knobs_touched`, `duration_ms`.
+
+The spec's `seed` block is intentionally ignored — the active soul's live state is the seed.
+
+**Safety rails.** `apply=False` is the default. In that mode every change applied during the run is reverted at the end and no trust chain entries are written. Set `apply=True` to keep the winning trajectory; per-kept-change `soul.optimize.applied` entries are appended to the soul's signed audit log. Reverted proposals never write chain entries either way.
+
+See [soul-optimize.md](soul-optimize.md) for the concept overview and the knob model. See [eval-format.md](eval-format.md) for how to author the eval that drives the loop.
 
 ---
 

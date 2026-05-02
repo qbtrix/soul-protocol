@@ -1,4 +1,9 @@
-<!-- Covers: CLI installation, all 50 commands with usage examples, options tables, and output descriptions.
+<!-- Covers: CLI installation, all 51 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-04-29 — v0.5.0 (#142): Added `soul optimize` for the autonomous
+       self-improvement loop. Reads an eval spec, proposes knob changes (OCEAN, persona,
+       memory thresholds, bond strength), keeps changes that improve the score, reverts
+       otherwise. Dry-run by default; --apply persists the winning trajectory and writes
+       soul.optimize.applied trust chain entries. Count: 50 → 51.
      Updated: 2026-04-30 — v0.5.0 (#203): Added `soul prune-chain` for touch-time chain
        pruning. Dry-run by default; --apply to mutate; --keep N for the threshold;
        falls back to Biorhythms.trust_chain_max_entries when --keep is omitted.
@@ -1583,6 +1588,59 @@ soul eval my_eval.yaml --judge-engine my_module:make_engine
 **Output:** one Rich table per spec (Case, Status, Score, Time, optional Details), plus a summary footer with totals. `--json` returns `{specs: [...], duration_ms, pass_count, fail_count, skip_count, error_count}`.
 
 **Exit codes:** `0` when every case passes (skipped cases don't fail the run); `1` when any case fails or any spec errors out.
+
+---
+
+### `soul optimize`
+
+Run the autonomous self-improvement loop against a soul (v0.5.0, issue #142). Reads an eval spec, identifies failing cases, proposes knob changes (OCEAN traits, persona text, memory thresholds, bond strength), applies and re-scores. Improvements are kept; everything else is reverted. Defaults to dry-run — no soul state mutates unless you pass `--apply`. See [soul-optimize.md](soul-optimize.md) for the full concept overview.
+
+```bash
+soul optimize <soul-path> <eval.yaml>
+soul optimize <soul-path> <eval.yaml> --iterations 20 --target 0.9
+soul optimize <soul-path> <eval.yaml> --apply
+soul optimize <soul-path> <eval.yaml> --json
+soul optimize <soul-path> <eval.yaml> --engine module:Class
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SOUL_PATH` | Yes | Path to a `.soul` file or `.soul/` directory. |
+| `EVAL_SPEC_PATH` | Yes | Path to a `.yaml` / `.yml` eval spec. |
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--iterations / -n <N>` | int | 10 | Maximum optimization iterations. |
+| `--target <X>` | float | 1.0 | Stop early when the eval score reaches this threshold. |
+| `--apply` | flag | false | Keep the winning trajectory and append `soul.optimize.applied` trust-chain entries. Without this flag every change reverts at end. |
+| `--engine <module:attr>` | str | none | Engine for judge cases and the LLM-assisted proposer. Without an engine the heuristic proposer fires and judge cases skip. |
+| `--json` | flag | false | Emit the full `OptimizeResult` as JSON instead of the Rich table. |
+
+**Examples:**
+
+```bash
+# Dry-run preview against the personality-expression eval
+soul optimize aria.soul tests/eval_examples/personality_expression.yaml
+
+# Apply the winning trajectory; trust chain records each kept change
+soul optimize aria.soul eval.yaml --apply
+
+# Tighter convergence target
+soul optimize aria.soul eval.yaml --iterations 20 --target 0.9
+
+# Pipe the JSON output for downstream processing
+soul optimize aria.soul eval.yaml --json | jq '.steps | map(select(.kept))'
+```
+
+**Output:** a Rich table with one row per trial (iteration, knob, before, after, score change, kept) plus a summary line `baseline X → final Y (Δ) · ran/converged · N knobs touched · duration · APPLIED|dry-run`. `--json` returns the full `OptimizeResult` Pydantic dump (`baseline_score`, `final_score`, `target_score`, `iterations_run`, `convergence_iteration`, `steps`, `knobs_touched`, `applied`, `duration_ms`).
+
+**Exit codes:** always `0` on a successful run — the loop is informational. Inspect the JSON output for hard pass/fail logic.
+
+**Safety rails:** `--apply` is opt-in. The default dry-run reverts every change applied during the run so the soul on disk stays byte-identical. With `--apply`, only changes that strictly improved the eval score are kept, and each kept change appends one signed `soul.optimize.applied` trust-chain entry with payload `{knob_name, before, after, score_delta}` for full audit.
 
 ---
 
