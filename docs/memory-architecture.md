@@ -946,3 +946,58 @@ soul.skills.get("python")  # Skill(id="python", level=3, xp=45, ...)
 ```
 
 Skills persist through export/awaken via `SoulConfig.skills`.
+
+## Memory update primitives (v0.5.0, #192)
+
+Six runtime verbs for correcting, refreshing, suppressing, or restoring memories. The vocabulary mirrors how brains actually handle updates — the cog-sci grounding lives in the [RFC](rfc-memory-update-primitives.md); this section is the runtime-level operator's view.
+
+### The PE / window / weight model
+
+Three knobs gate every update:
+
+- **prediction_error (PE)** — caller-supplied score in `[0.0, 1.0]`. PE answers "how surprising is this change?"
+- **reconsolidation window** — opens whenever `recall()` returns an entry, stays open for one hour, gates `update()`. Models cellular destabilization: a just-recalled trace is briefly editable; outside the window the trace is stable again and edits must write a new orthogonal trace.
+- **retrieval_weight** — per-entry weight in `[0.0, 1.0]`. Recall filters entries with `weight < 0.1` by default. `forget()` drops to 0.05 (invisible to recall, still on disk). `reinstate()` restores to 1.0.
+
+### The six verbs
+
+| Verb | PE band | Window | Side effect |
+|------|---------|--------|-------------|
+| `confirm(id)` | implicit ~0 (no check) | n/a | Bumps `last_accessed` / `access_count`, restores any decayed weight to 1.0 |
+| `update(id, patch)` | `[0.2, 0.85)` | must be open | Replaces content in place, stamps `prediction_error`, resets weight to 1.0 |
+| `supersede(old, new)` | `>= 0.85` | n/a | Writes a new entry, sets `old.superseded_by = new.id` and `new.supersedes = old.id` |
+| `forget(id)` | not gated | closes window for id | Drops weight to 0.05 (recall filters it out) |
+| `purge(id)` | not gated | closes window for id | Hard delete + chain entry with prior payload hash |
+| `reinstate(id)` | not gated | n/a | Restores weight to 1.0 |
+
+PE outside the verb's band raises `PredictionErrorOutOfBandError`. `update()` outside the window raises `ReconsolidationWindowClosedError`. Both errors are recoverable — the caller switches to the right verb (confirm for low PE, supersede for high PE or closed window).
+
+### Recall provenance
+
+Every `recall()` call resets `Soul.last_recall_provenance` and walks the `supersedes` back-edge for every returned entry that has a chain. Each provenance link is `{kind: "supersedes", target_id, reason, prediction_error, timestamp}`. The walk follows the chain back to the oldest known version. The sidecar lives on the Soul instance — `MemoryEntry` itself is not mutated, so the on-disk shape stays the same.
+
+### Trust chain entries
+
+Every verb except `confirm` is destructive or audit-worthy and lands a signed entry on the trust chain:
+
+- `memory.confirm` → `{id, tier, weight_after, user_id}`
+- `memory.update` → `{id, tier, prediction_error, user_id}`
+- `memory.supersede` → `{old_id, new_id, reason, prediction_error, user_id}`
+- `memory.forget` → `{id, tier, weight_after, user_id}` (single-id) or `{query, count, weight_after, user_id}` (bulk)
+- `memory.purge` → `{id, tier, prior_payload_hash, user_id}`
+- `memory.reinstate` → `{id, tier, weight_before, weight_after, user_id}`
+
+`purge` is the only verb that destroys data; the rest are non-destructive and unwindable by inverse operations. `purge` still records the SHA-256 of the prior content so verifiers can later prove the entry once existed without storing the content itself.
+
+### Why this isn't just "edit/delete"
+
+Plain edit/delete loses provenance and treats every change the same. The brain doesn't:
+
+- Some changes are confirmations (the trace was right) — no new memory needed.
+- Some are minor corrections (the trace was almost right, recently recalled) — patch in place.
+- Some are major contradictions (the trace was wrong, write a new orthogonal one) — supersede.
+- Some are safety obligations (forget this immediately) — weight-decay or purge.
+
+The verbs match the situation. The PE / window / weight model makes the choice mechanical: pick the verb whose band matches the PE, confirm the window is open if the verb needs it, accept the side effect.
+
+For the full theory and references (Nader / LeDoux on reconsolidation, Sevenster / Beckers / Kindt on PE gating, Bjork / Wimber on forgetting as inhibition, Anderson on ACT-R), see [`docs/rfc-memory-update-primitives.md`](rfc-memory-update-primitives.md).

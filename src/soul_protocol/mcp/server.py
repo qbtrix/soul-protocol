@@ -1,5 +1,12 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
 # 32 tools (27 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-04-29 (#192) — Brain-aligned memory update primitive tools.
+#   Adds soul_confirm, soul_update, soul_supersede, soul_purge, and
+#   soul_reinstate. Existing soul_forget shifts from hard delete to
+#   weight-decay (matching the Soul.forget v0.5.0 semantics). PE band
+#   errors and reconsolidation-window errors are caught and returned as
+#   {status: "error", error: ...} JSON so agents can act on them rather
+#   than treating them as crashes.
 # Updated: 2026-04-30 (#203) — Touch-time chain pruning: ``soul_prune_chain``
 #   compresses a soul's old trust-chain history into a signed chain.pruned
 #   marker. Defaults to dry-run; pass ``apply=True`` to mutate the chain.
@@ -1197,20 +1204,21 @@ async def soul_forget(
     confirm: bool = False,
     soul: str | None = None,
 ) -> str:
-    """Delete memories matching a query (GDPR-compliant).
+    """Forget memories matching a query (v0.5.0 weight-decay).
 
-    Searches across all memory tiers (episodic, semantic, procedural) and
-    deletes matching entries. Records a deletion audit entry without storing
-    deleted content.
+    v0.5.0 (#192) shifted forget from hard delete to non-destructive
+    weight-decay: matched entries have their retrieval_weight dropped
+    below the recall floor so they stop surfacing, but stay on disk and
+    can be restored via soul_reinstate. For genuine deletion (GDPR /
+    safety) call soul_purge.
 
     Args:
         query: Search query to match against memory content
-        confirm: Must be true to actually delete (safety gate)
+        confirm: Must be true to actually run the decay (safety gate)
         soul: Target soul name (uses active soul if omitted)
     """
     s = await _resolve_soul(soul)
     if not confirm:
-        # Dry-run: search but don't delete
         results = await s.recall(query, limit=50)
         return json.dumps(
             {
@@ -1218,18 +1226,265 @@ async def soul_forget(
                 "soul": s.name,
                 "query": query,
                 "matching_count": len(results),
-                "hint": "Set confirm=true to delete these memories",
+                "hint": "Set confirm=true to weight-decay these memories",
             }
         )
     result = await s.forget(query)
     _registry.mark_modified(soul)
     return json.dumps(
         {
-            "status": "deleted",
+            "status": "forgotten",
             "soul": s.name,
             "query": query,
-            "total_deleted": result.get("total_deleted", 0),
-            "tiers": result.get("tiers", {}),
+            "total": result.get("total", 0),
+            "tiers": {
+                "episodic": len(result.get("episodic", [])),
+                "semantic": len(result.get("semantic", [])),
+                "procedural": len(result.get("procedural", [])),
+            },
+        }
+    )
+
+
+# v0.5.0 (#192) — Brain-aligned memory update primitive MCP tools.
+# Each tool wraps the corresponding Soul method and returns JSON.
+
+
+@mcp.tool
+async def soul_confirm(
+    memory_id: str,
+    user_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Refresh activation on a verified memory.
+
+    Bumps last_accessed and access_count, restores any decayed
+    retrieval_weight back toward 1.0, and appends a memory.confirm
+    chain entry. The "this is still right" verb — no PE supplied,
+    no window check.
+
+    Args:
+        memory_id: ID of the memory to confirm
+        user_id: Optional user_id to record on the chain entry
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    result = await s.confirm(memory_id, user_id=user_id)
+    if result.get("found"):
+        _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "status": "confirmed" if result.get("found") else "not_found",
+            "soul": s.name,
+            "memory_id": memory_id,
+            "tier": result.get("tier"),
+            "weight": result.get("weight"),
+        }
+    )
+
+
+@mcp.tool
+async def soul_update(
+    memory_id: str,
+    patch: str,
+    prediction_error: float = 0.5,
+    user_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """In-place patch within the reconsolidation window.
+
+    The window opens whenever soul_recall returns the entry; it stays
+    open for one hour. Outside the window the call raises and the agent
+    should switch to soul_supersede. PE band [0.2, 0.85). PE outside
+    the band raises — call soul_confirm for PE<0.2 and soul_supersede
+    for PE>=0.85.
+
+    Args:
+        memory_id: ID of the memory to patch
+        patch: Replacement content
+        prediction_error: PE in [0.2, 0.85). Default 0.5
+        user_id: Optional user_id to record on the chain entry
+        soul: Target soul name (uses active soul if omitted)
+    """
+    from ..runtime.exceptions import (
+        PredictionErrorOutOfBandError,
+        ReconsolidationWindowClosedError,
+    )
+
+    s = await _resolve_soul(soul)
+    # Open the window via recall against the current content so the tool
+    # is usable in a single call (matching the CLI behaviour).
+    existing, _ = await s._memory.find_by_id(memory_id)
+    if existing is not None:
+        await s.recall(existing.content[:100])
+    try:
+        result = await s.update(
+            memory_id,
+            patch,
+            prediction_error=prediction_error,
+            user_id=user_id,
+        )
+    except (PredictionErrorOutOfBandError, ReconsolidationWindowClosedError) as exc:
+        return json.dumps(
+            {
+                "status": "error",
+                "soul": s.name,
+                "memory_id": memory_id,
+                "error": type(exc).__name__,
+                "message": str(exc),
+            }
+        )
+    if result.get("found"):
+        _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "status": "updated" if result.get("found") else "not_found",
+            "soul": s.name,
+            "memory_id": memory_id,
+            "tier": result.get("tier"),
+            "new_content": result.get("new_content"),
+            "prediction_error": prediction_error,
+        }
+    )
+
+
+@mcp.tool
+async def soul_supersede(
+    old_id: str,
+    new_content: str,
+    reason: str | None = None,
+    prediction_error: float = 0.85,
+    importance: int = 5,
+    user_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Write a new memory and link the old as superseded (PE >= 0.85).
+
+    The orthogonal-trace verb. The new entry's supersedes back-edge
+    points at old_id, and old.superseded_by points at the new entry.
+    Recall surfaces the new entry; provenance walkers can climb back
+    to the older versions.
+
+    Args:
+        old_id: ID of the memory being replaced
+        new_content: Content for the new memory
+        reason: Optional free-form reason recorded in the audit trail
+        prediction_error: PE in [0.85, 1.0]. Default 0.85
+        importance: Importance score for the new memory (1-10)
+        user_id: Optional user_id to record on the chain entry
+        soul: Target soul name (uses active soul if omitted)
+    """
+    from ..runtime.exceptions import PredictionErrorOutOfBandError
+
+    s = await _resolve_soul(soul)
+    try:
+        result = await s.supersede(
+            old_id,
+            new_content,
+            reason=reason,
+            prediction_error=prediction_error,
+            importance=importance,
+            user_id=user_id,
+        )
+    except PredictionErrorOutOfBandError as exc:
+        return json.dumps(
+            {
+                "status": "error",
+                "soul": s.name,
+                "old_id": old_id,
+                "error": type(exc).__name__,
+                "message": str(exc),
+            }
+        )
+    if result.get("found"):
+        _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "status": "superseded" if result.get("found") else "not_found",
+            "soul": s.name,
+            "old_id": old_id,
+            "new_id": result.get("new_id"),
+            "reason": result.get("reason"),
+            "prediction_error": prediction_error,
+        }
+    )
+
+
+@mcp.tool
+async def soul_purge(
+    memory_id: str,
+    apply: bool = False,
+    user_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Hard delete a memory (GDPR / privacy / safety).
+
+    Genuinely removes the entry from storage. Defaults to dry-run
+    preview — pass apply=True to commit. The trust chain still records
+    the purge with the prior payload hash so verifiers can later prove
+    the entry once existed and was deleted without storing the deleted
+    content. Cannot be reversed by soul_reinstate.
+
+    Args:
+        memory_id: ID of the memory to hard-delete
+        apply: Must be true to actually delete (safety gate)
+        user_id: Optional user_id to record on the chain entry
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    if not apply:
+        entry, tier = await s._memory.find_by_id(memory_id)
+        return json.dumps(
+            {
+                "status": "preview" if entry is not None else "not_found",
+                "soul": s.name,
+                "memory_id": memory_id,
+                "tier": tier,
+                "hint": "Set apply=true to commit the hard delete",
+            }
+        )
+    result = await s.purge(memory_id, user_id=user_id)
+    if result.get("found"):
+        _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "status": "purged" if result.get("found") else "not_found",
+            "soul": s.name,
+            "memory_id": memory_id,
+            "tier": result.get("tier"),
+            "prior_payload_hash": result.get("prior_payload_hash"),
+        }
+    )
+
+
+@mcp.tool
+async def soul_reinstate(
+    memory_id: str,
+    user_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Restore a forgotten memory to full retrieval weight.
+
+    The inverse of soul_forget. Sets retrieval_weight back to 1.0 so
+    recall surfaces the entry again. No-op for entries already at full
+    weight; cannot recover a purged entry.
+
+    Args:
+        memory_id: ID of the memory to reinstate
+        user_id: Optional user_id to record on the chain entry
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    result = await s.reinstate(memory_id, user_id=user_id)
+    if result.get("found"):
+        _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "status": "reinstated" if result.get("found") else "not_found",
+            "soul": s.name,
+            "memory_id": memory_id,
+            "tier": result.get("tier"),
+            "weight": result.get("weight"),
         }
     )
 

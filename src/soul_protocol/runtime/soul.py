@@ -1,4 +1,28 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-04-29 (#192) — Brain-aligned memory update primitives. Adds
+#   six runtime verbs gated by a prediction-error score and a 1-hour
+#   reconsolidation window opened by recall:
+#     - confirm(id):    refresh activation + optionally restore weight
+#     - update(id, p):  in-place patch within the reconsolidation window
+#     - supersede:      now requires PE >= 0.85 by default (extends 0.4.0)
+#     - forget(id):     semantics shift — drops retrieval_weight to 0.05
+#     - purge(id):      explicit hard delete with .soul.bak payload hash
+#     - reinstate(id):  restores retrieval_weight to 1.0 after forget
+#   Soul gains:
+#     - _reconsolidation_window dict (id → datetime). Recall opens an entry;
+#       update verifies it's still open (1h TTL, LRU-capped at 1000).
+#       Reset on awaken — the window is transient cellular state, never
+#       persisted.
+#     - last_recall_provenance accessor: a sidecar dict mapping memory_id
+#       to the full supersedes-chain. Built every recall when entries
+#       carry superseded_by chain links.
+#     - _open_reconsolidation_window helper called by recall.
+#   PE bands per RFC §3 (locked): confirm <0.2, update [0.2, 0.85),
+#   supersede >= 0.85. Out-of-band PE raises PredictionErrorOutOfBandError.
+#   Old single-id Soul.forget(memory_id) shape preserved for back-compat;
+#   the existing bulk Soul.forget(query) path also stays — its semantic now
+#   matches the runtime-wide weight-decay shift but the return shape is
+#   unchanged.
 # Updated: 2026-04-30 (#108, #190) — Graph traversal + typed entity ontology.
 #   - New ``Soul.graph`` property returns a GraphView for typed read access
 #     to the knowledge graph (nodes/edges/neighbors/path/subgraph/to_mermaid).
@@ -204,6 +228,27 @@ from .types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# v0.5.0 (#192) — Brain-aligned memory update primitives — RFC defaults
+# ---------------------------------------------------------------------------
+# PE bands (locked by captain per RFC §10 review, not configurable in 0.5.0):
+#   - confirm   → PE < 0.2
+#   - update    → 0.2 <= PE < 0.85   (window must be open)
+#   - supersede → PE >= 0.85
+# Reconsolidation window TTL: 1 hour (matches lab-rat reconsolidation literature).
+# Retrieval-weight floor: 0.1. forget() drops to 0.05 (below the floor →
+#   invisible to recall but still on disk and recoverable via reinstate()).
+_PE_CONFIRM_MAX: float = 0.2
+_PE_UPDATE_MIN: float = 0.2
+_PE_UPDATE_MAX: float = 0.85
+_PE_SUPERSEDE_MIN: float = 0.85
+_RECONSOLIDATION_WINDOW_TTL_SECONDS: float = 3600.0
+_RECONSOLIDATION_WINDOW_MAX: int = 1000
+_FORGET_WEIGHT_TARGET: float = 0.05
+_REINSTATE_WEIGHT: float = 1.0
+_RECALL_WEIGHT_FLOOR: float = 0.1
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +536,22 @@ class Soul:
         # each call to construct a RetrievalTrace receipt. In-memory only —
         # never serialised into the .soul file.
         self._last_retrieval: RetrievalTrace | None = None
+
+        # v0.5.0 (#192) — Reconsolidation window state. Maps memory_id to
+        # the timestamp when the entry was last surfaced via recall(). The
+        # 1-hour TTL makes the trace "stable again" outside the window;
+        # update() raises ReconsolidationWindowClosedError when the entry
+        # is missing or stale. LRU-capped at 1000 entries (drop the oldest
+        # by timestamp when adding the 1001st). Reset on awaken — the
+        # window models cellular destabilization, which has no offline
+        # counterpart, so persisting it across sessions would be wrong.
+        self._reconsolidation_window: dict[str, datetime] = {}
+        # Provenance sidecar — populated after every recall() that touches
+        # superseded entries. Keyed by memory_id, value is the list of
+        # ProvenanceLink dicts walking the supersedes chain back to the
+        # oldest known version. Sidecar (not on MemoryEntry) so the on-disk
+        # shape stays unchanged.
+        self._last_recall_provenance: dict[str, list[dict]] = {}
 
         # v0.4.0 (#42) — Trust chain. Initialized lazily-but-eagerly: provider
         # is generated fresh on every __init__; awaken() replaces it via
@@ -1378,6 +1439,8 @@ class Soul:
         graph_walk: dict | None = None,
         page_token: str | None = None,
         token_budget: int | None = None,
+        min_weight: float = _RECALL_WEIGHT_FLOOR,
+        include_superseded: bool = False,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories with visibility + scope filtering.
 
@@ -1486,7 +1549,27 @@ class Soul:
             user_id=user_id,
             layer=layer,
             domain=domain,
+            min_weight=min_weight,
         )
+        # v0.5.0 (#192) — When include_superseded is True, top up the result
+        # set with superseded entries that the underlying store filtered out.
+        # This is the path the provenance walker uses to walk the chain.
+        if include_superseded:
+            seen_ids = {r.id for r in results}
+            for store in (
+                self._memory._semantic.facts(include_superseded=True),
+                self._memory._episodic.entries(),
+                self._memory._procedural.entries(),
+            ):
+                for entry in store:
+                    if entry.id in seen_ids:
+                        continue
+                    if (
+                        getattr(entry, "superseded_by", None) is not None
+                        and query.lower() in entry.content.lower()
+                    ):
+                        results.append(entry)
+                        seen_ids.add(entry.id)
         if scopes:
             from soul_protocol.spec.scope import match_scope
 
@@ -1561,6 +1644,22 @@ class Soul:
         )
         if not results:
             logger.debug("Recall returned no results: query_len=%d", len(query))
+
+        # v0.5.0 (#192) — Open the reconsolidation window for every returned
+        # entry. update() consults this map to decide whether an in-place
+        # patch is allowed within the 1h post-recall window. LRU eviction
+        # keeps the map bounded.
+        for entry in results:
+            self._open_reconsolidation_window(entry.id)
+
+        # v0.5.0 (#192) — Provenance sidecar. Reset and rebuild on every
+        # recall so callers always see fresh chains for the entries this
+        # call actually returned.
+        self._last_recall_provenance = {}
+        for entry in results:
+            chain = self._walk_supersedes_chain(entry.id)
+            if chain:
+                self._last_recall_provenance[entry.id] = chain
 
         # Wrap when graph features are in play so the caller sees the token.
         # Otherwise return a plain list to keep the legacy contract bit-stable.
@@ -1843,11 +1942,17 @@ class Soul:
         return await self._memory.remove(memory_id)
 
     async def forget_one(self, memory_id: str) -> dict:
-        """Audited single-id deletion. Returns a dict with deletion results.
+        """Audited single-id deletion (LEGACY, pre-0.5.0).
 
-        Same shape as :meth:`forget` / :meth:`forget_entity` / :meth:`forget_before`
-        plus ``found`` and ``tier`` keys.  Records a deletion audit entry
-        (without the deleted content) when the entry exists.
+        DEPRECATED: as of v0.5.0 (#192), prefer :meth:`forget` for the
+        non-destructive weight-decay path or :meth:`purge` for the
+        explicit GDPR / privacy hard delete. This method keeps the
+        v0.4.x hard-delete behaviour so existing CLI flows that wrap it
+        directly still work.
+
+        Same shape as :meth:`forget_entity` / :meth:`forget_before`
+        plus ``found`` and ``tier`` keys.  Records a deletion audit
+        entry (without the deleted content) when the entry exists.
 
         Appends a ``memory.forget`` entry to the trust chain on success
         with ``{id, tier}`` payload (#42).
@@ -1860,6 +1965,343 @@ class Soul:
             )  # Summary defaults to "deleted <tier>/<id-prefix>".
         return result
 
+    # ============ v0.5.0 (#192) — Brain-aligned memory update primitives ============
+
+    def _open_reconsolidation_window(self, memory_id: str) -> None:
+        """Mark ``memory_id`` as having an open reconsolidation window.
+
+        Called by :meth:`recall` for every entry surfaced. The window
+        stays open for ``_RECONSOLIDATION_WINDOW_TTL_SECONDS`` (1 hour)
+        and gates :meth:`update`. The map is LRU-capped: when it would
+        exceed ``_RECONSOLIDATION_WINDOW_MAX`` entries we drop the
+        oldest by timestamp before adding the new one.
+        """
+        now = datetime.now()
+        self._reconsolidation_window[memory_id] = now
+        if len(self._reconsolidation_window) > _RECONSOLIDATION_WINDOW_MAX:
+            # Drop the oldest entry (smallest timestamp) until under cap.
+            while len(self._reconsolidation_window) > _RECONSOLIDATION_WINDOW_MAX:
+                oldest_id = min(
+                    self._reconsolidation_window,
+                    key=lambda k: self._reconsolidation_window[k],
+                )
+                del self._reconsolidation_window[oldest_id]
+
+    def _is_reconsolidation_window_open(self, memory_id: str) -> tuple[bool, datetime | None]:
+        """Return ``(is_open, opened_at)`` for ``memory_id``.
+
+        The window is open when the entry is in the map AND its timestamp
+        is within the TTL. Stale entries are evicted on lookup so the map
+        stays small even between LRU sweeps.
+        """
+        opened_at = self._reconsolidation_window.get(memory_id)
+        if opened_at is None:
+            return False, None
+        elapsed = (datetime.now() - opened_at).total_seconds()
+        if elapsed > _RECONSOLIDATION_WINDOW_TTL_SECONDS:
+            self._reconsolidation_window.pop(memory_id, None)
+            return False, opened_at
+        return True, opened_at
+
+    def _walk_supersedes_chain(self, memory_id: str) -> list[dict]:
+        """Walk ``supersedes`` back-edges from ``memory_id`` to the oldest
+        known version. Returns a list of provenance link dicts.
+
+        Each link is ``{kind, target_id, reason, prediction_error,
+        timestamp}`` where ``target_id`` is the older entry's id. The list
+        is empty for entries with no ``supersedes`` link. Audit-trail
+        lookup falls back to the in-memory ``supersede_audit`` for the
+        ``reason`` and ``timestamp`` since those are not stored on the
+        entry itself.
+        """
+        # Build an audit lookup keyed by (old_id, new_id) so we can resolve
+        # the reason/timestamp for each chain hop.
+        audit = self._memory.supersede_audit
+        audit_lookup: dict[str, dict] = {}
+        for record in audit:
+            new_id = record.get("new_id")
+            if new_id:
+                audit_lookup[new_id] = record
+
+        chain: list[dict] = []
+        cursor_id = memory_id
+        # Bounded walk — soul memory chains shouldn't realistically exceed
+        # this depth, and a hard cap protects against accidental cycles.
+        for _ in range(64):
+            cursor, _tier = self._memory_lookup_sync(cursor_id)
+            if cursor is None or not cursor.supersedes:
+                break
+            target_id = cursor.supersedes
+            record = audit_lookup.get(cursor_id, {})
+            chain.append(
+                {
+                    "kind": "supersedes",
+                    "target_id": target_id,
+                    "reason": record.get("reason"),
+                    "prediction_error": cursor.prediction_error or record.get("prediction_error"),
+                    "timestamp": record.get("superseded_at"),
+                }
+            )
+            cursor_id = target_id
+        return chain
+
+    def _memory_lookup_sync(self, memory_id: str) -> tuple[MemoryEntry | None, str | None]:
+        """Synchronous lookup across all built-in stores.
+
+        Used by the provenance walker, which is called inline from the
+        async ``recall`` path. The stores are pure dicts so no awaits are
+        needed; we read directly to avoid event-loop hops inside a single
+        call.
+        """
+        episodic = self._memory._episodic._memories.get(memory_id)
+        if episodic is not None:
+            return episodic, "episodic"
+        semantic = self._memory._semantic._facts.get(memory_id)
+        if semantic is not None:
+            return semantic, "semantic"
+        procedural = self._memory._procedural._procedures.get(memory_id)
+        if procedural is not None:
+            return procedural, "procedural"
+        return None, None
+
+    @property
+    def last_recall_provenance(self) -> dict[str, list[dict]]:
+        """Provenance sidecar for the most recent recall.
+
+        Returns a mapping from each returned memory_id to its
+        ``supersedes`` chain (list of provenance links walking back to
+        the oldest version). Empty when the last recall returned no
+        entries with chain links. Reset on every :meth:`recall` call.
+        """
+        return dict(self._last_recall_provenance)
+
+    async def confirm(
+        self,
+        memory_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> dict:
+        """Refresh activation on an entry the caller has just verified.
+
+        v0.5.0 (#192). Confirms re-up the entry's recall metadata: bumps
+        ``last_accessed``, increments ``access_count``, and clamps the
+        ``retrieval_weight`` back toward 1.0 if it has decayed below
+        full strength. PE is implicitly ~0 — confirm is the verb for
+        "this is still right." Always allowed (no PE band check, no
+        window check).
+
+        Appends a ``memory.confirm`` chain entry with ``{id, weight_after,
+        user_id}``.
+
+        Returns ``{found, id, action: "confirmed", weight}``. When
+        ``memory_id`` doesn't resolve, returns ``{found: False}`` with
+        no chain entry.
+        """
+        entry, tier = await self._memory.find_by_id(memory_id)
+        if entry is None or tier is None:
+            return {"found": False, "id": memory_id, "action": "confirmed", "weight": None}
+        now = datetime.now()
+        entry.last_accessed = now
+        entry.access_count += 1
+        entry.access_timestamps.append(now)
+        # Clamp weight back toward 1.0 — confirm restores a decayed but
+        # still-recallable entry. Forgotten entries (weight 0.05) need
+        # reinstate(), not confirm — keep the verbs distinct.
+        if entry.retrieval_weight < 1.0 and entry.retrieval_weight >= _RECALL_WEIGHT_FLOOR:
+            entry.retrieval_weight = 1.0
+        self._safe_append_chain(
+            "memory.confirm",
+            {
+                "id": memory_id,
+                "tier": tier,
+                "weight_after": entry.retrieval_weight,
+                "user_id": user_id,
+            },
+        )
+        return {
+            "found": True,
+            "id": memory_id,
+            "tier": tier,
+            "action": "confirmed",
+            "weight": entry.retrieval_weight,
+        }
+
+    async def update(
+        self,
+        memory_id: str,
+        patch: str,
+        *,
+        prediction_error: float = 0.5,
+        user_id: str | None = None,
+    ) -> dict:
+        """In-place patch within the reconsolidation window (PE in [0.2, 0.85)).
+
+        v0.5.0 (#192). Edits the entry's content directly when the entry
+        was surfaced via :meth:`recall` within the last hour. Outside the
+        window the trace is "stable again" and an in-place edit is unsafe;
+        :class:`ReconsolidationWindowClosedError` is raised so the caller
+        promotes to :meth:`supersede`.
+
+        PE must satisfy 0.2 <= PE < 0.85. PE outside the band raises
+        :class:`PredictionErrorOutOfBandError`. PE below 0.2 means
+        confirm; PE >= 0.85 means supersede.
+
+        Bumps ``last_accessed`` and ``access_count`` on the entry, stamps
+        the ``prediction_error`` field, and resets ``retrieval_weight``
+        to 1.0 (the edit re-affirms the trace).
+
+        Appends a ``memory.update`` chain entry with ``{id, tier,
+        prediction_error, user_id}``.
+
+        Returns ``{found, id, action: "updated", new_content}``.
+        """
+        from .exceptions import (
+            PredictionErrorOutOfBandError,
+            ReconsolidationWindowClosedError,
+        )
+
+        if not (_PE_UPDATE_MIN <= prediction_error < _PE_UPDATE_MAX):
+            raise PredictionErrorOutOfBandError(
+                "update",
+                prediction_error,
+                f"{_PE_UPDATE_MIN} <= PE < {_PE_UPDATE_MAX}",
+            )
+        if not patch:
+            raise ValueError("update() requires a non-empty patch")
+
+        is_open, opened_at = self._is_reconsolidation_window_open(memory_id)
+        if not is_open:
+            raise ReconsolidationWindowClosedError(
+                memory_id,
+                opened_at.isoformat() if opened_at else None,
+            )
+
+        result = await self._memory.update_in_place(
+            memory_id,
+            patch,
+            prediction_error=prediction_error,
+        )
+        if not result.get("found"):
+            return {
+                "found": False,
+                "id": memory_id,
+                "action": "updated",
+                "new_content": None,
+            }
+        # The edit re-affirms the trace; restore weight to 1.0.
+        entry, _tier = await self._memory.find_by_id(memory_id)
+        if entry is not None:
+            entry.retrieval_weight = 1.0
+        # Refresh the window — the trace was just touched.
+        self._open_reconsolidation_window(memory_id)
+        self._safe_append_chain(
+            "memory.update",
+            {
+                "id": memory_id,
+                "tier": result.get("tier"),
+                "prediction_error": prediction_error,
+                "user_id": user_id,
+            },
+        )
+        return {
+            "found": True,
+            "id": memory_id,
+            "tier": result.get("tier"),
+            "action": "updated",
+            "new_content": patch,
+        }
+
+    async def purge(
+        self,
+        memory_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> dict:
+        """Hard delete with prior-payload-hash audit trail.
+
+        v0.5.0 (#192). The destructive path reserved for GDPR / privacy /
+        safety obligations. The entry is removed from storage and the
+        chain records the deletion with the SHA-256 of the prior content
+        — verifiers can later prove the entry once existed and was
+        deleted, without storing the content itself.
+
+        ``reinstate`` cannot recover a purged entry (the data is gone).
+        For non-destructive suppression, use :meth:`forget` instead.
+
+        Appends a ``memory.purge`` chain entry with ``{id, tier,
+        prior_payload_hash, user_id}``.
+
+        Returns ``{found, id, action: "purged"}``.
+        """
+        result = await self._memory.purge_by_id(memory_id)
+        if not result.get("found"):
+            return {"found": False, "id": memory_id, "action": "purged"}
+        # Drop window + provenance state — the entry is gone.
+        self._reconsolidation_window.pop(memory_id, None)
+        self._last_recall_provenance.pop(memory_id, None)
+        self._safe_append_chain(
+            "memory.purge",
+            {
+                "id": memory_id,
+                "tier": result.get("tier"),
+                "prior_payload_hash": result.get("prior_payload_hash"),
+                "user_id": user_id,
+            },
+        )
+        return {
+            "found": True,
+            "id": memory_id,
+            "tier": result.get("tier"),
+            "action": "purged",
+            "prior_payload_hash": result.get("prior_payload_hash"),
+        }
+
+    async def reinstate(
+        self,
+        memory_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> dict:
+        """Restore a forgotten entry to full retrieval weight.
+
+        v0.5.0 (#192). The inverse of :meth:`forget`. Sets
+        ``retrieval_weight`` to 1.0. No-op when the entry is already at
+        full weight — the chain entry is still emitted for audit
+        completeness when ``found`` is True. Returns ``{found: False}``
+        without a chain entry when the id can't be resolved (typically
+        because :meth:`purge` removed it).
+
+        Appends a ``memory.reinstate`` chain entry with ``{id, tier,
+        weight_before, weight_after, user_id}``.
+
+        Returns ``{found, id, action: "reinstated", weight}``.
+        """
+        result = await self._memory.set_retrieval_weight(memory_id, _REINSTATE_WEIGHT)
+        if not result.get("found"):
+            return {
+                "found": False,
+                "id": memory_id,
+                "action": "reinstated",
+                "weight": None,
+            }
+        self._safe_append_chain(
+            "memory.reinstate",
+            {
+                "id": memory_id,
+                "tier": result.get("tier"),
+                "weight_before": result.get("weight_before"),
+                "weight_after": result.get("weight_after"),
+                "user_id": user_id,
+            },
+        )
+        return {
+            "found": True,
+            "id": memory_id,
+            "tier": result.get("tier"),
+            "action": "reinstated",
+            "weight": result.get("weight_after"),
+        }
+
     async def supersede(
         self,
         old_id: str,
@@ -1870,6 +2312,8 @@ class Soul:
         memory_type: MemoryType | None = None,
         emotion: str | None = None,
         entities: list[str] | None = None,
+        prediction_error: float = _PE_SUPERSEDE_MIN,
+        user_id: str | None = None,
     ) -> dict:
         """Mark ``old_id`` as superseded by a newly-written memory.
 
@@ -1878,14 +2322,31 @@ class Soul:
         provenance is preserved.  Search filters out superseded entries by
         default, so recall surfaces the new memory.
 
+        v0.5.0 (#192): the new entry's ``supersedes`` back-edge is set to
+        ``old_id`` (the inverse of the existing ``superseded_by`` field). The
+        ``prediction_error`` is recorded on the new entry. Default PE is
+        ``0.85``, the supersede band — pass a higher value when the change is
+        more orthogonal. PE below 0.85 raises
+        :class:`PredictionErrorOutOfBandError` because that range is the
+        ``update`` verb's territory.
+
         ``memory_type`` defaults to the old entry's tier — pass it only when
         correcting a fact stored in the wrong tier.  Records to the
         :attr:`supersede_audit` trail.
 
         Returns a dict with ``found`` / ``old_id`` / ``new_id`` / ``tier`` /
-        ``reason``.  If ``old_id`` does not resolve, ``found`` is False and
-        no new memory is written.
+        ``reason`` / ``prediction_error``. If ``old_id`` does not resolve,
+        ``found`` is False and no new memory is written.
         """
+        from .exceptions import PredictionErrorOutOfBandError
+
+        if prediction_error < _PE_SUPERSEDE_MIN:
+            raise PredictionErrorOutOfBandError(
+                "supersede",
+                prediction_error,
+                f"PE >= {_PE_SUPERSEDE_MIN}",
+            )
+
         result = await self._memory.supersede(
             old_id,
             new_content,
@@ -1894,8 +2355,13 @@ class Soul:
             memory_type=memory_type,
             emotion=emotion,
             entities=entities,
+            prediction_error=prediction_error,
         )
         if result.get("found"):
+            # The reconsolidation window for the old entry no longer
+            # applies once it's been superseded — the trace is replaced,
+            # not edited in place.
+            self._reconsolidation_window.pop(old_id, None)
             # v0.4.0 (#42) — Trust chain entry for the supersede action.
             # Summary defaults to "replaced <old_id-prefix> with <new_id-prefix>"
             # — see _fmt_memory_supersede in trust/manager.py.
@@ -1905,24 +2371,128 @@ class Soul:
                     "old_id": result.get("old_id"),
                     "new_id": result.get("new_id"),
                     "reason": result.get("reason"),
+                    "prediction_error": prediction_error,
                 },
             )
         return result
 
-    async def forget(self, query: str) -> dict:
-        """Forget memories matching a query across all tiers.
+    async def forget(self, query_or_id: str, *, user_id: str | None = None) -> dict:
+        """Forget memories — single-id or bulk query.
 
-        Searches episodic, semantic, and procedural memory stores for
-        content matching the query, and deletes all matches. Records
-        a deletion audit entry (without storing deleted content).
+        v0.5.0 (#192) **semantic shift.** ``forget`` no longer hard-deletes.
+        It drops ``MemoryEntry.retrieval_weight`` to 0.05 (below the recall
+        floor of 0.1), making the entry invisible to recall but recoverable
+        via :meth:`reinstate`. To genuinely destroy data, use :meth:`purge`
+        (the GDPR / privacy / safety path that writes a ``.soul.bak``).
 
-        Args:
-            query: Search query to match against memory content.
+        Dispatch:
+          - If ``query_or_id`` resolves to a known memory id, this is the
+            single-id verb. Returns ``{found, id, action: "forgotten",
+            weight, tier}`` and appends a ``memory.forget`` chain entry
+            with ``{id, tier, weight_after}``.
+          - Otherwise it is the bulk query path (back-compat for
+            pre-0.5.0 ``Soul.forget(query)``). Every match has its
+            retrieval_weight dropped to 0.05. Returns the legacy shape
+            ``{episodic, semantic, procedural, total}``.
 
-        Returns:
-            Dict with deletion results per tier and total count.
+        Note that the action name on the chain is unchanged from 0.4.0
+        (``memory.forget``) — only the payload shape grows. ``user_id``
+        is currently a forward-looking arg recorded on the chain entry.
         """
-        return await self._memory.forget(query)
+        # Single-id path: try to resolve query_or_id as a memory id first.
+        entry, tier = await self._memory.find_by_id(query_or_id)
+        if entry is not None and tier is not None:
+            result = await self._memory.set_retrieval_weight(query_or_id, _FORGET_WEIGHT_TARGET)
+            self._safe_append_chain(
+                "memory.forget",
+                {
+                    "id": query_or_id,
+                    "tier": result.get("tier"),
+                    "weight_after": result.get("weight_after"),
+                    "user_id": user_id,
+                },
+            )
+            # Drop window state — a forgotten entry shouldn't be editable.
+            self._reconsolidation_window.pop(query_or_id, None)
+            return {
+                "found": True,
+                "id": query_or_id,
+                "tier": result.get("tier"),
+                "action": "forgotten",
+                "weight": result.get("weight_after"),
+            }
+
+        # Bulk query path (legacy shape). Decay every match instead of
+        # deleting. Recall's default min_weight floor of 0.1 hides the
+        # decayed entries; the legacy "Alice memories should be gone"
+        # contract still holds even though the entries persist on disk.
+        return await self._forget_bulk(query_or_id, user_id=user_id)
+
+    async def _forget_bulk(self, query: str, *, user_id: str | None = None) -> dict:
+        """Bulk weight-decay path for the legacy ``forget(query)`` surface.
+
+        Iterates the three built-in tiers, sets ``retrieval_weight`` to
+        0.05 on every entry whose content matches the query (token-overlap
+        relevance > 0). Returns the same dict shape as the pre-0.5.0
+        ``MemoryManager.forget`` so existing callers keep working.
+        """
+        from soul_protocol.runtime.memory.search import relevance_score
+
+        episodic_ids: list[str] = []
+        semantic_ids: list[str] = []
+        procedural_ids: list[str] = []
+        for entry in list(self._memory._episodic.entries()):
+            if relevance_score(query, entry.content) > 0.0:
+                entry.retrieval_weight = _FORGET_WEIGHT_TARGET
+                episodic_ids.append(entry.id)
+                self._reconsolidation_window.pop(entry.id, None)
+        for fact in list(self._memory._semantic.facts(include_superseded=True)):
+            if relevance_score(query, fact.content) > 0.0:
+                fact.retrieval_weight = _FORGET_WEIGHT_TARGET
+                semantic_ids.append(fact.id)
+                self._reconsolidation_window.pop(fact.id, None)
+        for entry in list(self._memory._procedural.entries()):
+            if relevance_score(query, entry.content) > 0.0:
+                entry.retrieval_weight = _FORGET_WEIGHT_TARGET
+                procedural_ids.append(entry.id)
+                self._reconsolidation_window.pop(entry.id, None)
+
+        total = len(episodic_ids) + len(semantic_ids) + len(procedural_ids)
+        if total > 0:
+            from datetime import UTC
+
+            # Mirror the legacy deletion_audit shape so 0.4.x callers that
+            # read `soul.deletion_audit` after a bulk forget see an entry.
+            # The action shifted from delete to weight-decay but the audit
+            # still tells the operator "these memories were forgotten."
+            self._memory._deletion_audit.append(
+                {
+                    "deleted_at": datetime.now(UTC).isoformat(),
+                    "count": total,
+                    "reason": f"forget(query='{query}')",
+                    "tiers": {
+                        "episodic": len(episodic_ids),
+                        "semantic": len(semantic_ids),
+                        "procedural": len(procedural_ids),
+                    },
+                }
+            )
+            self._safe_append_chain(
+                "memory.forget",
+                {
+                    "query": query,
+                    "tier": None,
+                    "count": total,
+                    "weight_after": _FORGET_WEIGHT_TARGET,
+                    "user_id": user_id,
+                },
+            )
+        return {
+            "episodic": episodic_ids,
+            "semantic": semantic_ids,
+            "procedural": procedural_ids,
+            "total": total,
+        }
 
     async def forget_entity(self, entity: str) -> dict:
         """Forget an entity and all related memories.

@@ -527,6 +527,103 @@ See [eval-format.md](eval-format.md) for the YAML schema and the supported scori
 
 ---
 
+### `soul_confirm` (v0.5.0, #192)
+
+Refresh activation on a memory the agent has just verified.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `memory_id` | `str` | required | ID of the memory to confirm |
+| `user_id` | `str \| None` | `None` | Optional user_id recorded on the chain entry |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{status, soul, memory_id, tier, weight}`. `status` is `"confirmed"` on hit, `"not_found"` otherwise.
+
+---
+
+### `soul_update` (v0.5.0, #192)
+
+Patch a memory in place inside the reconsolidation window (PE in `[0.2, 0.85)`).
+
+The window opens whenever a recall surfaces this id and stays open for one hour. The tool runs a small recall against the current entry content first so the window opens in this single call. Outside the window the call returns `{status: "error", error: "ReconsolidationWindowClosedError"}` so the agent can promote to `soul_supersede`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `memory_id` | `str` | required | ID of the memory to patch |
+| `patch` | `str` | required | Replacement content |
+| `prediction_error` | `float` | `0.5` | PE in `[0.2, 0.85)` |
+| `user_id` | `str \| None` | `None` | Optional user_id recorded on the chain entry |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{status, soul, memory_id, tier, new_content, prediction_error}` on success. PE outside the band returns `{status: "error", error: "PredictionErrorOutOfBandError"}`.
+
+---
+
+### `soul_supersede` (v0.5.0, #192 — extends 0.4.0)
+
+Write a new memory and link the old as superseded (PE >= 0.85).
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `old_id` | `str` | required | ID of the memory being replaced |
+| `new_content` | `str` | required | Content for the new memory |
+| `reason` | `str \| None` | `None` | Optional free-form reason recorded in the audit trail |
+| `prediction_error` | `float` | `0.85` | PE in `[0.85, 1.0]` |
+| `importance` | `int` | `5` | Importance score for the new memory (1-10) |
+| `user_id` | `str \| None` | `None` | Optional user_id recorded on the chain entry |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{status, soul, old_id, new_id, reason, prediction_error}` on success. PE below 0.85 returns `{status: "error", error: "PredictionErrorOutOfBandError"}`.
+
+The new entry's `supersedes` back-edge points at `old_id`, and `old.superseded_by` points at the new entry. Recall surfaces the new entry; the provenance walker climbs the chain.
+
+---
+
+### `soul_purge` (v0.5.0, #192)
+
+Hard delete a memory (GDPR / privacy / safety). Defaults to dry-run preview — pass `apply=true` to commit.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `memory_id` | `str` | required | ID of the memory to hard-delete |
+| `apply` | `bool` | `false` | Must be true to actually delete |
+| `user_id` | `str \| None` | `None` | Optional user_id recorded on the chain entry |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{status, soul, memory_id, tier, prior_payload_hash}`. `status` is `"purged"` on hit (with `apply=true`), `"preview"` on dry-run, `"not_found"` when the id can't be resolved.
+
+The trust chain still records the purge with the prior payload hash so verifiers can later prove the entry once existed and was deleted, without storing the deleted content.
+
+---
+
+### `soul_reinstate` (v0.5.0, #192)
+
+Restore a forgotten memory to full retrieval weight. The inverse of `soul_forget`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `memory_id` | `str` | required | ID of the memory to reinstate |
+| `user_id` | `str \| None` | `None` | Optional user_id recorded on the chain entry |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{status, soul, memory_id, tier, weight}`. `status` is `"reinstated"` on hit, `"not_found"` when the id can't be resolved (typically because the entry was purged).
+
+---
+
+### `soul_forget` (v0.5.0 semantic shift)
+
+Forget memories matching a query — **v0.5.0 (#192) shifted from hard delete to non-destructive weight-decay**. Matched entries have their `retrieval_weight` dropped below the recall floor so they stop surfacing, but stay on disk and can be restored via `soul_reinstate`. For genuine deletion (GDPR / safety) call `soul_purge`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `query` | `str` | required | Search query for memories to weight-decay |
+| `confirm` | `bool` | `false` | Must be true to actually run the decay (safety gate) |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{status, soul, query, total, tiers}`. `status` is `"forgotten"` on apply, `"preview"` on dry-run.
+
+---
+
 ## MCP Sampling Engine
 
 When running as an MCP server inside Claude Code, Claude Desktop, or any MCP host, the soul delegates cognitive tasks (sentiment analysis, fact extraction, entity extraction, significance scoring, reflection, context compaction) to the **host LLM** via `ctx.sample()`. No API key is needed — the host provides the model.

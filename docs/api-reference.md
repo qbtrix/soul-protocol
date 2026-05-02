@@ -397,19 +397,16 @@ soul.bond.strengthen(2.0)  # default bond (legacy)
 #### `soul.forget()`
 
 ```python
-async def forget(self, query: str) -> dict
+async def forget(self, query_or_id: str, *, user_id: str | None = None) -> dict
 ```
 
-Bulk-delete memories matching `query` across episodic, semantic, and procedural tiers. Records a deletion audit entry. Token-overlap match.
+**v0.5.0 (#192) semantic shift.** `forget` no longer hard-deletes — it drops `MemoryEntry.retrieval_weight` to 0.05 (below the recall floor of 0.1) so the entry stops surfacing but stays on disk and can be restored via `reinstate()`. To genuinely destroy data (GDPR / privacy / safety) call `purge()`.
 
-**Returns:** dict with keys:
+**Dispatch:**
+- If `query_or_id` resolves to a known memory id, this is the single-id verb. Returns `{found, id, action: "forgotten", weight, tier}` and appends a `memory.forget` chain entry with `{id, tier, weight_after}`.
+- Otherwise it is the bulk query path (back-compat for pre-0.5.0 `Soul.forget(query)`). Every match has its retrieval_weight dropped to 0.05. Returns the legacy shape `{episodic, semantic, procedural, total}`.
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `episodic` | `list[str]` | IDs of deleted episodic memories. |
-| `semantic` | `list[str]` | IDs of deleted semantic facts. |
-| `procedural` | `list[str]` | IDs of deleted procedural memories. |
-| `total` | `int` | Total deleted across tiers. |
+The action name on the chain is unchanged from 0.4.0 (`memory.forget`); only the payload shape grows. `user_id` is recorded on the chain entry when provided.
 
 #### `soul.forget_entity()`
 
@@ -463,12 +460,18 @@ async def supersede(
     memory_type: MemoryType | None = None,
     emotion: str | None = None,
     entities: list[str] | None = None,
+    prediction_error: float = 0.85,
+    user_id: str | None = None,
 ) -> dict
 ```
 
 Mark `old_id` as superseded by a newly-written memory. The old entry is preserved with `superseded_by = new_id`; search filters out superseded entries by default, so recall surfaces the new one. `memory_type` defaults to the old entry's tier. Records a supersede audit entry.
 
-**Returns:** dict with `found` / `old_id` / `new_id` / `tier` / `reason`. If `old_id` does not resolve, `found` is False and no new memory is written.
+**v0.5.0 (#192):**
+- The new entry's `supersedes` back-edge is set to `old_id` (the inverse of the existing `superseded_by` field). Provenance walkers can climb the chain in either direction.
+- `prediction_error` is recorded on the new entry. Default `0.85` matches the supersede band (PE >= 0.85). Calling with PE < 0.85 raises `PredictionErrorOutOfBandError` because that range is the `update` verb's territory.
+
+**Returns:** dict with `found` / `old_id` / `new_id` / `tier` / `reason` / `prediction_error`. If `old_id` does not resolve, `found` is False and no new memory is written.
 
 ```python
 result = await soul.supersede(
@@ -476,6 +479,7 @@ result = await soul.supersede(
     "User now prefers light mode",
     reason="changed during onboarding redesign",
     importance=7,
+    prediction_error=0.9,
 )
 print(result["new_id"])
 ```
@@ -496,7 +500,88 @@ Read-only copy of the deletion audit trail. Each entry: `deleted_at` (ISO timest
 def supersede_audit(self) -> list[dict]
 ```
 
-Read-only copy of the user-driven supersede audit trail. Each entry: `superseded_at` (ISO timestamp), `old_id`, `new_id`, `tier`, `reason`. Internal supersession (dream-cycle dedup, contradiction resolution during `learn`) does not append here — only explicit `supersede()` calls.
+Read-only copy of the user-driven supersede audit trail. Each entry: `superseded_at` (ISO timestamp), `old_id`, `new_id`, `tier`, `reason`, `prediction_error`. Internal supersession (dream-cycle dedup, contradiction resolution during `learn`) does not append here — only explicit `supersede()` calls.
+
+#### `soul.confirm()` (v0.5.0, #192)
+
+```python
+async def confirm(
+    self,
+    memory_id: str,
+    *,
+    user_id: str | None = None,
+) -> dict
+```
+
+Refresh activation on a memory the caller has just verified. Bumps `last_accessed`, increments `access_count`, and clamps `retrieval_weight` back toward 1.0 if it has decayed but stayed above the recall floor. PE is implicitly ~0 — no PE band check, no window check.
+
+Appends a `memory.confirm` chain entry with `{id, tier, weight_after, user_id}`.
+
+**Returns:** dict with `found` / `id` / `tier` / `action: "confirmed"` / `weight`. When `memory_id` doesn't resolve, returns `{found: False}` with no chain entry.
+
+#### `soul.update()` (v0.5.0, #192)
+
+```python
+async def update(
+    self,
+    memory_id: str,
+    patch: str,
+    *,
+    prediction_error: float = 0.5,
+    user_id: str | None = None,
+) -> dict
+```
+
+In-place patch within the reconsolidation window. Edits the entry's content directly when the entry was surfaced via `recall()` within the last hour. Outside the window the trace is "stable again" and an in-place edit is unsafe; `ReconsolidationWindowClosedError` is raised so the caller promotes to `supersede()`.
+
+PE must satisfy `0.2 <= PE < 0.85`. PE outside the band raises `PredictionErrorOutOfBandError`.
+
+Bumps `last_accessed` / `access_count`, stamps `prediction_error` on the entry, and resets `retrieval_weight` to 1.0 (the edit re-affirms the trace). Appends a `memory.update` chain entry with `{id, tier, prediction_error, user_id}`.
+
+**Returns:** dict with `found` / `id` / `tier` / `action: "updated"` / `new_content`.
+
+#### `soul.purge()` (v0.5.0, #192)
+
+```python
+async def purge(
+    self,
+    memory_id: str,
+    *,
+    user_id: str | None = None,
+) -> dict
+```
+
+Hard delete with prior-payload-hash audit trail. Reserved for GDPR / privacy / safety obligations. The entry is removed from storage; the chain records the deletion with the SHA-256 of the prior content so verifiers can later prove the entry once existed and was deleted without storing the content itself.
+
+`reinstate()` cannot recover a purged entry (the data is gone). For non-destructive suppression, use `forget()` instead. Appends a `memory.purge` chain entry with `{id, tier, prior_payload_hash, user_id}`.
+
+**Returns:** dict with `found` / `id` / `tier` / `action: "purged"` / `prior_payload_hash`.
+
+#### `soul.reinstate()` (v0.5.0, #192)
+
+```python
+async def reinstate(
+    self,
+    memory_id: str,
+    *,
+    user_id: str | None = None,
+) -> dict
+```
+
+Restore a forgotten entry to full retrieval weight. The inverse of `forget()`. Sets `retrieval_weight` to 1.0. No-op when the entry is already at full weight — the chain entry is still emitted for audit completeness when `found` is True. Returns `{found: False}` without a chain entry when the id can't be resolved (typically because `purge()` removed it).
+
+Appends a `memory.reinstate` chain entry with `{id, tier, weight_before, weight_after, user_id}`.
+
+**Returns:** dict with `found` / `id` / `tier` / `action: "reinstated"` / `weight`.
+
+#### `soul.last_recall_provenance` (v0.5.0, #192)
+
+```python
+@property
+def last_recall_provenance(self) -> dict[str, list[dict]]
+```
+
+Sidecar mapping returned-memory-id to the full `supersedes` chain walked back to the oldest known version. Reset on every `recall()` call. Each provenance link is `{kind: "supersedes", target_id, reason, prediction_error, timestamp}`. Empty for entries with no chain. The sidecar lives on the Soul instance — `MemoryEntry` itself is not mutated, so the on-disk shape stays unchanged.
 
 #### `soul.get_core_memory()`
 
@@ -992,6 +1077,9 @@ A single memory with metadata, emotional context, and psychology-informed fields
 | `user_id` | `str \| None` | `None` | | Multi-user attribution (#46) |
 | `layer` | `str` | `""` | | Free-form layer namespace (#41). Empty string is coerced to `type.value`. |
 | `domain` | `str` | `"default"` | | Sub-namespace inside the layer (#41), e.g. `"finance"` |
+| `retrieval_weight` | `float` | `1.0` | `ge=0.0, le=1.0` | Recall weight (v0.5.0, #192). Recall filters entries below 0.1; `forget()` drops to 0.05; `reinstate()` restores to 1.0. |
+| `supersedes` | `str \| None` | `None` | | Inverse back-edge of `superseded_by` (v0.5.0, #192). Set by `supersede()` on the new entry so provenance walks work in either direction. |
+| `prediction_error` | `float \| None` | `None` | `ge=0.0, le=1.0` | PE recorded when the entry was written via `supersede()` or `update()` (v0.5.0, #192). Unset for `remember()` / `observe()`-created entries. |
 
 #### `CoreMemory`
 
@@ -1209,6 +1297,38 @@ Returns a relevance score from 0.0 (no match) to 1.0 (perfect match).
 class EmbeddingSearch:
     def score(self, query: str, content: str) -> float:
         return cosine_similarity(embed(query), embed(content))
+```
+
+---
+
+## Exceptions
+
+All exceptions inherit from `SoulProtocolError`.
+
+| Exception | Raised when |
+|-----------|------------|
+| `SoulFileNotFoundError` | `awaken()` cannot find a soul archive at the given path. |
+| `SoulCorruptError` | The archive is invalid (bad zip, missing manifest, etc.). |
+| `SoulExportError` | `export()` fails (disk full, permissions). |
+| `SoulRetireError` | `retire()` fails because preserve-memories save failed. |
+| `SoulEncryptedError` | An encrypted archive was loaded without a password. |
+| `SoulDecryptionError` | Decryption failed (wrong password / corrupted data). |
+| `SoulProtectedError` | A delete/retire was attempted on a soul with protected role. |
+| `DomainAccessError` | A wrapped soul attempted a write to a domain outside the allow-list. |
+| `ReconsolidationWindowClosedError` | (v0.5.0, #192) `update()` was called outside the 1-hour post-recall window. |
+| `PredictionErrorOutOfBandError` | (v0.5.0, #192) A memory-update verb was called with a `prediction_error` outside its band. |
+
+```python
+from soul_protocol.runtime.exceptions import (
+    PredictionErrorOutOfBandError,
+    ReconsolidationWindowClosedError,
+)
+
+try:
+    await soul.update(memory_id, "patch", prediction_error=0.5)
+except ReconsolidationWindowClosedError:
+    # Promote to supersede when the window has closed.
+    await soul.supersede(memory_id, "patch", prediction_error=0.9)
 ```
 
 ---

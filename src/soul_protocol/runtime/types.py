@@ -1,4 +1,19 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-04-29 (#192) — Brain-aligned memory update primitives.
+#   MemoryEntry gains three additive fields used by the v0.5.0 verbs
+#   (confirm / update / supersede / forget / purge / reinstate):
+#     - retrieval_weight: float (0.0..1.0, default 1.0). Gates whether
+#       recall surfaces the entry. forget() drops it to 0.05 (below the
+#       default recall floor of 0.1). reinstate() restores it to 1.0.
+#     - supersedes: str | None (default None). Inverse back-edge of the
+#       existing ``superseded_by`` field. supersede() now sets both ends
+#       so callers can walk provenance in either direction.
+#     - prediction_error: float | None (default None). PE score recorded
+#       on the new entry when supersede()/update() write it. Unset for
+#       remember()/observe()-created entries — they have no caller-supplied
+#       PE score because no prior trace existed to predict against.
+#   Pre-0.5 souls round-trip cleanly: Pydantic v2 fills in the defaults at
+#   load time, so awaken() never has to mutate stored data.
 # Updated: 2026-04-29 (#203) — Biorhythms.trust_chain_max_entries: configurable
 #   cap for touch-time chain pruning. Default 0 = unbounded (preserves prior
 #   behaviour). Positive values trigger pruning when the chain reaches the cap.
@@ -403,6 +418,19 @@ class MemoryEntry(BaseModel):
     # context like "finance" vs "legal" inside the same layer of facts.
     # Empty string is coerced to "default" by ``_coerce_layer_domain``.
     domain: str = "default"
+    # v0.5.0 (#192) — Brain-aligned memory update primitives. See RFC at
+    # docs/rfc-memory-update-primitives.md. Backfilled to defaults on awaken
+    # for pre-0.5 souls — no migration code needed at load time.
+    retrieval_weight: float = Field(default=1.0, ge=0.0, le=1.0)
+    # Inverse back-edge of ``superseded_by``. supersede() sets both sides so
+    # provenance walks work in either direction. None for entries that have
+    # not replaced an older entry.
+    supersedes: str | None = None
+    # PE score recorded when this entry was written via supersede() or
+    # update(). Unset for entries from remember() / observe() — they had no
+    # prior trace to predict against. Captured in the trust chain payload too,
+    # so verifiers can re-derive how confident the runtime was in the change.
+    prediction_error: float | None = Field(default=None, ge=0.0, le=1.0)
 
     @model_validator(mode="before")
     @classmethod

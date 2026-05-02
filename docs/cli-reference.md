@@ -810,9 +810,11 @@ soul prompt .soul/ | pbcopy
 
 ### `soul forget`
 
-Delete memories by ID, query, entity, or timestamp (GDPR-compliant). Searches and deletes matching memories across all tiers. Records a deletion audit entry without storing deleted content.
+Forget memories by ID, query, entity, or timestamp.
 
-Dry-run by default — preview shows what would be deleted without touching the soul. Pass `--apply` to actually execute. A `.soul.bak` backup is written before any destructive save (when the soul is a single-file `.soul` archive).
+**v0.5.0 (#192) semantic shift.** As of 0.5.0 `soul forget` no longer hard-deletes — it drops `MemoryEntry.retrieval_weight` to 0.05 (below the recall floor of 0.1) so the entry stops surfacing but stays on disk. Use `soul reinstate` to restore. For genuine deletion (GDPR / privacy / safety), use `soul purge` — that command keeps the older hard-delete behaviour with `.soul.bak` backup.
+
+Dry-run by default — preview shows what would be forgotten without touching the soul. Pass `--apply` to commit. A `.soul.bak` backup is written before the save when the soul is a single-file `.soul` archive.
 
 ```bash
 soul forget .soul/ "credit card"                         # preview by query
@@ -877,6 +879,152 @@ soul supersede aria.soul "User now prefers light mode" \
 **Output:** A panel showing the old ID, new ID, tier, reason, and the new content. Saves the soul automatically. Exits non-zero if `--old-id` does not resolve.
 
 **Audit:** Every successful supersede writes an entry to the supersede audit trail, exposed via `Soul.supersede_audit`. Internal supersession (dream-cycle dedup, contradiction resolution during `learn`) does not write to this trail — it is for explicit user intent only.
+
+**v0.5.0 (#192):** the new entry's `supersedes` back-edge is set to the old id, and the chain entry now carries `prediction_error`. Default PE is `0.85` — the supersede band. Lower PE raises `PredictionErrorOutOfBandError` because `update` is the right verb for that range.
+
+---
+
+### `soul confirm` (v0.5.0, #192)
+
+Refresh activation on a memory you have just verified.
+
+Bumps the entry's `last_accessed`, increments `access_count`, and clamps `retrieval_weight` back toward 1.0 if it had decayed. Appends a `memory.confirm` chain entry. The "this is still right" verb — no PE supplied, no window check.
+
+```bash
+soul confirm .soul/ bf0ee3453983
+soul confirm aria.soul abc123def --user prakash
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `MEMORY_ID` | Yes | ID of the memory to confirm. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--user TEXT` | Optional user_id recorded on the chain entry. |
+
+---
+
+### `soul update` (v0.5.0, #192)
+
+Patch a memory in place inside the reconsolidation window (PE in `[0.2, 0.85)`).
+
+The window opens whenever a recall surfaces this id and stays open for one hour. Outside the window an in-place update is unsafe — the call raises and the caller should switch to `soul supersede`. The CLI runs a small recall against the current entry content first so the window opens in this single invocation; you do not need to call `soul recall` separately.
+
+```bash
+soul update .soul/ bf0ee3453983 --patch "ships in July, not May"
+soul update aria.soul abc123def --patch "..." --prediction-error 0.4
+```
+
+**PE bands (locked):**
+
+- `PE  < 0.2`            → use `soul confirm`
+- `PE in [0.2, 0.85)`    → `soul update` (this command)
+- `PE >= 0.85`           → use `soul supersede`
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `MEMORY_ID` | Yes | ID of the memory to patch. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--patch TEXT` | Replacement content for the entry. **Required.** |
+| `--prediction-error FLOAT` | PE in `[0.2, 0.85)`. Default `0.5`. |
+| `--user TEXT` | Optional user_id recorded on the chain entry. |
+
+Exits non-zero on PE band violation or closed window.
+
+---
+
+### `soul purge` (v0.5.0, #192)
+
+Hard delete a memory (GDPR / privacy / safety).
+
+Genuinely removes the entry from storage. Defaults to dry-run preview — pass `--apply` to commit. The trust chain still records the purge with the prior payload hash so verifiers can later prove the entry once existed and was deleted, without storing the deleted content.
+
+`soul reinstate` cannot recover a purged entry — for non-destructive suppression, use `soul forget` instead.
+
+```bash
+soul purge .soul/ --id bf0ee3453983              # preview only
+soul purge .soul/ --id bf0ee3453983 --apply --confirm
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--id TEXT` | ID of the memory to hard-delete. **Required.** |
+| `--apply` | Commit the deletion. Without this flag, `purge` is a preview. |
+| `--confirm` | Skip the confirmation prompt (requires `--apply`). |
+| `--user TEXT` | Optional user_id recorded on the chain entry. |
+
+---
+
+### `soul reinstate` (v0.5.0, #192)
+
+Restore a forgotten memory to full retrieval weight.
+
+The inverse of `soul forget`. Sets `retrieval_weight` back to 1.0 so recall surfaces the entry again. No-op for entries already at full weight; cannot recover a purged entry.
+
+```bash
+soul reinstate .soul/ bf0ee3453983
+soul reinstate aria.soul abc123def --user prakash
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `MEMORY_ID` | Yes | ID of the memory to reinstate. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--user TEXT` | Optional user_id recorded on the chain entry. |
+
+---
+
+### `soul upgrade` (v0.5.0, #192)
+
+Upgrade a soul archive's memory schema to a newer format. The 0.4.x → 0.5.0 upgrade derives the `supersedes` back-edge from the existing `superseded_by` reverse map. Pydantic v2 backfills `retrieval_weight=1.0` and `prediction_error=None` at load time, so the only field this command actually persists is the back-edge.
+
+Idempotent — re-running on a 0.5.0 soul is a no-op.
+
+```bash
+soul upgrade aria.soul --to 0.5.0
+soul upgrade aria.soul --to 0.5.0 --dry-run
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--to TEXT` | Target soul format version. Default `0.5.0`. |
+| `--dry-run` | Print the migration plan without writing. |
 
 ---
 

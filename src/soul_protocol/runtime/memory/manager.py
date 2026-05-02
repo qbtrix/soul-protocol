@@ -1,4 +1,14 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-04-29 (#192) — Brain-aligned memory update primitives.
+#   recall() now filters out entries with retrieval_weight < min_weight
+#   (default 0.1). Callers can opt-in to the older "see everything"
+#   behaviour with min_weight=0.0. The default floor matches the threshold
+#   that forget() targets (0.05), so a forgotten entry stops surfacing
+#   automatically without needing to be deleted. supersede() now records
+#   prediction_error on the new entry and sets the supersedes back-edge
+#   on it (mirror of superseded_by on the old entry). update_in_place()
+#   replaces a single entry's content + bumps last_accessed for the new
+#   in-place update path used by Soul.update().
 # Updated: 2026-04-29 (#41) — User-defined layers + domain isolation. The
 #   manager now exposes ``layer(name) -> LayerView`` for free-form layer
 #   namespaces. Built-in layers (core / episodic / semantic / procedural /
@@ -1218,6 +1228,7 @@ class MemoryManager:
         user_id: str | None = None,
         layer: str | None = None,
         domain: str | None = None,
+        min_weight: float = 0.1,
     ) -> list[MemoryEntry]:
         """Recall memories from the appropriate stores.
 
@@ -1234,13 +1245,22 @@ class MemoryManager:
         ``domain`` (#41): when set, filter to entries whose ``domain``
         matches. Default None returns every domain.
 
+        ``min_weight`` (#192): floor on ``MemoryEntry.retrieval_weight``.
+        Entries with a weight below this value are dropped before the
+        ranking step. Default 0.1 — a forgotten entry (weight 0.05) stops
+        surfacing automatically. Set to ``0.0`` to bypass the filter and
+        see weight-decayed entries again (used by ``soul recall
+        --include-forgotten`` and the provenance walker).
+
         Filters are applied post-fetch so the underlying ranking stays
         intact. Fetch limit is widened when filters are active so the
         post-filter result set still has a chance to reach ``limit``.
         """
         # Widen the candidate pool when any of the optional filters are
         # active so post-filter trimming doesn't shrink results below limit.
-        any_filter = user_id is not None or layer is not None or domain is not None
+        any_filter = (
+            user_id is not None or layer is not None or domain is not None or min_weight > 0.0
+        )
         fetch_limit = limit * 3 if any_filter else limit
 
         # When a single layer is requested, route through the layer-specific
@@ -1273,6 +1293,13 @@ class MemoryManager:
             ]
         if domain is not None:
             results = [entry for entry in results if entry.domain == domain]
+        # v0.5.0 (#192) — Drop entries the caller has forgotten (or that any
+        # other code path decayed below the floor). Default 0.1 keeps full-
+        # weight (1.0) entries in and weight=0.05 forgotten entries out.
+        if min_weight > 0.0:
+            results = [
+                entry for entry in results if getattr(entry, "retrieval_weight", 1.0) >= min_weight
+            ]
         results = results[:limit]
         logger.debug("Recall query_len=%d returned %d results", len(query), len(results))
         return results
@@ -1590,12 +1617,17 @@ class MemoryManager:
         memory_type: MemoryType | None = None,
         emotion: str | None = None,
         entities: list[str] | None = None,
+        prediction_error: float | None = None,
     ) -> dict:
         """Mark ``old_id`` as superseded by a new memory and write the new one.
 
         The old entry is preserved in storage so provenance ("what I once
         thought") is not lost.  Search filters out entries whose
         ``superseded_by`` is non-None, so recall surfaces the new memory.
+
+        v0.5.0 (#192): the new entry's ``supersedes`` back-edge is set to
+        ``old_id`` so callers can walk the chain in either direction. When
+        ``prediction_error`` is provided, it is stamped onto the new entry.
 
         Returns a dict with:
 
@@ -1625,6 +1657,8 @@ class MemoryManager:
             importance=importance,
             emotion=emotion,
             entities=entities or [],
+            supersedes=old_id,
+            prediction_error=prediction_error,
         )
         new_id = await self.add(new_entry)
 
@@ -1644,6 +1678,7 @@ class MemoryManager:
                 "new_id": new_id,
                 "tier": tier,
                 "reason": reason,
+                "prediction_error": prediction_error,
             }
         )
 
@@ -1653,6 +1688,136 @@ class MemoryManager:
             "new_id": new_id,
             "tier": tier,
             "reason": reason,
+            "prediction_error": prediction_error,
+        }
+
+    # ---- v0.5.0 (#192) — Brain-aligned update primitives helpers ----
+
+    async def find_by_id(self, memory_id: str) -> tuple[MemoryEntry | None, str | None]:
+        """Public wrapper around :meth:`_find_entry_by_id`.
+
+        Returns ``(entry, tier)`` or ``(None, None)``. Used by
+        :class:`Soul` for the v0.5.0 update verbs (confirm / update /
+        forget / purge / reinstate) which all need to look up an entry
+        before mutating it.
+        """
+        return await self._find_entry_by_id(memory_id)
+
+    async def update_in_place(
+        self,
+        memory_id: str,
+        new_content: str,
+        *,
+        prediction_error: float | None = None,
+    ) -> dict:
+        """Replace a single entry's content without writing a new memory.
+
+        Used by :meth:`Soul.update` for the reconsolidation-window in-place
+        edit path (PE in [0.2, 0.85)). The entry's ``last_accessed`` is
+        bumped, ``access_count`` is incremented, and the ``prediction_error``
+        is stamped on the entry so verifiers can later trace the edit.
+
+        The entry's ``id`` and ``created_at`` stay stable. The mutation
+        targets the in-memory store directly — it does NOT write a new row.
+
+        Returns ``{found, id, tier, new_content}`` or
+        ``{found: False}`` when the id can't be resolved.
+        """
+        entry, tier = await self._find_entry_by_id(memory_id)
+        if entry is None or tier is None:
+            return {"found": False, "id": memory_id, "tier": None, "new_content": None}
+        now = datetime.now()
+        entry.content = new_content
+        entry.last_accessed = now
+        entry.access_count += 1
+        entry.access_timestamps.append(now)
+        if prediction_error is not None:
+            entry.prediction_error = prediction_error
+        # The semantic-store search uses the snapshot via .facts(); the in-
+        # place mutation is visible because the store is keyed by id.
+        return {
+            "found": True,
+            "id": memory_id,
+            "tier": tier,
+            "new_content": new_content,
+        }
+
+    async def set_retrieval_weight(self, memory_id: str, weight: float) -> dict:
+        """Drop or restore the retrieval_weight on a single entry.
+
+        Returns ``{found, id, tier, weight_before, weight_after}``. Used by
+        :meth:`Soul.forget`, :meth:`Soul.reinstate`, and
+        :meth:`Soul.confirm` (which clamps the weight back toward 1.0).
+        """
+        entry, tier = await self._find_entry_by_id(memory_id)
+        if entry is None or tier is None:
+            return {
+                "found": False,
+                "id": memory_id,
+                "tier": None,
+                "weight_before": None,
+                "weight_after": None,
+            }
+        before = entry.retrieval_weight
+        entry.retrieval_weight = max(0.0, min(1.0, float(weight)))
+        return {
+            "found": True,
+            "id": memory_id,
+            "tier": tier,
+            "weight_before": before,
+            "weight_after": entry.retrieval_weight,
+        }
+
+    async def purge_by_id(self, memory_id: str) -> dict:
+        """Hard-delete a single entry, returning the prior payload hash.
+
+        Mirrors :meth:`forget_by_id` but is the explicit "this is destroying
+        data" path used by :meth:`Soul.purge`. The deletion audit captures
+        the SHA-256 of the prior content so verifiers can later prove
+        "this entry once existed and was deleted" without storing the
+        content itself.
+
+        Returns ``{found, id, tier, prior_payload_hash}``.
+        """
+        import hashlib
+
+        entry, tier = await self._find_entry_by_id(memory_id)
+        if entry is None or tier is None:
+            return {
+                "found": False,
+                "id": memory_id,
+                "tier": None,
+                "prior_payload_hash": None,
+            }
+        prior_hash = hashlib.sha256(entry.content.encode("utf-8")).hexdigest()
+        deleted = False
+        if tier == "episodic":
+            deleted = await self._episodic.remove(memory_id)
+        elif tier == "semantic":
+            deleted = await self._semantic.remove(memory_id)
+        elif tier == "procedural":
+            deleted = await self._procedural.remove(memory_id)
+        if not deleted:
+            return {
+                "found": False,
+                "id": memory_id,
+                "tier": None,
+                "prior_payload_hash": None,
+            }
+        self._deletion_audit.append(
+            {
+                "deleted_at": datetime.now(UTC).isoformat(),
+                "count": 1,
+                "reason": f"purge_by_id(memory_id='{memory_id}')",
+                "tiers": {tier: 1},
+                "prior_payload_hash": prior_hash,
+            }
+        )
+        return {
+            "found": True,
+            "id": memory_id,
+            "tier": tier,
+            "prior_payload_hash": prior_hash,
         }
 
     @property

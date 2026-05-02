@@ -155,10 +155,17 @@ MemoryEntry {
                              # "default". Use to isolate context, e.g.
                              # "finance", "legal", "personal". Domain
                              # isolation enforcement is application-layer.
+
+  # Memory update primitives (0.5.0 — additive)
+  retrieval_weight:   float        # 0.0..1.0, default 1.0. Recall floor §4.4.
+  supersedes:         UUID | None  # Inverse back-edge of superseded_by.
+  prediction_error:   float | None # 0.0..1.0, set by supersede() / update().
 }
 ```
 
 Pre-0.4.0 souls have neither `user_id` nor `domain`. On read, an implementation must accept their absence and treat them as `user_id=None`, `domain="default"` so legacy entries surface in every recall.
+
+Pre-0.5.0 souls have none of the three update-primitive fields. On read, implementations must default `retrieval_weight=1.0`, `supersedes=None`, `prediction_error=None`. The `supersedes` back-edge can be derived from the existing `superseded_by` reverse map at migration time, but the spec only requires the field to round-trip when present — it does not mandate the migration.
 
 ### 4.3 · Psychology-informed activation (outputs, not algorithms)
 
@@ -173,12 +180,15 @@ These are spec *outputs*, not spec *algorithms*. A Rust implementation does not 
 ### 4.4 · Recall contract
 
 ```
-recall(query: str, *, limit: int, min_importance: float = 0) -> list[MemoryEntry]
+recall(query: str, *, limit: int, min_importance: float = 0, min_weight: float = 0.1) -> list[MemoryEntry]
 ```
 
 - Results ordered by descending relevance × activation × importance (relative weighting up to implementation).
 - `access_count` and `last_accessed_at` updated on every return.
 - Filtering by `scope` (caller's scope context) applied before limit and ranking.
+- (0.5.0) Entries with `retrieval_weight < min_weight` are dropped before ranking. Default floor `0.1`. Callers may pass `min_weight=0.0` to surface weight-decayed (forgotten) entries — typically used by provenance walkers and the audit UI. Pre-0.5.0 entries default to `retrieval_weight=1.0` so the change is back-compat for existing souls.
+
+The reconsolidation window (§4.6) is implementation-specific runtime mechanism — it is not part of the on-disk format and not mandated at the spec layer. Implementations that surface the `update()` verb must enforce some window policy, but the policy itself is unconstrained.
 
 #### 4.4.1 · Graph-walk recall (0.5.0)
 
@@ -624,6 +634,14 @@ An implementation **claims Soul Protocol 0.4.0 compliance** when it can:
 - [ ] Generate Ed25519 keypairs and sign new entries
 
 An implementation may claim "0.4.0 (no trust chain)" if it implements all the required boxes but skips the trust chain extension.
+
+**0.5.0 additive (§4.2, §4.4) — Memory update primitives:**
+
+- [ ] Round-trip the three additive `MemoryEntry` fields when present (`retrieval_weight`, `supersedes`, `prediction_error`); accept their absence on pre-0.5 souls and apply the documented defaults
+- [ ] Honor the `min_weight` filter on `recall()` (default 0.1)
+- [ ] If exposing the `confirm` / `update` / `supersede` / `forget` / `purge` / `reinstate` verbs, enforce the PE bands documented in `docs/memory-architecture.md` and `docs/api-reference.md`
+
+The reconsolidation window is implementation-specific runtime mechanism — the spec does not constrain its TTL, persistence, or storage. An implementation may surface only a subset of the verbs (e.g. `confirm` and `forget` without `update`) and remain conformant.
 
 Retrieval infrastructure (Router/Broker/Adapter implementations) is explicitly NOT required for compliance — it is application-layer.
 

@@ -1,4 +1,18 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-04-29 (#192) — Brain-aligned memory update primitive commands.
+#   - `soul confirm <path> <id>`     refresh activation on a verified memory.
+#   - `soul update <path> <id> --patch <text>`  in-place patch within the
+#     1-hour reconsolidation window. PE band [0.2, 0.85). The CLI calls
+#     recall against the current entry content first so the window opens
+#     in this single invocation.
+#   - `soul purge <path> --id <id> --apply`  hard delete with .soul.bak
+#     and a payload-hash audit entry. Reserved for GDPR / safety paths.
+#   - `soul reinstate <path> <id>`   restore retrieval_weight to 1.0.
+#   - `soul forget` semantics shift to weight-decay (single-id and bulk).
+#     Help text updated; behaviour was a hard delete before.
+#   - `soul upgrade <path> --to 0.5.0 [--dry-run]`  derive the supersedes
+#     back-edge from existing superseded_by. Pydantic v2 backfills the
+#     other new defaults at load time.
 # Updated: 2026-04-30 (#191) — Wire `soul diff <left> <right>` from cli/diff.py.
 #   Renders a structured comparison (identity / OCEAN / state / memories /
 #   bond / skills / trust chain / self-model / evolution) in text, json, or
@@ -2086,16 +2100,24 @@ def prompt_cmd(path):
     help="Skip confirmation prompt (requires --apply)",
 )
 def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confirm):
-    """Delete memories by ID, query, entity, or timestamp (GDPR-compliant).
+    """Forget memories — v0.5.0 semantic shift to weight-decay.
 
-    Dry-run by default — shows what would be deleted without touching the
-    soul. Pass --apply to actually execute. A .soul.bak backup is written
-    before any destructive save.
+    \b
+    v0.5.0 (#192) shifted ``soul forget`` from hard delete to non-
+    destructive weight-decay. Entries stay on disk but drop below the
+    recall floor (0.1) so they no longer surface. The shift covers
+    ``--id`` and the bulk query/entity/before paths. To genuinely
+    destroy data (GDPR / safety), use ``soul purge`` — that command
+    keeps the old hard-delete behaviour.
+
+    Dry-run by default — shows what would be forgotten without touching
+    the soul. Pass --apply to commit. A .soul.bak backup is written
+    before the save.
 
     \b
     Examples:
       soul forget .soul/ "credit card"                      # preview by query
-      soul forget .soul/ "credit card" --apply              # prompt + delete
+      soul forget .soul/ "credit card" --apply              # prompt + decay
       soul forget aria.soul --entity "John Doe" --apply --confirm
       soul forget .soul/ --id bf0ee3453983 --apply          # surgical single-id
     """
@@ -2130,7 +2152,29 @@ def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confi
 
         async def _execute_forget() -> dict:
             if memory_id:
-                return await soul.forget_one(memory_id)
+                # v0.5.0 (#192) — Soul.forget(id) is the new weight-decay verb.
+                # Returns {found, id, action: "forgotten", weight} on hit.
+                # Reshape to the legacy {episodic, semantic, procedural,
+                # total} dict so the CLI count display path keeps working.
+                result = await soul.forget(memory_id)
+                if result.get("found"):
+                    tier = result.get("tier") or ""
+                    return {
+                        "episodic": [memory_id] if tier == "episodic" else [],
+                        "semantic": [memory_id] if tier == "semantic" else [],
+                        "procedural": [memory_id] if tier == "procedural" else [],
+                        "total": 1,
+                        "found": True,
+                        "tier": tier,
+                    }
+                return {
+                    "episodic": [],
+                    "semantic": [],
+                    "procedural": [],
+                    "total": 0,
+                    "found": False,
+                    "tier": None,
+                }
             if entity:
                 return await soul.forget_entity(entity)
             if timestamp is not None:
@@ -2293,6 +2337,374 @@ def supersede_cmd(path, new_content, old_id, reason, importance, emotion, memory
         )
 
     asyncio.run(_supersede())
+
+
+# ---------------------------------------------------------------------------
+# v0.5.0 (#192) — Brain-aligned memory update primitive CLI commands
+# ---------------------------------------------------------------------------
+
+
+@cli.command("confirm")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("memory_id")
+@click.option(
+    "--user", "user_id", type=str, default=None, help="Optional user_id for the chain entry"
+)
+def confirm_cmd(path, memory_id, user_id):
+    """Refresh a memory you have just verified.
+
+    Bumps activation, restores any decayed weight back toward 1.0, and
+    appends a memory.confirm trust-chain entry. Confirmation is the
+    "this is still right" verb — no PE supplied, no window check.
+
+    \b
+    Examples:
+      soul confirm .soul/ bf0ee3453983
+      soul confirm aria.soul abc123def --user prakash
+    """
+
+    async def _confirm():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        result = await soul.confirm(memory_id, user_id=user_id)
+        if not result.get("found"):
+            console.print(
+                f"[red]No memory with id[/red] [bold]{memory_id}[/bold] "
+                f"found in [bold]{soul.name}[/bold]."
+            )
+            raise SystemExit(1)
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] confirmed:\n\n"
+                f"  ID         [dim]{result['id']}[/dim]\n"
+                f"  Tier       [magenta]{result.get('tier', '?')}[/magenta]\n"
+                f"  Weight     [cyan]{result.get('weight', 1.0):.2f}[/cyan]",
+                title="Memory Confirmed",
+                border_style="green",
+            )
+        )
+
+    asyncio.run(_confirm())
+
+
+@cli.command("update")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("memory_id")
+@click.option(
+    "--patch",
+    "patch_text",
+    type=str,
+    required=True,
+    help="Replacement content for the entry",
+)
+@click.option(
+    "--prediction-error",
+    "prediction_error",
+    type=click.FloatRange(0.0, 1.0),
+    default=0.5,
+    show_default=True,
+    help="Caller-supplied prediction error (must be in [0.2, 0.85))",
+)
+@click.option(
+    "--user", "user_id", type=str, default=None, help="Optional user_id for the chain entry"
+)
+def update_cmd(path, memory_id, patch_text, prediction_error, user_id):
+    """Patch a memory in place inside the reconsolidation window.
+
+    The window opens whenever a recall surfaces this id and stays open
+    for one hour. Outside the window, an in-place update is unsafe —
+    the call raises and the caller should switch to ``soul supersede``.
+
+    \b
+    PE bands (locked):
+      - PE  < 0.2   → use ``soul confirm``
+      - PE in [0.2, 0.85) → ``soul update`` (this command)
+      - PE >= 0.85  → use ``soul supersede``
+
+    \b
+    Examples:
+      soul update .soul/ bf0ee3453983 --patch "ships in July, not May"
+      soul update aria.soul abc123def --patch "..." --prediction-error 0.4
+    """
+
+    async def _update():
+        from soul_protocol.runtime.exceptions import (
+            PredictionErrorOutOfBandError,
+            ReconsolidationWindowClosedError,
+        )
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        # The window is per-process. Open it explicitly via recall against
+        # the current content of the entry so the CLI is usable in a single
+        # invocation (the alternative is a separate ``soul recall`` call
+        # before each update).
+        existing, _ = await soul._memory.find_by_id(memory_id)
+        if existing is not None:
+            await soul.recall(existing.content[:100])
+        try:
+            result = await soul.update(
+                memory_id,
+                patch_text,
+                prediction_error=prediction_error,
+                user_id=user_id,
+            )
+        except ReconsolidationWindowClosedError as exc:
+            console.print(f"[red]error:[/red] {exc}")
+            raise SystemExit(1)
+        except PredictionErrorOutOfBandError as exc:
+            console.print(f"[red]error:[/red] {exc}")
+            raise SystemExit(1)
+        if not result.get("found"):
+            console.print(
+                f"[red]No memory with id[/red] [bold]{memory_id}[/bold] "
+                f"found in [bold]{soul.name}[/bold]."
+            )
+            raise SystemExit(1)
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] updated:\n\n"
+                f"  ID         [dim]{result['id']}[/dim]\n"
+                f"  Tier       [magenta]{result.get('tier', '?')}[/magenta]\n"
+                f"  PE         [cyan]{prediction_error:.2f}[/cyan]\n\n"
+                f"  [cyan]{patch_text}[/cyan]",
+                title="Memory Updated",
+                border_style="green",
+            )
+        )
+
+    asyncio.run(_update())
+
+
+@cli.command("purge")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--id", "memory_id", type=str, required=True, help="ID of the memory to hard-delete")
+@click.option(
+    "--apply",
+    "apply_changes",
+    is_flag=True,
+    help="Actually delete the entry. Without this flag, purge is a preview.",
+)
+@click.option(
+    "--user", "user_id", type=str, default=None, help="Optional user_id for the chain entry"
+)
+@click.option(
+    "--confirm",
+    "skip_confirm",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompt (requires --apply)",
+)
+def purge_cmd(path, memory_id, apply_changes, user_id, skip_confirm):
+    """Hard delete a memory (GDPR / privacy / safety).
+
+    Genuinely removes the entry from storage and writes a .soul.bak.
+    The trust chain still records the purge with the prior payload
+    hash, so verifiers can later prove the entry once existed and was
+    deleted without storing the deleted content.
+
+    Use ``soul forget`` for the non-destructive weight-decay path —
+    that is the right verb in almost every case.
+
+    \b
+    Examples:
+      soul purge .soul/ --id bf0ee3453983              # preview only
+      soul purge .soul/ --id bf0ee3453983 --apply --confirm
+    """
+
+    async def _purge():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        if not apply_changes:
+            entry, tier = await soul._memory.find_by_id(memory_id)
+            if entry is None:
+                console.print(
+                    f"[dim]Preview:[/dim] no memory with id "
+                    f"[bold]{memory_id}[/bold] in [bold]{soul.name}[/bold]"
+                )
+                return
+            console.print(
+                f"[dim]Preview:[/dim] would purge "
+                f"{tier}/{memory_id} from [bold]{soul.name}[/bold]\n"
+                "[dim]Pass --apply to commit (a .soul.bak backup is written).[/]"
+            )
+            return
+        if not skip_confirm and not click.confirm(f"Permanently purge memory {memory_id}?"):
+            console.print("[dim]Cancelled.[/dim]")
+            return
+        from soul_protocol.runtime.backup import backup_soul_file
+
+        bak = backup_soul_file(path) if not Path(path).is_dir() else None
+        result = await soul.purge(memory_id, user_id=user_id)
+        if not result.get("found"):
+            console.print(
+                f"[red]No memory with id[/red] [bold]{memory_id}[/bold] "
+                f"found in [bold]{soul.name}[/bold]."
+            )
+            raise SystemExit(1)
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+        msg = f"[yellow]Purged[/yellow] {memory_id} from [bold]{soul.name}[/bold]"
+        if bak is not None:
+            msg += f" [dim](backup: {bak.name})[/dim]"
+        console.print(msg)
+        console.print(f"  prior_payload_hash  [dim]{result.get('prior_payload_hash')}[/dim]")
+
+    asyncio.run(_purge())
+
+
+@cli.command("reinstate")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("memory_id")
+@click.option(
+    "--user", "user_id", type=str, default=None, help="Optional user_id for the chain entry"
+)
+def reinstate_cmd(path, memory_id, user_id):
+    """Restore a forgotten memory to full retrieval weight.
+
+    The inverse of ``soul forget``. Sets ``retrieval_weight`` back to
+    1.0 so recall surfaces the entry again. No-op for entries already
+    at full weight; cannot recover a purged entry (the data is gone).
+
+    \b
+    Examples:
+      soul reinstate .soul/ bf0ee3453983
+      soul reinstate aria.soul abc123def --user prakash
+    """
+
+    async def _reinstate():
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.awaken(path)
+        result = await soul.reinstate(memory_id, user_id=user_id)
+        if not result.get("found"):
+            console.print(
+                f"[red]No memory with id[/red] [bold]{memory_id}[/bold] "
+                f"found in [bold]{soul.name}[/bold] (it may have been purged)."
+            )
+            raise SystemExit(1)
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] reinstated:\n\n"
+                f"  ID         [dim]{result['id']}[/dim]\n"
+                f"  Tier       [magenta]{result.get('tier', '?')}[/magenta]\n"
+                f"  Weight     [cyan]{result.get('weight', 1.0):.2f}[/cyan]",
+                title="Memory Reinstated",
+                border_style="green",
+            )
+        )
+
+    asyncio.run(_reinstate())
+
+
+@cli.command("upgrade")
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--to",
+    "target_version",
+    type=str,
+    default="0.5.0",
+    show_default=True,
+    help="Target soul format version",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Print the migration plan without writing.",
+)
+def upgrade_cmd(path, target_version, dry_run):
+    """Upgrade a soul archive's memory schema to a newer format.
+
+    The 0.4.x → 0.5.0 upgrade adds three new MemoryEntry fields
+    (retrieval_weight, supersedes, prediction_error). Pydantic v2
+    backfills the defaults at load time, so awaken already round-trips
+    an old soul cleanly. The supersedes back-edge is derived from the
+    existing superseded_by reverse map so callers can walk provenance
+    in either direction.
+
+    Idempotent — re-running on a 0.5.0 soul is a no-op.
+
+    \b
+    Examples:
+      soul upgrade aria.soul --to 0.5.0
+      soul upgrade aria.soul --to 0.5.0 --dry-run
+    """
+
+    async def _upgrade():
+        from soul_protocol.runtime.soul import Soul
+
+        if target_version != "0.5.0":
+            console.print(f"[red]Unsupported target version: {target_version}[/red]")
+            raise SystemExit(1)
+
+        soul = await Soul.awaken(path)
+        # Walk every memory and derive the supersedes back-edge from the
+        # existing superseded_by reverse map. Pydantic defaults already
+        # handled retrieval_weight=1.0 and prediction_error=None at load
+        # time, so the back-edge is the only thing we actually persist.
+        all_entries = []
+        all_entries.extend(soul._memory._episodic._memories.values())
+        all_entries.extend(soul._memory._semantic._facts.values())
+        all_entries.extend(soul._memory._procedural._procedures.values())
+
+        backedges = 0
+        weight_default_count = 0
+        by_id = {e.id: e for e in all_entries}
+        for entry in all_entries:
+            if entry.superseded_by and entry.superseded_by in by_id:
+                target = by_id[entry.superseded_by]
+                if target.supersedes is None or target.supersedes != entry.id:
+                    if not dry_run:
+                        target.supersedes = entry.id
+                    backedges += 1
+            # Pydantic defaults handle this on load — count for the report only
+            if entry.retrieval_weight == 1.0:
+                weight_default_count += 1
+
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] upgrade to {target_version}\n\n"
+                f"  Total entries           {len(all_entries)}\n"
+                f"  retrieval_weight=1.0    {weight_default_count}\n"
+                f"  supersedes back-edges   {backedges}\n"
+                f"  prediction_error        None on legacy entries\n",
+                title="Migration Plan" if dry_run else "Migration Applied",
+                border_style="cyan" if dry_run else "green",
+            )
+        )
+
+        if dry_run:
+            console.print("[dim]Dry run — no changes written.[/dim]")
+            return
+
+        from soul_protocol.runtime.backup import backup_soul_file
+
+        bak = backup_soul_file(path) if not Path(path).is_dir() else None
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+        if bak is not None:
+            console.print(f"[dim]Backup written to {bak.name}[/dim]")
+
+    asyncio.run(_upgrade())
 
 
 @cli.command("edit-core")
