@@ -2,11 +2,14 @@
 <!-- Added: 2026-05-02 — Initial contributor guide written for the LFDT
      mentorship program window. Points at existing docs rather than
      duplicating them, names the mentor (Prakash), and sets expectations
-     on PR style (Conventional Commits, target dev, one concern per PR). -->
+     on PR style (Conventional Commits, target dev, one concern per PR).
+     Updated: 2026-05-02 — humanizer pass: dropped two rule-of-three
+     phrases (opening sentence and Code of Conduct line) per the
+     workspace /humanize gate. -->
 
 # Contributing to Soul Protocol
 
-Soul Protocol is an open standard plus a Python reference runtime for portable AI agent identity and memory. This guide is for anyone sending a PR, filing an issue, or thinking about contributing through the LFDT mentorship program.
+Soul Protocol is an open standard plus a Python reference runtime for portable AI agent identity and memory. This guide is for anyone sending a PR or filing an issue. If you're applying for the LFDT mentorship program, also read [docs/lfdt-mentorship.md](docs/lfdt-mentorship.md) — it covers the mentee scope.
 
 ## Quick start
 
@@ -91,4 +94,4 @@ If you're unsure, open a Discussion before writing code.
 
 ## Code of Conduct
 
-This project follows the [Linux Foundation Code of Conduct](https://lfprojects.org/policies/code-of-conduct/). Be kind, assume good faith, prefer questions over accusations. Maintainers may remove comments or contributors that violate it.
+This project follows the [Linux Foundation Code of Conduct](https://lfprojects.org/policies/code-of-conduct/). Maintainers may remove comments or contributors that violate it.
