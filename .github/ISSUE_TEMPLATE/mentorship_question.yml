@@ -1,0 +1,39 @@
+# .github/ISSUE_TEMPLATE/mentorship_question.yml — LFDT mentorship questions
+# Added: 2026-05-02 — For LFDT voluntary-track mentee applicants and
+# participants asking scope or process questions before/during the program.
+
+name: Mentorship question
+description: Question about the LFDT mentorship — scope, expectations, application process.
+title: "mentorship: "
+labels: ["mentorship-question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your interest. Before filing, please skim [docs/lfdt-mentorship.md](../../blob/dev/docs/lfdt-mentorship.md) — most common questions are answered there. If your question is private (e.g., personal background, conflict-of-interest concerns), email prakash@qbtrix.com instead.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: One question per issue keeps threads useful for future applicants.
+    validations:
+      required: true
+
+  - type: textarea
+    id: already-read
+    attributes:
+      label: What have you already read?
+      description: e.g., the mentorship doc, a specific section of the architecture doc, the trust chain page.
+      placeholder: "I read docs/lfdt-mentorship.md and docs/trust-chain.md."
+    validations:
+      required: true
+
+  - type: input
+    id: background
+    attributes:
+      label: Your background (one sentence)
+      description: One line on where you're coming from technically — helps me calibrate the answer.
+      placeholder: "Backend Python dev, two years, no prior crypto work."
+    validations:
+      required: true

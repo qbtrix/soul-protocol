@@ -496,6 +496,14 @@ pytest tests/   # 2297 tests
 
 ---
 
+## Contributing & Mentorship
+
+PRs and issues are welcome. Setup, conventions, and scope are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Soul Protocol is part of the [LF Decentralized Trust mentorship program](docs/lfdt-mentorship.md) (voluntary track, opened May 2026). Mentee scope, suggested 12-week shape, and how to apply live in [docs/lfdt-mentorship.md](docs/lfdt-mentorship.md).
+
+---
+
 ## License
 
 [MIT](LICENSE)

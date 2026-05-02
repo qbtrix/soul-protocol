@@ -1,0 +1,36 @@
+# .github/ISSUE_TEMPLATE/feature_request.yml — feature request form
+# Added: 2026-05-02 — Initial issue templates for soul-protocol.
+
+name: Feature request
+description: Suggest a new feature or improvement.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What's the actual problem you're hitting? (Please don't pitch a solution here yet.)
+      placeholder: "Importing a .soul file from another machine fails because the key file is local-only."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you fix it? Sketch the API, file format change, or behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you think about? Why is the proposal better?
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links to related issues, prior art, design notes. Optional.

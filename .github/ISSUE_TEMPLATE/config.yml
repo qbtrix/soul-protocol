@@ -1,0 +1,12 @@
+# .github/ISSUE_TEMPLATE/config.yml — issue template chooser config
+# Added: 2026-05-02 — Disables blank issues, points at LFDT mentorship doc
+# and GitHub Discussions for non-bug threads.
+
+blank_issues_enabled: false
+contact_links:
+  - name: LFDT Mentorship
+    url: https://github.com/qbtrix/soul-protocol/blob/dev/docs/lfdt-mentorship.md
+    about: Scope, expectations, and how to apply for the LF Decentralized Trust mentorship.
+  - name: GitHub Discussions
+    url: https://github.com/qbtrix/soul-protocol/discussions
+    about: Open-ended questions, design discussions, show-and-tell.
