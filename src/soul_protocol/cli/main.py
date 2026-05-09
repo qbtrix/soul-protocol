@@ -119,6 +119,7 @@ import asyncio
 import builtins
 import json
 import sys
+import warnings
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -1153,6 +1154,17 @@ def remember_cmd(path, text, importance, emotion, memory_type, domain):
       soul remember aria.soul "Shipped v0.3" --type episodic --importance 8
       soul remember aria.soul "Q3 revenue up 12%" --domain finance --importance 8
     """
+    warnings.warn(
+        "soul remember is deprecated; use 'soul note <path> \"<fact>\"' instead. "
+        "Use '--no-dedup' on note for raw append behavior.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    console.print(
+        "[yellow]DeprecationWarning:[/yellow] `soul remember` is deprecated. "
+        "Use `soul note <path> \"<fact>\"` (or add `--no-dedup` for raw writes)."
+    )
+
     from soul_protocol.runtime.types import MemoryType
 
     tier = MemoryType(memory_type.lower())

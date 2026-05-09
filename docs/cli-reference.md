@@ -533,7 +533,7 @@ soul export-a2a aria.soul -o card.json --url https://aria.example.com
 
 ### `soul remember`
 
-Store a memory directly in a soul. Use this when you already know what tier the memory belongs in and don't need the cognitive pipeline to decide for you (see `soul observe` for the pipeline-driven alternative).
+Deprecated alias for direct memory writes. Prefer `soul note <path> "<fact>"`, which routes through dedup-aware reconciliation.
 
 ```bash
 # Semantic by default — facts the soul should know
@@ -582,6 +582,8 @@ soul remember aria.soul "NDA expires in March" --domain legal --importance 7
 Core memory (persona and human knowledge) is not writable through `remember`. Use `soul edit-core` instead.
 
 **Output:** A confirmation panel showing the stored text, tier, domain, importance, emotion, and memory ID. The soul is saved automatically.
+
+**Deprecation:** `soul remember` emits a deprecation warning and points to `soul note`. Use `soul note --no-dedup` when you explicitly want legacy raw-append behavior.
 
 ---
 

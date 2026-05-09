@@ -78,6 +78,7 @@ def test_remember_command(tmp_path):
     result = runner.invoke(cli, ["remember", soul_path, "User prefers dark mode", "-i", "7"])
 
     assert result.exit_code == 0
+    assert "deprecated" in result.output.lower()
     assert "Memory Stored" in result.output
     assert "User prefers dark mode" in result.output
     assert "7/10" in result.output
