@@ -1,12 +1,17 @@
-# CI — lint and test on every PR and push to main.
+# CI — lint and test on every PR and push to main or dev.
+# Updated: 2026-05-13 (#241) — Added dev to the trigger list so PRs targeting
+#   dev get pytest matrix coverage. Without this, the entire v0.5.0 captain
+#   push merged to dev with only the PR Quality Gate (Conventional Commits +
+#   secrets scan + check-quality lint) for signal; pytest only ran on the
+#   eventual dev → main release PR.
 # Updated: 2026-03-05 — Lint errors fixed, lint job now blocks PRs.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 permissions:
   contents: read
