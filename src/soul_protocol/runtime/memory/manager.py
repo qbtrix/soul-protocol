@@ -1,4 +1,10 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-05-13 (#234) — Episodic writes via add(MemoryEntry) now route
+#   through EpisodicStore.add_entry() and store content verbatim. The previous
+#   path fabricated an Interaction(user_input=content, agent_output="") which
+#   produced a "User: <text>\nAgent: " envelope for plain Soul.remember() and
+#   Soul.note() calls. Real Interaction writes (observe pipeline) keep their
+#   envelope shape via the unchanged add() / add_with_psychology() methods.
 # Updated: 2026-04-29 (#192) — Brain-aligned memory update primitives.
 #   recall() now filters out entries with retrieval_weight < min_weight
 #   (default 0.1). Callers can opt-in to the older "see everything"
@@ -915,17 +921,13 @@ class MemoryManager:
         if entry.ingested_at is None:
             entry.ingested_at = datetime.now()
         if entry.type == MemoryType.EPISODIC:
-            interaction = Interaction(
-                user_input=entry.content,
-                agent_output="",
-                timestamp=entry.created_at,
-            )
-            new_id = await self._episodic.add(interaction)
-            # Episodic store creates its own MemoryEntry — propagate domain.
-            stored = await self._episodic.get(new_id)
-            if stored is not None and entry.domain:
-                stored.domain = entry.domain
-            return new_id
+            # Route through add_entry() to store content verbatim (#234).
+            # The previous path fabricated an Interaction(user_input=content,
+            # agent_output="") which the episodic store then formatted as
+            # "User: <text>\nAgent: ". That envelope belongs to the observe
+            # pipeline (real user/agent inputs), not to plain Soul.remember()
+            # or Soul.note() calls.
+            return await self._episodic.add_entry(entry)
         elif entry.type == MemoryType.SEMANTIC:
             return await self._semantic.add(entry)
         elif entry.type == MemoryType.PROCEDURAL:

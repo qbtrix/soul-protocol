@@ -1,4 +1,6 @@
 # memory/episodic.py — EpisodicStore for timestamped interaction memories.
+# Updated: 2026-05-13 — Added add_entry() for verbatim writes (no User:/Agent:
+#   envelope) used by Soul.remember/Soul.note for episodic. Fixes #234.
 # Updated: 2026-03-29 — Filter archived entries from search() results (F2).
 # Updated: 2026-03-13 — Added update_entry() public method for updating fields
 #   on stored entries (replaces direct _memories dict access from manager.py).
@@ -61,6 +63,30 @@ class EpisodicStore:
 
         self._memories[memory_id] = entry
         return memory_id
+
+    async def add_entry(self, entry: MemoryEntry) -> str:
+        """Store a pre-formed episodic MemoryEntry verbatim.
+
+        Unlike :meth:`add`, this path does not wrap content in a
+        ``User: ... / Agent: ...`` envelope. It is the route used by
+        :meth:`Soul.remember` and :meth:`Soul.note` when the caller
+        passes a plain string with ``type=MemoryType.EPISODIC``. The
+        observe pipeline (which has real user/agent inputs) keeps
+        :meth:`add` / :meth:`add_with_psychology`.
+
+        If the entry has no id, one is generated. If an id is provided,
+        it is preserved so callers can round-trip an entry through this
+        method.
+        """
+        if not entry.id:
+            entry.id = uuid.uuid4().hex[:12]
+
+        # Evict if at capacity
+        if len(self._memories) >= self._max_entries and entry.id not in self._memories:
+            self._evict_least_significant()
+
+        self._memories[entry.id] = entry
+        return entry.id
 
     async def add_with_psychology(
         self,
