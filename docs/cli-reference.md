@@ -531,7 +531,7 @@ soul export-a2a aria.soul -o card.json --url https://aria.example.com
 
 ---
 
-### `soul remember`
+### `soul remember` (deprecated)
 
 Deprecated alias for direct memory writes. Prefer `soul note <path> "<fact>"`, which routes through dedup-aware reconciliation.
 
@@ -583,7 +583,7 @@ Core memory (persona and human knowledge) is not writable through `remember`. Us
 
 **Output:** A confirmation panel showing the stored text, tier, domain, importance, emotion, and memory ID. The soul is saved automatically.
 
-**Deprecation:** `soul remember` emits a deprecation warning and points to `soul note`. Use `soul note --no-dedup` when you explicitly want legacy raw-append behavior.
+**Deprecation:** `soul remember` emits a deprecation warning and points to `soul note`. Scheduled for removal in v0.7.0. Use `soul note --no-dedup` when you explicitly want legacy raw-append behavior.
 
 ---
 

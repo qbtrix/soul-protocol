@@ -1156,13 +1156,15 @@ def remember_cmd(path, text, importance, emotion, memory_type, domain):
     """
     warnings.warn(
         "soul remember is deprecated; use 'soul note <path> \"<fact>\"' instead. "
-        "Use '--no-dedup' on note for raw append behavior.",
+        "Use '--no-dedup' on note for raw append behavior. "
+        "Scheduled for removal in 0.7.0.",
         DeprecationWarning,
         stacklevel=2,
     )
     console.print(
         "[yellow]DeprecationWarning:[/yellow] `soul remember` is deprecated. "
-        "Use `soul note <path> \"<fact>\"` (or add `--no-dedup` for raw writes)."
+        "Use `soul note <path> \"<fact>\"` (or add `--no-dedup` for raw writes). "
+        "Scheduled for removal in 0.7.0."
     )
 
     from soul_protocol.runtime.types import MemoryType

@@ -83,6 +83,11 @@ def test_remember_command(tmp_path):
     assert "User prefers dark mode" in result.output
     assert "7/10" in result.output
 
+    with zipfile.ZipFile(soul_path) as zf:
+        semantic = json.loads(zf.read("memory/semantic.json"))
+
+    assert any("User prefers dark mode" in entry["content"] for entry in semantic)
+
 
 def test_remember_with_emotion(tmp_path):
     """remember command accepts an emotion tag."""
