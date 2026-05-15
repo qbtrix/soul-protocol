@@ -140,8 +140,10 @@ cli.add_command(_journal_group)
 
 # Soul diff command (#191)
 from soul_protocol.cli.diff import diff_cmd as _diff_cmd  # noqa: E402
+from soul_protocol.cli.diff import diff_driver_install_cmd as _diff_driver_install_cmd  # noqa: E402
 
 cli.add_command(_diff_cmd)
+cli.add_command(_diff_driver_install_cmd)
 
 # Soul-aware evals (#160) — registers `soul eval` on the cli group.
 from soul_protocol.cli.eval_cmd import register as _register_eval_cmd  # noqa: E402

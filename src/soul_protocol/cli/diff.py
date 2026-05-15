@@ -9,11 +9,20 @@
 # explicitly. --summary-only collapses to per-section counts.
 #
 # Schema mismatch raises SchemaMismatchError → exit 1 with a clean message.
+#
+# Updated: #217 — soul diff enhancements (post-#191):
+#   1. --git-driver-install: configure .gitattributes + git config for native
+#      soul-level diffs in `git diff`, `git log -p`, and PR tools.
+#   3. --require-same-did: foot-gun guard — exit non-zero when the two souls
+#      have different DIDs, unless --allow-cross-did overrides.
+#   4. --fail-on: CI guard — exit non-zero when specific change categories
+#      are present (e.g. `soul diff --fail-on memory.added`).
 
 from __future__ import annotations
 
 import asyncio
 import json as _json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -67,6 +76,32 @@ hyphenated and underscored forms so `--section trust-chain` and
 `--section trust_chain` both work."""
 
 
+# ---------------------------------------------------------------------------
+# --fail-on categories (Issue #217 item 4)
+# ---------------------------------------------------------------------------
+
+FAIL_ON_CATEGORIES: dict[str, str] = {
+    "memory.added": "memories_added",
+    "memory.removed": "memories_removed",
+    "memory.modified": "memories_modified",
+    "memory.superseded": "memories_superseded",
+    "identity": "identity",
+    "ocean": "ocean",
+    "state": "state",
+    "core_memory": "core_memory",
+    "bond": "bonds",
+    "skills.added": "skills_added",
+    "skills.removed": "skills_removed",
+    "skills.changed": "skills_changed",
+    "trust_chain": "trust_chain_delta",
+    "self_model": "self_model",
+    "evolution": "evolution",
+}
+"""User-facing --fail-on category names → SoulDiff.summary() keys.
+Used for CI guards so pipelines can fail on specific diff events.
+"""
+
+
 @click.command("diff")
 @click.argument("left", type=click.Path(exists=True, dir_okay=True, path_type=Path))
 @click.argument("right", type=click.Path(exists=True, dir_okay=True, path_type=Path))
@@ -108,6 +143,32 @@ hyphenated and underscored forms so `--section trust-chain` and
     default=False,
     help="Print per-section counts instead of the full diff.",
 )
+@click.option(
+    "--require-same-did",
+    "require_same_did",
+    is_flag=True,
+    default=False,
+    help="Exit non-zero if the two souls have different DIDs. "
+    "Prevents accidental diffs between unrelated souls.",
+)
+@click.option(
+    "--allow-cross-did",
+    "allow_cross_did",
+    is_flag=True,
+    default=False,
+    help="Override --require-same-did when you intentionally want to compare "
+    "souls with different DIDs.",
+)
+@click.option(
+    "--fail-on",
+    "fail_on",
+    multiple=True,
+    default=(),
+    help="Exit non-zero when the named change category has a count > 0. "
+    "Repeatable. Accepts: "
+    + ", ".join(sorted(FAIL_ON_CATEGORIES))
+    + ".",
+)
 def diff_cmd(
     left: Path,
     right: Path,
@@ -116,6 +177,9 @@ def diff_cmd(
     section: str | None,
     include_superseded: bool,
     summary_only: bool,
+    require_same_did: bool,
+    allow_cross_did: bool,
+    fail_on: tuple[str, ...],
 ) -> None:
     """Compare two soul files and print a structured diff.
 
@@ -126,6 +190,8 @@ def diff_cmd(
       soul diff aria.soul aria-after-week.soul --section memory
       soul diff aria.soul aria-after-week.soul --include-superseded
       soul diff aria.soul aria-after-week.soul --format markdown
+      soul diff aria.soul aria-after-week.soul --require-same-did
+      soul diff a.soul b.soul --fail-on memory.added --fail-on identity
 
     Sections covered: identity, OCEAN/DNA, state, core memory, memories
     (per layer + per domain), bond, skills, trust chain, self-model,
@@ -139,6 +205,16 @@ def diff_cmd(
     """
     if as_json:
         fmt = "json"
+
+    # Validate --fail-on categories early, before loading souls.
+    for category in fail_on:
+        if category not in FAIL_ON_CATEGORIES:
+            click.echo(
+                f"error: unknown --fail-on category '{category}'. Known: "
+                f"{', '.join(sorted(FAIL_ON_CATEGORIES))}.",
+                err=True,
+            )
+            sys.exit(2)
 
     if section:
         normalized = section.lower().strip()
@@ -155,15 +231,39 @@ def diff_cmd(
 
     diff = asyncio.run(_load_and_diff(left, right, include_superseded=include_superseded))
 
+    # --require-same-did guard (#217 item 3).
+    if require_same_did and not allow_cross_did:
+        if diff.left_did != diff.right_did:
+            click.echo(
+                f"error: DID mismatch — left='{diff.left_did}', right='{diff.right_did}'. "
+                f"These appear to be different souls. Pass --allow-cross-did "
+                f"to override this guard.",
+                err=True,
+            )
+            sys.exit(1)
+
     if fmt == "json":
         _render_json(diff, section_attr=section_attr, summary_only=summary_only)
-        return
-
-    if fmt == "markdown":
+    elif fmt == "markdown":
         _render_markdown(diff, section_attr=section_attr, summary_only=summary_only)
-        return
+    else:
+        _render_text(diff, section_attr=section_attr, summary_only=summary_only)
 
-    _render_text(diff, section_attr=section_attr, summary_only=summary_only)
+    # --fail-on CI guard (#217 item 4).
+    if fail_on:
+        summary = diff.summary()
+        triggered: list[str] = []
+        for category in fail_on:
+            summary_key = FAIL_ON_CATEGORIES[category]
+            count = summary.get(summary_key, 0)
+            if count:
+                triggered.append(f"{category} ({count})")
+        if triggered:
+            click.echo(
+                f"error: --fail-on triggered: {', '.join(triggered)}",
+                err=True,
+            )
+            sys.exit(1)
 
 
 async def _load_and_diff(
@@ -647,3 +747,94 @@ def _text_evolution(diff: EvolutionDiff) -> None:
             f"{mut.get('old_value')!r} → {mut.get('new_value')!r} "
             f"[dim]({mut.get('reason', '')})[/dim]"
         )
+
+
+# ---------------------------------------------------------------------------
+# Git diff driver installation (#217 item 1)
+# ---------------------------------------------------------------------------
+
+_GITATTRIBUTES_LINE = "*.soul diff=soul\n"
+_DRIVER_NAME = "soul"
+
+
+@click.command("diff-driver-install")
+@click.option(
+    "--global",
+    "use_global",
+    is_flag=True,
+    default=False,
+    help="Install the driver in the global git config (~/.gitconfig) "
+    "instead of the local repo (.git/config).",
+)
+def diff_driver_install_cmd(use_global: bool) -> None:
+    """Install a git diff driver so `git diff` shows soul-level diffs.
+
+    \\b
+    After running this command:
+      - `git diff` on .soul files shows structured soul diffs instead of
+        binary gibberish.
+      - `git log -p -- *.soul` shows per-commit soul changes.
+      - PR tools (GitHub, GitLab) that respect .gitattributes will render
+        soul diffs inline.
+
+    \\b
+    What it does:
+      1. Adds `*.soul diff=soul` to .gitattributes (creates if missing).
+      2. Runs `git config diff.soul.command "soul diff"`.
+
+    \\b
+    Examples:
+      soul diff-driver-install           # local repo only
+      soul diff-driver-install --global  # all repos for this user
+    """
+    scope = "--global" if use_global else "--local"
+    scope_label = "global" if use_global else "local"
+
+    # 1. Configure the git diff driver.
+    try:
+        subprocess.run(
+            ["git", "config", scope, f"diff.{_DRIVER_NAME}.command", "soul diff"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        click.echo("error: git is not installed or not on PATH.", err=True)
+        sys.exit(1)
+    except subprocess.CalledProcessError as exc:
+        click.echo(
+            f"error: git config failed — {exc.stderr.strip() or exc}",
+            err=True,
+        )
+        sys.exit(1)
+
+    console.print(
+        f"  [green]✓[/green] git config ({scope_label}): "
+        f"diff.{_DRIVER_NAME}.command = [cyan]soul diff[/cyan]"
+    )
+
+    # 2. Ensure .gitattributes contains the *.soul pattern.
+    gitattributes = Path(".gitattributes")
+    already_present = False
+    if gitattributes.exists():
+        content = gitattributes.read_text(encoding="utf-8")
+        if "*.soul diff=soul" in content:
+            already_present = True
+
+    if already_present:
+        console.print(
+            f"  [dim]✓[/dim] .gitattributes already contains "
+            f"[cyan]{_GITATTRIBUTES_LINE.strip()}[/cyan]"
+        )
+    else:
+        with gitattributes.open("a", encoding="utf-8") as f:
+            f.write(_GITATTRIBUTES_LINE)
+        console.print(
+            f"  [green]✓[/green] .gitattributes: added "
+            f"[cyan]{_GITATTRIBUTES_LINE.strip()}[/cyan]"
+        )
+
+    console.print()
+    console.print(
+        "[dim]Done. Run [cyan]git diff -- *.soul[/cyan] to verify.[/dim]"
+    )

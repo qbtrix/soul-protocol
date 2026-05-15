@@ -403,3 +403,216 @@ def test_diff_souls_returns_pydantic_model(tmp_path: Path) -> None:
     # round-trip through model_dump
     re_loaded = type(diff).model_validate(diff.model_dump(mode="json"))
     assert len(re_loaded.memory.added) == 1
+
+
+# ---------------------------------------------------------------------------
+# --require-same-did guard (#217 item 3)
+# ---------------------------------------------------------------------------
+
+
+def test_require_same_did_passes_for_identical_souls(two_souls: tuple[Path, Path]) -> None:
+    """--require-same-did with same DID exits 0."""
+    left, right = two_souls
+    runner = CliRunner()
+    result = runner.invoke(cli, ["diff", str(left), str(right), "--require-same-did"])
+    assert result.exit_code == 0, result.output
+
+
+def test_require_same_did_blocks_different_dids(tmp_path: Path) -> None:
+    """--require-same-did exits non-zero when DIDs differ."""
+
+    async def _setup() -> tuple[Path, Path]:
+        soul_a = await Soul.birth("Aria")
+        soul_b = await Soul.birth("Sage")
+        left = tmp_path / "left.soul"
+        right = tmp_path / "right.soul"
+        await soul_a.export(str(left), include_keys=True)
+        await soul_b.export(str(right), include_keys=True)
+        return left, right
+
+    left, right = asyncio.run(_setup())
+    runner = CliRunner()
+    result = runner.invoke(cli, ["diff", str(left), str(right), "--require-same-did"])
+    assert result.exit_code != 0
+    assert "DID mismatch" in result.output
+
+
+def test_allow_cross_did_overrides_require_same_did(tmp_path: Path) -> None:
+    """--allow-cross-did lets the diff proceed even with different DIDs."""
+
+    async def _setup() -> tuple[Path, Path]:
+        soul_a = await Soul.birth("Aria")
+        soul_b = await Soul.birth("Sage")
+        left = tmp_path / "left.soul"
+        right = tmp_path / "right.soul"
+        await soul_a.export(str(left), include_keys=True)
+        await soul_b.export(str(right), include_keys=True)
+        return left, right
+
+    left, right = asyncio.run(_setup())
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["diff", str(left), str(right), "--require-same-did", "--allow-cross-did"]
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_different_dids_without_flag_still_works(tmp_path: Path) -> None:
+    """Without --require-same-did, different DIDs are allowed by default."""
+
+    async def _setup() -> tuple[Path, Path]:
+        soul_a = await Soul.birth("Aria")
+        soul_b = await Soul.birth("Sage")
+        left = tmp_path / "left.soul"
+        right = tmp_path / "right.soul"
+        await soul_a.export(str(left), include_keys=True)
+        await soul_b.export(str(right), include_keys=True)
+        return left, right
+
+    left, right = asyncio.run(_setup())
+    runner = CliRunner()
+    result = runner.invoke(cli, ["diff", str(left), str(right)])
+    assert result.exit_code == 0, result.output
+
+
+# ---------------------------------------------------------------------------
+# --fail-on CI guard (#217 item 4)
+# ---------------------------------------------------------------------------
+
+
+def test_fail_on_triggers_on_matching_category(tmp_path: Path) -> None:
+    """--fail-on memory.added exits non-zero when memories were added."""
+
+    async def _setup() -> tuple[Path, Path]:
+        soul_a = await Soul.birth("Aria")
+        left = tmp_path / "left.soul"
+        await soul_a.export(str(left), include_keys=True)
+
+        soul_b = await Soul.awaken(str(left))
+        await soul_b.remember("CI guard test memory", importance=5)
+        right = tmp_path / "right.soul"
+        await soul_b.export(str(right), include_keys=True)
+        return left, right
+
+    left, right = asyncio.run(_setup())
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["diff", str(left), str(right), "--fail-on", "memory.added"]
+    )
+    assert result.exit_code != 0
+    assert "fail-on triggered" in result.output.lower()
+    assert "memory.added" in result.output
+
+
+def test_fail_on_passes_when_category_is_zero(two_souls: tuple[Path, Path]) -> None:
+    """--fail-on memory.added exits 0 when no memories were added."""
+    left, right = two_souls
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["diff", str(left), str(right), "--fail-on", "memory.added"]
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_fail_on_multiple_categories(tmp_path: Path) -> None:
+    """Multiple --fail-on flags work — triggers list all matching categories."""
+
+    async def _setup() -> tuple[Path, Path]:
+        soul_a = await Soul.birth("Aria", archetype="X")
+        left = tmp_path / "left.soul"
+        await soul_a.export(str(left), include_keys=True)
+
+        soul_b = await Soul.awaken(str(left))
+        soul_b._identity.archetype = "Y"  # identity change
+        await soul_b.remember("New memory", importance=5)  # memory change
+        right = tmp_path / "right.soul"
+        await soul_b.export(str(right), include_keys=True)
+        return left, right
+
+    left, right = asyncio.run(_setup())
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["diff", str(left), str(right), "--fail-on", "memory.added", "--fail-on", "identity"],
+    )
+    assert result.exit_code != 0
+    assert "memory.added" in result.output
+    assert "identity" in result.output
+
+
+def test_fail_on_unknown_category_exits_2(two_souls: tuple[Path, Path]) -> None:
+    """An unknown --fail-on category exits with code 2 and a clear message."""
+    left, right = two_souls
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["diff", str(left), str(right), "--fail-on", "bogus.category"]
+    )
+    assert result.exit_code != 0
+    assert "unknown --fail-on category" in result.output.lower()
+
+
+def test_fail_on_still_renders_diff_output(tmp_path: Path) -> None:
+    """--fail-on still prints the diff (JSON) before failing — the output is
+    usable for inspection even when the exit code is non-zero."""
+
+    async def _setup() -> tuple[Path, Path]:
+        soul_a = await Soul.birth("Aria")
+        left = tmp_path / "left.soul"
+        await soul_a.export(str(left), include_keys=True)
+
+        soul_b = await Soul.awaken(str(left))
+        await soul_b.remember("CI test", importance=5)
+        right = tmp_path / "right.soul"
+        await soul_b.export(str(right), include_keys=True)
+        return left, right
+
+    left, right = asyncio.run(_setup())
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["diff", str(left), str(right), "--json", "--fail-on", "memory.added"]
+    )
+    assert result.exit_code != 0
+    # The JSON output should still be parseable (it prints before the error)
+    # The output contains the JSON diff followed by the error on stderr.
+    # CliRunner mixes stdout + stderr, so we check the JSON was emitted.
+    assert '"memory"' in result.output
+
+
+# ---------------------------------------------------------------------------
+# diff-driver-install (#217 item 1)
+# ---------------------------------------------------------------------------
+
+
+def test_diff_driver_install_writes_gitattributes(tmp_path: Path, monkeypatch) -> None:
+    """diff-driver-install creates .gitattributes with the *.soul pattern."""
+    import subprocess
+
+    monkeypatch.chdir(tmp_path)
+
+    # Initialize a git repo so --local config works
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True, check=True)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["diff-driver-install"])
+    assert result.exit_code == 0, result.output
+
+    gitattributes = tmp_path / ".gitattributes"
+    assert gitattributes.exists()
+    content = gitattributes.read_text()
+    assert "*.soul diff=soul" in content
+
+
+def test_diff_driver_install_idempotent(tmp_path: Path, monkeypatch) -> None:
+    """Running diff-driver-install twice doesn't duplicate the .gitattributes line."""
+    import subprocess
+
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True, check=True)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["diff-driver-install"])
+    runner.invoke(cli, ["diff-driver-install"])
+
+    content = (tmp_path / ".gitattributes").read_text()
+    assert content.count("*.soul diff=soul") == 1
+
