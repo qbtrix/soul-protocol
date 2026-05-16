@@ -1220,10 +1220,14 @@ async def soul_forget(
             "status": "deleted",
             "soul": s.name,
             "query": query,
-            "total_deleted": result.get("total_deleted", 0),
-            "tiers": result.get("tiers", {}),
-        }
-    )
+            "total_deleted": result.get("total", 0),
+            "tiers": {
+                k: len(v)
+                for k, v in result.items()
+                if k != "total" and isinstance(v, list)
+            },
+         }
+     )
 
 
 @mcp.tool
