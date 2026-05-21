@@ -3,6 +3,9 @@
 #   passes_relevance_floor() so the store-level gate is a named, configurable
 #   threshold instead of a bare `score > 0.0` literal. Default 0.0 keeps the
 #   "any token overlap" behaviour; callers raise it to drop weak matches.
+#   passes_relevance_floor() docstring clarifies the boundary semantics: the
+#   comparison is inclusive (score >= floor) and a negative floor is treated
+#   as 0.0 (clamped to the historical strict-positive gate, not honoured).
 # Updated: phase1-ablation-fixes — Added BM25Index class for term-frequency-saturated,
 #   length-normalized retrieval scoring. BM25 uses IDF weighting, k1=1.2, b=0.75.
 #   Token-overlap relevance_score() kept as fallback.
@@ -166,6 +169,11 @@ def passes_relevance_floor(score: float, floor: float = DEFAULT_RELEVANCE_FLOOR)
         score: The token-overlap relevance score (0.0-1.0).
         floor: Minimum score required to pass. At 0.0 (default) any
             positive score passes; a positive floor drops weak matches.
+            Values below 0.0 are treated as 0.0 — a negative floor cannot
+            mean "pass everything including zero overlap", so it is clamped
+            to the historical strict-positive gate rather than honoured.
+            The comparison is inclusive (``score >= floor``): a floor of
+            1.0 still passes a perfect-overlap score of 1.0.
 
     Returns:
         True if the score clears the floor and should be kept.

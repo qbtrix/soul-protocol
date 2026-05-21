@@ -7,6 +7,10 @@
 #   ProceduralStore), not the SQLiteContextStore exercised above — that store
 #   backs the separate context subsystem. The async fixture style here is
 #   kept; the populated_recall fixture builds an in-memory store directly.
+#   Also added TestGraphAugmentationExemptFromFloor: graph-augmented recall
+#   candidates (surfaced via a related graph entity term, not the original
+#   query) survive a positive relevance_floor, while weak *direct* matches
+#   are still floored out — the exemption is scoped, not a blanket bypass.
 # Created: v0.3.0 — Regex search, DAG expansion, metadata snapshots,
 # recursive expansion through multiple compaction levels, and edge cases.
 
@@ -17,6 +21,7 @@ import pytest
 from soul_protocol.runtime.context.retrieval import describe, expand, grep
 from soul_protocol.runtime.context.store import SQLiteContextStore
 from soul_protocol.runtime.memory.episodic import EpisodicStore
+from soul_protocol.runtime.memory.graph import KnowledgeGraph
 from soul_protocol.runtime.memory.procedural import ProceduralStore
 from soul_protocol.runtime.memory.recall import RecallEngine
 from soul_protocol.runtime.memory.semantic import SemanticStore
@@ -345,7 +350,13 @@ class TestRecallScoresAndFloor:
         self, populated_recall: RecallEngine
     ):
         """A floor above every match's relevance yields no results."""
-        # The strong match has overlap 1.0; nothing clears a floor > 1.0.
+        # The floor gate keeps an entry when relevance >= floor, so floor=1.0
+        # is inclusive — the strong match has overlap exactly 1.0 and would
+        # survive a 1.0 floor. To assert an *empty* result we need a floor
+        # strictly above the maximum possible relevance (1.0). 1.01 is used
+        # deliberately here, just past the documented 0.0-1.0 range, as the
+        # "reject even a perfect match" probe; production callers stay in
+        # range.
         results = await populated_recall.recall(
             "kubernetes orchestration scaling",
             limit=10,
@@ -363,3 +374,97 @@ class TestRecallScoresAndFloor:
         strong, weak = results[0], results[1]
         assert "orchestration handles pod scaling" in strong.content
         assert strong.recall_score > weak.recall_score
+
+
+# ---------------------------------------------------------------------------
+# Graph augmentation vs the relevance floor (#247)
+# ---------------------------------------------------------------------------
+#
+# A graph-augmented candidate is surfaced by searching a *graph entity term*,
+# not the original user query, so its token overlap with the original query
+# is typically ~0. Floor-checking it against the original query would drop
+# every graph-augmented result whenever relevance_floor > 0, silently
+# neutering graph augmentation. recall() exempts graph-augmented candidates
+# from the floor; these tests pin that behaviour.
+
+
+async def _graph_recall_engine() -> RecallEngine:
+    """Engine whose graph connects FastAPI -> Python.
+
+    The semantic store holds two memories, both keyed to the query
+    'Tell me about FastAPI' (query tokens: tell, about, fastapi):
+
+    - python_mem: about Python, *zero* overlap with the query. It only
+      surfaces because the graph links FastAPI -> Python — a pure
+      graph-augmented candidate.
+    - weak_mem: a direct text match sharing exactly one query token
+      ('fastapi'), token overlap ~0.33 — a genuine weak match.
+
+    None of the content words collide with the synonym groups in search.py,
+    so token overlap stays the clean signal under test.
+    """
+    graph = KnowledgeGraph()
+    graph.add_entity("FastAPI", "framework")
+    graph.add_entity("Python", "language")
+    graph.add_relationship("FastAPI", "Python", "built_with")
+
+    semantic = SemanticStore()
+    # Pure graph-augmented candidate — no overlap with 'Tell me about FastAPI'.
+    await semantic.add(
+        MemoryEntry(
+            type=MemoryType.SEMANTIC,
+            content="Python remains the language teams reach for",
+            importance=7,
+        )
+    )
+    # Weak direct match — shares only the token 'fastapi' with the query.
+    await semantic.add(
+        MemoryEntry(
+            type=MemoryType.SEMANTIC,
+            content="A throwaway note that name-drops fastapi once",
+            importance=7,
+        )
+    )
+    return RecallEngine(
+        episodic=EpisodicStore(),
+        semantic=semantic,
+        procedural=ProceduralStore(),
+        graph=graph,
+    )
+
+
+class TestGraphAugmentationExemptFromFloor:
+    """Graph-augmented recall candidates survive a positive relevance floor."""
+
+    async def test_graph_candidate_survives_positive_floor(self):
+        """A graph-augmented entry with zero query overlap is not floored out."""
+        engine = await _graph_recall_engine()
+        # 0.5 floor: the graph-augmented Python memory has 0.0 overlap with
+        # 'Tell me about FastAPI'. Pre-fix the floor dropped it; it must
+        # survive because the graph entity-term search already validated it.
+        results = await engine.recall(
+            "Tell me about FastAPI", limit=10, relevance_floor=0.5
+        )
+        assert any(
+            "Python remains the language" in r.content for r in results
+        ), "graph-augmented candidate was wrongly dropped by the relevance floor"
+
+    async def test_floor_still_drops_weak_direct_match_with_graph(self):
+        """The exemption is scoped: a weak *direct* match is still floored out."""
+        engine = await _graph_recall_engine()
+        results = await engine.recall(
+            "Tell me about FastAPI", limit=10, relevance_floor=0.5
+        )
+        # 'name-drops fastapi' shares ~1/3 of the query tokens — it is a
+        # direct text-search candidate, so the floor still applies to it.
+        assert all(
+            "throwaway note" not in r.content for r in results
+        ), "weak direct match should still be dropped by the floor"
+
+    async def test_graph_candidate_present_at_default_floor(self):
+        """Sanity: at floor 0.0 the graph-augmented entry is present too."""
+        engine = await _graph_recall_engine()
+        results = await engine.recall(
+            "Tell me about FastAPI", limit=10, relevance_floor=0.0
+        )
+        assert any("Python remains the language" in r.content for r in results)

@@ -7,6 +7,12 @@
 #   entry's recall_score field, and applies a graded relevance floor
 #   (relevance_floor param) that drops weak matches below the threshold.
 #   Default floor is 0.0 (current behaviour) so callers opt into the cutoff.
+#   Graph-augmented candidates are EXEMPT from the floor: they matched a
+#   related graph entity term, not the original query, so floor-checking
+#   them against the original query would drop them all. The pre-graph
+#   candidate IDs are captured before augmentation; only those are floored.
+#   recall_score is set on the live store object (exclude=True, so no .soul
+#   risk); the comment at the assignment notes the in-memory race trade-off.
 # Updated: 2026-03-29 — Added progressive parameter to recall(). When progressive=True,
 #   returns up to limit*2 entries: primary (full content) + overflow (abstract-only copies).
 #   Overflow entries with no abstract keep their original content unchanged.
@@ -176,7 +182,10 @@ class RecallEngine:
                 stores returned (historical behaviour); a positive floor
                 drops weak matches. The floor is checked against raw token
                 overlap, not the activation total, so recency and emotion
-                cannot lift an off-topic memory past it.
+                cannot lift an off-topic memory past it. The check is
+                inclusive (kept when ``relevance >= floor``): a floor of 1.0
+                still keeps a perfect-overlap match. Graph-augmented
+                candidates are exempt — see the floor logic below for why.
 
         Returns:
             List of MemoryEntry sorted by activation score descending, each
@@ -206,6 +215,13 @@ class RecallEngine:
         # Apply importance filter to non-semantic results (semantic already filtered)
         if min_importance > 0:
             results = [r for r in results if r.importance >= min_importance]
+
+        # IDs of candidates the text search produced *before* graph
+        # augmentation. The relevance floor below only applies to these:
+        # graph-augmented candidates matched an entity term, not the
+        # original query, so floor-checking them against the original
+        # query would wrongly drop them (#247).
+        pre_graph_ids: set[str] = {r.id for r in results}
 
         # --- Graph augmentation: surface graph-connected memories ---
         if use_graph and self._graph is not None:
@@ -281,10 +297,35 @@ class RecallEngine:
             # recency or emotion boost cannot carry an off-topic memory
             # through. At floor 0.0 nothing is dropped here — the stores
             # already filtered zero-overlap candidates.
-            if relevance_floor > 0.0 and breakdown.relevance < relevance_floor:
+            #
+            # Graph-augmented candidates are EXEMPT from the floor. They were
+            # surfaced by searching a graph entity term, not the original
+            # query, so their overlap with the original query is often ~0.
+            # The entity-term search already validated their relevance; a
+            # positive floor here would silently drop every graph-augmented
+            # result and neuter graph augmentation. Only candidates the text
+            # search produced for the original query are floor-checked.
+            is_graph_augmented = entry.id not in pre_graph_ids
+            if (
+                relevance_floor > 0.0
+                and not is_graph_augmented
+                and breakdown.relevance < relevance_floor
+            ):
                 continue
             # Surface the activation score on the entry so callers (and
             # `soul recall --json`) can see the ranking signal.
+            #
+            # Trade-off: this mutates the live store object in place rather
+            # than a copy. Two recalls running concurrently against the same
+            # store could race on this field. We accept it deliberately —
+            # `recall_score` has `exclude=True`, so a stale value never
+            # reaches the `.soul` file; the worst case is one in-flight
+            # recall reading another's score. The access-metadata loop below
+            # likewise mutates shared store objects on purpose (the recall
+            # reinforcement loop depends on it), so copying only here would
+            # be a half-measure. The progressive path copies because it
+            # rewrites `content` — a *persisted* field — which is a genuine
+            # corruption risk; `recall_score` is not.
             entry.recall_score = breakdown.total
             scored.append((breakdown.total, entry))
 

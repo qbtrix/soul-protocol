@@ -520,7 +520,7 @@ total      = 1.0 * base + 1.5 * spread + 0.5 * emo + noise(0, 0.1)
 1. Each store runs its own `search()` to find candidates with token overlap above the relevance floor
 2. All candidates are merged into a single list
 3. Candidates are scored by ACT-R activation (without noise)
-4. The **graded relevance floor** drops candidates whose token overlap with the query is below `relevance_floor`
+4. The **graded relevance floor** drops candidates whose token overlap with the query is below `relevance_floor` (graph-augmented candidates are exempt — they matched a related entity term, not the original query)
 5. **Visibility filtering** is applied based on requester identity and bond strength (v0.2.5)
 6. Results are sorted by activation descending and returned up to `limit`, each carrying its activation score on `recall_score`
 7. Access timestamps on retrieved entries are updated (strengthens future recall)
@@ -539,7 +539,9 @@ Every entry returned by `recall()` carries a `recall_score` — its ACT-R activa
 ]
 ```
 
-The relevance floor is a graded, configurable cutoff. Historically each store's `search()` kept any memory with non-zero token overlap, so a single incidental shared word earned a result slot. `recall()` now accepts a `relevance_floor` (0.0-1.0): a candidate whose token-overlap score falls below the floor is dropped before ranking. The floor is checked against raw token overlap, not the activation total, so a recency or emotion boost cannot carry an off-topic memory past it.
+The relevance floor is a graded, configurable cutoff. Historically each store's `search()` kept any memory with non-zero token overlap, so a single incidental shared word earned a result slot. `recall()` now accepts a `relevance_floor` (0.0-1.0): a candidate whose token-overlap score falls below the floor is dropped before ranking. The floor is checked against raw token overlap, not the activation total, so a recency or emotion boost cannot carry an off-topic memory past it. The check is inclusive — a candidate is kept when `relevance >= floor` — so a floor of `1.0` still keeps a perfect-overlap match. Values below `0.0` are treated as `0.0`.
+
+**Graph-augmented entries are exempt from the floor.** When graph augmentation is on (see below), a memory can enter the result set because it matched a *related graph entity term*, not the original query. Its token overlap with the original query is often zero, so applying the floor against the original query would silently drop every graph-augmented result. The floor therefore applies only to candidates the text search produced for the original query; graph-augmented candidates were already validated by the entity-term search and pass through regardless of the floor.
 
 The default floor is `0.0`, which keeps the historical behaviour — raising the default would silently drop matches that existing callers expect. Callers opt into a stricter cutoff:
 
