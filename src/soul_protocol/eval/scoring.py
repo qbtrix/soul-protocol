@@ -10,6 +10,10 @@
 #   skill eval ask the judge to compare a candidate output against the
 #   original text it was meant to transform. No new scoring kind is added —
 #   prompt/skill outputs reuse JudgeScoring.
+# Updated: 2026-05-21 — Gate `inputs.reference` to prompt-mode cases. The
+#   field's docstring says it is ignored outside prompt mode; score_judge
+#   now honors that, so a respond/recall case carrying `reference` no
+#   longer silently drops the user message from the judge prompt.
 
 from __future__ import annotations
 
@@ -248,7 +252,11 @@ async def score_judge(
             },
         )
 
-    reference = case.inputs.reference
+    # `reference` is a prompt-mode-only field — its docstring on
+    # CaseInputs says so. Gate it on the mode so a respond/recall case
+    # that happens to set `reference` does not silently switch to the
+    # reference template (which omits the user's actual message).
+    reference = case.inputs.reference if case.inputs.mode == "prompt" else None
     if reference:
         prompt = _JUDGE_PROMPT_WITH_REFERENCE.format(
             criteria=spec.criteria.strip(),

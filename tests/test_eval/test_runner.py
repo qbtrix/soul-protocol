@@ -6,6 +6,10 @@
 # Updated: 2026-05-21 (paw-workspace#47) — Added coverage for the "prompt"
 #   case mode: the runner scores the case message verbatim without
 #   touching the soul, the judge picks up the optional `reference` block.
+# Updated: 2026-05-21 — Added a regression test asserting `reference` is
+#   ignored outside prompt mode: a respond-mode case carrying `reference`
+#   still gets the plain judge prompt (user message present, no reference
+#   block).
 
 from __future__ import annotations
 
@@ -495,3 +499,36 @@ async def test_prompt_mode_reference_reaches_judge() -> None:
     assert "Reference input" in judge_prompt
     assert "testament to our enduring commitment" in judge_prompt
     assert "Version 2 ships Tuesday with offline mode." in judge_prompt
+
+
+@pytest.mark.asyncio
+async def test_reference_ignored_outside_prompt_mode() -> None:
+    """A non-prompt case that sets `reference` must not use it.
+
+    `CaseInputs.reference` is documented as ignored outside prompt mode.
+    A respond-mode case that carries `reference` must still get the plain
+    judge prompt — the one that includes the user's actual message — not
+    the reference template (which omits the message entirely).
+    """
+    spec = _spec_with(
+        CaseInputs(
+            message="how is the rollout going?",
+            mode="respond",
+            reference="Our rollout stands as a testament to enduring commitment.",
+        ),
+        JudgeScoring(criteria="is the response useful?", threshold=0.5),
+    )
+    engine = CapturingEngine('{"score": 0.8, "reasoning": "useful"}')
+    result = await run_eval(spec, engine=engine)
+    assert result.cases[0].passed, result.cases[0].details
+    # respond mode calls the engine twice: once to generate the response,
+    # once for the judge. The judge prompt is the one carrying the scoring
+    # rubric — pick it by that signature rather than by index.
+    judge_prompts = [p for p in engine.prompts if "Score the output" in p]
+    assert len(judge_prompts) == 1
+    judge_prompt = judge_prompts[0]
+    # The plain judge template is used: user message present, no reference.
+    assert "Agent input:" in judge_prompt
+    assert "how is the rollout going?" in judge_prompt
+    assert "Reference input" not in judge_prompt
+    assert "testament to enduring commitment" not in judge_prompt
