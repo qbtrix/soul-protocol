@@ -18,6 +18,9 @@
        Runs cases against a soul seeded with explicit state (memories, OCEAN, bonds, mood,
        energy). Supports keyword / regex / semantic / judge / structural scoring. --json,
        --filter, --judge-engine, --verbose options. Exits 1 on any failure. Count: 47 → 48.
+     Updated: 2026-05-21 (paw-workspace#47): `soul eval` also scores prompts and skill
+       outputs — a `mode: prompt` case skips the soul and scores the case text verbatim.
+       No new command or flag; the `humanizer_skill.yaml` reference spec evaluates /humanize.
      Updated: 2026-04-29 — v0.4.0 (#42): Added `soul verify` and `soul audit` for trust-chain
        integrity checks and signed-action timelines. Both support --json. `soul verify` exits
        1 on a tampered chain. Count: 45 → 47.
@@ -1776,7 +1779,9 @@ Payloads are stored as hashes only — the table shows *what changed when*, not 
 
 ### `soul eval`
 
-Run YAML-driven soul-aware evals against a freshly seeded soul. The eval framework lets you pin the soul's state (memories, OCEAN, bonds, mood, energy) before each test runs, so you can measure memory-driven behaviour rather than just stateless input-output. See [eval-format.md](eval-format.md) for the full schema.
+Run YAML-driven soul-aware evals against a freshly seeded soul. The eval framework lets you pin the soul's state (memories, OCEAN, bonds, mood, energy) before each test runs, so you can measure memory-driven behaviour rather than just stateless input-output.
+
+It also scores plain prompts and skill outputs. A case with `mode: prompt` skips the soul and scores the case text verbatim — point it at a workspace prompt or a skill's output (for example `/humanize`) to catch regressions when that prompt or skill changes. See [eval-format.md](eval-format.md) for the full schema, including the `prompt` mode and the `humanizer_skill.yaml` reference spec.
 
 ```bash
 soul eval <path>
@@ -1809,6 +1814,10 @@ soul eval tests/eval_examples/                                  # all .yaml in d
 soul eval tests/eval_examples/ --filter "creative"
 soul eval my_eval.yaml --json | jq '.specs[].cases'
 soul eval my_eval.yaml --judge-engine my_module:make_engine
+
+# Score the /humanize skill (prompt-mode spec). The judge cases need an
+# engine; without one they SKIP and only the deterministic checks run.
+soul eval tests/eval_examples/humanizer_skill.yaml --judge-engine my_module:make_engine
 ```
 
 **Output:** one Rich table per spec (Case, Status, Score, Time, optional Details), plus a summary footer with totals. `--json` returns `{specs: [...], duration_ms, pass_count, fail_count, skip_count, error_count}`.

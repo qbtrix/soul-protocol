@@ -3,6 +3,9 @@
 #   per-case execution (respond + recall modes), all five scoring kinds,
 #   and the no-engine fallback path. Uses an in-memory FakeEngine for
 #   judge-scoring tests so they don't need API credentials.
+# Updated: 2026-05-21 (paw-workspace#47) — Added coverage for the "prompt"
+#   case mode: the runner scores the case message verbatim without
+#   touching the soul, the judge picks up the optional `reference` block.
 
 from __future__ import annotations
 
@@ -395,3 +398,100 @@ async def test_seed_failure_reports_in_result() -> None:
     assert result.error is None
     assert result.cases == []
     assert result.all_passed
+
+
+# ---------------------------------------------------------------------------
+# Prompt case mode (paw-workspace#47)
+# ---------------------------------------------------------------------------
+
+
+class CapturingEngine:
+    """FakeEngine variant that records every prompt it was asked to think on.
+
+    Used to assert what the runner actually puts in front of the judge —
+    e.g. that prompt-mode cases score the case message verbatim and that a
+    `reference` is surfaced as its own block.
+    """
+
+    def __init__(self, response: str) -> None:
+        self._response = response
+        self.prompts: list[str] = []
+
+    async def think(self, prompt: str) -> str:
+        self.prompts.append(prompt)
+        return self._response
+
+
+@pytest.mark.asyncio
+async def test_prompt_mode_dispatches_without_engine() -> None:
+    """A prompt-mode case runs through the runner with no engine.
+
+    The judge scorer skips (no engine), and crucially the runner never
+    touches the soul — so no birth/recall/respond machinery can raise.
+    """
+    spec = _spec_with(
+        CaseInputs(message="some candidate text", mode="prompt"),
+        JudgeScoring(criteria="is the text free of AI tells?"),
+    )
+    result = await run_eval(spec)
+    assert result.error is None
+    assert result.cases[0].skipped
+    assert result.cases[0].error is None
+
+
+@pytest.mark.asyncio
+async def test_prompt_mode_scores_message_verbatim() -> None:
+    """Prompt mode hands the case message straight to the scorer.
+
+    A keyword scorer over the verbatim message passes — proving the
+    runner did not run the soul fallback (which would prepend its own
+    "[soul-eval fallback response]" text and other content).
+    """
+    spec = _spec_with(
+        CaseInputs(message="the planner now retries failed tasks", mode="prompt"),
+        KeywordScoring(expected=["planner", "retries"], mode="all", threshold=1.0),
+    )
+    result = await run_eval(spec)
+    assert result.cases[0].passed, result.cases[0].details
+    # The output the scorer saw is exactly the message — no soul fallback.
+    assert result.cases[0].output == "the planner now retries failed tasks"
+    assert "fallback" not in result.cases[0].output
+
+
+@pytest.mark.asyncio
+async def test_prompt_mode_judge_scores_with_engine() -> None:
+    """With an engine wired, a prompt-mode judge case scores and passes."""
+    spec = _spec_with(
+        CaseInputs(message="a clean, human-sounding rewrite", mode="prompt"),
+        JudgeScoring(criteria="does the text read as human?", threshold=0.5),
+    )
+    engine = FakeEngine('{"score": 0.8, "reasoning": "natural voice"}')
+    result = await run_eval(spec, engine=engine)
+    assert result.cases[0].passed
+    assert result.cases[0].score == pytest.approx(0.8)
+    assert not result.cases[0].skipped
+
+
+@pytest.mark.asyncio
+async def test_prompt_mode_reference_reaches_judge() -> None:
+    """When a prompt-mode case carries `reference`, the judge sees it.
+
+    The judge prompt must include the reference under its own block so
+    criteria can compare a candidate output against the original text.
+    """
+    spec = _spec_with(
+        CaseInputs(
+            message="Version 2 ships Tuesday with offline mode.",
+            mode="prompt",
+            reference="Version 2 stands as a testament to our enduring commitment.",
+        ),
+        JudgeScoring(criteria="did the rewrite drop the puffery?", threshold=0.5),
+    )
+    engine = CapturingEngine('{"score": 0.9, "reasoning": "puffery gone"}')
+    result = await run_eval(spec, engine=engine)
+    assert result.cases[0].passed
+    assert len(engine.prompts) == 1
+    judge_prompt = engine.prompts[0]
+    assert "Reference input" in judge_prompt
+    assert "testament to our enduring commitment" in judge_prompt
+    assert "Version 2 ships Tuesday with offline mode." in judge_prompt
