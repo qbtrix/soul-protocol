@@ -251,6 +251,9 @@ class MemoryEntry(BaseModel):
     archived: bool = False  # True when memory has been compressed into a ConversationArchive
     # F1 progressive disclosure — runtime-only marker, never persisted
     is_summarized: bool = False  # Runtime marker: True when content replaced with abstract
+    # #247 — activation score stamped by RecallEngine.recall() on each returned
+    # entry. Runtime-only (exclude=True): never persisted to the .soul archive.
+    recall_score: float | None = Field(default=None, exclude=True)
     # Move 5 PR-A — RBAC/ABAC scope tags. Empty list = no scope assigned
     # (visible to any caller). Hierarchical glob: "org:sales:*" matches
     # "org:sales:leads". Filtered at retrieval time before results reach

@@ -1,4 +1,12 @@
 # test_retrieval.py — Tests for runtime/context/retrieval.py grep, expand, describe.
+# Updated: feat/recall-graded-floor (#247) — Added TestRecallScoresAndFloor, an
+#   end-to-end check that RecallEngine.recall() surfaces a per-result
+#   activation score on recall_score and that a positive relevance_floor
+#   drops weak query matches while strong matches remain. The memory recall
+#   path uses in-memory dict stores (EpisodicStore / SemanticStore /
+#   ProceduralStore), not the SQLiteContextStore exercised above — that store
+#   backs the separate context subsystem. The async fixture style here is
+#   kept; the populated_recall fixture builds an in-memory store directly.
 # Created: v0.3.0 — Regex search, DAG expansion, metadata snapshots,
 # recursive expansion through multiple compaction levels, and edge cases.
 
@@ -8,6 +16,11 @@ import pytest
 
 from soul_protocol.runtime.context.retrieval import describe, expand, grep
 from soul_protocol.runtime.context.store import SQLiteContextStore
+from soul_protocol.runtime.memory.episodic import EpisodicStore
+from soul_protocol.runtime.memory.procedural import ProceduralStore
+from soul_protocol.runtime.memory.recall import RecallEngine
+from soul_protocol.runtime.memory.semantic import SemanticStore
+from soul_protocol.runtime.types import MemoryEntry, MemoryType
 from soul_protocol.spec.context.models import (
     CompactionLevel,
     ContextMessage,
@@ -231,3 +244,122 @@ class TestDescribe:
         assert start is not None
         assert end is not None
         assert start <= end
+
+
+# ---------------------------------------------------------------------------
+# Recall scores + graded relevance floor (#247)
+# ---------------------------------------------------------------------------
+#
+# These cover the memory recall path (RecallEngine over the in-memory dict
+# stores), separate from the context grep/expand/describe path above. They
+# verify two things the #247 change introduced:
+#   1. Every recalled entry carries its activation score on recall_score.
+#   2. A positive relevance_floor drops weak query matches (low token
+#      overlap) while strong matches survive.
+
+
+def _semantic(content: str, importance: int = 6) -> MemoryEntry:
+    """Build a minimal semantic MemoryEntry for recall tests."""
+    return MemoryEntry(type=MemoryType.SEMANTIC, content=content, importance=importance)
+
+
+@pytest.fixture
+def recall_engine() -> RecallEngine:
+    """A RecallEngine over empty in-memory stores (graph disabled by callers)."""
+    return RecallEngine(
+        episodic=EpisodicStore(),
+        semantic=SemanticStore(),
+        procedural=ProceduralStore(),
+    )
+
+
+@pytest.fixture
+async def populated_recall(recall_engine: RecallEngine) -> RecallEngine:
+    """Engine seeded with strong, weak, and unrelated matches for the query
+    'kubernetes orchestration scaling'.
+
+    - strong: carries all three query tokens (token overlap 1.0).
+    - weak: shares exactly one query token, 'kubernetes' (overlap ~0.33).
+    - unrelated: shares no query token at all (never a candidate).
+
+    None of the content words collide with the synonym groups in search.py,
+    so token overlap stays the clean signal under test.
+    """
+    await recall_engine._semantic.add(
+        _semantic("Kubernetes orchestration handles pod scaling across the fleet"),
+    )
+    await recall_engine._semantic.add(
+        _semantic("A passing footnote that mentions kubernetes and nothing else"),
+    )
+    await recall_engine._semantic.add(
+        _semantic("The user enjoys baking sourdough bread on weekends"),
+    )
+    return recall_engine
+
+
+class TestRecallScoresAndFloor:
+    """RecallEngine surfaces per-result scores and honours the graded floor."""
+
+    async def test_results_carry_scores(self, populated_recall: RecallEngine):
+        """Every recalled entry has a populated, finite recall_score."""
+        results = await populated_recall.recall(
+            "kubernetes orchestration scaling", limit=10, use_graph=False
+        )
+        assert results, "expected at least one match"
+        for entry in results:
+            assert entry.recall_score is not None
+            assert isinstance(entry.recall_score, float)
+
+    async def test_score_matches_ranking_order(self, populated_recall: RecallEngine):
+        """Results are ordered by recall_score descending."""
+        results = await populated_recall.recall(
+            "kubernetes orchestration scaling", limit=10, use_graph=False
+        )
+        scores = [e.recall_score for e in results]
+        assert scores == sorted(scores, reverse=True)
+
+    async def test_default_floor_keeps_weak_match(self, populated_recall: RecallEngine):
+        """At the default floor (0.0) the weak single-token match is kept."""
+        results = await populated_recall.recall(
+            "kubernetes orchestration scaling", limit=10, use_graph=False
+        )
+        contents = " ".join(e.content for e in results)
+        assert "orchestration handles pod scaling" in contents  # strong
+        assert "passing footnote" in contents  # weak — still present
+        assert len(results) == 2  # unrelated never matched
+
+    async def test_graded_floor_drops_weak_match(self, populated_recall: RecallEngine):
+        """A floor of 0.5 drops the weak match but keeps the strong one."""
+        results = await populated_recall.recall(
+            "kubernetes orchestration scaling",
+            limit=10,
+            use_graph=False,
+            relevance_floor=0.5,
+        )
+        contents = [e.content for e in results]
+        assert len(results) == 1
+        assert "orchestration handles pod scaling" in contents[0]  # strong survives
+        assert all("passing footnote" not in c for c in contents)  # weak dropped
+
+    async def test_floor_above_all_matches_returns_empty(
+        self, populated_recall: RecallEngine
+    ):
+        """A floor above every match's relevance yields no results."""
+        # The strong match has overlap 1.0; nothing clears a floor > 1.0.
+        results = await populated_recall.recall(
+            "kubernetes orchestration scaling",
+            limit=10,
+            use_graph=False,
+            relevance_floor=1.01,
+        )
+        assert results == []
+
+    async def test_strong_match_outscores_weak(self, populated_recall: RecallEngine):
+        """The strong match ranks above the weak match by recall_score."""
+        results = await populated_recall.recall(
+            "kubernetes orchestration scaling", limit=10, use_graph=False
+        )
+        assert len(results) == 2
+        strong, weak = results[0], results[1]
+        assert "orchestration handles pod scaling" in strong.content
+        assert strong.recall_score > weak.recall_score

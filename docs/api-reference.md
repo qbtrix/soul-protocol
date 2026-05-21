@@ -276,10 +276,11 @@ async def recall(
     graph_walk: dict | None = None,
     page_token: str | None = None,
     token_budget: int | None = None,
+    relevance_floor: float = 0.0,
 ) -> list[MemoryEntry]
 ```
 
-Search memories ranked by ACT-R activation (recency, frequency, relevance). Relevance scoring uses the configured `SearchStrategy`.
+Search memories ranked by ACT-R activation (recency, frequency, relevance). Relevance scoring uses the configured `SearchStrategy`. Each returned entry carries its activation score on `MemoryEntry.recall_score` — the value the engine ranked on. `recall_score` is runtime-only and never written to the `.soul` file.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -293,6 +294,7 @@ Search memories ranked by ACT-R activation (recency, frequency, relevance). Rele
 | `graph_walk` | `dict \| None` | `None` | (#108) Filter results to memories linked to entities reachable from `graph_walk["start"]` within `graph_walk["depth"]` (default 2) hops. Optional `graph_walk["edge_types"]` whitelists relation predicates. |
 | `page_token` | `str \| None` | `None` | (#108) Resume a previous graph_walk recall. Pass the `next_page_token` attribute of a previous `RecallResults`. |
 | `token_budget` | `int \| None` | `None` | (#108) Cap cumulative content size of returned memories. Once exceeded, overflow entries fall back to their L0 abstract (F1 progressive disclosure). |
+| `relevance_floor` | `float` | `0.0` | (#247) Graded cutoff on query relevance (0.0-1.0). A candidate whose token-overlap score is below the floor is dropped during ranking. Default `0.0` keeps every candidate the stores returned; a positive floor drops weak matches. Checked against raw token overlap, so recency or emotion cannot lift an off-topic memory past it. |
 
 **Returns:** `list[MemoryEntry]` for plain calls. When `graph_walk`, `page_token`, or `token_budget` is supplied, returns `RecallResults` (a `list` subclass) carrying `next_page_token`, `total_estimate`, and `truncated_for_budget` attributes.
 
@@ -307,6 +309,11 @@ alice_memories = await soul.recall("preferences", user_id="alice", limit=5)
 finance_only = await soul.recall("revenue", domain="finance")
 all_semantic = await soul.recall("python", layer="semantic")
 combo = await soul.recall("revenue", layer="semantic", domain="finance")
+
+# Graded relevance floor (#247) — drop weak query matches
+focused = await soul.recall("python deployment docker", relevance_floor=0.3)
+for mem in focused:
+    print(mem.recall_score, mem.content)
 
 # Graph-walk recall (#108)
 results = await soul.recall(
