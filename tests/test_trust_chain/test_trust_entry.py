@@ -5,6 +5,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+from pydantic import BaseModel
 
 from soul_protocol.spec.trust import (
     GENESIS_PREV_HASH,
@@ -34,6 +38,27 @@ def test_payload_hash_is_64_hex_chars():
     h = compute_payload_hash({"action": "memory.write"})
     assert len(h) == 64
     int(h, 16)  # Raises if not hex
+
+
+def test_payload_hash_rejects_non_dict_payload():
+    with pytest.raises(TypeError, match="payload must be a dict"):
+        compute_payload_hash(["not", "a", "dict"])  # type: ignore[arg-type]
+
+
+def test_payload_hash_rejects_pydantic_model_directly():
+    class Payload(BaseModel):
+        action: str
+
+    with pytest.raises(TypeError, match=r"payload\.model_dump\(mode='json'\)"):
+        compute_payload_hash(Payload(action="memory.write"))  # type: ignore[arg-type]
+
+
+def test_payload_hash_rejects_non_json_native_values():
+    with pytest.raises(TypeError, match="Got: datetime"):
+        compute_payload_hash({"at": datetime(2026, 1, 1, tzinfo=UTC)})
+
+    with pytest.raises(TypeError, match="Got: WindowsPath|Got: PosixPath"):
+        compute_payload_hash({"path": Path("memory/core.json")})
 
 
 def test_entry_hash_excludes_signature():

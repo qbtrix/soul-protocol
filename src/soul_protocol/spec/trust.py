@@ -174,12 +174,20 @@ def _canonical_json(data: Any) -> bytes:
     """
     if isinstance(data, BaseModel):
         data = data.model_dump(mode="json")
+
+    def reject_non_json(value: Any) -> None:
+        raise TypeError(
+            "trust payloads must be JSON-native "
+            "(dict/list/str/int/float/bool/None). "
+            f"Got: {type(value).__name__}"
+        )
+
     return json.dumps(
         data,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,
-        default=str,
+        default=reject_non_json,
     ).encode("utf-8")
 
 
@@ -190,6 +198,10 @@ def compute_payload_hash(payload: dict) -> str:
     chain — only its hash. So a verifier with the original payload and the
     chain entry can prove the payload existed and was not tampered with.
     """
+    if isinstance(payload, BaseModel):
+        raise TypeError("pass payload.model_dump(mode='json') to compute_payload_hash")
+    if not isinstance(payload, dict):
+        raise TypeError("compute_payload_hash payload must be a dict")
     return hashlib.sha256(_canonical_json(payload)).hexdigest()
 
 
