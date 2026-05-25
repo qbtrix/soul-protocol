@@ -152,6 +152,10 @@ def test_namespaces_include_decision_actions():
     assert "agent.proposed" in ACTION_NAMESPACES
     assert "human.corrected" in ACTION_NAMESPACES
     assert "decision.graduated" in ACTION_NAMESPACES
+    # RFC 07 — projection-update event that mutates an already-emitted
+    # Decision's outcome field. Registered additively in the journal's
+    # action catalog so the chain projection can recognize it.
+    assert "decision.outcome_attached" in ACTION_NAMESPACES
 
 
 def test_build_proposal_event_shape(drafter: Actor):
