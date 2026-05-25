@@ -1,4 +1,9 @@
 # decisions.py — Decision trace payload types and helpers for the Org Journal.
+# Updated: feat/rfc07-decision-outcome-attached — extend the
+# ``trace_decision_chain`` decision-action filter to include
+# ``decision.outcome_attached`` so post-close outcome mutations
+# (introduced by RFC 07) surface in the trace alongside the chain
+# proper.
 # Created: feat/decision-traces — Workstream D of the Org Architecture RFC (PR #164).
 #
 # Every agent proposal a human edits or rejects becomes a structured, auditable
@@ -211,7 +216,15 @@ def trace_decision_chain(journal, correlation_id: UUID) -> list[EventEntry]:
     the same correlation_id are filtered out.
     """
     events = journal.query(correlation_id=correlation_id, limit=10_000)
-    decision_actions = {"agent.proposed", "human.corrected", "decision.graduated"}
+    decision_actions = {
+        "agent.proposed",
+        "human.corrected",
+        "decision.graduated",
+        # RFC 07: outcome-attachment events update an already-emitted
+        # Decision's outcome and belong in the chain so traces surface
+        # the full lifecycle, including post-close mutations.
+        "decision.outcome_attached",
+    }
     chain = [e for e in events if e.action in decision_actions]
     chain.sort(key=lambda e: e.ts)
     return chain
