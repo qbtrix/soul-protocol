@@ -29,6 +29,11 @@
 #   Ed25519 implementation lives under runtime/crypto/.
 # Updated: 2026-04-29 (#203) — Exported CHAIN_PRUNED_ACTION for the touch-time
 #   pruning marker. Verifier carve-out lives in spec.trust.verify_entry.
+# Updated: feat/rfc-09-slice-1-decision-vocabulary — Exported the RFC 09
+#   Decision Graph builders and type alias: ``build_policy_event``,
+#   ``build_completion_event``, ``CompletionStatus``. The actions they emit
+#   (``policy.evaluated`` was already in ACTION_NAMESPACES; ``decision.completed``
+#   is added in this slice) close the Decision Graph chain vocabulary.
 
 from __future__ import annotations
 
@@ -46,10 +51,13 @@ from .context import (
 )
 from .decisions import (
     AgentProposal,
+    CompletionStatus,
     DecisionGraduation,
     Disposition,
     HumanCorrection,
+    build_completion_event,
     build_correction_event,
+    build_policy_event,
     build_proposal_event,
     cluster_correction_patterns,
     find_corrections_for,
@@ -151,6 +159,12 @@ __all__ = [
     "find_corrections_for",
     "trace_decision_chain",
     "cluster_correction_patterns",
+    # RFC 09 Decision Graph projection builders (policy.evaluated +
+    # decision.completed). ``CompletionStatus`` is the Literal alias
+    # used by ``build_completion_event``.
+    "CompletionStatus",
+    "build_policy_event",
+    "build_completion_event",
     # Memory
     "Interaction",
     "MemoryEntry",
