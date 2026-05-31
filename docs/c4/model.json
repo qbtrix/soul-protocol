@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "scope": "soul-protocol",
+  "generated_at": "2026-05-29T10:10:44Z",
+  "source_path": "/Users/prakash-1/Documents/paw-workspace/soul-protocol",
+  "model": {
+    "people": [],
+    "systems": [
+      {
+        "id": "soul-protocol",
+        "name": "Soul Protocol",
+        "description": "Software system: soul-protocol",
+        "tags": [
+          "internal"
+        ],
+        "containers": []
+      }
+    ],
+    "relationships": []
+  }
+}

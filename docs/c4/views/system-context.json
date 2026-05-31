@@ -1,0 +1,22 @@
+{
+  "level": "context",
+  "title": "System Context -- soul-protocol",
+  "description": "How soul-protocol fits in its ecosystem",
+  "elements": [
+    "soul-protocol",
+    "anthropic-api",
+    "openai-api"
+  ],
+  "relationships": [
+    {
+      "source": "soul-protocol",
+      "target": "anthropic-api",
+      "description": "Uses Anthropic API"
+    },
+    {
+      "source": "soul-protocol",
+      "target": "openai-api",
+      "description": "Uses OpenAI API"
+    }
+  ]
+}

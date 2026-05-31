@@ -1,0 +1,312 @@
+{
+  "level": "component",
+  "title": "Components -- Soul Protocol",
+  "description": "Component-level view of Soul Protocol",
+  "elements": [
+    "adapters",
+    "assets",
+    "bridges",
+    "cognitive",
+    "context",
+    "crypto",
+    "dimensions",
+    "dna",
+    "dspytraining",
+    "embeddings",
+    "engine",
+    "eternal",
+    "eval",
+    "evalui",
+    "evolution",
+    "examples",
+    "export",
+    "identity",
+    "importers",
+    "journal",
+    "longhorizon",
+    "mcp",
+    "memory",
+    "parsers",
+    "providers",
+    "quality",
+    "research",
+    "runtime",
+    "scripts",
+    "soul-agent",
+    "soulprotocol",
+    "spec",
+    "spike",
+    "state",
+    "storage",
+    "templates",
+    "testcli",
+    "testcognitive",
+    "testembeddings",
+    "testengine",
+    "testeternal",
+    "testevolution",
+    "testimporters",
+    "testinstall",
+    "testlonghorizon",
+    "testmcp",
+    "testmemory",
+    "testmodels",
+    "tests",
+    "testspec",
+    "testspike",
+    "teststate",
+    "teststorage"
+  ],
+  "relationships": [
+    {
+      "source": "adapters",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "bridges",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "cli",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "cognitive",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "context",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "crypto",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "dimensions",
+      "target": "research",
+      "description": "imports research"
+    },
+    {
+      "source": "dimensions",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "dna",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "dspytraining",
+      "target": "research",
+      "description": "imports research"
+    },
+    {
+      "source": "embeddings",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "eternal",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "eval",
+      "target": "research",
+      "description": "imports research"
+    },
+    {
+      "source": "evalui",
+      "target": "research",
+      "description": "imports research"
+    },
+    {
+      "source": "evalui",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "evolution",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "examples",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "export",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "identity",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "importers",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "journal",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "longhorizon",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "mcp",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "memory",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "parsers",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "providers",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "quality",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "research",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "runtime",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "scripts",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "spec",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "spike",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "state",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "storage",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "testcli",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "testcognitive",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "testembeddings",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "testengine",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "testeternal",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "testevolution",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "testimporters",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "testlonghorizon",
+      "target": "research",
+      "description": "imports research"
+    },
+    {
+      "source": "testmcp",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "testmemory",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "testmodels",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "tests",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "testspec",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "testspike",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "teststate",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "teststorage",
+      "target": "soulprotocol",
+      "description": "imports soul_protocol"
+    }
+  ]
+}

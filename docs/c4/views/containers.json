@@ -1,0 +1,26 @@
+{
+  "level": "container",
+  "title": "Containers -- soul-protocol",
+  "description": "Container-level view of soul-protocol",
+  "elements": [
+    "cli",
+    "soul-protocol-core"
+  ],
+  "relationships": [
+    {
+      "source": "cli",
+      "target": "soul-protocol-core",
+      "description": "imports soul_protocol"
+    },
+    {
+      "source": "soul-protocol",
+      "target": "anthropic-api",
+      "description": "Uses Anthropic API"
+    },
+    {
+      "source": "soul-protocol",
+      "target": "openai-api",
+      "description": "Uses OpenAI API"
+    }
+  ]
+}
