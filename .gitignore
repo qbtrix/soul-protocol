@@ -45,3 +45,4 @@ research/results/
 # Internal docs (not for public repo)
 idocs/
 .claude/worktrees/
+lfd/
