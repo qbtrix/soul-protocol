@@ -126,6 +126,15 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+# Fix #267: Windows legacy console uses cp1252 which cannot render Unicode
+# characters (progress bars, emoji) that Rich outputs. Reconfigure to UTF-8.
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):
+        pass  # Fallback: non-reconfigurable stream (e.g. piped output)
+
 console = Console()
 
 
