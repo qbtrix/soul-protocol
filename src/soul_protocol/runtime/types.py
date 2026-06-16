@@ -310,6 +310,21 @@ class MemoryVisibility(StrEnum):
     PRIVATE = "private"
 
 
+class MemoryProvenance(StrEnum):
+    """Who authored a memory entry.
+
+    Distinguishes human-authored memories from those written autonomously
+    by an agent (e.g. PocketPaw's self-improving skills loop, where a forked
+    write-only reviewer learns a procedure from a session transcript). The
+    curator only ever consolidates / archives ``AGENT`` entries — human-authored
+    procedures are never touched. Defaults to ``HUMAN`` so pre-provenance souls
+    round-trip without migration.
+    """
+
+    HUMAN = "human"
+    AGENT = "agent"
+
+
 class MemoryType(StrEnum):
     """Built-in memory tiers. v0.4.0 (#41) treats these as ergonomic
     constants for layer names — runtimes can use any string layer they
@@ -431,6 +446,13 @@ class MemoryEntry(BaseModel):
     # prior trace to predict against. Captured in the trust chain payload too,
     # so verifiers can re-derive how confident the runtime was in the change.
     prediction_error: float | None = Field(default=None, ge=0.0, le=1.0)
+    # feat/soul-skills-procedural — authorship tag. HUMAN for every memory the
+    # human or the standard observe/remember path writes; AGENT for memories an
+    # autonomous loop authors (PocketPaw's self-improving skills reviewer). The
+    # procedural curator only consolidates / archives AGENT entries; it never
+    # touches HUMAN-authored procedures and never hard-deletes. Defaults to
+    # HUMAN so pre-provenance souls round-trip with no migration.
+    provenance: MemoryProvenance = MemoryProvenance.HUMAN
 
     @model_validator(mode="before")
     @classmethod

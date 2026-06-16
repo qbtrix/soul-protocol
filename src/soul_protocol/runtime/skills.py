@@ -4,6 +4,11 @@
 # Updated: 2026-03-22 — Added grant_xp_from_learning().
 # Updated: 2026-03-29 — Added Skill.decay() and SkillRegistry.decay_all() for
 #   significance-weighted XP and time-based XP decay (F3: Skills XP).
+# Updated: 2026-06-16 (feat/soul-skills-procedural) — Added
+#   grant_xp_for_procedure_use(): grants XP to the skill tracking a learned
+#   procedure each time that procedure is used, auto-creating the skill on
+#   first use. Returns True when the grant crosses a level boundary (the
+#   graduation signal PocketPaw's skills loop uses to materialize a SKILL.md).
 
 from __future__ import annotations
 
@@ -76,6 +81,28 @@ class SkillRegistry(BaseModel):
                 if skill.xp < before:
                     decayed += 1
         return decayed
+
+    def grant_xp_for_procedure_use(self, skill_id: str, amount: int = 10) -> bool:
+        """Grant XP to the skill that tracks a learned procedure's usage.
+
+        Called by the self-improving skills loop whenever an agent-learned
+        procedure is used. Auto-creates the skill (named after ``skill_id``)
+        on first use so callers never have to pre-register it.
+
+        Args:
+            skill_id: Stable id tying a procedure to its progression skill —
+                e.g. ``"proc:<memory_id>"``.
+            amount: XP to grant per use (default 10).
+
+        Returns:
+            True if the grant crossed a level boundary — the graduation signal
+            the loop uses to materialize a SKILL.md.
+        """
+        skill = self.get(skill_id)
+        if not skill:
+            skill = Skill(id=skill_id, name=skill_id)
+            self.add(skill)
+        return skill.add_xp(amount)
 
     def grant_xp_from_learning(self, event: LearningEvent) -> bool:
         """Grant XP to a skill based on a LearningEvent."""

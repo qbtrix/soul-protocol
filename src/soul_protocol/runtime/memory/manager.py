@@ -1,4 +1,11 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-06-16 (feat/soul-skills-procedural) — adds
+#   consolidate_agent_procedures(): a curator pass over PROCEDURAL memories that
+#   only ever considers AGENT-authored entries (provenance == AGENT). It finds
+#   overlapping agent procedures via the same Jaccard/containment scoring used by
+#   reconcile_fact and marks the weaker of each near-duplicate pair as
+#   superseded (soft, never a hard delete). HUMAN-authored procedures are never
+#   inspected or modified. Returns a small report dict.
 # Updated: 2026-05-29 — add() now routes episodic entries through
 #   EpisodicStore.add_entry() (stores the MemoryEntry verbatim) instead of
 #   rebuilding an Interaction. Fixes #234 (content no longer wrapped in a
@@ -127,7 +134,7 @@ from soul_protocol.runtime.memory.attention import (
 )
 from soul_protocol.runtime.memory.contradiction import ContradictionDetector
 from soul_protocol.runtime.memory.core import CoreMemoryManager
-from soul_protocol.runtime.memory.dedup import reconcile_fact
+from soul_protocol.runtime.memory.dedup import _jaccard_similarity, reconcile_fact
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
 from soul_protocol.runtime.memory.procedural import ProceduralStore
@@ -141,6 +148,7 @@ from soul_protocol.runtime.types import (
     GeneralEvent,
     Interaction,
     MemoryEntry,
+    MemoryProvenance,
     MemorySettings,
     MemoryType,
     Personality,
@@ -1390,6 +1398,92 @@ class MemoryManager:
             archive.id,
         )
         return archive
+
+    async def consolidate_agent_procedures(self, *, similarity_threshold: float = 0.6) -> dict:
+        """Curator pass: consolidate overlapping AGENT-authored procedures.
+
+        Walks the PROCEDURAL store, considering ONLY entries whose
+        ``provenance`` is :attr:`MemoryProvenance.AGENT` and that are not
+        already superseded. For each near-duplicate pair (similarity above
+        ``similarity_threshold``, the same band ``reconcile_fact`` calls
+        MERGE/SKIP), the weaker entry is marked ``superseded=True`` and its
+        ``superseded_by`` back-edge is pointed at the survivor. "Weaker" is the
+        lower-importance entry, breaking ties toward the older one so the most
+        recent agent learning survives.
+
+        This is a SOFT consolidation: superseded entries stay in the store
+        (recall already filters them), so nothing is ever hard-deleted.
+        HUMAN-authored procedures are never inspected or touched — this is the
+        guard that keeps the self-improving loop from rewriting human knowledge.
+
+        Interim-window caveat: PocketPaw's skills loop only sends the native
+        ``provenance=AGENT`` kwarg once its soul-protocol dependency is bumped to
+        this release. Before that bump, procedures it writes land with the
+        default ``provenance=HUMAN`` (it tags them on the ``entities`` list
+        instead). Those interim procedures therefore ESCAPE this curator until
+        the dep lands — a one-time re-tag pass (entities-tag → provenance=AGENT)
+        may be desired after the bump to sweep them in.
+
+        Args:
+            similarity_threshold: Minimum Jaccard/containment similarity for
+                two procedures to count as overlapping. Defaults to 0.6, the
+                lower bound of ``reconcile_fact``'s MERGE band.
+
+        Returns:
+            ``{"considered": int, "consolidated": int, "superseded_ids": list[str]}``
+            where ``considered`` counts the live agent procedures inspected and
+            ``consolidated`` counts the entries newly marked superseded.
+        """
+        # NOTE: ``entries()`` hands back LIVE MemoryEntry references from the
+        # store, not copies. The in-place ``superseded`` / ``superseded_by``
+        # writes below are INTENTIONAL — they mutate the stored entries directly
+        # (the same soft-supersede contract supersede() uses). Do not "fix" this
+        # into a copy-then-mutate; that would silently drop the consolidation.
+        agent_entries = [
+            e
+            for e in self._procedural.entries()
+            if e.provenance == MemoryProvenance.AGENT and not e.superseded
+        ]
+
+        superseded_ids: list[str] = []
+        # Survivors we've already kept — used so a single survivor can absorb
+        # several near-duplicates without itself being demoted.
+        for i, entry in enumerate(agent_entries):
+            if entry.superseded:
+                continue
+            for other in agent_entries[i + 1 :]:
+                if other.superseded:
+                    continue
+                sim = _jaccard_similarity(entry.content, other.content)
+                if sim < similarity_threshold:
+                    continue
+                # Pick the survivor: higher importance wins; tie → keep the
+                # newer entry (later created_at) as the canonical learning.
+                if (other.importance, other.created_at) >= (
+                    entry.importance,
+                    entry.created_at,
+                ):
+                    loser, survivor = entry, other
+                else:
+                    loser, survivor = other, entry
+                loser.superseded = True
+                loser.superseded_by = survivor.id
+                superseded_ids.append(loser.id)
+                if loser is entry:
+                    # The outer entry got superseded — stop pairing it further.
+                    break
+
+        if superseded_ids:
+            logger.info(
+                "consolidate_agent_procedures: superseded %d agent procedures",
+                len(superseded_ids),
+            )
+
+        return {
+            "considered": len(agent_entries),
+            "consolidated": len(superseded_ids),
+            "superseded_ids": superseded_ids,
+        }
 
     # ---- GDPR-compliant deletion (v0.3.0) ----
 
