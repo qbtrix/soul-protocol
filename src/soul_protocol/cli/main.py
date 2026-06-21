@@ -670,7 +670,14 @@ def status(path):
     default="soul",
     help="Export format",
 )
-def export_cmd(source, output, fmt):
+@click.option(
+    "--include-keys",
+    is_flag=True,
+    default=False,
+    help="Include private signing key in exported .soul file. "
+    "Only use when migrating between your own devices.",
+)
+def export_cmd(source, output, fmt, include_keys):
     """Export a Soul to a different format."""
 
     async def _export():
@@ -680,7 +687,7 @@ def export_cmd(source, output, fmt):
         out = output or f"{_safe_name(soul.name)}.{fmt}"
 
         if fmt == "soul":
-            await soul.export(out, include_keys=True)
+            await soul.export(out, include_keys=include_keys)
         elif fmt == "json":
             Path(out).write_text(soul.serialize().model_dump_json(indent=2))
         elif fmt == "yaml":
@@ -695,6 +702,7 @@ def export_cmd(source, output, fmt):
         console.print(f"[green]Exported[/green] {soul.name} to {out} ({fmt})")
 
     asyncio.run(_export())
+
 
 
 @cli.command("unpack")
