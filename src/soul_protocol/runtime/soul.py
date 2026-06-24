@@ -1,4 +1,11 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-06-16 (feat/soul-skills-procedural) — remember() and note() now
+#   accept a ``provenance: MemoryProvenance`` kwarg (default HUMAN) so an
+#   autonomous loop (PocketPaw's self-improving skills reviewer) can stamp the
+#   procedures it learns as AGENT-authored. Adds Soul.curate_agent_procedures():
+#   a curator pass that consolidates overlapping AGENT-created procedures
+#   (marking the weaker one superseded) and never touches HUMAN procedures or
+#   hard-deletes anything. Delegates to MemoryManager.consolidate_agent_procedures().
 # Updated: 2026-05-05 (#231) — Adds Soul.note() — a fact-shaped writer that
 #   routes through reconcile_fact() (Jaccard + containment dedup) before
 #   storing. Mirrors remember() but applies SKIP/MERGE/CREATE so callers
@@ -225,6 +232,7 @@ from .types import (
     Interaction,
     LifecycleState,
     MemoryEntry,
+    MemoryProvenance,
     MemoryType,
     MemoryVisibility,
     Mutation,
@@ -1400,6 +1408,7 @@ class Soul:
         scope: list[str] | None = None,
         domain: str = "default",
         user_id: str | None = None,
+        provenance: MemoryProvenance = MemoryProvenance.HUMAN,
     ) -> str:
         """Soul remembers something. Returns memory ID.
 
@@ -1426,6 +1435,7 @@ class Soul:
                 scope=scope or [],
                 domain=domain,
                 user_id=user_id,
+                provenance=provenance,
             )
         )
 
@@ -1443,6 +1453,7 @@ class Soul:
         user_id: str | None = None,
         dedup: bool = True,
         detect_contradictions: bool | None = None,
+        provenance: MemoryProvenance = MemoryProvenance.HUMAN,
     ) -> dict:
         """Note a fact, routing through the dedup pipeline before storing.
 
@@ -1479,6 +1490,10 @@ class Soul:
             detect_contradictions: When True, run contradiction detection
                 on stored facts (currently a TODO — see #231).
                 Defaults to True for semantic, False otherwise.
+            provenance: Authorship tag (default HUMAN). Pass
+                ``MemoryProvenance.AGENT`` when an autonomous loop is writing
+                the fact so the curator can consolidate it without touching
+                human-authored memories.
 
         Returns:
             ``{"action": str, "id": str | None, "existing_id": str | None,
@@ -1509,6 +1524,7 @@ class Soul:
                 scope=scope,
                 domain=domain,
                 user_id=user_id,
+                provenance=provenance,
             )
             return {
                 "action": "CREATE",
@@ -1537,6 +1553,7 @@ class Soul:
                 scope=scope,
                 domain=domain,
                 user_id=user_id,
+                provenance=provenance,
             )
             return {
                 "action": "CREATE",
@@ -1578,6 +1595,7 @@ class Soul:
                 scope=scope,
                 domain=domain,
                 user_id=user_id,
+                provenance=provenance,
             )
             similarity = None
             if target_id is not None:
@@ -1604,6 +1622,7 @@ class Soul:
             scope=scope,
             domain=domain,
             user_id=user_id,
+            provenance=provenance,
         )
         return {
             "action": "CREATE",
@@ -1611,6 +1630,27 @@ class Soul:
             "existing_id": None,
             "similarity": None,
         }
+
+    async def curate_agent_procedures(self, *, similarity_threshold: float = 0.6) -> dict:
+        """Curate AGENT-authored procedural memories.
+
+        Idle/scheduled pass for the self-improving skills loop: consolidates
+        overlapping procedures that an autonomous reviewer wrote (provenance
+        AGENT), marking the weaker of each near-duplicate pair superseded. It
+        never inspects or modifies HUMAN-authored procedures and never
+        hard-deletes — superseded entries stay in the store and simply stop
+        surfacing in recall.
+
+        Args:
+            similarity_threshold: Overlap floor for two agent procedures to be
+                treated as near-duplicates. Defaults to 0.6.
+
+        Returns:
+            ``{"considered": int, "consolidated": int, "superseded_ids": list[str]}``.
+        """
+        return await self._memory.consolidate_agent_procedures(
+            similarity_threshold=similarity_threshold
+        )
 
     async def recall(
         self,
