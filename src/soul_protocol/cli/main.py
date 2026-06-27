@@ -170,6 +170,11 @@ from soul_protocol.cli.journal import journal_group as _journal_group  # noqa: E
 
 cli.add_command(_journal_group)
 
+# DID management subcommand group (Phase 1 — digital identity CLI)
+from soul_protocol.cli.did import did_group as _did_group  # noqa: E402
+
+cli.add_command(_did_group)
+
 # Soul diff command (#191)
 from soul_protocol.cli.diff import diff_cmd as _diff_cmd  # noqa: E402
 
