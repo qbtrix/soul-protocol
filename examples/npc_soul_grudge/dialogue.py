@@ -25,6 +25,18 @@
 #   litellm.py, _callable.py, _auto.py). Any of those can back `generate` when a
 #   key/endpoint exists — but claude_cli_generate is the one that works here
 #   with no configuration.
+#
+# Updated: 2026-07-01 (experiment/npc-soul-grudge-kernel) — PLAYER.SOUL SYMMETRY.
+#   Added speak_reputation(...) to the DialogueEngine seam: how a FRESH NPC (who
+#   never met this player, so holds no personal grudge) voices its reaction to
+#   the player's PORTABLE REPUTATION read off their player.soul. It is distinct
+#   from speak(): the tone is "I've heard of you" (hearsay), not "you wronged ME"
+#   (personal), and it is NPC-name-aware + trade-neutral so ANY npc.soul (Astrid
+#   the innkeeper, not just Bjorn the butcher) reads right. speak() is untouched
+#   — byte-for-byte identical — so the original 7 tests stay green. The templated
+#   engine renders reputation deterministically; the LLM engine builds a
+#   reputation-specific prompt (persona + OCEAN + notoriety + the deeds) and,
+#   like speak(), falls back to the template on empty/any error.
 
 from __future__ import annotations
 
@@ -34,6 +46,12 @@ from typing import Protocol, runtime_checkable
 # Grudge-level constants live in grudge.py; import them so the templated engine
 # renders the exact same three branches the kernel always did.
 from grudge import GRUDGING, NONE, SLIGHTED, Grievance
+
+# Notoriety bands live in player.py (the reputation side of the ledger). Imported
+# so the reputation engine renders the UNKNOWN / KNOWN / NOTORIOUS branches. This
+# import is acyclic: player.py imports only SEVERITY from grudge.py, and grudge.py
+# imports dialogue/player lazily (inside methods), never at module top.
+from player import KNOWN, NOTORIOUS, UNKNOWN
 
 
 @runtime_checkable
@@ -60,6 +78,27 @@ class DialogueEngine(Protocol):
         ``grievances`` are human-readable grievance descriptions (worst first),
         already scoped to this player. ``player_line`` is what the player just
         said. ``grudge_level`` is one of NONE / SLIGHTED / GRUDGING.
+        """
+        ...
+
+    async def speak_reputation(
+        self,
+        *,
+        npc_name: str,
+        persona: str,
+        ocean: dict[str, float],
+        notoriety: str,
+        reputation_deeds: list[str],
+        player_line: str,
+        player_name: str | None = None,
+    ) -> str:
+        """Return a FRESH NPC's reaction to a player's PORTABLE REPUTATION.
+
+        The NPC has never met this player, so this is hearsay, not a personal
+        grudge: it reacts to ``notoriety`` (UNKNOWN / KNOWN / NOTORIOUS) and, when
+        the record is dirty, cites ``reputation_deeds`` (worst-first descriptions
+        read off the player's ``player.soul``). ``npc_name`` lets any NPC — not
+        just Bjorn — voice it.
         """
         ...
 
@@ -104,6 +143,45 @@ class TemplatedDialogueEngine:
             f"Bjorn's cleaver thuds into the block. 'You have the gall to show "
             f"your face here, {who}? I remember {cited}. You'll get nothing from "
             "me but the door.'"
+        )
+
+    async def speak_reputation(
+        self,
+        *,
+        npc_name: str,
+        persona: str,
+        ocean: dict[str, float],
+        notoriety: str,
+        reputation_deeds: list[str],
+        player_line: str,
+        player_name: str | None = None,
+    ) -> str:
+        """Deterministic reputation reaction — NPC-name-aware and trade-neutral.
+
+        Distinct from :meth:`speak`: the wording is hearsay ("word travels",
+        "I've heard how you...") because this NPC never met the player. Mapped
+        off notoriety, which the kernel derived from the player's PUBLIC deeds.
+        """
+        who = player_name or "stranger"
+
+        if notoriety == UNKNOWN:
+            return (
+                f"{npc_name} looks up with an easy nod. 'Welcome, {who} — "
+                "haven't seen your face before. Sit, you're among friends.'"
+            )
+
+        if notoriety == KNOWN:
+            return (
+                f"{npc_name} pauses, wiping the counter, and studies {who}. "
+                "'...I've heard your name, and not in praise. Mind yourself under my roof.'"
+            )
+
+        # NOTORIOUS — cite the reputation the player carries with them.
+        cited = ", ".join(reputation_deeds[:3]) if reputation_deeds else "what you've done"
+        return (
+            f"{npc_name} sets down the jug, hard. 'I know who you are, {who}. "
+            f"Word travels — they say you {cited}. We want no trouble like that "
+            "here. Move along.'"
         )
 
 
@@ -165,6 +243,58 @@ class LLMDialogueEngine:
             )
         return line
 
+    async def speak_reputation(
+        self,
+        *,
+        npc_name: str,
+        persona: str,
+        ocean: dict[str, float],
+        notoriety: str,
+        reputation_deeds: list[str],
+        player_line: str,
+        player_name: str | None = None,
+    ) -> str:
+        """LLM reaction to a player's PORTABLE REPUTATION (see the Protocol).
+
+        Builds a reputation-specific prompt (the deeds are HEARSAY the NPC never
+        witnessed) and, exactly like :meth:`speak`, falls back to the templated
+        reputation reaction on empty output or ANY error.
+        """
+        prompt = self.build_reputation_prompt(
+            npc_name=npc_name,
+            persona=persona,
+            ocean=ocean,
+            notoriety=notoriety,
+            reputation_deeds=reputation_deeds,
+            player_line=player_line,
+            player_name=player_name,
+        )
+        try:
+            line = await self._generate(prompt)
+        except Exception:
+            return await self._fallback.speak_reputation(
+                npc_name=npc_name,
+                persona=persona,
+                ocean=ocean,
+                notoriety=notoriety,
+                reputation_deeds=reputation_deeds,
+                player_line=player_line,
+                player_name=player_name,
+            )
+
+        line = (line or "").strip()
+        if not line:
+            return await self._fallback.speak_reputation(
+                npc_name=npc_name,
+                persona=persona,
+                ocean=ocean,
+                notoriety=notoriety,
+                reputation_deeds=reputation_deeds,
+                player_line=player_line,
+                player_name=player_name,
+            )
+        return line
+
     # -- prompt construction (pure; unit-testable via the spy) ---------------
 
     @staticmethod
@@ -205,6 +335,54 @@ class LLMDialogueEngine:
             "spoken words, no narration, no quotation marks, no stage directions."
         )
 
+    @staticmethod
+    def build_reputation_prompt(
+        *,
+        npc_name: str,
+        persona: str,
+        ocean: dict[str, float],
+        notoriety: str,
+        reputation_deeds: list[str],
+        player_line: str,
+        player_name: str | None = None,
+    ) -> str:
+        """Build the reputation prompt fed to the model.
+
+        Persona-driven and NPC-name-aware (this path serves any NPC, e.g. Astrid
+        the innkeeper), and frames the deeds as HEARSAY — the NPC never met this
+        player. Static + side-effect-free so the spy test can assert the model
+        receives the notoriety AND the reputation deeds without a model call.
+        """
+        ocean_desc = _describe_ocean(ocean)
+        who = player_name or "this stranger"
+        standing = _describe_notoriety(notoriety)
+
+        if reputation_deeds:
+            rumor = (
+                f"You have NEVER met {who}, but their reputation precedes them. "
+                "Word around the region is that they have: " + "; ".join(reputation_deeds) + "."
+            )
+        else:
+            rumor = (
+                f"You have never met {who}, and you have heard nothing ill of "
+                "them — their name carries no bad reputation."
+            )
+
+        return (
+            f"{persona}\n"
+            f"Your name is {npc_name}.\n"
+            f"Your OCEAN personality: {ocean_desc}.\n"
+            f"{rumor}\n"
+            f"Your standing toward {who} based on their reputation alone: {standing}.\n"
+            f"They just said: '{player_line}'.\n"
+            f"Respond IN CHARACTER as {npc_name} in 1-2 sentences. You are "
+            "reacting to their REPUTATION, not to anything they did to you "
+            "personally. If their reputation is bad, be wary or cold and allude "
+            "to what you have heard they did. If their name is clean, be warm and "
+            f"welcoming. Output ONLY {npc_name}'s spoken words, no narration, no "
+            "quotation marks, no stage directions."
+        )
+
 
 def _describe_ocean(ocean: dict[str, float]) -> str:
     """Render OCEAN traits as a compact natural-language descriptor for the
@@ -232,6 +410,14 @@ def _describe_feeling(grudge_level: str) -> str:
         SLIGHTED: "wary and cool — they have wronged you once and you have not forgotten",
         GRUDGING: "cold and hostile — they have wronged you badly and repeatedly",
     }.get(grudge_level, grudge_level)
+
+
+def _describe_notoriety(notoriety: str) -> str:
+    return {
+        UNKNOWN: "neutral — you have heard nothing about them, they are a clean stranger",
+        KNOWN: "guarded — their name carries some ill repute you have caught wind of",
+        NOTORIOUS: "cold and unwelcoming — they are infamous for the wrongs they have done",
+    }.get(notoriety, notoriety)
 
 
 # ---------------------------------------------------------------------------

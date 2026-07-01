@@ -22,6 +22,24 @@
 #   feeds the REAL grudge context (grievance content + grudge level) to whatever
 #   backs `generate` — using the real LLMDialogueEngine, not a mock of it.
 #
+# Updated: 2026-07-01 (experiment/npc-soul-grudge-kernel) — PLAYER.SOUL SYMMETRY.
+#   Added the cross-game-reputation tests (all deterministic — no live LLM, no
+#   subprocess, no network):
+#     * test_deed_recorded_on_player_soul — after a slight with a player_soul
+#       passed to record(), the PLAYER's own soul reputation() carries the deed
+#       (the both-directions ledger write works).
+#     * test_reputation_survives_roundtrip_and_fresh_npc_reacts (THE KILLER) —
+#       player wrongs Bjorn -> export player.soul -> awaken fresh -> a FRESH NPC
+#       (Astrid, never met the player) react_to_reputation(reawakened) yields
+#       wariness above baseline AND reputation() is non-empty. Portable reputation
+#       across a round-trip + a never-met NPC.
+#     * test_clean_player_stays_warm — a player.soul with no deeds -> Astrid's
+#       reaction is the warm/baseline (UNKNOWN) branch, proving it's the
+#       reputation driving wariness, not global suspicion.
+#     * test_reputation_llm_seam_feeds_deeds_to_model — the SAME record-don't-mock
+#       spy, on the reputation path: asserts the model's prompt carries the
+#       player's deeds + notoriety framing + the fresh NPC's own name.
+#
 # Run:  uv run pytest examples/npc_soul_grudge/test_grudge_kernel.py -v
 
 from __future__ import annotations
@@ -37,6 +55,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from dialogue import LLMDialogueEngine  # noqa: E402
 from grudge import GRUDGING, NONE, SLIGHTED, GrudgeKernel  # noqa: E402
+from player import KNOWN, NOTORIOUS, UNKNOWN, PlayerSoul  # noqa: E402
 
 pytestmark = pytest.mark.asyncio
 
@@ -250,3 +269,100 @@ async def test_llm_engine_falls_back_to_template_on_failure() -> None:
         # Fell back to the templated GRUDGING branch, citing a remembered wrong.
         assert "gall to show your face" in reaction
         assert ("betrayed" in reaction) or ("stole" in reaction)
+
+
+# ---------------------------------------------------------------------------
+# PLAYER.SOUL SYMMETRY — the cross-game reputation seam.
+# ---------------------------------------------------------------------------
+
+
+async def _innkeeper(**kw) -> GrudgeKernel:
+    """A FRESH NPC (Astrid) who has never met any player."""
+    return await GrudgeKernel.birth(
+        name="Astrid",
+        archetype="The Innkeeper",
+        persona="I am Astrid, a wary innkeeper who keeps a careful house.",
+        **kw,
+    )
+
+
+async def test_deed_recorded_on_player_soul() -> None:
+    """The OTHER direction of the ledger: recording a slight with a player_soul
+    also writes the matching deed onto the PLAYER's own soul (their reputation)."""
+    bjorn = await GrudgeKernel.birth()
+    ragnar = await PlayerSoul.birth(name="Ragnar")
+
+    await bjorn.record(RAGNAR, "I framed you to the guards.", kind="betrayal", player_soul=ragnar)
+
+    # NPC side (existing): Bjorn holds the grievance.
+    assert len(await bjorn.grievances(RAGNAR)) >= 1
+    # PLAYER side (new): Ragnar's own soul carries the deed = his portable reputation.
+    deeds, notoriety = await ragnar.reputation()
+    assert len(deeds) >= 1
+    assert notoriety == KNOWN
+    assert any("betray" in d.lower() for d in deeds)
+
+
+async def test_reputation_survives_roundtrip_and_fresh_npc_reacts(tmp_path: Path) -> None:
+    """THE KILLER TEST for player.soul: reputation survives a .soul export ->
+    awaken, and a FRESH NPC who has never met the player reacts to it."""
+    bjorn = await GrudgeKernel.birth()
+    ragnar = await PlayerSoul.birth(name="Ragnar")
+    await bjorn.record(RAGNAR, "I framed you to the guards.", kind="betrayal", player_soul=ragnar)
+    await bjorn.record(RAGNAR, "*steals sausages*", kind="theft", player_soul=ragnar)
+
+    # Export the PLAYER's portable identity, drop it, awaken a fresh copy.
+    path = tmp_path / "ragnar.player.soul"
+    await ragnar.export(str(path))
+    assert path.exists() and path.stat().st_size > 0
+    del ragnar
+    reborn = await PlayerSoul.awaken(str(path))
+
+    # Reputation persisted across the round-trip.
+    deeds, notoriety = await reborn.reputation()
+    assert len(deeds) >= 2
+    assert notoriety == NOTORIOUS
+
+    # A fresh innkeeper who has NEVER met Ragnar reads his player.soul and is wary.
+    astrid = await _innkeeper()
+    line, seen = await astrid.react_to_reputation(reborn, player_line="A room for the night?")
+    assert seen == NOTORIOUS
+    assert "Astrid" in line
+    assert "Word travels" in line
+    assert ("betrayed someone who trusted you" in line) or ("robbed a merchant blind" in line)
+    assert "among friends" not in line  # not the warm-stranger branch
+
+
+async def test_clean_player_stays_warm() -> None:
+    """A player with a CLEAN record gets a warm welcome from the same fresh NPC —
+    proving reputation drives the wariness, not global suspicion."""
+    astrid = await _innkeeper()
+    freya = await PlayerSoul.birth(name="Freya")  # never wronged anyone
+
+    line, notoriety = await astrid.react_to_reputation(freya, player_line="A room, please?")
+    assert notoriety == UNKNOWN
+    assert "among friends" in line
+    assert "Word travels" not in line
+
+
+async def test_reputation_llm_seam_feeds_deeds_to_model() -> None:
+    """Record-don't-mock spy on the reputation path: the fresh NPC's live line is
+    driven by the player's portable DEEDS fed into the model's prompt."""
+    spy = SpyGenerate(canned="You're the one they whisper about. Mind yourself under my roof.")
+    astrid = await _innkeeper(dialogue_engine=LLMDialogueEngine(spy))
+    ragnar = await PlayerSoul.birth(name="Ragnar")
+    await ragnar.record_deed("did:soul:npc:bjorn", "Bjorn", "betrayal", "framed him to the guards")
+    await ragnar.record_deed("did:soul:npc:bjorn", "Bjorn", "theft", "stole his sausages")
+
+    line, notoriety = await astrid.react_to_reputation(ragnar, player_line="A room?")
+
+    # (a) the spoken line is the MODEL's output, not the deterministic template.
+    assert line == "You're the one they whisper about. Mind yourself under my roof."
+    assert notoriety == NOTORIOUS
+
+    # (b) exactly one prompt, carrying the reputation deeds + the NPC's own name + the line.
+    assert len(spy.prompts) == 1
+    prompt = spy.prompts[0]
+    assert ("betrayed someone who trusted you" in prompt) or ("robbed a merchant blind" in prompt)
+    assert "Astrid" in prompt
+    assert "A room?" in prompt
