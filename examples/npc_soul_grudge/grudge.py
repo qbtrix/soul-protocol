@@ -7,6 +7,13 @@
 #   export -> awaken round-trip, so the NPC still remembers and reacts with
 #   hostility in the NEXT session. Reuses Soul unchanged — no core files touched.
 #
+# Updated: 2026-07-01 (experiment/npc-soul-grudge-kernel) — react() now delegates
+#   its SPOKEN line to a pluggable DialogueEngine (dialogue.py). The default is
+#   TemplatedDialogueEngine (the original deterministic branches, verbatim), so
+#   behavior and the existing tests are unchanged and it still runs free. Pass a
+#   dialogue_engine=LLMDialogueEngine(generate) to get REAL in-character lines.
+#   All grudge state (bond, grievances, persistence) is untouched by the seam.
+#
 # Design notes (API verified against soul-protocol source, 2026-07-01):
 #   * The runtime MemoryEntry has NO free-form `.metadata` dict, and
 #     Soul.remember() takes no `metadata=` kwarg (extra kwargs are silently
@@ -102,8 +109,29 @@ class GrudgeKernel:
     previously exported ``.soul`` — the whole point of the experiment).
     """
 
-    def __init__(self, soul: Soul) -> None:
+    # Canonical persona text for the dialogue prompt. The `persona=` kwarg to
+    # Soul.birth() is not retained on the runtime Soul (dropped by Pydantic's
+    # extra="ignore"), so the kernel carries it explicitly for the LLM prompt.
+    DEFAULT_PERSONA = (
+        "I am Bjorn, a proud, gruff medieval butcher. I keep an honest stall and a long memory."
+    )
+
+    def __init__(
+        self,
+        soul: Soul,
+        dialogue_engine=None,
+        persona: str | None = None,
+    ) -> None:
         self.soul = soul
+        self.persona = persona or self.DEFAULT_PERSONA
+        # Default to the deterministic templated engine (free, offline, keeps
+        # the existing tests green). Imported lazily to avoid a circular import:
+        # dialogue.py imports the grudge-level constants and Grievance from here.
+        if dialogue_engine is None:
+            from dialogue import TemplatedDialogueEngine
+
+            dialogue_engine = TemplatedDialogueEngine()
+        self._dialogue = dialogue_engine
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -112,10 +140,17 @@ class GrudgeKernel:
         cls,
         name: str = "Bjorn",
         archetype: str = "The Butcher",
-        persona: str = "I am Bjorn, a proud butcher. I keep an honest stall and a long memory.",
+        persona: str = DEFAULT_PERSONA,
+        dialogue_engine=None,
     ) -> GrudgeKernel:
         """Birth a fresh NPC soul. Deterministic: no engine (HeuristicEngine),
-        no network, no API key."""
+        no network, no API key.
+
+        Pass ``dialogue_engine`` to swap how the NPC's spoken line is produced
+        (default: templated). The grudge machinery is identical either way.
+        ``persona`` is carried on the kernel for the LLM prompt (Soul.birth does
+        not retain it).
+        """
         soul = await Soul.birth(
             name=name,
             archetype=archetype,
@@ -130,14 +165,21 @@ class GrudgeKernel:
             communication={"warmth": "high", "formality": "low"},
             persona=persona,
         )
-        return cls(soul)
+        return cls(soul, dialogue_engine=dialogue_engine, persona=persona)
 
     @classmethod
-    async def awaken(cls, path: str) -> GrudgeKernel:
+    async def awaken(
+        cls,
+        path: str,
+        dialogue_engine=None,
+        persona: str = DEFAULT_PERSONA,
+    ) -> GrudgeKernel:
         """Awaken an NPC from an exported ``.soul`` file — grievances and
-        per-player bonds come back with it."""
+        per-player bonds come back with it. ``dialogue_engine`` optionally swaps
+        the spoken-line backend (default: templated); ``persona`` restores the
+        prompt persona text (not persisted in the ``.soul``)."""
         soul = await Soul.awaken(path)
-        return cls(soul)
+        return cls(soul, dialogue_engine=dialogue_engine, persona=persona)
 
     async def export(self, path: str) -> None:
         """Export the NPC to a portable ``.soul`` archive."""
@@ -231,12 +273,50 @@ class GrudgeKernel:
         grievances = await self.grievances(player_did)
         return self._level_from(grievances)
 
-    async def react(self, player_did: str, player_name: str | None = None) -> str:
-        """Deterministic, templated reaction. Tone changes by grudge level and,
-        when GRUDGING, NAMES the remembered wrongs. No LLM."""
+    async def react(
+        self,
+        player_did: str,
+        player_name: str | None = None,
+        player_line: str = "",
+    ) -> str:
+        """The NPC's spoken reaction, produced by the configured DialogueEngine.
+
+        Tone follows the grudge level and, when GRUDGING, references the
+        remembered wrongs. With the default TemplatedDialogueEngine this is the
+        original deterministic string (no LLM). With an LLMDialogueEngine it is
+        a real in-character line generated from the same state. ``player_line``
+        (what the player just said) is only used by the LLM engine; the
+        templated engine ignores it, so old call sites keep working.
+        """
+        from dialogue import phrase_grievances
+
         grievances = await self.grievances(player_did)
         level = self._level_from(grievances)
-        return self._render(level, player_did, player_name, grievances)
+        return await self._dialogue.speak(
+            persona=self.persona,
+            ocean=self._ocean_dict(),
+            grudge_level=level,
+            grievances=phrase_grievances(grievances),
+            player_line=player_line,
+            player_name=player_name,
+        )
+
+    def _ocean_dict(self) -> dict[str, float]:
+        """Bjorn's OCEAN traits as a plain dict for the dialogue prompt.
+
+        Reads the real personality off the Soul (``soul.dna.personality``) so
+        the LLM prompt reflects the actual trait vector (openness,
+        conscientiousness, extraversion, agreeableness, neuroticism) that
+        round-trips through ``.soul`` export, not a hardcoded copy.
+        """
+        p = self.soul.dna.personality
+        return {
+            "openness": p.openness,
+            "conscientiousness": p.conscientiousness,
+            "extraversion": p.extraversion,
+            "agreeableness": p.agreeableness,
+            "neuroticism": p.neuroticism,
+        }
 
     # ---- pure helpers (deterministic) -----------------------------------
 
@@ -261,35 +341,7 @@ class GrudgeKernel:
             "betrayal": "You... after all I gave you.",
         }[kind]
 
-    def _render(
-        self,
-        level: str,
-        player_did: str,
-        player_name: str | None,
-        grievances: list[Grievance],
-    ) -> str:
-        who = player_name or player_did
-        if level == NONE:
-            return f"Bjorn wipes his hands and smiles. 'Welcome to my stall, {who}! Finest cuts in town.'"
-
-        if level == SLIGHTED:
-            return (
-                f"Bjorn's smile thins. He keeps one eye on {who}. "
-                "'...You again. State your business and be quick about it.'"
-            )
-
-        # GRUDGING — cite the remembered wrongs, worst first.
-        worst = sorted(grievances, key=lambda g: g.severity, reverse=True)
-        cited = ", ".join(self._name_wrong(g.kind) for g in worst[:3])
-        return (
-            f"Bjorn's cleaver thuds into the block. 'You have the gall to show your face here, {who}? "
-            f"I remember {cited}. You'll get nothing from me but the door.'"
-        )
-
-    @staticmethod
-    def _name_wrong(kind: str) -> str:
-        return {
-            "insult": "how you mocked me",
-            "theft": "what you stole from my stall",
-            "betrayal": "how you betrayed me",
-        }.get(kind, f"the {kind}")
+    # The spoken reaction itself now lives behind the DialogueEngine seam
+    # (dialogue.py): TemplatedDialogueEngine holds the original NONE/SLIGHTED/
+    # GRUDGING branches, and phrase_grievances() the "name the wrong" phrasing.
+    # react() delegates to self._dialogue.speak(...).
