@@ -14,6 +14,17 @@
 #   dialogue_engine=LLMDialogueEngine(generate) to get REAL in-character lines.
 #   All grudge state (bond, grievances, persistence) is untouched by the seam.
 #
+# Updated: 2026-07-01 (experiment/npc-soul-grudge-kernel) — PLAYER.SOUL SYMMETRY.
+#   The relationship ledger is now written BOTH directions: record() gains an
+#   OPTIONAL player_soul=PlayerSoul; when a slight occurs it ALSO records the
+#   matching deed on the PLAYER's own soul (their portable reputation). Kept
+#   optional so the existing 7 tests pass unchanged. New react_to_reputation(
+#   player_soul): a FRESH NPC with NO personal grievance (never met this player)
+#   READS the player's PUBLIC reputation off their player.soul, maps notoriety ->
+#   a wariness level, and reacts via the same DialogueEngine seam (a clean record
+#   -> warm). This is the cross-game proof: reputation is portable and a
+#   never-met NPC reacts to it — and it survives the player.soul round-trip.
+#
 # Design notes (API verified against soul-protocol source, 2026-07-01):
 #   * The runtime MemoryEntry has NO free-form `.metadata` dict, and
 #     Soul.remember() takes no `metadata=` kwarg (extra kwargs are silently
@@ -133,6 +144,18 @@ class GrudgeKernel:
             dialogue_engine = TemplatedDialogueEngine()
         self._dialogue = dialogue_engine
 
+    # ---- identity (for the both-directions ledger) -----------------------
+
+    @property
+    def npc_did(self) -> str:
+        """The NPC's own DID — keyed into the player's deed record."""
+        return self.soul.did
+
+    @property
+    def npc_name(self) -> str:
+        """The NPC's name — cited in the player's deed record."""
+        return self.soul.name
+
     # ---- lifecycle -------------------------------------------------------
 
     @classmethod
@@ -194,7 +217,13 @@ class GrudgeKernel:
 
     # ---- the loop --------------------------------------------------------
 
-    async def record(self, player_did: str, text: str, kind: str = "neutral") -> None:
+    async def record(
+        self,
+        player_did: str,
+        text: str,
+        kind: str = "neutral",
+        player_soul=None,
+    ) -> None:
         """Record one player action.
 
         ``kind`` in {"neutral", "insult", "theft", "betrayal"}.
@@ -203,6 +232,12 @@ class GrudgeKernel:
         pipeline runs). For a non-neutral kind, ALSO plants a high-importance
         episodic grievance (tagged, PUBLIC-visible, attributed to player_did)
         and weakens the per-player bond.
+
+        ``player_soul`` (optional :class:`PlayerSoul`) wires the OTHER direction
+        of the ledger: when a slight occurs and a player_soul is supplied, the
+        matching deed is recorded on the PLAYER's own soul too (their portable,
+        PUBLIC reputation). Left ``None`` by default so existing call sites — and
+        the original tests — behave exactly as before.
         """
         if kind not in SEVERITY:
             raise ValueError(f"unknown kind {kind!r}; expected one of {sorted(SEVERITY)}")
@@ -234,6 +269,11 @@ class GrudgeKernel:
 
         # 3. Weaken the per-player bond. Sharp + linear (Bond.weaken).
         self.soul.bond.weaken(BOND_DAMAGE[kind], user_id=player_did)
+
+        # 4. THE OTHER DIRECTION — record the deed on the player's own soul so
+        #    their reputation is portable. Optional; a no-op when not supplied.
+        if player_soul is not None:
+            await player_soul.record_deed(self.npc_did, self.npc_name, kind, text)
 
     async def grievances(self, player_did: str) -> list[Grievance]:
         """Recall this player's grievances from episodic memory.
@@ -300,6 +340,40 @@ class GrudgeKernel:
             player_line=player_line,
             player_name=player_name,
         )
+
+    async def react_to_reputation(
+        self,
+        player_soul,
+        player_line: str = "",
+    ) -> tuple[str, str]:
+        """React to a player's PORTABLE REPUTATION — with NO personal grievance.
+
+        This NPC has never met this player: it holds no grudge of its own. It
+        instead READS the player's PUBLIC deeds off their ``player.soul`` (via
+        :meth:`PlayerSoul.reputation`) and decides how wary to be from their
+        notoriety. A clean record -> warm; a notorious one -> cold and citing the
+        reputation. This is the cross-game seam: a fresh NPC reacting to who the
+        player has been ELSEWHERE, carried in the player's own soul.
+
+        The line comes through the SAME :class:`DialogueEngine` seam as
+        :meth:`react`, but via ``speak_reputation`` — hearsay tone, NPC-name-aware
+        — so any npc.soul (an innkeeper, not just Bjorn) reads right, and a set
+        ``LLMDialogueEngine`` gets the real deeds in a reputation-specific prompt
+        and can name them.
+
+        Returns ``(spoken_line, notoriety)`` so callers can print both.
+        """
+        reputation_deeds, notoriety = await player_soul.reputation()
+        line = await self._dialogue.speak_reputation(
+            npc_name=self.npc_name,
+            persona=self.persona,
+            ocean=self._ocean_dict(),
+            notoriety=notoriety,
+            reputation_deeds=reputation_deeds,
+            player_line=player_line,
+            player_name=player_soul.name,
+        )
+        return line, notoriety
 
     def _ocean_dict(self) -> dict[str, float]:
         """Bjorn's OCEAN traits as a plain dict for the dialogue prompt.
