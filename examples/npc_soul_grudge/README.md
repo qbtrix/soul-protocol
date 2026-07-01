@@ -1,11 +1,13 @@
 # npc.soul grudge kernel (experiment)
 
-A thin, deterministic layer that turns a real Soul into a **game NPC who holds a
-grudge** — and remembers it across a `.soul` export → awaken round-trip.
+A thin layer that turns a real Soul into a **game NPC who holds a grudge** — and
+remembers it across a `.soul` export → awaken round-trip.
 
 Built on top of Soul Protocol. It imports the real `Soul` and touches no core
-files. Zero LLM, zero network, zero API cost — the whole thing is proven by a
-`pytest`.
+files. The grudge machinery is deterministic and free (proven by `pytest`); the
+NPC's **spoken line** sits behind a pluggable `DialogueEngine` seam, so the exact
+same grudge can be voiced by a deterministic template (default, free) **or a real
+LLM** (vivid, in-character) without changing any of the memory/bond logic.
 
 ## The magic moment
 
@@ -34,22 +36,50 @@ the grievances, and the weakened bond all persist.
   - `grievances(player_did)` — recall this player's grievances.
   - `grudge_level(player_did)` — `NONE | SLIGHTED | GRUDGING`, from grievance
     count + cumulative severity.
-  - `react(player_did, player_name)` — deterministic templated reaction; the
-    tone changes by level and the hostile branch cites the remembered wrongs.
+  - `react(player_did, player_name, player_line="")` — the NPC's spoken
+    reaction, produced by the configured `DialogueEngine`. Tone changes by level
+    and the hostile branch cites the remembered wrongs. `player_line` (what the
+    player just said) is only used by the LLM engine; the templated engine
+    ignores it, so old call sites keep working.
+  - `GrudgeKernel.birth(..., dialogue_engine=...)` / `.awaken(..., dialogue_engine=...)`
+    — swap how the line is voiced. Default is the templated engine.
+- `dialogue.py` — the pluggable seam (mirrors Soul Protocol's own
+  Protocol + fallback + optional real backend pattern):
+  - `DialogueEngine` (`Protocol`) — `async speak(persona, ocean, grudge_level,
+    grievances, player_line, player_name) -> str`.
+  - `TemplatedDialogueEngine` — the original deterministic branches, verbatim.
+    The **default**: free, offline, keeps the tests green.
+  - `LLMDialogueEngine(generate)` — builds a strong in-character prompt from the
+    NPC's full state and calls an injected `async generate(prompt) -> str`. On
+    empty output or **any** error it falls back to the templated engine, so a
+    flaky model or missing binary never crashes the game loop.
+  - `claude_cli_generate` — a working no-key backend for this environment: shells
+    out to `claude -p` (~10s/call, no `ANTHROPIC_API_KEY` needed here). Soul
+    Protocol also ships adapters at
+    `src/soul_protocol/runtime/cognitive/adapters/` (ollama, anthropic, litellm,
+    …) that can back `generate` when a key/endpoint exists.
 - `demo.py` — headless walkthrough that prints Bjorn's reaction and bond at each
-  step, exports him, awakens a fresh kernel, and reacts again.
+  step, exports him, awakens a fresh kernel, and reacts again — first with the
+  **templated** engine, then a **LIVE** section that replays the same arc with
+  `LLMDialogueEngine(claude_cli_generate)` so you can watch real LLM lines shift
+  warm → hostile (falls back to templated, clearly tagged, if claude-cli errors).
 - `test_grudge_kernel.py` — pytest (pytest-asyncio) proving the loop and the
-  round-trip.
+  round-trip. Includes a **spy** test (`SpyGenerate`, record-don't-mock) that
+  drives the real `LLMDialogueEngine` and asserts the prompt the model *would*
+  receive carries the grievance content and the grudge level — proving the seam
+  feeds real context to the model — plus a fallback test. All tests are
+  deterministic (no live LLM, no subprocess, no network).
 
 ## Run it
 
 From the `soul-protocol` repo root:
 
 ```bash
-# the proof
+# the proof (deterministic — no LLM, no network)
 uv run pytest examples/npc_soul_grudge/test_grudge_kernel.py -v
 
-# watch Bjorn sour and remember across a reload
+# watch Bjorn sour and remember across a reload —
+# runs the templated arc, then a LIVE claude-cli arc with real LLM lines
 uv run python examples/npc_soul_grudge/demo.py
 ```
 
