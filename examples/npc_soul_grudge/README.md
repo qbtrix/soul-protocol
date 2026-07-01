@@ -1,0 +1,79 @@
+# npc.soul grudge kernel (experiment)
+
+A thin, deterministic layer that turns a real Soul into a **game NPC who holds a
+grudge** — and remembers it across a `.soul` export → awaken round-trip.
+
+Built on top of Soul Protocol. It imports the real `Soul` and touches no core
+files. Zero LLM, zero network, zero API cost — the whole thing is proven by a
+`pytest`.
+
+## The magic moment
+
+Meet **Bjorn the butcher**. A player (Ragnar) greets him, trades fairly, then
+betrays and robs him:
+
+- His **bond** with that player weakens (50 → ~2).
+- Each wrong is stored as a durable **episodic grievance** memory.
+- His **reaction** shifts from a warm welcome → wary → openly hostile, and when
+  hostile he **names what the player did**.
+
+Then Bjorn is **exported to a `.soul` file and awakened in a fresh process** —
+and he *still* remembers. He greets the returning Ragnar with a cleaver and the
+grudge intact, while a different player (Astrid) he was never wronged by gets the
+warm welcome. The grudge is **per-player**, not global.
+
+The proof is `test_grudge_survives_soul_roundtrip`: export → awaken → the grudge,
+the grievances, and the weakened bond all persist.
+
+## Files
+
+- `grudge.py` — `GrudgeKernel`, a thin wrapper over one `Soul`:
+  - `record(player_did, text, kind)` — `kind ∈ {neutral, insult, theft, betrayal}`.
+    Always `observe()`s the interaction; for a non-neutral kind it plants a
+    tagged episodic grievance and weakens the per-player bond.
+  - `grievances(player_did)` — recall this player's grievances.
+  - `grudge_level(player_did)` — `NONE | SLIGHTED | GRUDGING`, from grievance
+    count + cumulative severity.
+  - `react(player_did, player_name)` — deterministic templated reaction; the
+    tone changes by level and the hostile branch cites the remembered wrongs.
+- `demo.py` — headless walkthrough that prints Bjorn's reaction and bond at each
+  step, exports him, awakens a fresh kernel, and reacts again.
+- `test_grudge_kernel.py` — pytest (pytest-asyncio) proving the loop and the
+  round-trip.
+
+## Run it
+
+From the `soul-protocol` repo root:
+
+```bash
+# the proof
+uv run pytest examples/npc_soul_grudge/test_grudge_kernel.py -v
+
+# watch Bjorn sour and remember across a reload
+uv run python examples/npc_soul_grudge/demo.py
+```
+
+## How it maps onto the real Soul (API notes)
+
+The runtime `MemoryEntry` has **no free-form metadata dict**, and
+`Soul.remember()` takes no `metadata=` kwarg. So grievance tags ride on the real
+fields that persist through export:
+
+- **`user_id=player_did`** — Soul's native per-user attribution. `recall(user_id=…)`
+  filters by it, and each player automatically gets their own `Bond` in the
+  `BondRegistry`. This is what makes the grudge per-player.
+- **`entities=["grudge", kind, player_did]`** + a marker embedded in the content
+  (`[GRUDGE kind=betrayal severity=0.90]`) — machine-recoverable tags so
+  `grievances()` can find and classify wrongs after a reload.
+- **`visibility=PUBLIC`** — deliberate. `recall()` hides `BONDED` memories once
+  `bond_strength < bond_threshold` (default 30). Because wronging Bjorn *weakens*
+  the bond below 30, storing grievances as `BONDED` would hide them exactly when
+  the grudge peaks. `PUBLIC` always passes the visibility filter — and it's
+  semantically right: a grudge is a hostile fact the NPC acts on openly.
+- **`bond.weaken(amount, user_id=player_did)`** — routes to the per-player bond;
+  `observe(user_id=…)` strengthens the same one. Both survive export via
+  `SoulConfig.bonds_per_user`.
+
+Bond and grievance memories round-trip through `Soul.export()` →
+`Soul.awaken()` with no extra work — that's the persistence the experiment
+proves.
