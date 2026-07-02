@@ -1,12 +1,14 @@
-# CI — lint and test on every PR and push to main.
-# Updated: 2026-03-05 — Lint errors fixed, lint job now blocks PRs.
+# CI — lint and test on every PR and push to the mainline branches.
+# Updated: 2026-07-02 — Run on PRs and pushes targeting dev, not just main.
+#   dev is the working branch, so main-only triggers meant lint and the
+#   3.11/3.12/3.13 test matrix never ran on the PRs that actually merge.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 permissions:
   contents: read
