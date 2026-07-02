@@ -15,6 +15,12 @@
 #   BuiltDials, ChallengeDial, ProgressTracker, ChoiceGuard, SparkScheduler,
 #   dials.py). BuiltDials rides along as the return type of the public
 #   Dials.build(). Still zero core modifications.
+#
+# Updated: 2026-07-02 (experiment/npc-soul-grudge-kernel) — GAME WORLD.
+#   Re-exports GameWorld (world.py, the composition root that runs beats
+#   through director + kernel + dials and narrates them as the engine-neutral
+#   session event stream, state-stream v0) and DEFAULT_ZONE (the zone every
+#   soul starts in). Still zero core modifications.
 
 """The Game Profile — npc.soul + player.soul over the unchanged core.
 
@@ -54,6 +60,7 @@ from .dials import (
 from .director import BUILD_UP, FADE, PEAK, RELAX, DirectorEngine
 from .grudge import GRUDGING, NONE, SLIGHTED, Grievance, GrudgeKernel
 from .player import KNOWN, NOTORIOUS, UNKNOWN, Deed, PlayerSoul
+from .world import DEFAULT_ZONE, GameWorld
 
 __all__ = [
     # roles
@@ -81,6 +88,9 @@ __all__ = [
     "ProgressTracker",
     "ChoiceGuard",
     "SparkScheduler",
+    # the world (composition + state stream)
+    "GameWorld",
+    "DEFAULT_ZONE",
     # grudge levels (npc)
     "NONE",
     "SLIGHTED",
