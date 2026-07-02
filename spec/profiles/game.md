@@ -1,6 +1,10 @@
 <!-- game.md — The Game Profile: npc + player roles as the first Soul Protocol profile -->
 <!-- Created: 2026-07-02 — Written from the graduated reference runtime at
      src/soul_protocol/profiles/game/ (experiment/npc-soul-grudge-kernel). -->
+<!-- Updated: 2026-07-02 — §8: director + dials moved from forward work to
+     shipped-in-reference-runtime-v0.1, with a normative §8.1 (DirectorEngine,
+     Dials, ChallengeDial, ProgressTracker, ChoiceGuard, SparkScheduler);
+     §2 file list gains director.py + dials.py. -->
 
 # Soul Protocol Game Profile: `npc.soul` and `player.soul`
 
@@ -20,7 +24,7 @@
 5. [Graceful Degradation](#5-graceful-degradation)
 6. [The Dialogue Seam](#6-the-dialogue-seam)
 7. [Profile Registry and Evolution](#7-profile-registry-and-evolution)
-8. [Forward Work (Non-Normative)](#8-forward-work-non-normative)
+8. [Forward Work](#8-forward-work)
 
 The key words "MUST", "MUST NOT", "SHOULD", "MAY" are to be interpreted as
 described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
@@ -60,7 +64,7 @@ The layering, from most stable to most product-specific:
 A profile MUST NOT require changes to L0. This is not an aspiration but the
 empirical record: the Game Profile shipped with **zero modifications to core
 files** — the reference runtime is new files only (`grudge.py`, `player.py`,
-`dialogue.py`, `costmeter.py`), importing `Soul`, `MemoryType`,
+`dialogue.py`, `costmeter.py`, `director.py`, `dials.py`), importing `Soul`, `MemoryType`,
 `MemoryVisibility`, and `Interaction` from the public API like any external
 consumer would.
 
@@ -214,12 +218,25 @@ the intended feedback loop:
 Until promoted, conforming implementations MUST rely only on the conventions
 in §4.
 
-## 8. Forward Work (Non-Normative)
+## 8. Forward Work
 
-Planned next in this profile, not yet specified:
+The director and dials, drafted here as forward work, have shipped; §8.1
+specifies them. No other forward work is currently planned.
 
-- **Director** — a pacing layer that reads NPC grudge state and player
-  reputation across a scene and schedules narrative beats from them.
-- **Dials** — the tunable feel parameters (severity tables, bond damage,
-  forgiveness/decay thresholds) exposed as a declared, per-world
-  configuration instead of module constants.
+### 8.1 Director and Dials — shipped in reference runtime v0.1 (Normative)
+
+- **Director** — `DirectorEngine` (`director.py`) paces event FREQUENCY, not
+  amplitude: `observe_beat(player_did, kind, grudge_level)` accrues per-player
+  heat (base `SEVERITY`, grudge-amplified, decayed per beat) through the cycle
+  `BUILD_UP → PEAK → FADE → RELAX`. A conforming director MUST escalate only
+  in `BUILD_UP` below the peak threshold (`should_escalate()`), MUST enforce
+  the relax window regardless of heat, and MUST NOT veto a player action —
+  `yes_and()` returns a build-on suggestion for every input. An
+  `enjoyment_signal` hook (0–1) MAY scale the peak threshold.
+- **Dials** — `dials.py` ships the feel parameters as four continuous 0.0–1.0
+  dials bundled by `Dials` and wired via `Dials.build()`: `ChallengeDial`
+  (maps its level to the director's peak threshold and heat multiplier),
+  `ProgressTracker` (MUST advance at least one track even on a failed beat —
+  failure is progression), `ChoiceGuard` (`offer()` MUST return ≥ 2 actions,
+  synthesizing an alternative when fewer are viable), and `SparkScheduler`
+  (variation pressure once the last K beats run same-kind).
