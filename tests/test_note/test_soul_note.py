@@ -13,7 +13,6 @@ import pytest
 from soul_protocol.runtime.soul import Soul
 from soul_protocol.runtime.types import MemoryType
 
-
 # --- Helpers -----------------------------------------------------------------
 
 
@@ -103,9 +102,7 @@ async def test_merge_path_supersedes_old_memory():
     assert second["id"] != old_id
     assert second["existing_id"] == old_id
     sim = second["similarity"]
-    assert sim is not None and 0.6 <= sim <= 0.85, (
-        f"Expected MERGE band similarity, got {sim}"
-    )
+    assert sim is not None and 0.6 <= sim <= 0.85, f"Expected MERGE band similarity, got {sim}"
 
     # The old memory should be marked as superseded by the new one.
     all_facts = soul._memory._semantic.facts(include_superseded=True)
@@ -193,12 +190,8 @@ async def test_procedural_tier_dedup_works():
     """Procedural store goes through the same SKIP path as semantic."""
     soul = await Soul.birth("Aria", archetype="t")
 
-    first = await soul.note(
-        "to deploy run make deploy and verify", type=MemoryType.PROCEDURAL
-    )
-    second = await soul.note(
-        "to deploy run make deploy and verify", type=MemoryType.PROCEDURAL
-    )
+    first = await soul.note("to deploy run make deploy and verify", type=MemoryType.PROCEDURAL)
+    second = await soul.note("to deploy run make deploy and verify", type=MemoryType.PROCEDURAL)
 
     assert first["action"] == "CREATE"
     assert second["action"] == "SKIP"
@@ -217,9 +210,7 @@ async def test_return_shape_complete_across_all_paths():
     create_result = await soul.note("Aria enjoys playing guitar")
     skip_result = await soul.note("Aria enjoys playing guitar")
     merge_result = await soul.note("Bob writes essays about typography")
-    merge_result_2 = await soul.note(
-        "Bob writes essays about typography and design"
-    )
+    merge_result_2 = await soul.note("Bob writes essays about typography and design")
 
     for result in (create_result, skip_result, merge_result, merge_result_2):
         assert set(result.keys()) == {"action", "id", "existing_id", "similarity"}

@@ -37,9 +37,9 @@ class TestLangChainRoundTrip:
                 assert len(results) > 0, f"No results for: {mem['content']}"
 
                 contents = [r.content for r in results]
-                assert any(
-                    mem["content"] in c for c in contents
-                ), f"Missing memory: {mem['content']}"
+                assert any(mem["content"] in c for c in contents), (
+                    f"Missing memory: {mem['content']}"
+                )
 
                 # LangChain needs string content — verify it's available
                 for r in results:
@@ -48,9 +48,7 @@ class TestLangChainRoundTrip:
 
         asyncio.get_event_loop().run_until_complete(_check())
 
-    def test_soul_identity_accessible_for_langchain_system_prompt(
-        self, soul_path_semantic_only
-    ):
+    def test_soul_identity_accessible_for_langchain_system_prompt(self, soul_path_semantic_only):
         """Soul identity fields are accessible for LangChain system prompt."""
 
         async def _check():

@@ -83,9 +83,7 @@ def test_e2e_merge_overlapping_content(tmp_path):
     first = runner.invoke(cli, ["note", str(soul_path), "Aria likes Python"])
     assert first.exit_code == 0, first.output
 
-    second = runner.invoke(
-        cli, ["note", str(soul_path), "Aria likes Python and async code"]
-    )
+    second = runner.invoke(cli, ["note", str(soul_path), "Aria likes Python and async code"])
 
     assert second.exit_code == 0, second.output
     out = second.output.lower()
@@ -100,12 +98,8 @@ def test_e2e_no_dedup_writes_both(tmp_path):
     _birth_soul_at(str(soul_path))
 
     runner = CliRunner()
-    first = runner.invoke(
-        cli, ["note", str(soul_path), "always store this raw", "--no-dedup"]
-    )
-    second = runner.invoke(
-        cli, ["note", str(soul_path), "always store this raw", "--no-dedup"]
-    )
+    first = runner.invoke(cli, ["note", str(soul_path), "always store this raw", "--no-dedup"])
+    second = runner.invoke(cli, ["note", str(soul_path), "always store this raw", "--no-dedup"])
 
     assert first.exit_code == 0, first.output
     assert second.exit_code == 0, second.output
