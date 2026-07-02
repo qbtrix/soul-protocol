@@ -18,6 +18,14 @@
 #   a longer build). Zero LLM, zero network, zero randomness — every method is
 #   a pure function of the observed beat sequence and the constructor tunables.
 #   Spec: spec/profiles/game.md (section 8).
+#
+# Updated: 2026-07-02 (experiment/npc-soul-grudge-kernel) — DIALS WIRING. The
+#   constructor gains an optional challenge=ChallengeDial (dials.py): when
+#   provided, the dial derives peak_threshold (overriding an explicit value)
+#   and its heat_multiplier() scales every beat's heat, so one 0-1 Challenge
+#   dial retunes the whole pacing feel. Behavior without the param is
+#   unchanged (heat scale 1.0). Import is TYPE_CHECKING-only — dials.py
+#   imports this module at runtime, not the other way around.
 
 """The Pulse director — deterministic L4D-style pacing over grudge beats.
 
@@ -32,8 +40,12 @@ whichever relationship runs hottest); intensity is tracked per player.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from .grudge import GRUDGING, NONE, SEVERITY, SLIGHTED
+
+if TYPE_CHECKING:  # typing only — dials.py imports this module at runtime.
+    from .dials import ChallengeDial
 
 # ---------------------------------------------------------------------------
 # Phases — the L4D pacing cycle. BUILD_UP is the only phase in which the
@@ -96,6 +108,10 @@ class DirectorEngine:
       the threshold, a delighted one (1.0) earns a 1.5x longer build. ``None``
       (the v0 default) is the pure intensity model, identical to a constant
       signal of 0.5.
+    * ``challenge`` — optional :class:`~.dials.ChallengeDial`. When provided,
+      the dial IS the tuning knob: it derives ``peak_threshold`` (overriding
+      an explicitly passed value) and scales every beat's heat by its
+      ``heat_multiplier()``.
     """
 
     def __init__(
@@ -106,7 +122,13 @@ class DirectorEngine:
         fade_beats: int = 2,
         relax_beats: int = 5,
         enjoyment_signal: Callable[[str], float] | None = None,
+        challenge: ChallengeDial | None = None,
     ) -> None:
+        if challenge is not None:
+            peak_threshold = challenge.peak_threshold()
+            self._heat_scale = challenge.heat_multiplier()
+        else:
+            self._heat_scale = 1.0
         if peak_threshold <= 0:
             raise ValueError(f"peak_threshold must be > 0, got {peak_threshold!r}")
         if not 0.0 < decay <= 1.0:
@@ -141,14 +163,15 @@ class DirectorEngine:
 
         Heat = ``max(SEVERITY[kind], NEUTRAL_HEAT)`` (unknown kinds read as
         neutral — yes-and: the director never rejects an observed action)
-        amplified by the grudge level. The player's intensity decays by the
+        amplified by the grudge level and by the challenge dial's heat
+        multiplier when one was wired in. The player's intensity decays by the
         configured factor, the heat lands, and then the phase machine advances:
         BUILD_UP tips into PEAK when this player's intensity crosses their
         effective threshold; PEAK, FADE and RELAX each last their configured
         number of beats.
         """
         heat = max(SEVERITY.get(kind, 0.0), NEUTRAL_HEAT)
-        heat *= GRUDGE_HEAT_MULTIPLIER.get(grudge_level, 1.0)
+        heat *= GRUDGE_HEAT_MULTIPLIER.get(grudge_level, 1.0) * self._heat_scale
         value = self._intensity.get(player_did, 0.0) * self.decay + heat
         self._intensity[player_did] = value
         self._advance_phase(player_did)

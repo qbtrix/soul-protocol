@@ -8,6 +8,13 @@
 #   public GrudgeKernel.grievances() / PlayerSoul.deeds() accessors.
 #   Zero core files were modified to build this profile. Spec:
 #   spec/profiles/game.md.
+#
+# Updated: 2026-07-02 (experiment/npc-soul-grudge-kernel) — PACING + DIALS.
+#   Re-exports the Pulse director (DirectorEngine + the BUILD_UP/PEAK/FADE/
+#   RELAX phase constants, director.py) and the fun-dial machinery (Dials,
+#   BuiltDials, ChallengeDial, ProgressTracker, ChoiceGuard, SparkScheduler,
+#   dials.py). BuiltDials rides along as the return type of the public
+#   Dials.build(). Still zero core modifications.
 
 """The Game Profile — npc.soul + player.soul over the unchanged core.
 
@@ -21,6 +28,11 @@ Two roles on the same ``.soul`` format:
   player's own PUBLIC deeds — reputation (``UNKNOWN`` / ``KNOWN`` /
   ``NOTORIOUS``) any never-met NPC can read and react to.
 
+Around them, the feel layer: :class:`DirectorEngine` (the Pulse director —
+deterministic L4D-style pacing over the beat stream) and the four fun dials
+(:class:`ChallengeDial`, :class:`ProgressTracker`, :class:`ChoiceGuard`,
+:class:`SparkScheduler`), declared and wired through :class:`Dials`.
+
 Normative conventions in ``spec/profiles/game.md``.
 """
 
@@ -31,6 +43,15 @@ from .dialogue import (
     TemplatedDialogueEngine,
     claude_cli_generate,
 )
+from .dials import (
+    BuiltDials,
+    ChallengeDial,
+    ChoiceGuard,
+    Dials,
+    ProgressTracker,
+    SparkScheduler,
+)
+from .director import BUILD_UP, FADE, PEAK, RELAX, DirectorEngine
 from .grudge import GRUDGING, NONE, SLIGHTED, Grievance, GrudgeKernel
 from .player import KNOWN, NOTORIOUS, UNKNOWN, Deed, PlayerSoul
 
@@ -47,6 +68,19 @@ __all__ = [
     "CostMeter",
     "ReplayCache",
     "PRICING",
+    # the Pulse director (pacing) + its phases
+    "DirectorEngine",
+    "BUILD_UP",
+    "PEAK",
+    "FADE",
+    "RELAX",
+    # the fun dials
+    "Dials",
+    "BuiltDials",
+    "ChallengeDial",
+    "ProgressTracker",
+    "ChoiceGuard",
+    "SparkScheduler",
     # grudge levels (npc)
     "NONE",
     "SLIGHTED",
