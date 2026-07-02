@@ -40,6 +40,21 @@
 #       spy, on the reputation path: asserts the model's prompt carries the
 #       player's deeds + notoriety framing + the fresh NPC's own name.
 #
+# Updated: 2026-07-02 (experiment/npc-soul-grudge-kernel) — COST METER + REPLAY
+#   CACHE (costmeter.py). Four new deterministic tests (no network, no
+#   subprocess — spy/canned generate fns only):
+#     * test_cost_meter_counts_and_prices — 3 metered kernel reactions; calls,
+#       len//4 token estimates, and total_cost all match hand-computed PRICING
+#       math; cost_per_player_hour() projects a sane positive $.
+#     * test_replay_cache_hits_skip_generate — same prompt twice -> generate ran
+#       ONCE (hits==1, misses==1); a new prompt -> generate runs again.
+#     * test_replay_roundtrip_is_deterministic_and_free (THE KILLER) — session 1
+#       records to a jsonl; a FRESH kernel + FRESH cache over the same file,
+#       backed by a generate that must never fire, replays the same player lines
+#       -> byte-identical spoken lines, zero generate calls, zero metered cost.
+#     * test_meter_composes_with_cache — CostMeter(ReplayCache(...)): hits are
+#       free (no tokens, $0), only misses are metered; project() re-prices.
+#
 # Run:  uv run pytest examples/npc_soul_grudge/test_grudge_kernel.py -v
 
 from __future__ import annotations
@@ -366,3 +381,167 @@ async def test_reputation_llm_seam_feeds_deeds_to_model() -> None:
     assert ("betrayed someone who trusted you" in prompt) or ("robbed a merchant blind" in prompt)
     assert "Astrid" in prompt
     assert "A room?" in prompt
+
+
+# ---------------------------------------------------------------------------
+# COST METER + REPLAY CACHE — instrumentation at the `generate` seam.
+# ---------------------------------------------------------------------------
+
+import hashlib  # noqa: E402
+
+from costmeter import PRICING, CostMeter, ReplayCache  # noqa: E402
+
+
+async def test_cost_meter_counts_and_prices() -> None:
+    """CostMeter wraps `generate` transparently and its math checks out.
+
+    Three kernel reactions through LLMDialogueEngine(CostMeter(spy)) ->
+    calls==3, token estimates match len//4 hand-math on the exact prompts the
+    spy recorded, and total_cost equals the PRICING computation to the dollar.
+    """
+    spy = SpyGenerate(canned="You'll get nothing from me but silence.")
+    meter = CostMeter(spy, model="deepseek-v3.2")
+    kernel = await GrudgeKernel.birth(dialogue_engine=LLMDialogueEngine(meter))
+
+    await kernel.record(RAGNAR, "I framed you to the guards.", kind="betrayal")
+    await kernel.record(RAGNAR, "*steals sausages*", kind="theft")
+
+    for line in ("Morning.", "Remember me?", "Business as usual?"):
+        reaction = await kernel.react(RAGNAR, player_name="Ragnar", player_line=line)
+        assert reaction == spy.canned  # passthrough intact — the seam still speaks
+
+    assert meter.calls == 3
+    expected_in = sum(len(p) // 4 for p in spy.prompts)
+    expected_out = 3 * (len(spy.canned) // 4)
+    assert meter.tokens_in == expected_in > 0
+    assert meter.tokens_out == expected_out > 0
+
+    in_rate, out_rate = PRICING["deepseek-v3.2"]
+    expected_cost = (expected_in * in_rate + expected_out * out_rate) / 1_000_000
+    assert meter.total_cost == pytest.approx(expected_cost)
+    assert meter.total_cost > 0.0
+    assert meter.total_latency >= 0.0
+
+    s = meter.summary()
+    assert s["calls"] == 3
+    assert s["tokens_in"] == expected_in
+    assert s["tokens_out"] == expected_out
+    assert s["total_cost"] == pytest.approx(expected_cost)
+    assert s["avg_latency"] >= 0.0
+    assert s["cost_per_100_lines"] == pytest.approx(expected_cost / 3 * 100)
+
+    cph = meter.cost_per_player_hour()  # default 90 lines/hour
+    assert cph == pytest.approx(expected_cost / 3 * 90)
+    assert cph > 0.0
+
+
+async def test_replay_cache_hits_skip_generate(tmp_path: Path) -> None:
+    """THE POINT of the cache: a repeated prompt never reaches the model."""
+    spy = SpyGenerate(canned="Aye, that's what I said.")
+    cached = ReplayCache(spy, path=tmp_path / "cache.jsonl")
+
+    first = await cached("Say something, butcher.")
+    second = await cached("Say something, butcher.")
+    assert first == second == spy.canned
+    assert len(spy.prompts) == 1  # generate ran ONCE for two identical prompts
+    assert cached.hits == 1
+    assert cached.misses == 1
+
+    await cached("A different prompt entirely.")
+    assert len(spy.prompts) == 2  # a new prompt does reach the model
+    assert cached.hits == 1
+    assert cached.misses == 2
+
+    # Both misses were persisted as jsonl lines.
+    lines = (tmp_path / "cache.jsonl").read_text().strip().splitlines()
+    assert len(lines) == 2
+
+
+async def test_replay_roundtrip_is_deterministic_and_free(tmp_path: Path) -> None:
+    """THE KILLER: a replayed session is byte-identical and costs $0.
+
+    Session 1 runs a grudge arc with a (canned, prompt-deterministic) model
+    behind a ReplayCache writing a jsonl. Session 2 builds a FRESH kernel and a
+    FRESH ReplayCache over the SAME file, backed by a generate that fails the
+    test if it is ever called — replaying the same player lines yields
+    identical spoken lines, zero generate calls, zero metered cost. That is
+    the machine-decidable replay gate.
+    """
+    cache_path = tmp_path / "replay.jsonl"
+
+    async def deterministic_llm(prompt: str) -> str:
+        return "canned-" + hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12]
+
+    async def _arc(kernel: GrudgeKernel) -> list[str]:
+        await kernel.record(RAGNAR, "Good morning, butcher!", kind="neutral")
+        await kernel.record(RAGNAR, "I framed you to the guards.", kind="betrayal")
+        await kernel.record(RAGNAR, "*steals sausages*", kind="theft")
+        spoken: list[str] = []
+        for player_line in ("Morning.", "Bjorn, old friend! Business as usual?"):
+            spoken.append(await kernel.react(RAGNAR, player_name="Ragnar", player_line=player_line))
+        return spoken
+
+    # SESSION 1 — the "live" run; the cache records every miss to the jsonl.
+    cache1 = ReplayCache(deterministic_llm, path=cache_path)
+    kernel1 = await GrudgeKernel.birth(dialogue_engine=LLMDialogueEngine(cache1))
+    lines1 = await _arc(kernel1)
+    assert cache1.misses == 2 and cache1.hits == 0
+    assert all(line.startswith("canned-") for line in lines1)  # model lines, not template
+    assert cache_path.exists() and cache_path.stat().st_size > 0
+    del kernel1
+
+    # SESSION 2 — fresh kernel + fresh cache loading the same file, over a
+    # generate that MUST NOT run. (LLMDialogueEngine swallows exceptions into
+    # the templated fallback, so we detect calls via the `called` list — a
+    # fallback line would also fail the equality assert below.)
+    called: list[str] = []
+
+    async def explode(prompt: str) -> str:
+        called.append(prompt)
+        raise RuntimeError("generate must not be called during replay")
+
+    cache2 = ReplayCache.load(explode, path=cache_path)
+    meter2 = CostMeter(cache2, model="deepseek-v3.2")
+    kernel2 = await GrudgeKernel.birth(dialogue_engine=LLMDialogueEngine(meter2))
+    lines2 = await _arc(kernel2)
+
+    assert lines2 == lines1  # deterministic: byte-identical spoken lines
+    assert called == []  # zero generate calls
+    assert cache2.hits == 2 and cache2.misses == 0
+    assert meter2.calls == 0  # nothing was metered...
+    assert meter2.cached_calls == 2  # ...both lines came from the cache
+    assert meter2.total_cost == 0.0  # zero-LLM-cost replay
+    assert meter2.tokens_in == 0 and meter2.tokens_out == 0
+
+
+async def test_meter_composes_with_cache(tmp_path: Path) -> None:
+    """CostMeter(ReplayCache(...)): hits are free, only misses are metered."""
+    spy = SpyGenerate(canned="State your business.")
+    cache = ReplayCache(spy, path=tmp_path / "compose.jsonl")
+    meter = CostMeter(cache, model="gemini-flash-lite")
+
+    p1, p2 = "Who goes there?", "Open up, butcher."
+    await meter(p1)  # miss -> metered
+    await meter(p1)  # hit  -> free, unmetered
+    await meter(p2)  # miss -> metered
+
+    assert cache.hits == 1 and cache.misses == 2
+    assert len(spy.prompts) == 2
+    assert meter.calls == 2  # only the two misses were metered
+    assert meter.cached_calls == 1  # the hit was counted, but as free
+
+    expected_in = len(p1) // 4 + len(p2) // 4
+    expected_out = 2 * (len(spy.canned) // 4)
+    assert meter.tokens_in == expected_in
+    assert meter.tokens_out == expected_out
+
+    in_rate, out_rate = PRICING["gemini-flash-lite"]
+    expected_cost = (expected_in * in_rate + expected_out * out_rate) / 1_000_000
+    assert meter.total_cost == pytest.approx(expected_cost)
+
+    # project(): the same metered traffic re-priced under another model.
+    ds_in, ds_out = PRICING["deepseek-v3.2"]
+    assert meter.project("deepseek-v3.2") == pytest.approx(
+        (expected_in * ds_in + expected_out * ds_out) / 1_000_000
+    )
+    assert meter.project("claude-cli") == 0.0

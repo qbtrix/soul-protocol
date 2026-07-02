@@ -58,6 +58,8 @@ the grievances, and the weakened bond all persist.
     Protocol also ships adapters at
     `src/soul_protocol/runtime/cognitive/adapters/` (ollama, anthropic, litellm,
     …) that can back `generate` when a key/endpoint exists.
+- `costmeter.py` — `CostMeter` + `ReplayCache`, two composable wrappers around
+  the same `generate` seam (see the section below). No changes to any other file.
 - `demo.py` — headless walkthrough that prints Bjorn's reaction and bond at each
   step, exports him, awakens a fresh kernel, and reacts again — first with the
   **templated** engine, then a **LIVE** section that replays the same arc with
@@ -82,6 +84,36 @@ uv run pytest examples/npc_soul_grudge/test_grudge_kernel.py -v
 # runs the templated arc, then a LIVE claude-cli arc with real LLM lines
 uv run python examples/npc_soul_grudge/demo.py
 ```
+
+## Cost meter + replay cache
+
+**What.** `costmeter.py` adds two small wrappers that compose at the `generate`
+seam — `LLMDialogueEngine(CostMeter(ReplayCache(generate, path), model=...))` —
+with zero changes to the kernel or the dialogue engine:
+
+- `CostMeter(generate, model="deepseek-v3.2")` — awaitable passthrough that
+  records per call: estimated tokens in/out (`len//4`), latency, and $ cost from
+  `PRICING` ($ per 1M tokens; `claude-cli` and `gemini-nano` are $0).
+  `summary()` rolls up the session (incl. a cost-per-100-lines projection),
+  `cost_per_player_hour(lines_per_hour=90)` prices an hour of play, and
+  `project("deepseek-v3.2")` re-prices the same token traffic under another model.
+- `ReplayCache(generate, path="cache.jsonl")` — content-addressed
+  (`sha256(prompt)`) cache. Hit: return the stored line **without** calling the
+  model. Miss: call, store, append to the jsonl. An existing jsonl is loaded at
+  init, so a replayed session is **deterministic and zero-LLM-cost**.
+
+**Why.** The experiment's economics need to be machine-decidable, not vibes: the
+meter turns any live run into a $ figure (and a projection onto paid models even
+when the backend is free), and the replay cache is the deterministic gate — the
+proof is `test_replay_roundtrip_is_deterministic_and_free`: a fresh kernel over
+the recorded jsonl replays the same player lines into byte-identical NPC lines
+with zero generate calls and $0. The meter detects cache hits (via the cache's
+`hits` counter) and meters only real model calls.
+
+**Run.** The four `test_cost_meter*` / `test_replay*` / `test_meter_composes*`
+tests in the pytest command below are the proof (deterministic, no network).
+The demo's LIVE section also wraps `claude_cli_generate` in a meter and prints
+the session summary + what the same session would have cost on deepseek-v3.2.
 
 ## How it maps onto the real Soul (API notes)
 
