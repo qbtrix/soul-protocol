@@ -55,22 +55,36 @@
 #     * test_meter_composes_with_cache — CostMeter(ReplayCache(...)): hits are
 #       free (no tokens, $0), only misses are metered; project() re-prices.
 #
-# Run:  uv run pytest examples/npc_soul_grudge/test_grudge_kernel.py -v
+# Updated: 2026-07-02 (experiment/npc-soul-grudge-kernel) — GRADUATED alongside
+#   the modules: moved from examples/npc_soul_grudge/ to tests/profiles/game/
+#   (git mv). The sys.path hack is gone — everything now imports from the real
+#   package, soul_protocol.profiles.game — and the mid-file costmeter imports
+#   were consolidated at the top (the E402 noqas existed only for the hack).
+#   All 15 tests are behaviorally unchanged.
+#
+# Run:  uv run pytest tests/profiles/game/ -v
 
 from __future__ import annotations
 
-import sys
+import hashlib
 from pathlib import Path
 
 import pytest
 
-# Make the sibling grudge.py importable whether pytest is run from the repo
-# root or from inside the folder.
-sys.path.insert(0, str(Path(__file__).parent))
-
-from dialogue import LLMDialogueEngine  # noqa: E402
-from grudge import GRUDGING, NONE, SLIGHTED, GrudgeKernel  # noqa: E402
-from player import KNOWN, NOTORIOUS, UNKNOWN, PlayerSoul  # noqa: E402
+from soul_protocol.profiles.game import (
+    GRUDGING,
+    KNOWN,
+    NONE,
+    NOTORIOUS,
+    PRICING,
+    SLIGHTED,
+    UNKNOWN,
+    CostMeter,
+    GrudgeKernel,
+    LLMDialogueEngine,
+    PlayerSoul,
+    ReplayCache,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -386,10 +400,6 @@ async def test_reputation_llm_seam_feeds_deeds_to_model() -> None:
 # ---------------------------------------------------------------------------
 # COST METER + REPLAY CACHE — instrumentation at the `generate` seam.
 # ---------------------------------------------------------------------------
-
-import hashlib  # noqa: E402
-
-from costmeter import PRICING, CostMeter, ReplayCache  # noqa: E402
 
 
 async def test_cost_meter_counts_and_prices() -> None:

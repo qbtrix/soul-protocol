@@ -29,6 +29,11 @@
 #
 #   They compose: LLMDialogueEngine(CostMeter(ReplayCache(generate, path),
 #   model=...)) — the engine still sees one async callable, unchanged.
+#
+# Updated: 2026-07-02 (experiment/npc-soul-grudge-kernel) — GRADUATED from
+#   examples/npc_soul_grudge/ into soul_protocol.profiles.game (git mv, history
+#   preserved). No code changes — the module has no sibling imports.
+#   Spec: spec/profiles/game.md.
 
 from __future__ import annotations
 

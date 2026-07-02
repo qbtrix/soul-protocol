@@ -28,6 +28,12 @@
 #   re-priced to show what the session WOULD cost on a paid model. No other
 #   sections changed.
 #
+# Updated: 2026-07-02 (experiment/npc-soul-grudge-kernel) — the modules this demo
+#   drove GRADUATED into the soul_protocol.profiles.game package (see
+#   spec/profiles/game.md). The demo stays here as a thin consumer: the local
+#   sibling imports became one import from soul_protocol.profiles.game, and the
+#   sibling .py files left this folder. Behavior is unchanged.
+#
 # Run:  uv run python examples/npc_soul_grudge/demo.py
 
 from __future__ import annotations
@@ -37,14 +43,14 @@ import tempfile
 import time
 from pathlib import Path
 
-from costmeter import CostMeter  # local import (run from the folder or via -m)
-from dialogue import (  # local import (run from the folder or via -m)
+from soul_protocol.profiles.game import (
+    CostMeter,
+    GrudgeKernel,
     LLMDialogueEngine,
+    PlayerSoul,
     TemplatedDialogueEngine,
     claude_cli_generate,
 )
-from grudge import GrudgeKernel  # local import (run from the folder or via -m)
-from player import PlayerSoul  # local import (run from the folder or via -m)
 
 # Stable fake player DIDs — in a real game these are the player.soul identities.
 RAGNAR = "did:soul:player:ragnar"  # the wrongdoer

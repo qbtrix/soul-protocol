@@ -26,18 +26,23 @@
 #   * Notoriety {UNKNOWN, KNOWN, NOTORIOUS} is a deterministic function of deed
 #     count + cumulative severity (severities shared with grudge.py via SEVERITY),
 #     so the whole thing is zero-LLM / zero-network and unit-testable.
+#
+# Updated: 2026-07-02 (experiment/npc-soul-grudge-kernel) — GRADUATED from
+#   examples/npc_soul_grudge/ into soul_protocol.profiles.game (git mv, history
+#   preserved). Sibling import converted to package-relative (from .grudge
+#   import SEVERITY); behavior unchanged. Spec: spec/profiles/game.md.
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
+from soul_protocol import MemoryType, MemoryVisibility, Soul
+
 # Reuse the transgression severities from the NPC side so the two souls agree on
 # how bad each kind of deed is (a betrayal is 0.9 to both the wronged NPC and the
 # player's reputation). Single source of truth.
-from grudge import SEVERITY
-
-from soul_protocol import MemoryType, MemoryVisibility, Soul
+from .grudge import SEVERITY
 
 # Marker embedded in a deed's content so it survives a round-trip and is machine-
 # recoverable even though MemoryEntry has no structured metadata field.
@@ -151,7 +156,8 @@ class PlayerSoul:
             # Neutral acts are not deeds — nothing sullies the reputation.
             return ""
 
-        severity = SEVERITY[kind]
+        # (Severity is not stored: deeds() recomputes it from SEVERITY[kind] at
+        # recall time, so the marker stays minimal.)
         marker = f"[DEED kind={kind} target={npc_did}]"
         content = f"{marker} I {kind}ed {npc_name}: {text}"
         return await self.soul.remember(
