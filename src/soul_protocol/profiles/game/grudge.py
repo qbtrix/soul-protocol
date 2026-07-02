@@ -1,4 +1,5 @@
-# grudge.py — Experimental "npc.soul grudge kernel" on top of the real Soul Protocol.
+# grudge.py — The "npc.soul grudge kernel" of the game profile, on top of the
+#   unchanged Soul Protocol core.
 #
 # Created: 2026-07-01 (experiment/npc-soul-grudge-kernel) — A thin, deterministic,
 #   zero-LLM / zero-network wrapper around ONE real Soul that turns it into a
@@ -24,6 +25,12 @@
 #   a wariness level, and reacts via the same DialogueEngine seam (a clean record
 #   -> warm). This is the cross-game proof: reputation is portable and a
 #   never-met NPC reacts to it — and it survives the player.soul round-trip.
+#
+# Updated: 2026-07-02 (experiment/npc-soul-grudge-kernel) — GRADUATED from
+#   examples/npc_soul_grudge/ into soul_protocol.profiles.game (git mv, history
+#   preserved). Sibling imports converted to package-relative (from .dialogue
+#   import ...); the lazy-import pattern and all behavior are unchanged.
+#   Spec: spec/profiles/game.md.
 #
 # Design notes (API verified against soul-protocol source, 2026-07-01):
 #   * The runtime MemoryEntry has NO free-form `.metadata` dict, and
@@ -139,7 +146,7 @@ class GrudgeKernel:
         # the existing tests green). Imported lazily to avoid a circular import:
         # dialogue.py imports the grudge-level constants and Grievance from here.
         if dialogue_engine is None:
-            from dialogue import TemplatedDialogueEngine
+            from .dialogue import TemplatedDialogueEngine
 
             dialogue_engine = TemplatedDialogueEngine()
         self._dialogue = dialogue_engine
@@ -328,7 +335,7 @@ class GrudgeKernel:
         (what the player just said) is only used by the LLM engine; the
         templated engine ignores it, so old call sites keep working.
         """
-        from dialogue import phrase_grievances
+        from .dialogue import phrase_grievances
 
         grievances = await self.grievances(player_did)
         level = self._level_from(grievances)
