@@ -19,6 +19,15 @@
 #   back to the deterministic template and the line is tagged as such — the demo
 #   never crashes. The original deterministic section still runs first.
 #
+# Updated: 2026-07-02 (experiment/npc-soul-grudge-kernel) — COST METER. The live
+#   section now wraps claude_cli_generate in CostMeter(..., model="claude-cli")
+#   (costmeter.py) — a pure passthrough at the generate seam, reused across the
+#   export/awaken reload so ONE summary covers the whole live session — and ends
+#   by printing meter.summary(), cost_per_player_hour(), and project(
+#   "deepseek-v3.2"): claude-cli meters at $0 but the same token traffic is
+#   re-priced to show what the session WOULD cost on a paid model. No other
+#   sections changed.
+#
 # Run:  uv run python examples/npc_soul_grudge/demo.py
 
 from __future__ import annotations
@@ -28,6 +37,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from costmeter import CostMeter  # local import (run from the folder or via -m)
 from dialogue import (  # local import (run from the folder or via -m)
     LLMDialogueEngine,
     TemplatedDialogueEngine,
@@ -187,7 +197,9 @@ async def run_live_section() -> None:
     print("Backend: LLMDialogueEngine(claude_cli_generate) — shells out to `claude -p`,")
     print("no API key needed here. ~10s per line. Falls back to templated on error.\n")
 
-    engine = LLMDialogueEngine(claude_cli_generate)
+    # The meter wraps the raw generate at the seam — every live line is priced.
+    meter = CostMeter(claude_cli_generate, model="claude-cli")
+    engine = LLMDialogueEngine(meter)
     kernel = await GrudgeKernel.birth(dialogue_engine=engine)
 
     print(f"Bjorn born: {kernel.soul.name} the {kernel.soul.archetype}")
@@ -203,9 +215,8 @@ async def run_live_section() -> None:
         await kernel.export(soul_path)
         del kernel
 
-        reborn = await GrudgeKernel.awaken(
-            soul_path, dialogue_engine=LLMDialogueEngine(claude_cli_generate)
-        )
+        # Same meter across the reload — the summary covers the WHOLE session.
+        reborn = await GrudgeKernel.awaken(soul_path, dialogue_engine=LLMDialogueEngine(meter))
         grievances = await reborn.grievances(RAGNAR)
         print(
             f"Awakened Bjorn from disk — grudge={await reborn.grudge_level(RAGNAR)}, "
@@ -237,6 +248,22 @@ async def run_live_section() -> None:
         "\nSame grudge machinery, real words: the LLM engine reads the persona, "
         "OCEAN, grudge level, and named grievances the kernel feeds it — and the "
         "tone shifts from friendly to hostile, referencing what Ragnar did."
+    )
+
+    rule("COST — the meter ran on every live line")
+    s = meter.summary()
+    print(
+        f"model={s['model']}  calls={s['calls']}  cached={s['cached_calls']}  "
+        f"tokens_in~{s['tokens_in']}  tokens_out~{s['tokens_out']}"
+    )
+    print(
+        f"total_cost=${s['total_cost']:.6f}  avg_latency={s['avg_latency']:.1f}s  "
+        f"cost_per_100_lines=${s['cost_per_100_lines']:.6f}"
+    )
+    print(f"cost_per_player_hour(90 lines/hr) = ${meter.cost_per_player_hour():.6f}")
+    print(
+        f"Same session re-priced on deepseek-v3.2 = ${meter.project('deepseek-v3.2'):.6f}"
+        "  (claude-cli itself is $0 here)"
     )
 
 
