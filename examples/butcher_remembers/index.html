@@ -2,7 +2,12 @@
      Created: 2026-07-02 (experiment/npc-soul-grudge-kernel) — canvas tavern
      (zones + soul circles + speech bubbles), right-panel grudge HUD, top-bar
      director phase indicator, and the talk controls. No frameworks, no CDN,
-     no build step — served whole by server.py. -->
+     no build step — served whole by server.py.
+     Updated: 2026-07-02 (BD-2, 90s demo) — bottom free-play bar (Speak as
+     Ragnar + Send, kind auto-classified server-side; export bjorn.soul /
+     import soul / export ragnar.player.soul; "Ask the innkeeper about me"
+     reputation gut-punch + notoriety chip) and the collapsible top-right
+     cost overlay (hidden on the templated engine). Still vanilla. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -22,6 +27,16 @@
     </div>
     <div id="cost">templated dialogue — $0</div>
   </header>
+
+  <div id="cost-overlay" class="hidden">
+    <button type="button" id="cost-toggle">$ cost</button>
+    <div id="cost-body">
+      <div id="cost-lines">0 LLM lines</div>
+      <div id="cost-total">this session: $0.0000</div>
+      <div id="cost-deepseek">would cost on DeepSeek: $0.00000</div>
+      <div id="cost-hour">per player-hour: $0.0000</div>
+    </div>
+  </div>
 
   <main>
     <canvas id="tavern" width="640" height="460"></canvas>
@@ -58,6 +73,28 @@
       </form>
     </aside>
   </main>
+
+  <footer id="bottombar">
+    <form id="freeplay">
+      <input id="free-line" type="text" autocomplete="off"
+             placeholder="Speak as Ragnar…" maxlength="200">
+      <button type="submit" id="send">Send</button>
+    </form>
+    <div id="soul-actions">
+      <button type="button" id="export-npc" title="Download Bjorn as a portable .soul file">
+        &#11015; Export bjorn.soul</button>
+      <button type="button" id="import-btn" title="Awaken an exported .soul — the NPC remembers">
+        &#11014; Import soul</button>
+      <input type="file" id="soul-file" accept=".soul" hidden>
+      <button type="button" id="export-player" title="Download Ragnar's portable reputation">
+        &#11015; Export ragnar.player.soul</button>
+      <button type="button" id="ask-innkeeper"
+              title="Astrid has never been wronged by you — she reads your player.soul">
+        &#127976; Ask the innkeeper about me</button>
+      <span id="notoriety-chip" class="chip hidden"></span>
+      <span id="free-status"></span>
+    </div>
+  </footer>
 
   <script src="/app.js"></script>
 </body>
