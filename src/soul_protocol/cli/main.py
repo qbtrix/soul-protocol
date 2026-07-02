@@ -1228,9 +1228,7 @@ def remember_cmd(path, text, importance, emotion, memory_type, domain):
     default=False,
     help="Skip contradiction detection on stored facts.",
 )
-def observe_cmd(
-    path, text, importance, emotion, memory_type, domain, no_dedup, no_contradictions
-):
+def note_cmd(path, text, importance, emotion, memory_type, domain, no_dedup, no_contradictions):
     """Note a fact in a Soul, with dedup against existing memories (#231).
 
     The brief for #231 originally specified ``soul observe`` for this
@@ -1299,14 +1297,10 @@ def observe_cmd(
             border = "cyan"
 
         sim_line = (
-            f"  Similarity  [yellow]{similarity:.2f}[/yellow]\n"
-            if similarity is not None
-            else ""
+            f"  Similarity  [yellow]{similarity:.2f}[/yellow]\n" if similarity is not None else ""
         )
         new_id_line = f"  New ID      [dim]{new_id}[/dim]\n" if new_id else ""
-        existing_line = (
-            f"  Existing ID [dim]{existing_id}[/dim]\n" if existing_id else ""
-        )
+        existing_line = f"  Existing ID [dim]{existing_id}[/dim]\n" if existing_id else ""
 
         console.print(
             Panel(

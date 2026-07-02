@@ -1,5 +1,7 @@
 # PR quality gate — enforces contribution standards and security checks.
 # Added: 2026-03-05 — Quality gate + security scan for soul-protocol.
+# Updated: 2026-07-02 — Wrap label/comment writes so fork PRs (read-only
+#   token) report the verdict via the run summary instead of 403-crashing.
 name: PR Quality Gate
 
 on:
@@ -115,16 +117,32 @@ jobs:
               c => c.user.type === 'Bot' && c.body.includes(MARKER)
             );
 
+            // Fork PRs run with a read-only GITHUB_TOKEN, so labeling and
+            // commenting return 403 no matter what the permissions block says.
+            // Wrap every write so the gate still reports its verdict (via the
+            // run summary) instead of crashing the whole check.
+            async function tryWrite(desc, fn) {
+              try {
+                await fn();
+                return true;
+              } catch (e) {
+                core.warning(`Skipped ${desc}: ${e.message}. Expected on PRs from forks, whose token is read-only.`);
+                return false;
+              }
+            }
+
             if (issues.length > 0 || warnings.length > 0) {
               let message = `${MARKER}\n`;
 
               if (issues.length > 0) {
-                await github.rest.issues.addLabels({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                  labels: ['needs-work']
-                });
+                await tryWrite('adding the needs-work label', () =>
+                  github.rest.issues.addLabels({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: pr.number,
+                    labels: ['needs-work']
+                  })
+                );
                 message += `### Issues (must fix)\n\n${issues.join('\n')}\n\n`;
               }
 
@@ -134,20 +152,32 @@ jobs:
 
               message += `Please update your PR to address these points.`;
 
-              if (botComment) {
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: botComment.id,
-                  body: message
-                });
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                  body: message
-                });
+              const posted = botComment
+                ? await tryWrite('updating the quality-gate comment', () =>
+                    github.rest.issues.updateComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      comment_id: botComment.id,
+                      body: message
+                    })
+                  )
+                : await tryWrite('posting the quality-gate comment', () =>
+                    github.rest.issues.createComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: pr.number,
+                      body: message
+                    })
+                  );
+
+              // Always surface the verdict in the run summary so it is visible
+              // even when the token cannot write to the PR.
+              await core.summary
+                .addHeading('PR quality gate', 2)
+                .addRaw(message.replace(MARKER, '').trim())
+                .write();
+              if (!posted) {
+                core.warning('Could not post quality-gate feedback to the PR; see the run summary above.');
               }
             } else {
               try {
@@ -157,15 +187,17 @@ jobs:
                   issue_number: pr.number,
                   name: 'needs-work'
                 });
-              } catch (e) { /* label wasn't present */ }
+              } catch (e) { /* label absent, or read-only fork token */ }
 
               if (botComment) {
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: botComment.id,
-                  body: `${MARKER}\nAll quality checks passed. Thanks for the clean PR!`
-                });
+                await tryWrite('updating the quality-gate comment', () =>
+                  github.rest.issues.updateComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: botComment.id,
+                    body: `${MARKER}\nAll quality checks passed. Thanks for the clean PR!`
+                  })
+                );
               }
             }
 

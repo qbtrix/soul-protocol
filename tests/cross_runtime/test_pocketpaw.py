@@ -43,9 +43,9 @@ class TestPocketPawRoundTrip:
             for mem in SEMANTIC_MEMORIES:
                 results = await soul.recall(mem["content"])
                 contents = [r.content for r in results]
-                assert any(
-                    mem["content"] in c for c in contents
-                ), f"Missing semantic memory: {mem['content']}"
+                assert any(mem["content"] in c for c in contents), (
+                    f"Missing semantic memory: {mem['content']}"
+                )
 
         asyncio.get_event_loop().run_until_complete(_check())
 
@@ -63,9 +63,9 @@ class TestPocketPawRoundTrip:
 
             # Every episodic memory should be present
             for mem in EPISODIC_MEMORIES:
-                assert any(
-                    mem["content"] in c for c in contents
-                ), f"Missing episodic memory: {mem['content']}"
+                assert any(mem["content"] in c for c in contents), (
+                    f"Missing episodic memory: {mem['content']}"
+                )
 
         asyncio.get_event_loop().run_until_complete(_check())
 
