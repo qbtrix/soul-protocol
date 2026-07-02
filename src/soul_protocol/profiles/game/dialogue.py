@@ -37,6 +37,11 @@
 #   engine renders reputation deterministically; the LLM engine builds a
 #   reputation-specific prompt (persona + OCEAN + notoriety + the deeds) and,
 #   like speak(), falls back to the template on empty/any error.
+#
+# Updated: 2026-07-02 (experiment/npc-soul-grudge-kernel) — GRADUATED from
+#   examples/npc_soul_grudge/ into soul_protocol.profiles.game (git mv, history
+#   preserved). Sibling imports converted to package-relative (from .grudge /
+#   .player import ...); behavior unchanged. Spec: spec/profiles/game.md.
 
 from __future__ import annotations
 
@@ -45,13 +50,13 @@ from typing import Protocol, runtime_checkable
 
 # Grudge-level constants live in grudge.py; import them so the templated engine
 # renders the exact same three branches the kernel always did.
-from grudge import GRUDGING, NONE, SLIGHTED, Grievance
+from .grudge import GRUDGING, NONE, SLIGHTED, Grievance
 
 # Notoriety bands live in player.py (the reputation side of the ledger). Imported
 # so the reputation engine renders the UNKNOWN / KNOWN / NOTORIOUS branches. This
 # import is acyclic: player.py imports only SEVERITY from grudge.py, and grudge.py
 # imports dialogue/player lazily (inside methods), never at module top.
-from player import KNOWN, NOTORIOUS, UNKNOWN
+from .player import KNOWN, NOTORIOUS, UNKNOWN
 
 
 @runtime_checkable

@@ -1,13 +1,25 @@
-# npc.soul grudge kernel (experiment)
+<!-- README.md — npc.soul grudge kernel demo (thin consumer of the game profile) -->
+<!-- Updated: 2026-07-02 — the experiment graduated: grudge.py / player.py /
+     dialogue.py / costmeter.py moved into src/soul_protocol/profiles/game/ and
+     the tests into tests/profiles/game/. This folder keeps only demo.py + this
+     README, importing from soul_protocol.profiles.game. Spec: spec/profiles/game.md -->
 
-A thin layer that turns a real Soul into a **game NPC who holds a grudge** — and
-remembers it across a `.soul` export → awaken round-trip.
+# npc.soul grudge kernel — demo
 
-Built on top of Soul Protocol. It imports the real `Soul` and touches no core
-files. The grudge machinery is deterministic and free (proven by `pytest`); the
-NPC's **spoken line** sits behind a pluggable `DialogueEngine` seam, so the exact
-same grudge can be voiced by a deterministic template (default, free) **or a real
-LLM** (vivid, in-character) without changing any of the memory/bond logic.
+A walkthrough of the **Game Profile** (`soul_protocol.profiles.game`): a real
+Soul as a **game NPC who holds a grudge** — and remembers it across a `.soul`
+export → awaken round-trip — plus a **player.soul** whose reputation travels
+with them.
+
+This folder is a thin consumer. The code lives in the package:
+
+- **Runtime** — `src/soul_protocol/profiles/game/` (`GrudgeKernel`,
+  `PlayerSoul`, the `DialogueEngine` seam, `CostMeter` + `ReplayCache`)
+- **Spec** — [`spec/profiles/game.md`](../../spec/profiles/game.md) — the Game
+  Profile RFC: the normative conventions (grievance/deed tagging, PUBLIC
+  visibility, per-player scoping) and why they work on the unchanged core
+- **Tests** — `tests/profiles/game/` — 15 deterministic tests (no LLM, no
+  network), including the round-trip and replay "killer tests"
 
 ## The magic moment
 
@@ -21,56 +33,13 @@ betrays and robs him:
 
 Then Bjorn is **exported to a `.soul` file and awakened in a fresh process** —
 and he *still* remembers. He greets the returning Ragnar with a cleaver and the
-grudge intact, while a different player (Astrid) he was never wronged by gets the
-warm welcome. The grudge is **per-player**, not global.
+grudge intact, while a different player (Astrid) he was never wronged by gets
+the warm welcome. The grudge is **per-player**, not global.
 
-The proof is `test_grudge_survives_soul_roundtrip`: export → awaken → the grudge,
-the grievances, and the weakened bond all persist.
-
-## Files
-
-- `grudge.py` — `GrudgeKernel`, a thin wrapper over one `Soul`:
-  - `record(player_did, text, kind)` — `kind ∈ {neutral, insult, theft, betrayal}`.
-    Always `observe()`s the interaction; for a non-neutral kind it plants a
-    tagged episodic grievance and weakens the per-player bond.
-  - `grievances(player_did)` — recall this player's grievances.
-  - `grudge_level(player_did)` — `NONE | SLIGHTED | GRUDGING`, from grievance
-    count + cumulative severity.
-  - `react(player_did, player_name, player_line="")` — the NPC's spoken
-    reaction, produced by the configured `DialogueEngine`. Tone changes by level
-    and the hostile branch cites the remembered wrongs. `player_line` (what the
-    player just said) is only used by the LLM engine; the templated engine
-    ignores it, so old call sites keep working.
-  - `GrudgeKernel.birth(..., dialogue_engine=...)` / `.awaken(..., dialogue_engine=...)`
-    — swap how the line is voiced. Default is the templated engine.
-- `dialogue.py` — the pluggable seam (mirrors Soul Protocol's own
-  Protocol + fallback + optional real backend pattern):
-  - `DialogueEngine` (`Protocol`) — `async speak(persona, ocean, grudge_level,
-    grievances, player_line, player_name) -> str`.
-  - `TemplatedDialogueEngine` — the original deterministic branches, verbatim.
-    The **default**: free, offline, keeps the tests green.
-  - `LLMDialogueEngine(generate)` — builds a strong in-character prompt from the
-    NPC's full state and calls an injected `async generate(prompt) -> str`. On
-    empty output or **any** error it falls back to the templated engine, so a
-    flaky model or missing binary never crashes the game loop.
-  - `claude_cli_generate` — a working no-key backend for this environment: shells
-    out to `claude -p` (~10s/call, no `ANTHROPIC_API_KEY` needed here). Soul
-    Protocol also ships adapters at
-    `src/soul_protocol/runtime/cognitive/adapters/` (ollama, anthropic, litellm,
-    …) that can back `generate` when a key/endpoint exists.
-- `costmeter.py` — `CostMeter` + `ReplayCache`, two composable wrappers around
-  the same `generate` seam (see the section below). No changes to any other file.
-- `demo.py` — headless walkthrough that prints Bjorn's reaction and bond at each
-  step, exports him, awakens a fresh kernel, and reacts again — first with the
-  **templated** engine, then a **LIVE** section that replays the same arc with
-  `LLMDialogueEngine(claude_cli_generate)` so you can watch real LLM lines shift
-  warm → hostile (falls back to templated, clearly tagged, if claude-cli errors).
-- `test_grudge_kernel.py` — pytest (pytest-asyncio) proving the loop and the
-  round-trip. Includes a **spy** test (`SpyGenerate`, record-don't-mock) that
-  drives the real `LLMDialogueEngine` and asserts the prompt the model *would*
-  receive carries the grievance content and the grudge level — proving the seam
-  feeds real context to the model — plus a fallback test. All tests are
-  deterministic (no live LLM, no subprocess, no network).
+The demo then flips the ledger around: Ragnar's wrongs are also written to his
+**own** `player.soul` as PUBLIC deeds, and a fresh innkeeper who has *never met
+him* reads that portable reputation and turns wary — while a clean-record
+newcomer stays welcome.
 
 ## Run it
 
@@ -78,64 +47,34 @@ From the `soul-protocol` repo root:
 
 ```bash
 # the proof (deterministic — no LLM, no network)
-uv run pytest examples/npc_soul_grudge/test_grudge_kernel.py -v
+uv run pytest tests/profiles/game/ -v
 
 # watch Bjorn sour and remember across a reload —
-# runs the templated arc, then a LIVE claude-cli arc with real LLM lines
+# runs the templated arc + the player.soul reputation arc, then a LIVE
+# claude-cli arc with real LLM lines and a cost-meter summary at the end
 uv run python examples/npc_soul_grudge/demo.py
 ```
 
-## Cost meter + replay cache
+The LIVE section shells out to `claude -p` (~10s per line, no API key needed in
+this environment) and falls back to the deterministic template — clearly
+tagged — if the CLI is unavailable. Everything before it is instant and free.
 
-**What.** `costmeter.py` adds two small wrappers that compose at the `generate`
-seam — `LLMDialogueEngine(CostMeter(ReplayCache(generate, path), model=...))` —
-with zero changes to the kernel or the dialogue engine:
+## Using the profile in your own code
 
-- `CostMeter(generate, model="deepseek-v3.2")` — awaitable passthrough that
-  records per call: estimated tokens in/out (`len//4`), latency, and $ cost from
-  `PRICING` ($ per 1M tokens; `claude-cli` and `gemini-nano` are $0).
-  `summary()` rolls up the session (incl. a cost-per-100-lines projection),
-  `cost_per_player_hour(lines_per_hour=90)` prices an hour of play, and
-  `project("deepseek-v3.2")` re-prices the same token traffic under another model.
-- `ReplayCache(generate, path="cache.jsonl")` — content-addressed
-  (`sha256(prompt)`) cache. Hit: return the stored line **without** calling the
-  model. Miss: call, store, append to the jsonl. An existing jsonl is loaded at
-  init, so a replayed session is **deterministic and zero-LLM-cost**.
+```python
+from soul_protocol.profiles.game import GrudgeKernel, PlayerSoul
 
-**Why.** The experiment's economics need to be machine-decidable, not vibes: the
-meter turns any live run into a $ figure (and a projection onto paid models even
-when the backend is free), and the replay cache is the deterministic gate — the
-proof is `test_replay_roundtrip_is_deterministic_and_free`: a fresh kernel over
-the recorded jsonl replays the same player lines into byte-identical NPC lines
-with zero generate calls and $0. The meter detects cache hits (via the cache's
-`hits` counter) and meters only real model calls.
+npc = await GrudgeKernel.birth(name="Bjorn", archetype="The Butcher")
+player = await PlayerSoul.birth(name="Ragnar")
 
-**Run.** The four `test_cost_meter*` / `test_replay*` / `test_meter_composes*`
-tests in the pytest command below are the proof (deterministic, no network).
-The demo's LIVE section also wraps `claude_cli_generate` in a meter and prints
-the session summary + what the same session would have cost on deepseek-v3.2.
+await npc.record(player.did, "I framed you to the guards.", kind="betrayal",
+                 player_soul=player)
+print(await npc.react(player.did, player_name="Ragnar"))   # hostile, names the wrong
 
-## How it maps onto the real Soul (API notes)
+await npc.export("bjorn.soul")                              # ...and it survives
+reborn = await GrudgeKernel.awaken("bjorn.soul")
+```
 
-The runtime `MemoryEntry` has **no free-form metadata dict**, and
-`Soul.remember()` takes no `metadata=` kwarg. So grievance tags ride on the real
-fields that persist through export:
-
-- **`user_id=player_did`** — Soul's native per-user attribution. `recall(user_id=…)`
-  filters by it, and each player automatically gets their own `Bond` in the
-  `BondRegistry`. This is what makes the grudge per-player.
-- **`entities=["grudge", kind, player_did]`** + a marker embedded in the content
-  (`[GRUDGE kind=betrayal severity=0.90]`) — machine-recoverable tags so
-  `grievances()` can find and classify wrongs after a reload.
-- **`visibility=PUBLIC`** — deliberate. `recall()` hides `BONDED` memories once
-  `bond_strength < bond_threshold` (default 30). Because wronging Bjorn *weakens*
-  the bond below 30, storing grievances as `BONDED` would hide them exactly when
-  the grudge peaks. `PUBLIC` always passes the visibility filter — and it's
-  semantically right: a grudge is a hostile fact the NPC acts on openly.
-- **`bond.weaken(amount, user_id=player_did)`** — routes to the per-player bond;
-  `observe(user_id=…)` strengthens the same one. Both survive export via
-  `SoulConfig.bonds_per_user`.
-
-Bond and grievance memories round-trip through `Soul.export()` →
-`Soul.awaken()` with no extra work — that's the persistence the experiment
-proves.
+For the conventions behind this (why grievances are `visibility=PUBLIC`, how
+tags ride on `entities` + content markers, what round-trips), read the spec:
+[`spec/profiles/game.md`](../../spec/profiles/game.md).
