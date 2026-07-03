@@ -133,11 +133,16 @@ from rich.text import Text
 # is not already UTF-8. Gating on encoding instead of platform ensures the
 # fix applies everywhere and the regression test can run on Linux CI too.
 def _ensure_utf8(stream):
-    enc = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
-    if enc != "utf8":
+    import codecs
+
+    try:
+        name = codecs.lookup(getattr(stream, "encoding", "") or "ascii").name
+    except (LookupError, TypeError):
+        name = ""
+    if name != "utf-8":
         try:
             stream.reconfigure(encoding="utf-8")
-        except (AttributeError, OSError):
+        except (AttributeError, OSError, ValueError):
             pass  # Non-reconfigurable stream (e.g. piped output)
 
 

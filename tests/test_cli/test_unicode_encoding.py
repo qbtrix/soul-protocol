@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 
@@ -34,7 +35,7 @@ class TestUnicodeEncoding:
             "\n"
             "async def main():\n"
             f"    soul = await Soul.birth('Test267')\n"
-            f"    await soul.export(r'{soul_path}')\n"
+            f"    await soul.export({json.dumps(soul_path)})\n"
             "\n"
             "asyncio.run(main())\n"
         )
@@ -59,7 +60,8 @@ class TestUnicodeEncoding:
                 soul_path,
             ],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             env=env,
         )
 
