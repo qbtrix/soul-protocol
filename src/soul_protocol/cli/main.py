@@ -700,9 +700,12 @@ def export_cmd(source, output, fmt, include_keys):
             Path(out).write_text(dna_to_markdown(soul.identity, soul.dna))
 
         console.print(f"[green]Exported[/green] {soul.name} to {out} ({fmt})")
+        if fmt == "soul" and not include_keys:
+            console.print(
+                "[dim]Private key not included; pass --include-keys to migrate signing power.[/dim]"
+            )
 
     asyncio.run(_export())
-
 
 
 @cli.command("unpack")

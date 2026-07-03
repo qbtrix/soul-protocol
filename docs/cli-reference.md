@@ -286,6 +286,9 @@ soul export aria.soul --output aria.yaml --format yaml
 
 # Export to human-readable Markdown (DNA only)
 soul export aria.soul --output aria.md --format md
+
+# Include private signing key (for device migration only)
+soul export aria.soul -o aria.soul --include-keys
 ```
 
 **Arguments:**
@@ -300,12 +303,13 @@ soul export aria.soul --output aria.md --format md
 |--------|-------|-------------|
 | `--output PATH` | `-o` | Output file path. **Required.** |
 | `--format FORMAT` | `-f` | Target format: `soul` (zip archive), `json`, `yaml`, `md` (markdown). Defaults to `soul`. |
+| `--include-keys` | | Include private signing key in exported `.soul` file. **Only use when migrating between your own devices.** Without this flag, only the public key is exported (verify-only). |
 
 **Format details:**
 
 | Format | Contents | Use case |
 |--------|----------|----------|
-| `soul` | Zip archive with `soul.json`, `dna.md`, `state.json`, `memory/*.json`, `manifest.json` | Portable transfer between machines |
+| `soul` | Zip archive with `soul.json`, `dna.md`, `state.json`, `memory/*.json`, `manifest.json` | Portable transfer between machines. Pass `--include-keys` to carry signing power. |
 | `json` | Full `SoulConfig` as indented JSON | API integration, programmatic access |
 | `yaml` | Full `SoulConfig` as YAML | Human-editable configuration |
 | `md` | DNA markdown (identity + personality + communication + biorhythms) | Documentation, sharing personality specs |
