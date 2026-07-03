@@ -126,6 +126,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+
 # Fix #267: Legacy consoles (Windows cp1252, Linux C/POSIX locale, Docker,
 # cron jobs, SSH sessions) cannot render Unicode characters (progress bars,
 # emoji) that Rich outputs. Reconfigure to UTF-8 when the current encoding

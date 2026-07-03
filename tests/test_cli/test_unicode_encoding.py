@@ -11,8 +11,6 @@ from __future__ import annotations
 import subprocess
 import sys
 
-import pytest
-
 
 class TestUnicodeEncoding:
     """Regression tests for Unicode encoding issues (#267)."""
@@ -75,8 +73,9 @@ class TestUnicodeEncoding:
 
     def test_ensure_utf8_reconfigures_non_utf8_stream(self):
         """_ensure_utf8 reconfigures streams with non-UTF-8 encoding."""
-        from soul_protocol.cli.main import _ensure_utf8
         import io
+
+        from soul_protocol.cli.main import _ensure_utf8
 
         # Create a stream with latin-1 encoding
         stream = io.TextIOWrapper(io.BytesIO(), encoding="latin-1")
@@ -88,8 +87,9 @@ class TestUnicodeEncoding:
 
     def test_ensure_utf8_skips_utf8_stream(self):
         """_ensure_utf8 does not reconfigure streams already in UTF-8."""
-        from soul_protocol.cli.main import _ensure_utf8
         import io
+
+        from soul_protocol.cli.main import _ensure_utf8
 
         stream = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
         _ensure_utf8(stream)
