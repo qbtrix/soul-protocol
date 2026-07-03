@@ -157,10 +157,11 @@ def did_verify(source, verbose):
 
         # Step 2: Check public key present
         pub_bytes = soul._keystore.public_key_bytes
-        if pub_bytes:
+        pub_valid = bool(pub_bytes)
+        if pub_valid:
             console.print(f"  {_OK} Public key present (Ed25519)")
         else:
-            console.print(f"  {_WARN} No public key -- cannot verify signatures")
+            console.print(f"  {_FAIL} No public key -- cannot verify signatures")
 
         # Step 3: Verify trust chain
         chain_valid = True
@@ -200,7 +201,7 @@ def did_verify(source, verbose):
 
         # Final verdict
         console.print()
-        all_ok = did_valid and (chain_len == 0 or chain_valid)
+        all_ok = did_valid and pub_valid and (chain_len == 0 or chain_valid)
         if all_ok:
             console.print(
                 Panel(
