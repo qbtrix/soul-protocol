@@ -126,14 +126,22 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-# Fix #267: Windows legacy console uses cp1252 which cannot render Unicode
-# characters (progress bars, emoji) that Rich outputs. Reconfigure to UTF-8.
-if sys.platform == "win32":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
-    except (AttributeError, OSError):
-        pass  # Fallback: non-reconfigurable stream (e.g. piped output)
+# Fix #267: Legacy consoles (Windows cp1252, Linux C/POSIX locale, Docker,
+# cron jobs, SSH sessions) cannot render Unicode characters (progress bars,
+# emoji) that Rich outputs. Reconfigure to UTF-8 when the current encoding
+# is not already UTF-8. Gating on encoding instead of platform ensures the
+# fix applies everywhere and the regression test can run on Linux CI too.
+def _ensure_utf8(stream):
+    enc = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
+    if enc != "utf8":
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, OSError):
+            pass  # Non-reconfigurable stream (e.g. piped output)
+
+_ensure_utf8(sys.stdout)
+_ensure_utf8(sys.stderr)
+
 
 console = Console()
 
