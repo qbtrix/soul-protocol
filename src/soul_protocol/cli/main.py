@@ -140,6 +140,7 @@ def _ensure_utf8(stream):
         except (AttributeError, OSError):
             pass  # Non-reconfigurable stream (e.g. piped output)
 
+
 _ensure_utf8(sys.stdout)
 _ensure_utf8(sys.stderr)
 

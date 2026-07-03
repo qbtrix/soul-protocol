@@ -303,7 +303,6 @@ class TestMemoryPersistence:
         assert "Pat" in core.human
 
     async def test_memory_count_preserved(self, rich_soul: Soul, tmp_path):
-
         soul_path = tmp_path / "count_test.soul"
         await rich_soul.export(str(soul_path))
         restored = await Soul.awaken(str(soul_path))
