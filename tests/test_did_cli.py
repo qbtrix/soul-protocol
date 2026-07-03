@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import zipfile
 
 import pytest
 from click.testing import CliRunner
@@ -42,6 +44,75 @@ def soul_file_no_keys(tmp_path):
         path = tmp_path / "verify_only.soul"
         await soul.export(str(path), include_keys=False)
         return str(path)
+
+    return asyncio.run(_create())
+
+
+@pytest.fixture
+def soul_file_with_chain(tmp_path):
+    """Create a test .soul file with trust chain entries via observe()."""
+    from soul_protocol.runtime.types import Interaction
+
+    async def _create():
+        soul = await Soul.birth(name="ChainTest", personality="A soul with history")
+        # Use observe() to generate trust chain entries
+        await soul.observe(
+            Interaction(
+                user_input="Hello there",
+                agent_output="Hi! How can I help?",
+                channel="test",
+            )
+        )
+        await soul.observe(
+            Interaction(
+                user_input="Tell me about Python",
+                agent_output="Python is great!",
+                channel="test",
+            )
+        )
+        path = tmp_path / "chain_test.soul"
+        await soul.export(str(path), include_keys=True)
+        return str(path)
+
+    return asyncio.run(_create())
+
+
+@pytest.fixture
+def tampered_soul_file(tmp_path):
+    """Create a .soul file with a tampered trust chain."""
+    from soul_protocol.runtime.types import Interaction
+
+    async def _create():
+        soul = await Soul.birth(name="Tampered", personality="Will be tampered")
+        await soul.observe(
+            Interaction(
+                user_input="First message",
+                agent_output="First reply",
+                channel="test",
+            )
+        )
+        path = tmp_path / "tampered.soul"
+        await soul.export(str(path), include_keys=True)
+
+        # Tamper: modify a trust chain entry inside the zip
+        tampered_path = tmp_path / "tampered_mod.soul"
+        with zipfile.ZipFile(str(path), "r") as zin:
+            with zipfile.ZipFile(str(tampered_path), "w") as zout:
+                for item in zin.namelist():
+                    data = zin.read(item)
+                    if "trust" in item and item.endswith(".json"):
+                        # Corrupt the trust chain data
+                        chain_data = json.loads(data.decode("utf-8"))
+                        if isinstance(chain_data, dict) and "entries" in chain_data:
+                            for entry in chain_data["entries"]:
+                                entry["payload_hash"] = "0" * 64  # corrupt
+                            data = json.dumps(chain_data).encode("utf-8")
+                        elif isinstance(chain_data, list) and len(chain_data) > 0:
+                            chain_data[0]["payload_hash"] = "0" * 64
+                            data = json.dumps(chain_data).encode("utf-8")
+                    zout.writestr(item, data)
+
+        return str(tampered_path)
 
     return asyncio.run(_create())
 
@@ -128,6 +199,25 @@ class TestDidVerify:
         """verify command fails gracefully with nonexistent file."""
         result = runner.invoke(cli, ["did", "verify", "nonexistent.soul"])
         assert result.exit_code != 0
+
+    def test_verify_with_chain_passes(self, runner, soul_file_with_chain):
+        """verify passes for a soul with trust chain entries."""
+        result = runner.invoke(cli, ["did", "verify", soul_file_with_chain])
+        assert result.exit_code == 0
+        assert "All checks passed" in result.output
+
+    def test_verify_verbose_with_chain(self, runner, soul_file_with_chain):
+        """verify --verbose shows chain table for soul with entries."""
+        result = runner.invoke(cli, ["did", "verify", soul_file_with_chain, "--verbose"])
+        assert result.exit_code == 0
+        # Should show the Trust Chain Entries table
+        assert "Trust Chain" in result.output
+
+    def test_verify_tampered_exits_nonzero(self, runner, tampered_soul_file):
+        """verify exits 1 for a soul with a tampered trust chain."""
+        result = runner.invoke(cli, ["did", "verify", tampered_soul_file])
+        assert result.exit_code != 0
+        assert "Verification failed" in result.output or "INVALID" in result.output
 
 
 # ============ soul did (group) ============

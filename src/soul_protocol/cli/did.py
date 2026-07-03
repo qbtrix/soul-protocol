@@ -7,20 +7,17 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from pathlib import Path
+import sys
 
 import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 
 console = Console()
 
 # Windows-safe symbols (cp1252 doesn't support Unicode checkmarks)
-import sys as _sys
-
-if _sys.platform == "win32":
+if sys.platform == "win32":
     _OK = "[green]OK[/green]"
     _FAIL = "[red]FAIL[/red]"
     _WARN = "[yellow]!![/yellow]"
@@ -28,7 +25,6 @@ else:
     _OK = "[green]\u2713[/green]"
     _FAIL = "[red]\u2717[/red]"
     _WARN = "[yellow]\u26a0[/yellow]"
-
 
 
 @click.group("did")
@@ -67,9 +63,7 @@ def did_show(source):
 
         # Gather identity info
         pub_bytes = soul._keystore.public_key_bytes
-        pub_b64 = (
-            base64.b64encode(pub_bytes).decode("ascii") if pub_bytes else None
-        )
+        pub_b64 = base64.b64encode(pub_bytes).decode("ascii") if pub_bytes else None
         has_private = soul._keystore.has_private_key
         chain_len = len(soul.trust_chain.entries)
         prev_keys = len(soul._keystore.previous_public_keys)
@@ -135,6 +129,8 @@ def did_verify(source, verbose):
     Checks that all trust chain entries have valid Ed25519 signatures,
     the hash chain is intact, and public keys match the keystore.
 
+    Exits with code 1 if any check fails.
+
     \b
     Examples:
       soul did verify aria.soul
@@ -167,11 +163,12 @@ def did_verify(source, verbose):
             console.print(f"  {_WARN} No public key -- cannot verify signatures")
 
         # Step 3: Verify trust chain
+        chain_valid = True
         if chain_len == 0:
             console.print(f"  {_WARN} Trust chain is empty (no signed actions)")
         else:
-            valid, error = soul.verify_chain()
-            if valid:
+            chain_valid, error = soul.verify_chain()
+            if chain_valid:
                 console.print(f"  {_OK} Trust chain valid -- {chain_len} entries verified")
             else:
                 console.print(f"  {_FAIL} Trust chain INVALID -- {error}")
@@ -187,10 +184,15 @@ def did_verify(source, verbose):
 
             for entry in chain.entries:
                 sig_short = f"{entry.signature[:12]}..." if entry.signature else "none"
+                ts_str = (
+                    entry.timestamp.isoformat()
+                    if hasattr(entry.timestamp, "isoformat")
+                    else str(entry.timestamp)
+                )
                 table.add_row(
                     str(entry.seq),
                     entry.action,
-                    entry.ts.isoformat() if hasattr(entry.ts, "isoformat") else str(entry.ts),
+                    ts_str,
                     sig_short,
                 )
 
@@ -198,7 +200,7 @@ def did_verify(source, verbose):
 
         # Final verdict
         console.print()
-        all_ok = did_valid and (chain_len == 0 or (chain_len > 0 and valid))
+        all_ok = did_valid and (chain_len == 0 or chain_valid)
         if all_ok:
             console.print(
                 Panel(
@@ -213,6 +215,7 @@ def did_verify(source, verbose):
                     border_style="red",
                 )
             )
+            sys.exit(1)
 
     asyncio.run(_verify())
 
