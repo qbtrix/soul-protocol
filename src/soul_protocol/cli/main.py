@@ -708,7 +708,7 @@ def export_cmd(source, output, fmt, password):
             except ImportError:
                 console.print(
                     "[red]Error:[/red] The 'cryptography' package is required for encryption.\n"
-                    "Install with: pip install soul-protocol[encryption]"
+                    "Install with: pip install cryptography"
                 )
                 sys.exit(1)
 
