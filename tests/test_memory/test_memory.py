@@ -422,3 +422,26 @@ class TestSignificanceShortCircuit:
         # assess_significance scored low
         mgr._cognitive.extract_entities.assert_called_once()
         mgr._cognitive.update_self_model.assert_called_once()
+
+def test_from_dict_rewires_recall_engine_graph(manager: MemoryManager):
+    """Regression test for Issue #281: from_dict rebinds the recall engine's graph reference."""
+    import asyncio
+    
+    async def _test():
+        # 1. Mutate the graph on the fresh manager
+        manager._graph.add_entity("Alice", "person")
+        manager._graph.add_entity("Bob", "person")
+        manager._graph.add_relationship("Alice", "Bob", "likes")
+        
+        # 2. Serialize and Deserialize
+        state = manager.to_dict()
+        restored = MemoryManager.from_dict(state, MemorySettings())
+        
+        # 3. Verify the engine graph reference matches the restored manager graph reference
+        assert restored._recall_engine._graph is restored._graph
+        
+        # 4. Verify the graph actually contains the data
+        assert "Alice" in restored._graph._entities
+        assert "Bob" in restored._graph._entities
+        
+    asyncio.run(_test())
