@@ -117,6 +117,28 @@ def tampered_soul_file(tmp_path):
     return asyncio.run(_create())
 
 
+@pytest.fixture
+def stripped_keys_soul_file(tmp_path):
+    """Create a .soul file with keys/ directory removed."""
+
+    async def _create():
+        soul = await Soul.birth(name="NoKeys")
+        path = tmp_path / "nokeys_orig.soul"
+        await soul.export(str(path), include_keys=True)
+
+        # Strip all keys/ entries from the archive
+        stripped_path = tmp_path / "nokeys.soul"
+        with zipfile.ZipFile(str(path), "r") as zin:
+            with zipfile.ZipFile(str(stripped_path), "w") as zout:
+                for item in zin.namelist():
+                    if not item.startswith("keys/"):
+                        zout.writestr(item, zin.read(item))
+
+        return str(stripped_path)
+
+    return asyncio.run(_create())
+
+
 # ============ soul did show ============
 
 
@@ -218,6 +240,12 @@ class TestDidVerify:
         result = runner.invoke(cli, ["did", "verify", tampered_soul_file])
         assert result.exit_code != 0
         assert "Verification failed" in result.output or "INVALID" in result.output
+
+    def test_verify_stripped_keys_exits_nonzero(self, runner, stripped_keys_soul_file):
+        """verify exits 1 for a soul whose keys/ directory was removed."""
+        result = runner.invoke(cli, ["did", "verify", stripped_keys_soul_file])
+        assert result.exit_code != 0
+        assert "No public key in source" in result.output
 
 
 # ============ soul did (group) ============

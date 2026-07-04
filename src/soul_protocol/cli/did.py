@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import sys
+import zipfile
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -25,6 +27,24 @@ else:
     _OK = "[green]\u2713[/green]"
     _FAIL = "[red]\u2717[/red]"
     _WARN = "[yellow]\u26a0[/yellow]"
+
+
+def _source_has_public_key(source: str) -> bool:
+    """Check if the source archive or directory contains a persisted public key.
+
+    Soul.awaken() regenerates keys in memory when none are found, so we
+    must inspect the source directly rather than trusting the runtime keystore.
+    """
+    p = Path(source)
+    if p.is_file() and p.suffix == ".soul":
+        try:
+            with zipfile.ZipFile(str(p)) as zf:
+                return "keys/public.key" in zf.namelist()
+        except (zipfile.BadZipFile, OSError):
+            return False
+    elif p.is_dir():
+        return (p / "keys" / "public.key").exists()
+    return False
 
 
 @click.group("did")
@@ -155,13 +175,12 @@ def did_verify(source, verbose):
         else:
             console.print(f"  {_FAIL} DID format invalid -- expected did:soul:...")
 
-        # Step 2: Check public key present
-        pub_bytes = soul._keystore.public_key_bytes
-        pub_valid = bool(pub_bytes)
+        # Step 2: Check public key persisted in source
+        pub_valid = _source_has_public_key(source)
         if pub_valid:
             console.print(f"  {_OK} Public key present (Ed25519)")
         else:
-            console.print(f"  {_FAIL} No public key -- cannot verify signatures")
+            console.print(f"  {_FAIL} No public key in source -- cannot verify signatures")
 
         # Step 3: Verify trust chain
         chain_valid = True
