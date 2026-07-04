@@ -2409,6 +2409,8 @@ class MemoryManager:
         graph_data = data.get("graph", {})
         if graph_data:
             manager._graph = KnowledgeGraph.from_dict(graph_data)
+            # Re-wire the recall engine to point to the restored graph
+            manager._recall_engine._graph = manager._graph
 
         self_model_data = data.get("self_model", {})
         if self_model_data:
