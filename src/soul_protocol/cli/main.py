@@ -682,8 +682,41 @@ def status(path):
     default="soul",
     help="Export format",
 )
-def export_cmd(source, output, fmt):
-    """Export a Soul to a different format."""
+@click.option(
+    "--password",
+    "-p",
+    is_flag=True,
+    help="Encrypt the .soul file with AES-256-GCM (prompts interactively for password).",
+)
+def export_cmd(source, output, fmt, password):
+    """Export a Soul to a different format.
+
+    When --password is provided, the exported .soul archive is encrypted
+    with AES-256-GCM using a scrypt-derived key. All contents except the
+    manifest are encrypted. Requires the `cryptography` package.
+    """
+    # Prompt for password interactively for security (no inline password args allowed)
+    password_val = None
+    if password:
+        if fmt != "soul":
+            console.print(
+                "[yellow]Warning:[/yellow] --password only applies to .soul format; ignoring."
+            )
+        else:
+            try:
+                from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: F401
+            except ImportError:
+                console.print(
+                    "[red]Error:[/red] The 'cryptography' package is required for encryption.\n"
+                    "Install with: pip install soul-protocol[encryption]"
+                )
+                sys.exit(1)
+
+            password_val = click.prompt(
+                "Encryption password",
+                hide_input=True,
+                confirmation_prompt=True,
+            )
 
     async def _export():
         from soul_protocol.runtime.soul import Soul
@@ -692,7 +725,7 @@ def export_cmd(source, output, fmt):
         out = output or f"{_safe_name(soul.name)}.{fmt}"
 
         if fmt == "soul":
-            await soul.export(out, include_keys=True)
+            await soul.export(out, include_keys=True, password=password_val)
         elif fmt == "json":
             Path(out).write_text(soul.serialize().model_dump_json(indent=2))
         elif fmt == "yaml":
@@ -705,6 +738,8 @@ def export_cmd(source, output, fmt):
             Path(out).write_text(dna_to_markdown(soul.identity, soul.dna))
 
         console.print(f"[green]Exported[/green] {soul.name} to {out} ({fmt})")
+        if password_val and fmt == "soul":
+            console.print("[dim]File is encrypted with AES-256-GCM.[/dim]")
 
     asyncio.run(_export())
 
