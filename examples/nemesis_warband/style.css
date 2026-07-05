@@ -1,0 +1,636 @@
+/* style.css — NEM-4 PART C: the grimdark visual language of SAURON'S ARMY.
+   Created: 2026-07-05 (feat/nemesis-warband) — cinematic dark-fantasy war
+   council. Charcoal/iron ground, blood-red + ember-gold accents, carved/engraved
+   type, torch-glow atmosphere (layered radial gradients + grain + vignette),
+   ornate ranked-tier cards with a grudge-intensity blood glow, rivalry threads,
+   and tasteful motion (glow pulses, card promotion flip, revenge flare).
+   Vanilla CSS only — no external fonts/assets; distinctive treatment is built
+   from system serifs + heavy letterspacing + engraved text-shadows. */
+
+/* ---- design tokens ---------------------------------------------------- */
+:root {
+  --ink:        #0b0908;   /* near-black charcoal ground */
+  --ink-2:      #12100e;
+  --iron:       #1c1917;   /* raised iron panels */
+  --iron-2:     #26211d;
+  --iron-edge:  #3a322b;   /* carved edges / hairlines */
+  --ash:        #8a7d6e;   /* muted parchment text */
+  --ash-dim:    #5f574d;
+  --bone:       #e9dcc4;   /* bright headings / names */
+  --blood:      #c8371d;   /* the grudge red */
+  --blood-hot:  #ff4a24;
+  --blood-deep: #6e1608;
+  --ember:      #e8a33d;   /* ember-gold accent */
+  --ember-hot:  #ffcf6b;
+  --gold-dim:   #9a7433;
+  --skull:      #b9ad97;
+
+  --serif: "Trajan Pro", "Cinzel", "Optima", "Palatino Linotype", "Book Antiqua",
+           Palatino, "Times New Roman", serif;
+  --body:  "Iowan Old Style", "Palatino Linotype", "Hoefler Text", Georgia, serif;
+
+  --card-w: 210px;
+  --radius: 3px;
+  --edge: 1px solid var(--iron-edge);
+}
+
+* { box-sizing: border-box; }
+
+/* The `hidden` attribute must win over the flex/grid display rules below
+   (modal scrim, revenge alert). Without this, [hidden] elements still show. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--ink);
+  color: var(--ash);
+  font-family: var(--body);
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  /* Torchlit stone: three warm radial pools over a cold charcoal base. */
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(200, 55, 29, 0.14), transparent 55%),
+    radial-gradient(70% 55% at 12% 8%,  rgba(232, 163, 61, 0.10), transparent 60%),
+    radial-gradient(80% 60% at 88% 4%,  rgba(200, 55, 29, 0.08), transparent 60%),
+    linear-gradient(180deg, #100c0a 0%, #0b0908 40%, #080605 100%);
+  background-attachment: fixed;
+}
+
+/* Grain + vignette overlays sit above the ground, below content. */
+.ash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+  /* procedural grain via a tiny repeating radial dither */
+  background-image:
+    radial-gradient(rgba(255, 255, 255, 0.045) 0.5px, transparent 0.6px),
+    radial-gradient(rgba(0, 0, 0, 0.20) 0.5px, transparent 0.6px);
+  background-size: 3px 3px, 4px 4px;
+  background-position: 0 0, 1px 1px;
+}
+.vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(120% 100% at 50% 38%, transparent 55%, rgba(0, 0, 0, 0.72) 100%);
+}
+
+/* Everything real sits above the atmosphere. */
+.masthead, .rep-banner, .army, .footer, .revenge-alert, .modal-scrim { position: relative; z-index: 1; }
+
+/* ---- masthead --------------------------------------------------------- */
+.masthead {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 26px clamp(18px, 5vw, 64px) 14px;
+  border-bottom: 1px solid rgba(58, 50, 43, 0.6);
+}
+.masthead__crest { filter: drop-shadow(0 0 10px rgba(200, 55, 29, 0.45)); flex: none; }
+.masthead__titles { flex: 1 1 auto; min-width: 0; }
+.masthead__title {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(30px, 5.2vw, 56px);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bone);
+  line-height: 0.95;
+  /* engraved: a bright top edge and a deep carved shadow below */
+  text-shadow:
+    0 1px 0 rgba(255, 235, 200, 0.12),
+    0 -1px 0 rgba(0, 0, 0, 0.6),
+    0 3px 14px rgba(200, 55, 29, 0.30);
+}
+.masthead__sub {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+.masthead__sub #engine-name { color: var(--ember); }
+.masthead__phase { text-align: right; flex: none; }
+.masthead__phase-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+  margin-bottom: 6px;
+}
+.phase-pill {
+  display: inline-block;
+  padding: 5px 14px;
+  font-family: var(--serif);
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  border: var(--edge);
+  border-radius: 999px;
+  background: var(--iron);
+  color: var(--ash);
+  transition: color 0.4s, border-color 0.4s, box-shadow 0.4s, background 0.4s;
+}
+.phase-pill[data-phase="BUILD_UP"] { color: var(--ember); border-color: var(--gold-dim); }
+.phase-pill[data-phase="PEAK"] {
+  color: #fff2e6; border-color: var(--blood-hot); background: rgba(110, 22, 8, 0.5);
+  box-shadow: 0 0 18px rgba(255, 74, 36, 0.55); animation: pulse-red 1.1s infinite;
+}
+.phase-pill[data-phase="FADE"] { color: var(--ember); border-color: var(--gold-dim); }
+.phase-pill[data-phase="RELAX"] { color: var(--ash-dim); }
+
+/* ---- reputation banner ------------------------------------------------ */
+.rep-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 24px;
+  margin: 18px clamp(18px, 5vw, 64px) 6px;
+  padding: 16px 22px;
+  background:
+    linear-gradient(180deg, rgba(38, 33, 29, 0.9), rgba(18, 16, 14, 0.9));
+  border: var(--edge);
+  border-top: 2px solid var(--blood-deep);
+  border-radius: var(--radius);
+  box-shadow: inset 0 1px 0 rgba(255, 220, 180, 0.06), 0 12px 30px rgba(0, 0, 0, 0.5);
+}
+.rep-banner__legend { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.rep-banner__name {
+  font-family: var(--serif);
+  font-size: 26px;
+  letter-spacing: 0.2em;
+  color: var(--bone);
+  text-shadow: 0 2px 10px rgba(200, 55, 29, 0.35);
+}
+.rep-banner__notoriety {
+  font-family: var(--serif);
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--ash-dim);
+  color: var(--ash);
+}
+.rep-banner__notoriety[data-band="KNOWN"]     { color: var(--ember); border-color: var(--gold-dim); box-shadow: 0 0 12px rgba(232, 163, 61, 0.25); }
+.rep-banner__notoriety[data-band="NOTORIOUS"] { color: #fff0e6; border-color: var(--blood-hot); background: rgba(110, 22, 8, 0.55); box-shadow: 0 0 16px rgba(255, 74, 36, 0.5); }
+.rep-banner__tag { font-size: 13px; font-style: italic; color: var(--ash-dim); letter-spacing: 0.04em; }
+.rep-banner__deeds { flex: 1 1 240px; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.deed-chip {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  padding: 3px 10px;
+  color: var(--skull);
+  background: rgba(110, 22, 8, 0.25);
+  border: 1px solid rgba(200, 55, 29, 0.35);
+  border-radius: 2px;
+}
+.rep-banner__actions { display: flex; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+
+/* ---- buttons ---------------------------------------------------------- */
+.btn {
+  font-family: var(--serif);
+  font-size: 12.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--bone);
+  padding: 10px 18px;
+  border: 1px solid var(--iron-edge);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--iron-2), var(--iron));
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.25s, border-color 0.25s, color 0.25s, background 0.25s;
+  box-shadow: inset 0 1px 0 rgba(255, 220, 180, 0.06);
+}
+.btn:hover { transform: translateY(-1px); border-color: var(--gold-dim); }
+.btn:active { transform: translateY(0); }
+.btn:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+.btn__glyph { color: var(--blood-hot); }
+.btn--advance {
+  border-color: var(--blood-deep);
+  background: linear-gradient(180deg, #3a120a, #24100b);
+  color: #ffe9dc;
+}
+.btn--advance:hover { border-color: var(--blood-hot); box-shadow: 0 0 20px rgba(255, 74, 36, 0.45); }
+.btn--recruit:hover { color: var(--ember); box-shadow: 0 0 16px rgba(232, 163, 61, 0.3); }
+.btn--ghost { color: var(--ash); background: transparent; }
+.btn--win  { border-color: var(--gold-dim); color: var(--ember-hot); }
+.btn--win:hover  { background: linear-gradient(180deg, #3a2c10, #241a09); box-shadow: 0 0 20px rgba(232, 163, 61, 0.4); }
+.btn--lose { border-color: var(--blood-deep); color: #ff8a6a; }
+.btn--lose:hover { background: linear-gradient(180deg, #3a120a, #24100b); box-shadow: 0 0 20px rgba(255, 74, 36, 0.45); }
+
+/* ---- the army / tiers ------------------------------------------------- */
+.army {
+  padding: 8px clamp(14px, 4vw, 56px) 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rivalry-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;              /* threads float over the cards' frames, under text */
+  overflow: visible;
+}
+.tier { padding: 12px 0; position: relative; }
+.tier + .tier { border-top: 1px dashed rgba(58, 50, 43, 0.5); }
+.tier__label {
+  text-align: center;
+  margin-bottom: 12px;
+}
+.tier__label span {
+  font-family: var(--serif);
+  font-size: 12px;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+  padding: 0 16px;
+  position: relative;
+}
+.tier__label span::before,
+.tier__label span::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: clamp(24px, 8vw, 90px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--iron-edge), transparent);
+}
+.tier__label span::before { right: 100%; }
+.tier__label span::after  { left: 100%; }
+.tier--warlord .tier__label span { color: var(--ember); }
+
+.tier__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: clamp(14px, 2vw, 26px);
+  align-items: stretch;
+}
+
+/* ---- member card ------------------------------------------------------ */
+.card {
+  position: relative;
+  width: var(--card-w);
+  padding: 16px 15px 15px;
+  background:
+    linear-gradient(180deg, rgba(38, 33, 29, 0.96), rgba(16, 14, 12, 0.98));
+  border: 1px solid var(--iron-edge);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 220, 180, 0.07),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 14px 30px rgba(0, 0, 0, 0.55);
+  transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.4s, border-color 0.4s, opacity 0.5s;
+  transform-style: preserve-3d;
+  animation: card-in 0.5s both;
+}
+.card:hover { transform: translateY(-4px); box-shadow: inset 0 1px 0 rgba(255, 220, 180, 0.09), 0 20px 40px rgba(0, 0, 0, 0.6); }
+
+/* Ornate corner brackets carved into the frame. */
+.card::before, .card::after {
+  content: "";
+  position: absolute;
+  width: 14px; height: 14px;
+  border: 1px solid var(--gold-dim);
+  opacity: 0.55;
+}
+.card::before { top: 6px; left: 6px; border-right: 0; border-bottom: 0; }
+.card::after  { bottom: 6px; right: 6px; border-left: 0; border-top: 0; }
+
+/* Tier scale: warlords largest, grunts smallest (the pyramid reads by size). */
+.tier--warlord .card { --card-w: 246px; }
+.tier--captain .card { --card-w: 210px; }
+.tier--grunt   .card { --card-w: 176px; }
+
+/* Grudge intensity — the blood glow. Dim -> ember -> blazing red. */
+.card[data-grudge="NONE"]     { }
+.card[data-grudge="SLIGHTED"] {
+  border-color: rgba(200, 55, 29, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 220, 180, 0.07), 0 0 18px rgba(200, 55, 29, 0.22), 0 14px 30px rgba(0, 0, 0, 0.55);
+}
+.card[data-grudge="GRUDGING"] {
+  border-color: var(--blood-hot);
+  box-shadow: inset 0 1px 0 rgba(255, 220, 180, 0.08), 0 0 30px rgba(255, 74, 36, 0.5), 0 14px 34px rgba(0, 0, 0, 0.6);
+  animation: card-in 0.5s both, grudge-breathe 2.4s ease-in-out infinite;
+}
+
+/* Dead members: desaturated, dimmed, crossed. */
+.card[data-alive="false"] {
+  filter: grayscale(1) brightness(0.42) contrast(0.9);
+  opacity: 0.72;
+  animation: none;
+  border-color: #2a2521;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6);
+}
+.card[data-alive="false"] .card__slash { display: block; }
+
+.card__slash {
+  display: none;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.card__slash::before, .card__slash::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: -6%;
+  width: 112%;
+  height: 2px;
+  background: rgba(210, 60, 40, 0.6);
+  transform-origin: center;
+}
+.card__slash::before { transform: rotate(19deg); }
+.card__slash::after  { transform: rotate(-19deg); }
+.card__skull {
+  position: absolute;
+  top: 8px; right: 12px;
+  font-size: 20px;
+  color: var(--skull);
+  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.8));
+  display: none;
+}
+.card[data-alive="false"] .card__skull { display: block; }
+
+/* Card header: rank badge + emblem. */
+.card__top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.card__emblem { flex: none; }
+.card__emblem svg { display: block; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.6)); }
+.card__rank {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--serif);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 2px;
+  border: 1px solid var(--iron-edge);
+  color: var(--ash);
+  background: rgba(0, 0, 0, 0.35);
+}
+.card__rank[data-rank="Warlord"] { color: var(--ember-hot); border-color: var(--gold-dim); background: rgba(58, 44, 16, 0.5); }
+.card__rank[data-rank="Captain"] { color: var(--ash); border-color: var(--iron-edge); }
+.card__rank-sigil { font-size: 12px; line-height: 1; }
+.card__rank[data-rank="Warlord"] .card__rank-sigil { color: var(--ember-hot); }
+
+.card__name {
+  font-family: var(--serif);
+  font-size: 19px;
+  letter-spacing: 0.06em;
+  color: var(--bone);
+  margin: 0;
+  line-height: 1.1;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
+}
+.tier--warlord .card__name { font-size: 22px; }
+.card__epithet {
+  font-size: 12.5px;
+  font-style: italic;
+  color: var(--gold-dim);
+  margin: 3px 0 0;
+  letter-spacing: 0.04em;
+}
+
+/* Grudge readout line. */
+.card__grudge {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(58, 50, 43, 0.6);
+  min-height: 42px;
+}
+.card__grudge-level {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+.card__grudge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ash-dim); flex: none; }
+.card[data-grudge="SLIGHTED"] .card__grudge-dot { background: var(--blood); box-shadow: 0 0 8px var(--blood); }
+.card[data-grudge="GRUDGING"] .card__grudge-dot { background: var(--blood-hot); box-shadow: 0 0 12px var(--blood-hot); }
+.card[data-grudge="SLIGHTED"] .card__grudge-level { color: var(--blood); }
+.card[data-grudge="GRUDGING"] .card__grudge-level { color: var(--blood-hot); }
+.card__remembers {
+  margin-top: 6px;
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--skull);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card__remembers b { color: var(--blood-hot); font-style: normal; font-size: 9px; letter-spacing: 0.16em; }
+
+/* Rivalry chips (names of NPCs this one hates). */
+.card__rivals { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 4px; }
+.rival-chip {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  color: var(--ash);
+  border: 1px solid rgba(154, 116, 51, 0.4);
+  background: rgba(0, 0, 0, 0.3);
+}
+.rival-chip::before { content: "⚔ "; color: var(--gold-dim); }
+
+/* Confront button pinned to the card foot. */
+.card__confront {
+  margin-top: 12px;
+  width: 100%;
+  font-family: var(--serif);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #ffe9dc;
+  padding: 9px;
+  border: 1px solid var(--blood-deep);
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(58, 18, 10, 0.9), rgba(26, 12, 9, 0.95));
+  cursor: pointer;
+  transition: box-shadow 0.25s, border-color 0.25s, transform 0.1s;
+}
+.card__confront:hover { border-color: var(--blood-hot); box-shadow: 0 0 18px rgba(255, 74, 36, 0.5); }
+.card__confront:active { transform: translateY(1px); }
+.card[data-alive="false"] .card__confront { display: none; }
+
+/* Freshly changed rank -> a promotion flip. */
+.card--promoted { animation: card-in 0.5s both, promote-flip 0.7s ease; }
+.card--demoted  { animation: card-in 0.5s both, demote-shake 0.5s ease; }
+
+/* ---- revenge alert ---------------------------------------------------- */
+.revenge-alert {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+  pointer-events: none;
+}
+.revenge-alert__inner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 760px;
+  padding: 14px 26px;
+  background: linear-gradient(180deg, rgba(120, 24, 10, 0.97), rgba(60, 12, 6, 0.97));
+  border: 1px solid var(--blood-hot);
+  border-radius: var(--radius);
+  box-shadow: 0 0 40px rgba(255, 74, 36, 0.6), 0 20px 50px rgba(0, 0, 0, 0.7);
+  animation: alert-drop 0.5s cubic-bezier(0.2, 0.9, 0.2, 1.2), alert-flare 1.3s ease-in-out infinite 0.5s;
+}
+.revenge-alert__sigil { font-size: 40px; color: #ffdccb; filter: drop-shadow(0 0 10px rgba(255, 74, 36, 0.8)); }
+.revenge-alert__title {
+  font-family: var(--serif);
+  font-size: 14px;
+  letter-spacing: 0.28em;
+  color: #ffe9dc;
+  margin-bottom: 4px;
+}
+.revenge-alert__line { font-size: 15px; font-style: italic; color: #ffd8c8; line-height: 1.35; }
+
+/* ---- confront modal --------------------------------------------------- */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: radial-gradient(circle at 50% 40%, rgba(60, 12, 6, 0.5), rgba(0, 0, 0, 0.82));
+  backdrop-filter: blur(3px);
+  animation: fade-in 0.25s both;
+}
+.modal {
+  position: relative;
+  width: min(480px, 94vw);
+  padding: 34px 32px 28px;
+  background: linear-gradient(180deg, var(--iron-2), var(--ink-2));
+  border: 1px solid var(--iron-edge);
+  border-top: 2px solid var(--blood-deep);
+  border-radius: var(--radius);
+  box-shadow: 0 0 60px rgba(200, 55, 29, 0.3), 0 30px 70px rgba(0, 0, 0, 0.75);
+  text-align: center;
+  animation: modal-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.modal__close {
+  position: absolute;
+  top: 12px; right: 14px;
+  background: none;
+  border: none;
+  color: var(--ash-dim);
+  font-size: 18px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.modal__close:hover { color: var(--blood-hot); }
+.modal__crest { display: flex; justify-content: center; margin-bottom: 14px; }
+.modal__title {
+  font-family: var(--serif);
+  font-size: 24px;
+  letter-spacing: 0.06em;
+  color: var(--bone);
+  margin: 0;
+}
+.modal__title span { color: var(--blood-hot); }
+.modal__epithet { font-style: italic; color: var(--gold-dim); margin: 6px 0 0; }
+.modal__prompt { color: var(--ash); margin: 18px 0 22px; font-size: 14px; }
+.modal__choices { display: flex; gap: 14px; justify-content: center; }
+.modal__choices .btn { min-width: 130px; padding: 13px; font-size: 13px; }
+
+.result__banner {
+  font-family: var(--serif);
+  font-size: 26px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  animation: stamp 0.45s cubic-bezier(0.2, 1.4, 0.3, 1) both;
+}
+.result__banner[data-tone="rise"] { color: var(--ember-hot); text-shadow: 0 0 20px rgba(232, 163, 61, 0.5); }
+.result__banner[data-tone="fall"] { color: #ff8a6a; text-shadow: 0 0 20px rgba(255, 74, 36, 0.45); }
+.result__banner[data-tone="death"] { color: var(--skull); text-shadow: 0 0 18px rgba(0, 0, 0, 0.8); }
+.result__taunt {
+  font-size: 16px;
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--bone);
+  padding: 16px 18px;
+  border-left: 2px solid var(--blood);
+  background: rgba(110, 22, 8, 0.18);
+  border-radius: 2px;
+  margin-bottom: 14px;
+  text-align: left;
+}
+.result__meta { font-size: 12px; letter-spacing: 0.1em; color: var(--ash-dim); margin-bottom: 22px; text-transform: uppercase; }
+.result__meta b { color: var(--ember); }
+.result__actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+/* ---- footer ----------------------------------------------------------- */
+.footer {
+  padding: 22px clamp(18px, 5vw, 64px) 40px;
+  border-top: 1px solid rgba(58, 50, 43, 0.5);
+  color: var(--ash-dim);
+  font-size: 12.5px;
+  font-style: italic;
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+.footer code { font-style: normal; color: var(--ember); font-size: 12px; }
+
+/* ---- motion ----------------------------------------------------------- */
+@keyframes card-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes grudge-breathe {
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255,220,180,0.08), 0 0 26px rgba(255,74,36,0.4), 0 14px 34px rgba(0,0,0,0.6); }
+  50%      { box-shadow: inset 0 1px 0 rgba(255,220,180,0.08), 0 0 40px rgba(255,74,36,0.7), 0 14px 34px rgba(0,0,0,0.6); }
+}
+@keyframes pulse-red { 0%,100% { box-shadow: 0 0 12px rgba(255,74,36,0.4); } 50% { box-shadow: 0 0 24px rgba(255,74,36,0.75); } }
+@keyframes promote-flip {
+  0%   { transform: rotateY(0) translateY(0); }
+  40%  { transform: rotateY(180deg) translateY(-10px) scale(1.05); }
+  100% { transform: rotateY(360deg) translateY(0); }
+}
+@keyframes demote-shake {
+  0%,100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); } 40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); } 80% { transform: translateX(4px); }
+}
+@keyframes alert-drop { from { transform: translateY(-120%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes alert-flare {
+  0%,100% { box-shadow: 0 0 34px rgba(255,74,36,0.5), 0 20px 50px rgba(0,0,0,0.7); }
+  50%     { box-shadow: 0 0 60px rgba(255,74,36,0.85), 0 20px 50px rgba(0,0,0,0.7); }
+}
+@keyframes modal-rise { from { transform: translateY(24px) scale(0.97); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes stamp { 0% { transform: scale(2.2); opacity: 0; } 60% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+/* ---- responsive ------------------------------------------------------- */
+@media (max-width: 720px) {
+  .masthead { flex-wrap: wrap; }
+  .masthead__phase { margin-left: auto; }
+  .rep-banner__actions { margin-left: 0; width: 100%; }
+  .tier--warlord .card, .tier--captain .card, .tier--grunt .card { --card-w: min(88vw, 240px); }
+}

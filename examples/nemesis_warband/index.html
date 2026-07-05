@@ -1,0 +1,133 @@
+<!-- index.html — NEM-4 PART C: "SAURON'S ARMY", the grimdark army-board screen.
+  Created: 2026-07-05 (feat/nemesis-warband) — a cinematic dark-fantasy war
+  council (Shadow-of-Mordor's Nemesis menu), NOT a dashboard. Ranked tiers
+  (Warlords / Captains / Grunts), ornate procedural member cards, an SVG rivalry
+  overlay, a confront modal, a director/revenge bar, and a reputation banner.
+  Vanilla JS + inline SVG only — no external assets, no CDN, no frameworks.
+  Talks to server.py: GET /board, GET /events?since=N, POST /confront|/tick|
+  /recruit|/export_member|/export_warband. Static-whitelisted by the server.
+-->
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SAURON'S ARMY — the Nemesis warband</title>
+<link rel="stylesheet" href="/style.css" />
+
+<!-- Atmospheric backdrop: layered torch-glow, grain, vignette (all in CSS). -->
+<div class="ash" aria-hidden="true"></div>
+<div class="vignette" aria-hidden="true"></div>
+
+<!-- REVENGE ALERT — flares over the board when the director sends a hunter. -->
+<div id="revenge-alert" class="revenge-alert" role="alert" aria-live="assertive" hidden>
+  <div class="revenge-alert__inner">
+    <span class="revenge-alert__sigil">☠</span>
+    <div class="revenge-alert__body">
+      <div class="revenge-alert__title">A NEMESIS HUNTS YOU</div>
+      <div class="revenge-alert__line" id="revenge-alert-line"></div>
+    </div>
+  </div>
+</div>
+
+<header class="masthead">
+  <div class="masthead__crest" aria-hidden="true">
+    <!-- Procedural iron sigil — the Eye over crossed blades. -->
+    <svg viewBox="0 0 64 64" width="52" height="52">
+      <defs>
+        <radialGradient id="eyeGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#ffcf6b" />
+          <stop offset="45%" stop-color="#c8371d" />
+          <stop offset="100%" stop-color="#3a0d08" />
+        </radialGradient>
+      </defs>
+      <path d="M4 40 L60 24 M4 24 L60 40" stroke="#4a4038" stroke-width="3" fill="none" />
+      <ellipse cx="32" cy="32" rx="20" ry="11" fill="#100a08" stroke="#5a4a3a" stroke-width="1.5" />
+      <ellipse cx="32" cy="32" rx="17" ry="8.5" fill="url(#eyeGlow)" />
+      <ellipse cx="32" cy="32" rx="3.4" ry="8" fill="#1a0603" />
+    </svg>
+  </div>
+  <div class="masthead__titles">
+    <h1 class="masthead__title">Sauron's Army</h1>
+    <p class="masthead__sub">The Nemesis Warband — <span id="engine-name">templated</span> voice</p>
+  </div>
+  <div class="masthead__phase">
+    <span class="masthead__phase-label">War pulse</span>
+    <span id="phase-pill" class="phase-pill" data-phase="RELAX">RELAX</span>
+  </div>
+</header>
+
+<!-- REPUTATION BANNER — Talion's legend + recruit/export controls. -->
+<section class="rep-banner" id="rep-banner">
+  <div class="rep-banner__legend">
+    <span class="rep-banner__name">TALION</span>
+    <span class="rep-banner__notoriety" id="rep-notoriety" data-band="UNKNOWN">UNKNOWN</span>
+    <span class="rep-banner__tag" id="rep-tag">an unknown wanderer</span>
+  </div>
+  <div class="rep-banner__deeds" id="rep-deeds"></div>
+  <div class="rep-banner__actions">
+    <button class="btn btn--advance" id="btn-tick" title="Let the warband act">
+      <span class="btn__glyph">⚔</span> Advance the war
+    </button>
+    <button class="btn btn--recruit" id="btn-recruit" title="A new orc joins, already knowing your name">
+      + Recruit
+    </button>
+    <button class="btn btn--ghost" id="btn-export-warband" title="Download every nemesis as .soul files">
+      ⬇ Export army
+    </button>
+  </div>
+</section>
+
+<!-- THE ARMY — three ranked tiers, tallest at the top (the pyramid). -->
+<main class="army" id="army">
+  <!-- SVG overlay for rivalry threads, sized/redrawn to the board each render. -->
+  <svg class="rivalry-layer" id="rivalry-layer" aria-hidden="true"></svg>
+
+  <section class="tier tier--warlord" data-tier="Warlord">
+    <div class="tier__label"><span>Warlords</span></div>
+    <div class="tier__row" id="row-warlord"></div>
+  </section>
+
+  <section class="tier tier--captain" data-tier="Captain">
+    <div class="tier__label"><span>Captains</span></div>
+    <div class="tier__row" id="row-captain"></div>
+  </section>
+
+  <section class="tier tier--grunt" data-tier="Grunt">
+    <div class="tier__label"><span>Grunts</span></div>
+    <div class="tier__row" id="row-grunt"></div>
+  </section>
+</main>
+
+<!-- CONFRONT MODAL — the clash + its dramatic outcome. -->
+<div class="modal-scrim" id="modal-scrim" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <button class="modal__close" id="modal-close" aria-label="Close">✕</button>
+
+    <!-- Stage 1: the choice. -->
+    <div class="modal__stage" id="stage-clash">
+      <div class="modal__crest" id="modal-crest"></div>
+      <h2 class="modal__title" id="modal-title">You clash with <span id="clash-name">—</span></h2>
+      <p class="modal__epithet" id="clash-epithet"></p>
+      <p class="modal__prompt">Steel meets steel in the war-pit. How does it end?</p>
+      <div class="modal__choices">
+        <button class="btn btn--win" id="btn-win">You win</button>
+        <button class="btn btn--lose" id="btn-lose">You lose</button>
+      </div>
+    </div>
+
+    <!-- Stage 2: the result, revealed dramatically. -->
+    <div class="modal__stage modal__stage--result" id="stage-result" hidden>
+      <div class="result__banner" id="result-banner">—</div>
+      <div class="result__taunt" id="result-taunt"></div>
+      <div class="result__meta" id="result-meta"></div>
+      <div class="result__actions">
+        <button class="btn btn--ghost" id="btn-export-member" title="Carry this nemesis away as a .soul file">⬇ Export this nemesis</button>
+        <button class="btn btn--advance" id="btn-result-done">Return to the host</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="footer">
+  <span>Every orc is a living <code>.soul</code>. They remember. Beat one and it climbs; lose and it swears revenge, citing the wrong by name.</span>
+</footer>
+
+<script src="/app.js"></script>
