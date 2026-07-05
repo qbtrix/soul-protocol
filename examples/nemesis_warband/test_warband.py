@@ -206,10 +206,13 @@ async def test_recruit_reads_player_reputation() -> None:
 
     rec = await wb.recruit("Zog", "the Newcomer")
     assert rec["notoriety"] == NOTORIOUS
-    # The recruit's first line is the NOTORIOUS reputation branch, which names
-    # the recruit and cites hearsay about the player.
+    # The recruit's first line is the NOTORIOUS reputation branch, spoken in the
+    # WARBAND'S OWN voice (WarbandDialogueEngine, not the package butcher
+    # template): it names the recruit and voices grimdark hearsay about the
+    # player — "They say you <deed>. The others fear you. I don't."
     assert "Zog" in rec["first_line"]
-    assert ("Word travels" in rec["first_line"]) or ("know who you are" in rec["first_line"])
+    assert "Talion" in rec["first_line"]  # the recruit addresses the player by name
+    assert ("They say you" in rec["first_line"]) and ("fear you" in rec["first_line"])
 
 
 # ---------------------------------------------------------------------------

@@ -28,13 +28,25 @@
 # Traps handled: GrudgeKernel is fully async (everything awaited); clash outcomes
 #   are mapped onto EXISTING kinds {neutral,insult,theft,betrayal}; imports are
 #   added together with their first use so the format hook can't strip them.
+#
+# Updated: 2026-07-05 (feat/nemesis-warband) — NEM-3: the WARBAND'S OWN VOICE.
+#   forge() and recruit() now wire each member's GrudgeKernel at birth with its
+#   own WarbandDialogueEngine (warband_voice.py) — grimdark, name/epithet/rank
+#   aware — by DEFAULT, replacing the package's hardcoded butcher/"Bjorn" template
+#   WITHOUT touching the package. A ``voice_factory(name, epithet, rank_label) ->
+#   engine`` hook (default_voice_factory) lets the server swap to an
+#   LLMDialogueEngine per member (--engine claude). Starting ranks are computed
+#   up front (pure _starting_ranks) so each voice bakes in its true opening rank.
 
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from soul_protocol.profiles.game import GrudgeKernel, PlayerSoul
+
+from .warband_voice import WarbandDialogueEngine
 
 # ---------------------------------------------------------------------------
 # Ranks — the warband hierarchy that sits on top of the souls.
@@ -51,6 +63,39 @@ MAX_RANK = WARLORD
 def rank_label(rank: int) -> str:
     """Human-readable label for a rank int (clamped to the known band)."""
     return RANK_LABELS.get(max(MIN_RANK, min(MAX_RANK, rank)), "Grunt")
+
+
+# A ``voice_factory`` turns a member's identity into the DialogueEngine that
+# member speaks through: (name, epithet, rank_label) -> engine. The default
+# gives every member the grimdark WarbandDialogueEngine (deterministic, offline).
+# The server swaps in a factory that returns an LLMDialogueEngine per member for
+# live, persona-driven taunts (``--engine claude``).
+VoiceFactory = Callable[[str, str, str], object]
+
+
+def default_voice_factory(name: str, epithet: str, rank_label: str) -> WarbandDialogueEngine:
+    """The warband's OWN voice for a member — grimdark, name/epithet/rank-aware.
+
+    This is what replaces the package's butcher-flavored TemplatedDialogueEngine:
+    the DialogueEngine is a pluggable Protocol, and this is the Nemesis game's
+    plug. Constructed per member so the same grudge state renders as THAT orc.
+    """
+    return WarbandDialogueEngine(name, epithet, rank_label)
+
+
+def _starting_ranks(n: int) -> list[int]:
+    """The opening hierarchy for ``n`` members, as a per-index rank list.
+
+    Deterministic and pure (no Soul, no rng): the last member is the Warlord,
+    roughly a third are Captains, the remainder Grunts. Extracted so ``forge``
+    can bake each member's TRUE starting rank into its voice at birth time.
+    """
+    ranks = [GRUNT] * n
+    ranks[-1] = WARLORD
+    n_captains = max(1, (n - 1) // 3)
+    for i in range(n_captains):
+        ranks[i] = CAPTAIN
+    return ranks
 
 
 # ---------------------------------------------------------------------------
@@ -162,10 +207,19 @@ class Warband:
     kernel dialogue engine (templated by default, so no LLM and no network).
     """
 
-    def __init__(self, members: list[Member], player: PlayerSoul, rng: random.Random) -> None:
+    def __init__(
+        self,
+        members: list[Member],
+        player: PlayerSoul,
+        rng: random.Random,
+        voice_factory: VoiceFactory | None = None,
+    ) -> None:
         self._members = members
         self._player = player
         self._rng = rng
+        # How each member's spoken line is produced. Default: the warband's own
+        # grimdark voice. The server passes a factory returning an LLM engine.
+        self._voice_factory: VoiceFactory = voice_factory or default_voice_factory
 
     # ---- construction -----------------------------------------------------
 
@@ -175,28 +229,43 @@ class Warband:
         player: PlayerSoul,
         size: int = 6,
         seed: int = 1337,
+        voice_factory: VoiceFactory | None = None,
     ) -> Warband:
         """Forge a warband of ``size`` members with varied archetypes, starting
         ranks (one Warlord, ~a third Captains, the rest Grunts), and 2-3 seeded
         NPC<->NPC rivalries.
 
+        Each member's GrudgeKernel is wired at birth with its OWN dialogue engine
+        via ``voice_factory(name, epithet, rank_label)`` — by default the grimdark
+        :class:`WarbandDialogueEngine` (deterministic, offline). Pass a
+        ``voice_factory`` (e.g. one returning an ``LLMDialogueEngine`` per member)
+        to swap in live, persona-driven taunts without touching the package.
+
         Deterministic: a seeded ``random.Random`` drives every choice, so a
         given (size, seed) always forges the same warband. No LLM, no network —
-        births use the Soul heuristic path.
+        births use the Soul heuristic path (the voice engine is orthogonal).
         """
         if size < 2:
             raise ValueError(f"a warband needs at least 2 members, got {size}")
 
+        factory: VoiceFactory = voice_factory or default_voice_factory
         rng = random.Random(seed)
+
+        # Compute the opening ranks FIRST (pure), so each member's voice can be
+        # constructed with its true starting rank label baked in at birth.
+        ranks = _starting_ranks(size)
+
         members: list[Member] = []
         for i in range(size):
             archetype, persona, traits = _ARCHETYPES[i % len(_ARCHETYPES)]
             name = _NAMES[i % len(_NAMES)]
             epithet = _EPITHETS[i % len(_EPITHETS)]
+            rank = ranks[i]
             kernel = await GrudgeKernel.birth(
                 name=name,
                 archetype=archetype,
                 persona=persona,
+                dialogue_engine=factory(name, epithet, rank_label(rank)),
             )
             members.append(
                 Member(
@@ -204,28 +273,14 @@ class Warband:
                     did=kernel.npc_did,
                     name=name,
                     epithet=epithet,
-                    rank=GRUNT,  # ranks assigned below, deterministically
+                    rank=rank,
                     traits=list(traits),
                 )
             )
 
-        warband = cls(members, player, rng)
-        warband._assign_starting_ranks()
+        warband = cls(members, player, rng, voice_factory=factory)
         await warband._seed_rivalries()
         return warband
-
-    def _assign_starting_ranks(self) -> None:
-        """Deterministically assign the opening hierarchy: the last member is the
-        Warlord, roughly a third are Captains, the remainder Grunts."""
-        n = len(self._members)
-        # One Warlord (the highest-index seed, "The Warlord" archetype when the
-        # size lands on 6), then about a third Captains.
-        self._members[-1].rank = WARLORD
-        n_captains = max(1, (n - 1) // 3)
-        for m in self._members[:-1]:
-            m.rank = GRUNT
-        for m in self._members[:n_captains]:
-            m.rank = CAPTAIN
 
     async def _seed_rivalries(self) -> None:
         """Seed 2-3 pre-existing NPC<->NPC grudges: member A records a wrong
@@ -378,10 +433,16 @@ class Warband:
         Returns a beat dict: ``member``, ``epithet``, ``rank`` (joins as Grunt),
         ``first_line`` (the reputation reaction), and ``notoriety``.
         """
-        # A fresh recruit uses the next archetype in the cycle for flavour.
+        # A fresh recruit uses the next archetype in the cycle for flavour and is
+        # wired with its own voice (Grunt rank, since recruits join at the bottom).
         i = len(self._members)
         archetype, persona, traits = _ARCHETYPES[i % len(_ARCHETYPES)]
-        kernel = await GrudgeKernel.birth(name=name, archetype=archetype, persona=persona)
+        kernel = await GrudgeKernel.birth(
+            name=name,
+            archetype=archetype,
+            persona=persona,
+            dialogue_engine=self._voice_factory(name, epithet, rank_label(GRUNT)),
+        )
         member = Member(
             kernel=kernel,
             did=kernel.npc_did,
