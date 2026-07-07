@@ -525,3 +525,69 @@ class TestSoulGeneralEventsProperty:
         themes = [ge.theme for ge in soul.general_events]
         assert "coding" in themes
         assert "debugging" in themes
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for #283 — archives tier persistence
+# ---------------------------------------------------------------------------
+
+
+class TestArchivesPersistence:
+    """Verify that the archives memory tier survives export and save."""
+
+    async def test_export_awaken_preserves_archives(self, tmp_path):
+        """Archives survive a .soul export/awaken round-trip (#283)."""
+        from datetime import datetime
+
+        from soul_protocol.runtime.memory.archival import ConversationArchive
+
+        soul = await Soul.birth("Aria")
+
+        # Manually seed an archive (normally created by archive_old_memories)
+        archive = ConversationArchive(
+            id="archive-001",
+            start_time=datetime(2026, 1, 1),
+            end_time=datetime(2026, 1, 2),
+            summary="Discussed Python best practices",
+            key_moments=["learned about type hints"],
+        )
+        soul._memory._archival.archive_conversation(archive)
+        assert len(soul._memory._archival.all_archives()) == 1
+
+        # Export and re-awaken
+        path = tmp_path / "aria.soul"
+        await soul.export(str(path))
+        restored = await Soul.awaken(str(path))
+
+        archives = restored._memory._archival.all_archives()
+        assert len(archives) == 1
+        assert archives[0].id == "archive-001"
+        assert archives[0].summary == "Discussed Python best practices"
+
+    async def test_save_load_preserves_archives(self, tmp_path):
+        """Archives survive a directory save/load round-trip (#283)."""
+        from datetime import datetime
+
+        from soul_protocol.runtime.memory.archival import ConversationArchive
+        from soul_protocol.runtime.storage.file import load_soul_full
+
+        soul = await Soul.birth("Aria")
+
+        archive = ConversationArchive(
+            id="archive-002",
+            start_time=datetime(2026, 6, 1),
+            end_time=datetime(2026, 6, 2),
+            summary="Debugging session on auth module",
+            key_moments=["found the root cause"],
+        )
+        soul._memory._archival.archive_conversation(archive)
+
+        await soul.save(tmp_path)
+
+        soul_dir = tmp_path / soul.did.replace(":", "_")
+        assert (soul_dir / "memory" / "archives.json").exists()
+
+        _, memory_data = await load_soul_full(soul_dir)
+        assert "archives" in memory_data
+        assert len(memory_data["archives"]) == 1
+        assert memory_data["archives"][0]["summary"] == "Debugging session on auth module"

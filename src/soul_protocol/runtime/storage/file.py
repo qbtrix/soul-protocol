@@ -159,6 +159,7 @@ _FLAT_TIERS: list[tuple[str, object]] = [
     ("graph", {}),
     ("self_model", {}),
     ("general_events", []),
+    ("archives", []),  # v0.5.0 (#283) — consolidated memory summaries
 ]
 
 _LAYER_TIERS = ("episodic", "semantic", "procedural", "social")

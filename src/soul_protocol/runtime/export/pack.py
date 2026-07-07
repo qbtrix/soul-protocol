@@ -117,6 +117,7 @@ async def pack_soul(
                 "graph",
                 "self_model",
                 "general_events",
+                "archives",  # v0.5.0 (#283) — consolidated memory summaries
             ]:
                 default = {} if tier_name in ("graph", "self_model") else []
                 tier_data = memory_data.get(tier_name, default)

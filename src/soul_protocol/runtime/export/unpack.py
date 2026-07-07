@@ -106,6 +106,7 @@ async def unpack_soul(
             "graph",
             "self_model",
             "general_events",
+            "archives",  # v0.5.0 (#283) — consolidated memory summaries
         ]:
             mem_path = f"memory/{tier_name}.json"
             exists = (f"{mem_path}.enc" in names) if is_encrypted else (mem_path in names)
