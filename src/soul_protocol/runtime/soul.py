@@ -3285,6 +3285,7 @@ class Soul:
                 devices). See docs/trust-chain.md for the threat model.
         """
         from .exceptions import SoulExportError
+        from .storage.file import write_bytes_atomic
 
         try:
             memory_data = self._memory.to_dict()
@@ -3297,7 +3298,7 @@ class Soul:
                 trust_chain_data=trust_chain_data,
                 key_files=key_files,
             )
-            Path(path).write_bytes(data)
+            write_bytes_atomic(Path(path), data, keep_backup=True)
             logger.info(
                 "Soul exported: name=%s, path=%s, size=%d bytes",
                 self.name,

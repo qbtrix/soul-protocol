@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import tempfile
 import warnings
@@ -30,6 +31,102 @@ from soul_protocol.runtime.types import SoulConfig
 logger = logging.getLogger(__name__)
 
 DEFAULT_SOUL_DIR: Path = Path.home() / ".soul"
+
+
+def _backup_path(path: Path) -> Path:
+    """Return the sibling backup path used for crash recovery."""
+    return path.with_name(f"{path.name}.bak")
+
+
+def _remove_path(path: Path) -> None:
+    if not path.exists():
+        return
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def _fsync_directory(path: Path) -> None:
+    """Best-effort fsync for directory metadata.
+
+    Windows does not support opening directories with os.open(), so this
+    is a no-op on win32.  On POSIX systems it ensures the directory entry
+    changes (renames, new files) have been flushed to stable storage.
+    """
+    if os.name == "nt":
+        return
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fsync_tree(path: Path) -> None:
+    """Best-effort fsync of all files and directory metadata under ``path``."""
+    for child in path.rglob("*"):
+        if child.is_file():
+            try:
+                with child.open("rb") as f:
+                    os.fsync(f.fileno())
+            except OSError:
+                logger.debug("Could not fsync file during soul save: %s", child)
+    for child in sorted((p for p in path.rglob("*") if p.is_dir()), reverse=True):
+        _fsync_directory(child)
+    _fsync_directory(path)
+
+
+def _replace_with_backup(source: Path, target: Path, *, keep_backup: bool) -> None:
+    """Replace ``target`` with ``source`` while preserving the old target first."""
+    backup = _backup_path(target)
+    target_was_backed_up = False
+
+    if backup.exists():
+        _remove_path(backup)
+
+    if target.exists():
+        os.replace(target, backup)
+        target_was_backed_up = True
+        _fsync_directory(target.parent)
+
+    try:
+        os.replace(source, target)
+    except Exception:
+        if target_was_backed_up and not target.exists() and backup.exists():
+            os.replace(backup, target)
+        raise
+
+    _fsync_directory(target.parent)
+
+    if target_was_backed_up and not keep_backup:
+        _remove_path(backup)
+        _fsync_directory(target.parent)
+
+
+def write_bytes_atomic(path: Path, data: bytes, *, keep_backup: bool = True) -> None:
+    """Write bytes via temp file + fsync + atomic replace."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        _replace_with_backup(tmp_path, path, keep_backup=keep_backup)
+    except Exception:
+        _remove_path(tmp_path)
+        raise
 
 
 def _safe_soul_id(config: SoulConfig) -> str:
@@ -320,15 +417,14 @@ async def save_soul_full(
     base.mkdir(parents=True, exist_ok=True)
     soul_dir = base / soul_id
 
-    # Atomic write: build in temp dir, then move into place
-    with tempfile.TemporaryDirectory(dir=base) as tmp:
+    # Atomic-ish directory write: build a sibling temp dir, fsync it, then
+    # replace the live directory through a backup instead of deleting first.
+    with tempfile.TemporaryDirectory(prefix=f".{soul_id}.tmp-", dir=base) as tmp:
         tmp_dir = Path(tmp) / soul_id
         tmp_dir.mkdir()
         _write_soul_files(tmp_dir, config, memory_data)
-
-        if soul_dir.exists():
-            shutil.rmtree(soul_dir)
-        shutil.move(str(tmp_dir), str(soul_dir))
+        _fsync_tree(tmp_dir)
+        _replace_with_backup(tmp_dir, soul_dir, keep_backup=False)
 
     logger.debug("Soul saved (full): path=%s", soul_dir)
 
@@ -464,18 +560,11 @@ async def save_soul_flat(
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
 
-    # Atomic write: build in temp dir, then move individual files into place
-    with tempfile.TemporaryDirectory(dir=path.parent) as tmp:
+    # Atomic-ish directory write: build a complete replacement directory, then
+    # swap the old directory aside before installing the new one.
+    with tempfile.TemporaryDirectory(prefix=f".{path.name}.tmp-", dir=path.parent) as tmp:
         tmp_dir = Path(tmp) / path.name
         tmp_dir.mkdir()
         _write_soul_files(tmp_dir, config, memory_data)
-
-        # Move files into target (preserve existing dir structure)
-        for item in tmp_dir.iterdir():
-            dest = path / item.name
-            if dest.exists():
-                if dest.is_dir():
-                    shutil.rmtree(dest)
-                else:
-                    dest.unlink()
-            shutil.move(str(item), str(dest))
+        _fsync_tree(tmp_dir)
+        _replace_with_backup(tmp_dir, path, keep_backup=False)

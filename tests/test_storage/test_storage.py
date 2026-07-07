@@ -4,8 +4,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from soul_protocol.runtime.storage import file as storage_file
 from soul_protocol.runtime.storage.file import FileStorage
 from soul_protocol.runtime.storage.memory_store import InMemoryStorage
 from soul_protocol.runtime.types import Identity, SoulConfig
@@ -118,3 +121,113 @@ async def test_file_storage_list(config: SoulConfig, tmp_path):
     # Loading from non-existent returns None
     missing = await store.load("missing-soul")
     assert missing is None
+
+
+async def test_save_soul_full_restores_previous_directory_on_replace_failure(
+    config: SoulConfig,
+    tmp_path,
+    monkeypatch,
+):
+    """A failed final replacement leaves the previous full save readable."""
+    await storage_file.save_soul_full(config, {"core": {"persona": "old"}}, path=tmp_path)
+
+    soul_dir = tmp_path / "did_soul_aria-abc123"
+    sentinel = soul_dir / "sentinel.txt"
+    sentinel.write_text("old copy", encoding="utf-8")
+
+    real_replace = storage_file.os.replace
+
+    def fail_final_replace(src, dst):
+        if Path(dst) == soul_dir and Path(src).name == soul_dir.name:
+            raise OSError("simulated replace failure")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(storage_file.os, "replace", fail_final_replace)
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        await storage_file.save_soul_full(config, {"core": {"persona": "new"}}, path=tmp_path)
+
+    assert sentinel.read_text(encoding="utf-8") == "old copy"
+    assert soul_dir.exists()
+    assert not (tmp_path / "did_soul_aria-abc123.bak").exists()
+
+
+async def test_save_soul_flat_restores_previous_directory_on_replace_failure(
+    config: SoulConfig,
+    tmp_path,
+    monkeypatch,
+):
+    """A failed final replacement leaves the previous flat save readable."""
+    soul_dir = tmp_path / ".soul"
+    await storage_file.save_soul_flat(config, {"core": {"persona": "old"}}, soul_dir)
+
+    sentinel = soul_dir / "sentinel.txt"
+    sentinel.write_text("old copy", encoding="utf-8")
+
+    real_replace = storage_file.os.replace
+
+    def fail_final_replace(src, dst):
+        if Path(dst) == soul_dir and Path(src).name == soul_dir.name:
+            raise OSError("simulated replace failure")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(storage_file.os, "replace", fail_final_replace)
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        await storage_file.save_soul_flat(config, {"core": {"persona": "new"}}, soul_dir)
+
+    assert sentinel.read_text(encoding="utf-8") == "old copy"
+    assert soul_dir.exists()
+    assert not (tmp_path / ".soul.bak").exists()
+
+
+def test_write_bytes_atomic_cleans_temp_on_write_failure(tmp_path, monkeypatch):
+    """If the write itself fails, no temp file is left behind."""
+    target = tmp_path / "test.soul"
+
+    def exploding_fdopen(fd, mode):
+        # Close the fd so it doesn't leak, then raise
+        storage_file.os.close(fd)
+        raise OSError("simulated disk full")
+
+    monkeypatch.setattr(storage_file.os, "fdopen", exploding_fdopen)
+
+    with pytest.raises(OSError, match="simulated disk full"):
+        storage_file.write_bytes_atomic(target, b"data")
+
+    # No temp files should remain
+    leftover = [p for p in tmp_path.iterdir() if ".tmp" in p.name]
+    assert leftover == [], f"Temp files left behind: {leftover}"
+    assert not target.exists()
+
+
+async def test_save_soul_full_first_time_creates_no_backup(
+    config: SoulConfig,
+    tmp_path,
+):
+    """First-time save (no pre-existing target) creates the directory with no .bak."""
+    await storage_file.save_soul_full(config, {"core": {"persona": "v1"}}, path=tmp_path)
+
+    soul_dir = tmp_path / "did_soul_aria-abc123"
+    assert soul_dir.exists()
+    assert (soul_dir / "soul.json").exists()
+
+    # No backup should exist on first save
+    bak_dir = tmp_path / "did_soul_aria-abc123.bak"
+    assert not bak_dir.exists()
+
+
+def test_write_bytes_atomic_overwrites_stale_backup(tmp_path):
+    """A stale .bak from a previous run is replaced on the next write."""
+    target = tmp_path / "test.dat"
+    bak = tmp_path / "test.dat.bak"
+
+    # Simulate a stale backup from a previous crash
+    bak.write_bytes(b"stale backup")
+    target.write_bytes(b"current")
+
+    storage_file.write_bytes_atomic(target, b"new data")
+
+    assert target.read_bytes() == b"new data"
+    # .bak should now contain the previous "current", not "stale backup"
+    assert bak.read_bytes() == b"current"

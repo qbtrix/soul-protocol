@@ -106,6 +106,19 @@ async def test_export_and_awaken(tmp_path):
     assert restored.lifecycle == LifecycleState.ACTIVE
 
 
+async def test_export_overwrite_keeps_previous_file_backup(tmp_path):
+    """Overwriting an export keeps the previous archive as a .bak fallback."""
+    soul = await Soul.birth("Aria")
+    soul_path = tmp_path / "aria.soul"
+    old_data = b"previous archive"
+    soul_path.write_bytes(old_data)
+
+    await soul.export(soul_path)
+
+    assert soul_path.read_bytes() != old_data
+    assert (tmp_path / "aria.soul.bak").read_bytes() == old_data
+
+
 async def test_system_prompt():
     """to_system_prompt() returns a non-empty string containing the soul's name."""
     soul = await Soul.birth("Aria", archetype="The Compassionate Creator")
