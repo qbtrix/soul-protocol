@@ -2994,6 +2994,38 @@ class Soul:
         """Access the soul's evaluator."""
         return self._evaluator
 
+    # ---- Public convenience API (v0.5.0 #284) ----
+    # These methods wrap private-attribute mutations that CLI and MCP
+    # previously performed inline, so internal renames no longer break them.
+
+    @property
+    def memory(self):
+        """Access the soul's MemoryManager."""
+        return self._memory
+
+    @property
+    def eval_history(self) -> list:
+        """Return the evaluator's history list."""
+        return self._evaluator._history
+
+    def clear_eval_history(self) -> int:
+        """Clear all evaluation history entries.
+
+        Returns the number of entries cleared.
+        """
+        count = len(self._evaluator._history)
+        self._evaluator._history.clear()
+        return count
+
+    def reset_energy(self) -> None:
+        """Reset energy and social battery to full."""
+        self._state.current.energy = 100.0
+        self._state.current.social_battery = 100.0
+
+    def reset_bond(self, strength: float = 50.0) -> None:
+        """Reset bond strength to the given value (default 50.0)."""
+        self._identity.bond.bond_strength = strength
+
     async def evaluate(self, interaction: Interaction, domain: str | None = None) -> RubricResult:
         """Evaluate an interaction against a rubric and feed results into learning.
 
