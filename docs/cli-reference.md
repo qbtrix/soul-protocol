@@ -247,11 +247,24 @@ soul inspect ./souls/sage.yaml
 |----------|----------|-------------|
 | `PATH` | Yes | Path to a `.soul`, `.yaml`, `.json`, or `.md` file. |
 
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--password / -p` | Decrypt an encrypted `.soul` file (prompts interactively for password). |
+
 **Output:** A formatted table showing:
 
 - **Identity:** DID, archetype, born date, age in days, lifecycle stage
 - **State:** Mood, energy (%), focus, social battery (%)
 - **Personality (OCEAN):** Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism (each 0.00-1.00)
+
+**Example with encrypted soul:**
+
+```bash
+soul inspect encrypted.soul --password
+# Prompts: Decryption password: ****
+```
 
 ---
 

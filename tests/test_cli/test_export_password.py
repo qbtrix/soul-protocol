@@ -176,3 +176,103 @@ class TestExportPasswordRoundTrip:
                 await Soul.awaken(path, password="wrong")
 
         asyncio.run(_test())
+
+
+class TestCLIRoundTrip:
+    """CLI round-trip: export --password → inspect/unpack --password (#294 review)."""
+
+    def test_cli_export_inspect_roundtrip(self, tmp_path):
+        """export --password → inspect --password should display soul info."""
+        runner = CliRunner()
+        soul_path = _birth(runner, tmp_path, name="CLIRoundTrip")
+
+        # Add a memory via CLI
+        result = runner.invoke(cli, ["remember", soul_path, "The secret code is 42"])
+        assert result.exit_code == 0
+
+        # Export with password
+        enc_path = str(tmp_path / "encrypted.soul")
+        result = runner.invoke(
+            cli,
+            ["export", soul_path, "-o", enc_path, "--password"],
+            input="hunter2\nhunter2\n",
+        )
+        assert result.exit_code == 0
+        assert "AES-256-GCM" in result.output
+
+        # Inspect with correct password should work
+        result = runner.invoke(
+            cli,
+            ["inspect", enc_path, "--password"],
+            input="hunter2\n",
+        )
+        assert result.exit_code == 0
+        assert "CLIRoundTrip" in result.output
+
+    def test_cli_export_unpack_roundtrip(self, tmp_path):
+        """export --password → unpack --password should unpack successfully."""
+        runner = CliRunner()
+        soul_path = _birth(runner, tmp_path, name="UnpackRound")
+
+        # Export with password
+        enc_path = str(tmp_path / "encrypted.soul")
+        result = runner.invoke(
+            cli,
+            ["export", soul_path, "-o", enc_path, "--password"],
+            input="secret99\nsecret99\n",
+        )
+        assert result.exit_code == 0
+
+        # Unpack with correct password should work
+        unpack_dir = str(tmp_path / "unpacked")
+        result = runner.invoke(
+            cli,
+            ["unpack", enc_path, "-d", unpack_dir, "--password"],
+            input="secret99\n",
+        )
+        assert result.exit_code == 0
+        assert "Unpacked" in result.output
+
+    def test_cli_inspect_encrypted_without_password_shows_hint(self, tmp_path):
+        """inspect on encrypted file without --password → friendly error, not traceback."""
+        runner = CliRunner()
+        soul_path = _birth(runner, tmp_path, name="NoPass")
+
+        enc_path = str(tmp_path / "encrypted.soul")
+        result = runner.invoke(
+            cli,
+            ["export", soul_path, "-o", enc_path, "--password"],
+            input="pass123\npass123\n",
+        )
+        assert result.exit_code == 0
+
+        # Inspect WITHOUT --password should give a friendly error
+        result = runner.invoke(cli, ["inspect", enc_path])
+        assert result.exit_code != 0
+        assert "encrypted" in result.output.lower()
+        assert "--password" in result.output
+        # Should NOT contain a Python traceback
+        assert "Traceback" not in result.output
+
+    def test_cli_inspect_wrong_password_shows_error(self, tmp_path):
+        """inspect --password with wrong password → friendly decryption error."""
+        runner = CliRunner()
+        soul_path = _birth(runner, tmp_path, name="WrongPW")
+
+        enc_path = str(tmp_path / "encrypted.soul")
+        result = runner.invoke(
+            cli,
+            ["export", soul_path, "-o", enc_path, "--password"],
+            input="correct\ncorrect\n",
+        )
+        assert result.exit_code == 0
+
+        # Inspect with WRONG password should give a friendly error
+        result = runner.invoke(
+            cli,
+            ["inspect", enc_path, "--password"],
+            input="wrong\n",
+        )
+        assert result.exit_code != 0
+        assert "Wrong password" in result.output or "decryption failed" in result.output.lower()
+        assert "Traceback" not in result.output

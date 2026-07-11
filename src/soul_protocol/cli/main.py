@@ -170,6 +170,40 @@ def cli():
     pass
 
 
+async def _awaken_or_fail(
+    path: str | Path,
+    password: str | None = None,
+    *,
+    engine=None,
+) -> Soul:  # noqa: F821
+    """Awaken a soul, catching encryption errors with a friendly CLI message.
+
+    All read commands should use this instead of ``Soul.awaken()`` directly
+    so that encrypted .soul files produce a helpful hint rather than a raw
+    traceback (#294).
+    """
+    from soul_protocol.runtime.exceptions import (
+        SoulDecryptionError,
+        SoulEncryptedError,
+    )
+    from soul_protocol.runtime.soul import Soul
+
+    try:
+        return await Soul.awaken(path, engine=engine, password=password)
+    except SoulEncryptedError:
+        console.print(
+            "[red]Error:[/red] This .soul file is encrypted. "
+            "Pass [cyan]--password[/cyan] to decrypt it."
+        )
+        sys.exit(1)
+    except SoulDecryptionError:
+        console.print(
+            "[red]Error:[/red] Wrong password — decryption failed. "
+            "Check your password and try again."
+        )
+        sys.exit(1)
+
+
 # Org + user subcommands (feat/paw-os-init — Workstream A slice 3, RFC #164)
 from soul_protocol.cli.org import org_group as _org_group  # noqa: E402
 from soul_protocol.cli.org import user_group as _user_group  # noqa: E402
@@ -293,7 +327,7 @@ def birth(
                 f"from config {config_file} ({soul.did})"
             )
         elif from_file:
-            soul = await Soul.awaken(from_file)
+            soul = await _awaken_or_fail(from_file)
             console.print(f"[green]Birthed[/green] {soul.name} from {from_file}")
         else:
             if not name:
@@ -390,7 +424,7 @@ def init(name, archetype, values, from_file, soul_dir, soul_format, setup_target
                     "[yellow]Warning:[/yellow] --from-file ignored; existing soul "
                     f"found at {soul_path}/. Remove the existing soul to replace it."
                 )
-            soul = await Soul.awaken(str(soul_path))
+            soul = await _awaken_or_fail(str(soul_path))
             console.print(
                 f"\n[green]Found[/green] existing soul [bold]{soul.name}[/bold] in {soul_path}/\n"
             )
@@ -402,7 +436,7 @@ def init(name, archetype, values, from_file, soul_dir, soul_format, setup_target
                     return
 
             if from_file:
-                soul = await Soul.awaken(from_file)
+                soul = await _awaken_or_fail(from_file)
                 console.print(f"[green]Loaded[/green] {soul.name} from {from_file}")
             else:
                 if not name:
@@ -473,13 +507,21 @@ def init(name, archetype, values, from_file, soul_dir, soul_format, setup_target
 
 @cli.command()
 @click.argument("path", type=click.Path(exists=True))
-def inspect(path):
+@click.option(
+    "--password",
+    "-p",
+    is_flag=True,
+    help="Decrypt an encrypted .soul file (prompts interactively for password).",
+)
+def inspect(path, password):
     """Inspect a Soul — identity, OCEAN, memory, state, self-model."""
 
-    async def _inspect():
-        from soul_protocol.runtime.soul import Soul
+    password_val = None
+    if password:
+        password_val = click.prompt("Decryption password", hide_input=True)
 
-        soul = await Soul.awaken(path)
+    async def _inspect():
+        soul = await _awaken_or_fail(path, password=password_val)
         age = (datetime.now() - soul.born).days
         p = soul.dna.personality
         mem = soul.memory
@@ -617,9 +659,7 @@ def status(path):
     """
 
     async def _status():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         soul.recompute_focus()
         mood = soul.state.mood.value
         energy = soul.state.energy
@@ -719,9 +759,7 @@ def export_cmd(source, output, fmt, password):
             )
 
     async def _export():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(source)
+        soul = await _awaken_or_fail(source)
         out = output or f"{_safe_name(soul.name)}.{fmt}"
 
         if fmt == "soul":
@@ -749,7 +787,13 @@ def export_cmd(source, output, fmt, password):
 @click.option(
     "--dir", "-d", "soul_dir", default=None, help="Target directory (default: .soul/<name>/)"
 )
-def unpack_cmd(source, soul_dir):
+@click.option(
+    "--password",
+    "-p",
+    is_flag=True,
+    help="Decrypt an encrypted .soul file (prompts interactively for password).",
+)
+def unpack_cmd(source, soul_dir, password):
     """Unpack a .soul file into a browsable directory.
 
     \b
@@ -762,10 +806,12 @@ def unpack_cmd(source, soul_dir):
       soul unpack guardian.soul -d guardian/  # → guardian/
     """
 
-    async def _unpack():
-        from soul_protocol.runtime.soul import Soul
+    password_val = None
+    if password:
+        password_val = click.prompt("Decryption password", hide_input=True)
 
-        soul = await Soul.awaken(source)
+    async def _unpack():
+        soul = await _awaken_or_fail(source, password=password_val)
         target = soul_dir or f".soul/{_safe_name(soul.name)}"
         await soul.save_local(target)
         console.print(f"[green]Unpacked[/green] {soul.name} → {target}/")
@@ -800,9 +846,7 @@ def retire(path, preserve_memories):
     """Retire a Soul with dignity."""
 
     async def _retire():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         name = soul.name
 
         if not click.confirm(f"Are you sure you want to retire {name}?"):
@@ -1017,9 +1061,8 @@ def archive(path, tiers):
             MockBlockchainProvider,
             MockIPFSProvider,
         )
-        from soul_protocol.runtime.soul import Soul
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         soul_data = Path(path).read_bytes()
 
         manager = EternalStorageManager()
@@ -1101,9 +1144,7 @@ def eternal_status(path):
     """Show eternal storage status for a .soul file."""
 
     async def _eternal_status():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
 
         # Read manifest from .soul archive
         eternal_data = {}
@@ -1218,9 +1259,7 @@ def remember_cmd(path, text, importance, emotion, memory_type, domain):
     tier = MemoryType(memory_type.lower())
 
     async def _remember():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         memory_id = await soul.remember(
             text,
             type=tier,
@@ -1327,9 +1366,7 @@ def note_cmd(path, text, importance, emotion, memory_type, domain, no_dedup, no_
     tier = MemoryType(memory_type.lower())
 
     async def _observe():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         result = await soul.note(
             text,
             type=tier,
@@ -1481,9 +1518,7 @@ def recall_cmd(
     """
 
     async def _recall():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
 
         if recent is not None:
             # Show N most recent memories across all stores. Apply --user
@@ -1624,9 +1659,7 @@ def layers_cmd(path, as_json):
     """
 
     async def _layers():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         layer_names = soul.memory.known_layers()
         layout: dict[str, dict[str, int]] = {}
         for layer_name in layer_names:
@@ -1793,9 +1826,8 @@ def export_soulspec_cmd(source, output):
 
     async def _export():
         from soul_protocol.runtime.importers.soulspec import SoulSpecImporter
-        from soul_protocol.runtime.soul import Soul
 
-        soul = await Soul.awaken(source)
+        soul = await _awaken_or_fail(source)
         out = output or f"{_safe_name(soul.name)}-soulspec"
         result = await SoulSpecImporter.to_soulspec(soul, out)
         console.print(f"[green]Exported[/green] {soul.name} to SoulSpec directory -> {result}/")
@@ -1860,9 +1892,8 @@ def export_tavernai_cmd(source, output, png):
 
     async def _export():
         from soul_protocol.runtime.importers.tavernai import TavernAIImporter
-        from soul_protocol.runtime.soul import Soul
 
-        soul = await Soul.awaken(source)
+        soul = await _awaken_or_fail(source)
         card = await TavernAIImporter.to_character_card(soul)
 
         out = output or f"{_safe_name(soul.name)}-card.json"
@@ -1897,9 +1928,8 @@ def export_a2a_cmd(source, output, url):
 
     async def _export():
         from soul_protocol.runtime.bridges.a2a import A2AAgentCardBridge
-        from soul_protocol.runtime.soul import Soul
 
-        soul = await Soul.awaken(source)
+        soul = await _awaken_or_fail(source)
         card = A2AAgentCardBridge.soul_to_agent_card(soul, url=url)
         out = output or f"{_safe_name(soul.name)}-agent-card.json"
         Path(out).write_text(json.dumps(card, indent=2, default=str))
@@ -1978,10 +2008,9 @@ def observe_cmd(path, user_input, agent_output, channel, user_id):
     """
 
     async def _observe():
-        from soul_protocol.runtime.soul import Soul
         from soul_protocol.runtime.types import Interaction
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         interaction = Interaction(
             user_input=user_input,
             agent_output=agent_output,
@@ -2025,9 +2054,7 @@ def reflect_cmd(path, no_apply):
     """
 
     async def _reflect():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         result = await soul.reflect(apply=not no_apply)
 
         if result is None:
@@ -2113,9 +2140,7 @@ def dream_cmd(path, since, no_archive, no_synthesize, dry_run, as_json):
     """
 
     async def _dream():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         report = await soul.dream(
             since=since,
             archive=not no_archive,
@@ -2256,10 +2281,9 @@ def feel_cmd(path, mood, energy, focus):
     """
 
     async def _feel():
-        from soul_protocol.runtime.soul import Soul
         from soul_protocol.runtime.types import FOCUS_LEVELS, Mood
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
 
         kwargs = {}
         if mood is not None:
@@ -2321,9 +2345,7 @@ def prompt_cmd(path):
     """
 
     async def _prompt():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         click.echo(soul.to_system_prompt())
 
     asyncio.run(_prompt())
@@ -2374,9 +2396,7 @@ def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confi
     """
 
     async def _forget():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         timestamp = None
 
         # Mutually-exclusive selector check — pick exactly one.
@@ -2550,9 +2570,7 @@ def supersede_cmd(path, new_content, old_id, reason, importance, emotion, memory
     tier_override = MemoryType(memory_type.lower()) if memory_type else None
 
     async def _supersede():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         result = await soul.supersede(
             old_id,
             new_content,
@@ -2615,9 +2633,7 @@ def confirm_cmd(path, memory_id, user_id):
     """
 
     async def _confirm():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         result = await soul.confirm(memory_id, user_id=user_id)
         if not result.get("found"):
             console.print(
@@ -2688,9 +2704,8 @@ def update_cmd(path, memory_id, patch_text, prediction_error, user_id):
             PredictionErrorOutOfBandError,
             ReconsolidationWindowClosedError,
         )
-        from soul_protocol.runtime.soul import Soul
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         # The window is per-process. Open it explicitly via recall against
         # the current content of the entry so the CLI is usable in a single
         # invocation (the alternative is a separate ``soul recall`` call
@@ -2773,9 +2788,7 @@ def purge_cmd(path, memory_id, apply_changes, user_id, skip_confirm):
     """
 
     async def _purge():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         if not apply_changes:
             entry, tier = await soul.memory.find_by_id(memory_id)
             if entry is None:
@@ -2836,9 +2849,7 @@ def reinstate_cmd(path, memory_id, user_id):
     """
 
     async def _reinstate():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         result = await soul.reinstate(memory_id, user_id=user_id)
         if not result.get("found"):
             console.print(
@@ -2899,13 +2910,11 @@ def upgrade_cmd(path, target_version, dry_run):
     """
 
     async def _upgrade():
-        from soul_protocol.runtime.soul import Soul
-
         if target_version != "0.5.0":
             console.print(f"[red]Unsupported target version: {target_version}[/red]")
             raise SystemExit(1)
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         # Walk every memory and derive the supersedes back-edge from the
         # existing superseded_by reverse map. Pydantic defaults already
         # handled retrieval_weight=1.0 and prediction_error=None at load
@@ -2973,9 +2982,7 @@ def edit_core_cmd(path, persona, human):
     """
 
     async def _edit_core():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
 
         if persona is None and human is None:
             console.print("[red]Provide at least --persona or --human[/red]")
@@ -3033,9 +3040,7 @@ def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_
     """
 
     async def _evolve():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
 
         if propose:
             if not all([trait, value, reason]):
@@ -3130,10 +3135,9 @@ def evaluate_cmd(path, user_input, agent_output, domain):
     """
 
     async def _evaluate():
-        from soul_protocol.runtime.soul import Soul
         from soul_protocol.runtime.types import Interaction
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         interaction = Interaction(
             user_input=user_input,
             agent_output=agent_output,
@@ -3192,10 +3196,9 @@ def learn_cmd(path, user_input, agent_output, domain):
     """
 
     async def _learn():
-        from soul_protocol.runtime.soul import Soul
         from soul_protocol.runtime.types import Interaction
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         interaction = Interaction(
             user_input=user_input,
             agent_output=agent_output,
@@ -3245,9 +3248,7 @@ def skills_cmd(path):
     """
 
     async def _skills():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         registry = soul.skills
 
         if not registry.skills:
@@ -3291,9 +3292,7 @@ def bond_cmd(path, strengthen):
     """
 
     async def _bond():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         bond = soul.bond
 
         if strengthen is not None:
@@ -3334,9 +3333,7 @@ def events_cmd(path, recent):
     """
 
     async def _events():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         all_events = soul.general_events
 
         if not all_events:
@@ -3472,9 +3469,8 @@ def health_cmd(path):
 
     async def _health():
         from soul_protocol.runtime.memory.compression import MemoryCompressor
-        from soul_protocol.runtime.soul import Soul
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         mm = soul.memory
 
         episodic = mm.episodic_entries()
@@ -3609,9 +3605,8 @@ def cleanup_cmd(
 
     async def _cleanup():
         from soul_protocol.runtime.memory.compression import MemoryCompressor
-        from soul_protocol.runtime.soul import Soul
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         mm = soul.memory
         actions = []
 
@@ -3739,9 +3734,7 @@ def repair_cmd(
     """Repair a soul — reset state, rebuild graph, clear stale data."""
 
     async def _repair():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         changes = []
 
         if reset_energy:
@@ -3811,10 +3804,9 @@ def verify_cmd(path, as_json):
     """
 
     async def _verify():
-        from soul_protocol.runtime.soul import Soul
         from soul_protocol.spec.trust import chain_integrity_check
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         summary = chain_integrity_check(soul.trust_chain)
 
         # Compute time span (first → last entry)
@@ -3895,9 +3887,7 @@ def audit_cmd(path, action_prefix, limit, as_json, no_summary):
     """
 
     async def _audit():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         log = soul.audit_log(action_prefix=action_prefix, limit=limit)
 
         if as_json:
@@ -3957,9 +3947,7 @@ def graph_nodes(path, node_type, name_match, limit, as_json):
     """List nodes in the soul's knowledge graph."""
 
     async def _go():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         nodes = soul.graph.nodes(type=node_type, name_match=name_match, limit=limit)
         if as_json:
             console.print_json(
@@ -3995,9 +3983,7 @@ def graph_edges(path, source, target, relation, as_json):
     """List active edges in the soul's knowledge graph."""
 
     async def _go():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         edges = soul.graph.edges(source=source, target=target, relation=relation)
         if as_json:
             console.print_json(
@@ -4038,9 +4024,7 @@ def graph_neighbors(path, node_id, depth, types, as_json):
     """List nodes within ``depth`` hops of NODE_ID."""
 
     async def _go():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         type_list = [t.strip() for t in types.split(",")] if types else None
         nodes = soul.graph.neighbors(node_id, depth=depth, types=type_list)
         if as_json:
@@ -4081,9 +4065,7 @@ def graph_path(path, source_id, target_id, max_depth, as_json):
     """Find the shortest path of edges from SOURCE_ID to TARGET_ID."""
 
     async def _go():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         chain = soul.graph.path(source_id, target_id, max_depth=max_depth)
         if as_json:
             console.print_json(
@@ -4114,9 +4096,7 @@ def graph_mermaid(path):
     """Print the soul's full graph as a Mermaid ``graph LR`` block."""
 
     async def _go():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         console.print(soul.graph.to_mermaid())
 
     asyncio.run(_go())
@@ -4179,9 +4159,7 @@ def prune_chain_cmd(path, apply_changes, keep, reason, as_json):
     """
 
     async def _prune():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         mgr = soul.trust_chain_manager
 
         # Resolve the keep threshold. CLI override wins; otherwise fall
