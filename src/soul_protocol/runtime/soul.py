@@ -1073,6 +1073,11 @@ class Soul:
                 raise SoulCorruptError("<bytes>", str(e)) from e
         else:
             path = Path(source)
+            # Crash recovery: if the path vanished mid-swap but .bak
+            # exists, promote it before we check existence (#282).
+            from .storage.file import _recover_backup
+
+            _recover_backup(path)
             if not path.exists():
                 raise SoulFileNotFoundError(str(path))
             try:

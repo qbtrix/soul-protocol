@@ -319,3 +319,59 @@ def test_replace_with_backup_does_not_delete_orphan_bak(tmp_path):
     # After swap: target has new data, .bak is gone (it was the old orphan)
     assert target.exists()
     assert (target / "soul.json").read_text(encoding="utf-8") == '{"new": true}'
+
+
+def test_save_soul_flat_removes_stale_layout_json(
+    config: SoulConfig,
+    tmp_path,
+):
+    """Flat save removes stale managed files like _layout.json from previous nested saves."""
+    import asyncio
+
+    async def _test():
+        soul_dir = tmp_path / ".soul"
+        await storage_file.save_soul_flat(config, {"core": {"persona": "v1"}}, soul_dir)
+
+        # Simulate a stale _layout.json from a previous nested save
+        mem_dir = soul_dir / "memory"
+        mem_dir.mkdir(exist_ok=True)
+        layout = mem_dir / "_layout.json"
+        layout.write_text('{"layout": "nested", "version": 1}', encoding="utf-8")
+        # Also create a stale nested directory
+        nested = mem_dir / "episodic" / "default"
+        nested.mkdir(parents=True, exist_ok=True)
+        (nested / "entries.json").write_text("[]", encoding="utf-8")
+
+        # Save again with flat layout — stale files should be removed
+        await storage_file.save_soul_flat(config, {"core": {"persona": "v2"}}, soul_dir)
+
+        assert not layout.exists(), "_layout.json should be removed after flat save"
+        assert not (nested / "entries.json").exists(), "stale nested entries should be removed"
+
+    asyncio.run(_test())
+
+
+def test_recover_backup_race_safe(tmp_path):
+    """If another process already promoted .bak, _recover_backup succeeds gracefully."""
+    target = tmp_path / "mysoul"
+    bak = tmp_path / "mysoul.bak"
+
+    # Simulate: .bak exists but another process promotes it mid-call
+    bak.mkdir()
+    (bak / "soul.json").write_text('{"data": true}', encoding="utf-8")
+
+    real_replace = os.replace
+
+    def simulate_race(src, dst):
+        # First do the real replace, then simulate the second caller
+        real_replace(src, dst)
+
+    # First call succeeds normally
+    result = storage_file._recover_backup(target)
+    assert result is True
+    assert target.exists()
+    assert not bak.exists()
+
+    # Now simulate: both target and bak gone (nothing to recover)
+    result2 = storage_file._recover_backup(target)
+    assert result2 is False  # path already exists, no recovery needed

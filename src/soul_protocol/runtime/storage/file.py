@@ -127,12 +127,23 @@ def _recover_backup(path: Path) -> bool:
     the source→target rename, the canonical path doesn't exist.  If the
     process dies in that window the .bak holds the only good copy.  This
     function is called at load time to recover from that state.
+
+    Race-safe: if two loaders race, the second one will see
+    ``FileNotFoundError`` from ``os.replace`` because the first already
+    moved the backup.  We catch that and return True if the canonical
+    path now exists (meaning another process did the recovery for us).
     """
     if path.exists():
         return False
     backup = _backup_path(path)
     if backup.exists():
-        os.replace(backup, path)
+        try:
+            os.replace(backup, path)
+        except FileNotFoundError:
+            # Another process already promoted the backup.
+            if path.exists():
+                return True
+            return False
         _fsync_directory(path.parent)
         logger.info("Recovered soul from backup: %s -> %s", backup, path)
         return True
@@ -606,13 +617,43 @@ async def save_soul_flat(
         _write_soul_files(tmp_dir, config, memory_data)
         _fsync_tree(tmp_dir)
 
+        # Collect the set of relative paths we're about to write.
+        new_files: set[Path] = set()
+        for src_file in tmp_dir.rglob("*"):
+            if src_file.is_file():
+                new_files.add(src_file.relative_to(tmp_dir))
+
         # Merge: walk the temp tree and atomically replace each file
         # in the target directory.  Create subdirectories as needed.
-        for src_file in tmp_dir.rglob("*"):
-            if not src_file.is_file():
-                continue
-            rel = src_file.relative_to(tmp_dir)
+        for rel in new_files:
+            src_file = tmp_dir / rel
             dst_file = path / rel
             dst_file.parent.mkdir(parents=True, exist_ok=True)
             os.replace(src_file, dst_file)
+
+        # Clean up stale managed files that existed in the previous save
+        # but are absent from the new one (e.g. _layout.json after a
+        # layout change from nested to flat).  Only touch managed
+        # directories — never delete user files at the top level.
+        managed_dirs = ["memory", "trust_chain", "keys"]
+        for mdir_name in managed_dirs:
+            mdir = path / mdir_name
+            if not mdir.is_dir():
+                continue
+            for old_file in list(mdir.rglob("*")):
+                if not old_file.is_file():
+                    continue
+                rel = old_file.relative_to(path)
+                if rel not in new_files:
+                    old_file.unlink()
+            # Remove empty subdirectories left behind
+            for old_dir in sorted(
+                (d for d in mdir.rglob("*") if d.is_dir()),
+                reverse=True,
+            ):
+                try:
+                    old_dir.rmdir()  # only removes empty dirs
+                except OSError:
+                    pass
+
         _fsync_directory(path)
