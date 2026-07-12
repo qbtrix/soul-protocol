@@ -153,32 +153,38 @@ async def test_save_soul_full_restores_previous_directory_on_replace_failure(
     assert not (tmp_path / "did_soul_aria-abc123.bak").exists()
 
 
-async def test_save_soul_flat_restores_previous_directory_on_replace_failure(
+def test_save_soul_flat_partial_failure_preserves_existing_files(
     config: SoulConfig,
     tmp_path,
     monkeypatch,
 ):
-    """A failed final replacement leaves the previous flat save readable."""
-    soul_dir = tmp_path / ".soul"
-    await storage_file.save_soul_flat(config, {"core": {"persona": "old"}}, soul_dir)
+    """A per-file merge failure leaves existing files (including user files) intact."""
+    import asyncio
 
-    sentinel = soul_dir / "sentinel.txt"
-    sentinel.write_text("old copy", encoding="utf-8")
+    async def _test():
+        soul_dir = tmp_path / ".soul"
+        await storage_file.save_soul_flat(config, {"core": {"persona": "old"}}, soul_dir)
 
-    real_replace = storage_file.os.replace
+        sentinel = soul_dir / "sentinel.txt"
+        sentinel.write_text("old copy", encoding="utf-8")
 
-    def fail_final_replace(src, dst):
-        if Path(dst) == soul_dir and Path(src).name == soul_dir.name:
-            raise OSError("simulated replace failure")
-        return real_replace(src, dst)
+        real_replace = storage_file.os.replace
 
-    monkeypatch.setattr(storage_file.os, "replace", fail_final_replace)
+        def fail_on_soul_json(src, dst):
+            if Path(dst).name == "soul.json":
+                raise OSError("simulated replace failure")
+            return real_replace(src, dst)
 
-    with pytest.raises(OSError, match="simulated replace failure"):
-        await storage_file.save_soul_flat(config, {"core": {"persona": "new"}}, soul_dir)
+        monkeypatch.setattr(storage_file.os, "replace", fail_on_soul_json)
 
-    assert sentinel.read_text(encoding="utf-8") == "old copy"
-    assert soul_dir.exists()
+        with pytest.raises(OSError, match="simulated replace failure"):
+            await storage_file.save_soul_flat(config, {"core": {"persona": "new"}}, soul_dir)
+
+        # User file untouched
+        assert sentinel.read_text(encoding="utf-8") == "old copy"
+        assert soul_dir.exists()
+
+    asyncio.run(_test())
 
 
 def test_save_soul_flat_preserves_user_files(
