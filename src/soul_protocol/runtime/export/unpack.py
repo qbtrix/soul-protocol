@@ -1,4 +1,6 @@
 # export/unpack.py — Load a SoulConfig from a .soul zip archive.
+# Updated: 2026-07-12 (#283) — Added "archives" to the unpack tier list so
+#   consolidated conversation summaries are restored from .soul archives.
 # Updated: 2026-04-29 (#42) — Read the trust chain (trust_chain/chain.json)
 #   and key files (keys/public.key, keys/private.key) when present. Both are
 #   optional — souls predating #42 just have an empty chain. Returns the
