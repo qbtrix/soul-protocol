@@ -1,4 +1,8 @@
 # storage/file.py — FileStorage backend persisting souls to the local filesystem.
+# Updated: 2026-07-12 (#282) — Crash-safe saves via temp-dir + fsync + atomic
+#   replace. Added load-time .bak recovery: when the canonical path is missing
+#   but a sibling .bak exists, the loader auto-promotes it. save_soul_flat()
+#   merges files into the existing directory to preserve user files.
 # Updated: 2026-04-29 (#42) — Trust chain + keystore land alongside the soul.
 #   ``trust_chain/chain.json`` and per-entry ``trust_chain/entry_NNN.json`` are
 #   written when the chain has any entries. ``keys/public.key`` is always
@@ -81,11 +85,19 @@ def _fsync_tree(path: Path) -> None:
 
 
 def _replace_with_backup(source: Path, target: Path, *, keep_backup: bool) -> None:
-    """Replace ``target`` with ``source`` while preserving the old target first."""
+    """Replace ``target`` with ``source`` while preserving the old target first.
+
+    Safety invariant: at every point during this function, at least one
+    complete copy of the data (target or .bak) exists on disk, so a
+    power loss at any step leaves a recoverable state.
+    """
     backup = _backup_path(target)
     target_was_backed_up = False
 
-    if backup.exists():
+    # Only remove a stale .bak when the target ALSO exists — if the
+    # target is missing the .bak may be the ONLY surviving copy from a
+    # previous interrupted swap.
+    if backup.exists() and target.exists():
         _remove_path(backup)
 
     if target.exists():
@@ -105,6 +117,26 @@ def _replace_with_backup(source: Path, target: Path, *, keep_backup: bool) -> No
     if target_was_backed_up and not keep_backup:
         _remove_path(backup)
         _fsync_directory(target.parent)
+
+
+def _recover_backup(path: Path) -> bool:
+    """Promote a sibling ``.bak`` if the canonical path is missing.
+
+    Returns True if recovery was performed.  This closes the power-loss
+    gap in ``_replace_with_backup``: between the target→.bak rename and
+    the source→target rename, the canonical path doesn't exist.  If the
+    process dies in that window the .bak holds the only good copy.  This
+    function is called at load time to recover from that state.
+    """
+    if path.exists():
+        return False
+    backup = _backup_path(path)
+    if backup.exists():
+        os.replace(backup, path)
+        _fsync_directory(path.parent)
+        logger.info("Recovered soul from backup: %s -> %s", backup, path)
+        return True
+    return False
 
 
 def write_bytes_atomic(path: Path, data: bytes, *, keep_backup: bool = True) -> None:
@@ -481,6 +513,9 @@ async def load_soul_full(path: Path) -> tuple[SoulConfig | None, dict]:
         A tuple of (SoulConfig or None, memory_data dict).
         If ``soul.json`` does not exist, returns (None, {}).
     """
+    # Crash recovery: if the directory vanished mid-swap, promote .bak.
+    _recover_backup(path)
+
     soul_json = path / "soul.json"
     if not soul_json.exists():
         return None, {}
@@ -550,7 +585,9 @@ async def save_soul_flat(
     """Save soul config + memory to a directory WITHOUT soul_id nesting.
 
     Used for .soul/ project folders where the directory IS the soul.
-    Atomic: writes to temp dir, then moves files into place.
+    Writes soul files to a temp directory and then merges them into the
+    existing ``path``, preserving any unmanaged files the user keeps
+    alongside their soul (notes, .git/, etc.).
 
     Args:
         config: The SoulConfig to persist.
@@ -560,11 +597,22 @@ async def save_soul_flat(
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
 
-    # Atomic-ish directory write: build a complete replacement directory, then
-    # swap the old directory aside before installing the new one.
+    # Build all soul files in a temp sibling directory, fsync them, then
+    # merge per-file into the live directory.  This preserves unmanaged
+    # files the user may keep alongside the soul (notes, .git/, etc.)
+    # while still giving each individual file an atomic write.
     with tempfile.TemporaryDirectory(prefix=f".{path.name}.tmp-", dir=path.parent) as tmp:
-        tmp_dir = Path(tmp) / path.name
-        tmp_dir.mkdir()
+        tmp_dir = Path(tmp)
         _write_soul_files(tmp_dir, config, memory_data)
         _fsync_tree(tmp_dir)
-        _replace_with_backup(tmp_dir, path, keep_backup=False)
+
+        # Merge: walk the temp tree and atomically replace each file
+        # in the target directory.  Create subdirectories as needed.
+        for src_file in tmp_dir.rglob("*"):
+            if not src_file.is_file():
+                continue
+            rel = src_file.relative_to(tmp_dir)
+            dst_file = path / rel
+            dst_file.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(src_file, dst_file)
+        _fsync_directory(path)

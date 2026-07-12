@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -178,7 +179,36 @@ async def test_save_soul_flat_restores_previous_directory_on_replace_failure(
 
     assert sentinel.read_text(encoding="utf-8") == "old copy"
     assert soul_dir.exists()
-    assert not (tmp_path / ".soul.bak").exists()
+
+
+def test_save_soul_flat_preserves_user_files(
+    config: SoulConfig,
+    tmp_path,
+):
+    """save_soul_flat merges soul files without deleting unmanaged user files."""
+    import asyncio
+
+    async def _test():
+        soul_dir = tmp_path / ".soul"
+        await storage_file.save_soul_flat(config, {"core": {"persona": "v1"}}, soul_dir)
+
+        # User creates their own files alongside the soul
+        user_note = soul_dir / "NOTES.md"
+        user_note.write_text("my personal notes", encoding="utf-8")
+        git_dir = soul_dir / ".git"
+        git_dir.mkdir()
+        (git_dir / "config").write_text("[core]", encoding="utf-8")
+
+        # Save again — user files should survive
+        await storage_file.save_soul_flat(config, {"core": {"persona": "v2"}}, soul_dir)
+
+        assert user_note.exists()
+        assert user_note.read_text(encoding="utf-8") == "my personal notes"
+        assert (git_dir / "config").exists()
+        # Soul files updated
+        assert (soul_dir / "soul.json").exists()
+
+    asyncio.run(_test())
 
 
 def test_write_bytes_atomic_cleans_temp_on_write_failure(tmp_path, monkeypatch):
@@ -231,3 +261,55 @@ def test_write_bytes_atomic_overwrites_stale_backup(tmp_path):
     assert target.read_bytes() == b"new data"
     # .bak should now contain the previous "current", not "stale backup"
     assert bak.read_bytes() == b"current"
+
+
+def test_load_soul_full_recovers_from_bak(
+    config: SoulConfig,
+    tmp_path,
+):
+    """If the canonical path is missing but .bak exists, load auto-promotes it (#282)."""
+    import asyncio
+
+    async def _test():
+        # Simulate a normal save first
+        await storage_file.save_soul_full(config, {"core": {"persona": "v1"}}, path=tmp_path)
+
+        soul_dir = tmp_path / "did_soul_aria-abc123"
+        bak_dir = tmp_path / "did_soul_aria-abc123.bak"
+
+        # Simulate power loss mid-swap: canonical path vanished, .bak is the only copy
+        os.replace(soul_dir, bak_dir)
+        assert not soul_dir.exists()
+        assert bak_dir.exists()
+
+        # Load should auto-recover from .bak
+        loaded_config, memory_data = await storage_file.load_soul_full(soul_dir)
+        assert loaded_config is not None
+        assert loaded_config.identity.name == "Aria"
+        # After recovery, the canonical path should be back
+        assert soul_dir.exists()
+        assert not bak_dir.exists()
+
+    asyncio.run(_test())
+
+
+def test_replace_with_backup_does_not_delete_orphan_bak(tmp_path):
+    """When target is absent and .bak exists, _replace_with_backup keeps the .bak."""
+    target = tmp_path / "soul"
+    bak = tmp_path / "soul.bak"
+    source = tmp_path / "new_soul"
+
+    # Simulate orphan .bak from a previous interrupted swap
+    bak.mkdir()
+    (bak / "soul.json").write_text('{"good": true}', encoding="utf-8")
+
+    # source is the new data we're swapping in
+    source.mkdir()
+    (source / "soul.json").write_text('{"new": true}', encoding="utf-8")
+
+    # target doesn't exist — .bak should NOT be deleted before the swap
+    storage_file._replace_with_backup(source, target, keep_backup=False)
+
+    # After swap: target has new data, .bak is gone (it was the old orphan)
+    assert target.exists()
+    assert (target / "soul.json").read_text(encoding="utf-8") == '{"new": true}'

@@ -3299,6 +3299,11 @@ class Soul:
                 key_files=key_files,
             )
             write_bytes_atomic(Path(path), data, keep_backup=True)
+            # Clean up the .bak left by write_bytes_atomic — the export
+            # succeeded so we don't need it sitting beside the shared file.
+            bak = Path(str(path) + ".bak")
+            if bak.exists():
+                bak.unlink()
             logger.info(
                 "Soul exported: name=%s, path=%s, size=%d bytes",
                 self.name,
