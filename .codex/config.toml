@@ -1,0 +1,11 @@
+[mcp_servers.soul]
+command = "uv"
+args = [
+    "--directory",
+    ".",
+    "run",
+    "soul-mcp",
+]
+
+[mcp_servers.soul.env]
+SOUL_DIR = ".soul"

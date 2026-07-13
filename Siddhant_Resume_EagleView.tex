@@ -1,0 +1,200 @@
+%-------------------------
+% Resume — Siddhant Shekhar
+% Targeted: Platform Engineer Intern — EagleView (Bengaluru)
+%-------------------------
+\documentclass[a4paper,10pt]{article}
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+
+\sloppy
+
+\pagestyle{fancy}
+\fancyhf{} 
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+\raggedbottom
+\setlength{\tabcolsep}{0in}
+
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+% Custom commands
+\newcommand{\resumeItem}[1]{\item\small{#1 \vspace{-2pt}}}
+\newcommand{\resumeSubheading}[4]{
+  \vspace{1pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & \textit{\small #2} \\
+      \textit{\small #3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-5pt}
+}
+\newcommand{\resumeProjectHeading}[2]{
+  \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & \textit{\small #2} \\
+    \end{tabular*}\vspace{-5pt}
+}
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=*]}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-2pt}}
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=*]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+
+\begin{document}
+
+%----------HEADING----------
+\begin{center}
+    {\Huge \scshape Siddhant Shekhar} \\ \vspace{4pt}
+    \small
+    \href{tel:+919415468867}{+91-9415468867} $|$
+    \href{mailto:shekharsiddhant93@gmail.com}{\textcolor{blue}{shekharsiddhant93@gmail.com}} $|$
+    \href{https://github.com/sshekhar563}{\textcolor{blue}{GitHub}} $|$
+    \href{https://www.linkedin.com/in/siddhant-shekhar-0b4aab296}{\textcolor{blue}{LinkedIn}}
+\end{center}
+
+%-----------SUMMARY-----------
+\section{Summary}
+\small{
+Platform-oriented CS student with hands-on experience in \textbf{Python, AWS, Docker, and Kubernetes}. Contributed 4 merged PRs to KubeStellar (CNCF multi-cluster orchestration) and 4 PRs to OpenVINO (Intel AI inference). Built backend automation pipelines, REST APIs, and CI/CD workflows in Agile environments. Proficient in cloud infrastructure, \textbf{AI/ML integration}, and cross-team collaboration. Actively seeking to apply automation and cloud-native skills to platform engineering challenges.
+}
+\vspace{-4pt}
+
+%-----------EXPERIENCE-----------
+\section{Experience}
+\resumeSubHeadingListStart
+
+\resumeSubheading
+{Open Source Mentee — Linux Foundation Decentralized Trust}{Jun 2026 -- Present}
+{Soul Protocol — Encrypted Portable Identity for AI Agents}{}
+\resumeItemListStart
+\resumeItem{Building \textbf{AES-256-GCM encryption} layer with PBKDF2 key derivation for portable AI agent identity files}
+\resumeItem{Developing \textbf{automated test suite} (pytest) validating cross-runtime interoperability across PocketPaw, LangChain, and CrewAI}
+\resumeItem{Implementing \textbf{CI/CD integration} with DID guard and fail-on gates for continuous delivery pipelines}
+\resumeItemListEnd
+
+\resumeSubheading
+{Backend Developer Intern}{Jun 2025 -- Jul 2025}
+{Prodesk IT \& Engineering Services}{Noida, India}
+\resumeItemListStart
+\resumeItem{Designed and built 15+ REST API endpoints using \textbf{Node.js and Express}, handling 500+ daily requests in production}
+\resumeItem{Implemented \textbf{JWT-based authentication} with role-based access control (RBAC) across 4 user roles}
+\resumeItem{Optimized \textbf{MongoDB aggregation pipelines}, reducing query latency by 40\% on large datasets}
+\resumeItem{Set up API documentation with \textbf{Swagger/OpenAPI}; collaborated in 2-week \textbf{Agile sprints} with 5-member team}
+\resumeItem{Deployed services on \textbf{AWS EC2} with environment-based configs and automated health checks}
+\resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+
+%-----------OPEN SOURCE-----------
+\section{Open Source Contributions \small{(11+ PRs merged across 4 organizations)}}
+\resumeSubHeadingListStart
+
+\resumeProjectHeading
+{\textbf{KubeStellar} $|$ \emph{Go, Kubernetes}}{4 PRs merged}
+\resumeItemListStart
+\resumeItem{Contributed bug fixes and feature improvements to a \textbf{CNCF sandbox project} for multi-cluster \textbf{Kubernetes} orchestration}
+\resumeItem{Worked with \textbf{Kubernetes controllers, CRDs}, and multi-cluster workload distribution in cloud-native environments}
+\resumeItem{Participated in code reviews, CI pipeline validation, and community-driven Agile development workflows}
+\resumeItemListEnd
+
+\resumeProjectHeading
+{\textbf{OpenVINO} $|$ \emph{C++, Python}}{3 PRs merged}
+\resumeItemListStart
+\resumeItem{Fixed out-of-bounds memory read in GPU plugin quantization — added bounds check before \texttt{memcmp}}
+\resumeItem{Resolved numerical overflow in \texttt{ReduceLogSumExp} using log-sum-exp stabilization for \textbf{AI model inference}}
+\resumeItem{Deferred axis validation in \texttt{Gather} op from shape inference to compile/runtime for correct error boundaries}
+\resumeItemListEnd
+
+\resumeProjectHeading
+{\textbf{OpenVINO GenAI} $|$ \emph{C++}}{1 PR merged, 1 issue filed}
+\resumeItemListStart
+\resumeItem{Fixed \texttt{eos\_token\_id = 0} silently treated as ``no EOS,'' causing infinite generation loops in \textbf{LLM inference}}
+\resumeItem{Discovered potential heap buffer overflow in \texttt{init\_attention\_mask()} — i64 written into i32 tensor buffer}
+\resumeItemListEnd
+
+\resumeProjectHeading
+{\textbf{Soul Protocol} — LF Decentralized Trust $|$ \emph{Python}}{PR submitted}
+\resumeItemListStart
+\resumeItem{Implemented \texttt{soul diff} CLI: \texttt{--require-same-did} guard, \texttt{--fail-on} \textbf{CI gate}, and \textbf{git diff driver} integration}
+\resumeItem{Authored 11 new \textbf{pytest} tests covering all features; brought module total to 27 (100\% pass rate)}
+\resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+%-----------PROJECTS-----------
+\section{Projects}
+\resumeSubHeadingListStart
+
+\resumeProjectHeading
+{\textbf{JanVaani — AI Civic Grievance Platform} $|$ \emph{Next.js, FastAPI, Docker, NLP, Computer Vision}}{}
+\resumeItemListStart
+\resumeItem{Built full-stack platform with \textbf{FastAPI} backend and \textbf{Next.js} frontend; deployed with \textbf{CI/CD pipeline} on Vercel/Render}
+\resumeItem{Integrated \textbf{computer vision} model for automated pothole detection from uploaded images (85\%+ accuracy)}
+\resumeItem{Developed role-based \textbf{analytics dashboards} with real-time metrics, complaint tracking, and priority ranking}
+\resumeItem{\href{https://github.com/sshekhar563/JanVaani}{\textcolor{blue}{GitHub Repository}}}
+\resumeItemListEnd
+
+\resumeProjectHeading
+{\textbf{AI Audio/Video Profanity Censor} $|$ \emph{Python, Flask, Whisper ASR, FFmpeg, NLP}}{}
+\resumeItemListStart
+\resumeItem{Built end-to-end \textbf{automation pipeline} using OpenAI Whisper for transcription and NLP for contextual profanity detection}
+\resumeItem{Designed modular \textbf{Flask} backend enabling scalable media processing with configurable censorship rules}
+\resumeItem{\href{https://github.com/sshekhar563/AI-Audio-Video-Profanity-Censor}{\textcolor{blue}{GitHub Repository}}}
+\resumeItemListEnd
+
+\resumeProjectHeading
+{\textbf{RoadWatch — AI Road Infrastructure Monitoring} $|$ \emph{React, Node.js, MongoDB, AWS}}{}
+\resumeItemListStart
+\resumeItem{Integrated \textbf{GPS tagging} and geolocation-based routing; deployed on \textbf{AWS} with automated infrastructure setup}
+\resumeItem{Designed \textbf{analytics dashboards} for road condition tracking, maintenance history, and budget transparency}
+\resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+%-----------EDUCATION-----------
+\section{Education}
+\resumeSubHeadingListStart
+\resumeSubheading
+{B.Tech in Computer Science and Engineering (AI \& ML)}{2023 -- 2027}
+{United University, Prayagraj}{}
+\resumeSubHeadingListEnd
+
+%-----------SKILLS-----------
+\section{Technical Skills}
+\begin{itemize}[leftmargin=*]
+\small{\item{
+\textbf{Languages}: Python, Go, JavaScript, C/C++, HTML/CSS \\
+\textbf{Cloud \& Infrastructure}: AWS (EC2, S3, IAM), GCP, Docker, Kubernetes, Terraform (basic), CI/CD Pipelines \\
+\textbf{Automation \& DevOps}: Jenkins, GitHub Actions, Shell Scripting, Infrastructure as Code, Agile (SAFe / Scrum) \\
+\textbf{AI / ML}: Scikit-learn, NLP, LLMs, Whisper ASR, OpenCV, GenAI Integration, Model Inference Optimization \\
+\textbf{Frameworks}: FastAPI, Flask, Node.js, Express, React, Next.js \\
+\textbf{Databases}: MongoDB, PostgreSQL, MySQL \\
+\textbf{Monitoring \& Tools}: Git, Linux, Postman, Swagger, pytest, FFmpeg, Grafana (basic)
+}}
+\end{itemize}
+
+%-----------ACHIEVEMENTS-----------
+\section{Achievements}
+\resumeSubHeadingListStart
+\resumeItem{\textbf{LFX Mentee (2026)} — Selected for Linux Foundation Decentralized Trust mentorship; building AES-256-GCM encryption layer for AI agent identity system (Soul Protocol)}
+\resumeItem{\textbf{Winner} — Most Sustainable Hack Award, UHACK 4.0 Hackathon}
+\resumeItem{\textbf{Hacktoberfest 2025} — Completed open-source challenge with multiple contributions \href{https://www.holopin.io/@sshekhar563}{\textcolor{blue}{[Badge]}}}
+\resumeItem{\textbf{KWOC \& OpenCode} — Contributed to KWoC (IIT Kharagpur) and OpenCode (IIIT Allahabad) programs}
+\resumeSubHeadingListEnd
+
+\end{document}

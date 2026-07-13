@@ -1,13 +1,48 @@
 {
   "$defs": {
+    "MemoryCategory": {
+      "description": "Structured extraction taxonomy for memory classification.\n\nUser-facing categories (about the bonded entity):\n- PROFILE: Static identity attributes (name, role, location)\n- PREFERENCE: Choices and habits (one facet per memory)\n- ENTITY: Named things with attributes (projects, people, tools)\n- EVENT: Time-bound activities (always absolute timestamps)\n\nAgent-facing categories (about what the soul learned):\n- CASE: Problem + cause + solution + outcome\n- PATTERN: Reusable processes across scenarios\n- SKILL: Skill execution strategies and tool usage knowledge",
+      "enum": [
+        "profile",
+        "preference",
+        "entity",
+        "event",
+        "case",
+        "pattern",
+        "skill"
+      ],
+      "title": "MemoryCategory",
+      "type": "string"
+    },
+    "MemoryProvenance": {
+      "description": "Who authored a memory entry.\n\nDistinguishes human-authored memories from those written autonomously\nby an agent (e.g. PocketPaw's self-improving skills loop, where a forked\nwrite-only reviewer learns a procedure from a session transcript). The\ncurator only ever consolidates / archives ``AGENT`` entries \u2014 human-authored\nprocedures are never touched. Defaults to ``HUMAN`` so pre-provenance souls\nround-trip without migration.",
+      "enum": [
+        "human",
+        "agent"
+      ],
+      "title": "MemoryProvenance",
+      "type": "string"
+    },
     "MemoryType": {
+      "description": "Built-in memory tiers. v0.4.0 (#41) treats these as ergonomic\nconstants for layer names \u2014 runtimes can use any string layer they\nwant via :class:`soul_protocol.runtime.memory.manager.LayerView`.",
       "enum": [
         "core",
         "episodic",
         "semantic",
-        "procedural"
+        "procedural",
+        "social"
       ],
       "title": "MemoryType",
+      "type": "string"
+    },
+    "MemoryVisibility": {
+      "description": "Visibility tier for memory entries in public channel contexts.",
+      "enum": [
+        "public",
+        "bonded",
+        "private"
+      ],
+      "title": "MemoryVisibility",
       "type": "string"
     },
     "SomaticMarker": {
@@ -37,7 +72,32 @@
       "type": "object"
     }
   },
-  "description": "A single memory with metadata.\n\nv0.2.0 additions: somatic markers (emotional context), access_timestamps\n(full history for ACT-R decay), significance score, and general_event_id\n(Conway hierarchy link). All new fields default to None/empty for\nbackwards compatibility with v0.1.0 data.",
+  "anyOf": [
+    {
+      "properties": {
+        "type": {
+          "not": {
+            "type": "null"
+          }
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "properties": {
+        "layer": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "layer"
+      ]
+    }
+  ],
+  "description": "A single memory with metadata.\n\nv0.4.0 (#41) additions: ``layer`` is the canonical going-forward layer\nname (free-form string). Defaults to the ``type`` value when not given,\nso legacy callers using ``MemoryEntry(type=MemoryType.SEMANTIC)`` get\n``layer=\"semantic\"`` for free. ``domain`` is a sub-namespace inside the\nlayer (``\"finance\"``, ``\"legal\"``, ``\"default\"``); defaults to\n``\"default\"`` so 0.3.x entries round-trip without migration.\n\nv0.3.4 additions: category (extraction taxonomy), abstract (L0 ~100 tokens),\noverview (L1 ~1K tokens) for progressive content loading, salience (retrieval\nweight). All new fields default to None for backwards compatibility.\n\nv0.2.0 additions: somatic markers (emotional context), access_timestamps\n(full history for ACT-R decay), significance score, and general_event_id\n(Conway hierarchy link). All new fields default to None/empty for\nbackwards compatibility with v0.1.0 data.",
   "properties": {
     "id": {
       "default": "",
@@ -45,7 +105,15 @@
       "type": "string"
     },
     "type": {
-      "$ref": "#/$defs/MemoryType"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryType"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "content": {
       "title": "Content",
@@ -154,10 +222,149 @@
       ],
       "default": null,
       "title": "Superseded By"
+    },
+    "category": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MemoryCategory"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "abstract": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Abstract"
+    },
+    "overview": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Overview"
+    },
+    "salience": {
+      "default": 0.5,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Salience",
+      "type": "number"
+    },
+    "ingested_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ingested At"
+    },
+    "superseded": {
+      "default": false,
+      "title": "Superseded",
+      "type": "boolean"
+    },
+    "visibility": {
+      "$ref": "#/$defs/MemoryVisibility",
+      "default": "bonded"
+    },
+    "archived": {
+      "default": false,
+      "title": "Archived",
+      "type": "boolean"
+    },
+    "is_summarized": {
+      "default": false,
+      "title": "Is Summarized",
+      "type": "boolean"
+    },
+    "scope": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Scope",
+      "type": "array"
+    },
+    "user_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "User Id"
+    },
+    "layer": {
+      "default": "",
+      "title": "Layer",
+      "type": "string"
+    },
+    "domain": {
+      "default": "default",
+      "title": "Domain",
+      "type": "string"
+    },
+    "retrieval_weight": {
+      "default": 1.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Retrieval Weight",
+      "type": "number"
+    },
+    "supersedes": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Supersedes"
+    },
+    "prediction_error": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prediction Error"
+    },
+    "provenance": {
+      "$ref": "#/$defs/MemoryProvenance",
+      "default": "human"
     }
   },
   "required": [
-    "type",
     "content"
   ],
   "title": "MemoryEntry",

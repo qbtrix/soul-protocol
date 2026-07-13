@@ -83,10 +83,14 @@ from .memory import (
     LAYER_SOCIAL,
     DictMemoryStore,
     Interaction,
+    MemoryCategory,
     MemoryEntry,
+    MemoryProvenance,
     MemoryStore,
+    MemoryType,
     MemoryVisibility,
     Participant,
+    SomaticMarker,
 )
 from .retrieval import (
     AsyncSourceAdapter,
@@ -167,11 +171,15 @@ __all__ = [
     "build_completion_event",
     # Memory
     "Interaction",
+    "MemoryCategory",
     "MemoryEntry",
+    "MemoryProvenance",
     "Participant",
     "MemoryStore",
+    "MemoryType",
     "MemoryVisibility",
     "DictMemoryStore",
+    "SomaticMarker",
     # Layer constants (#41) — conventions, not constraints
     "LAYER_CORE",
     "LAYER_EPISODIC",

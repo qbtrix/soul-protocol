@@ -1,7 +1,7 @@
 {
   "$defs": {
     "Biorhythms": {
-      "description": "Simulated vitality and energy patterns.",
+      "description": "Simulated vitality and energy patterns.\n\nDefaults to \"always-on\" mode with no energy/social drain \u2014 appropriate for\ndeveloper tools, consulting agents, and most non-companion use cases.\nFor companion souls that should simulate fatigue and recovery, set\nenergy_drain_rate, social_drain_rate, and auto_regen explicitly::\n\n    Biorhythms(energy_drain_rate=2.0, social_drain_rate=5.0, auto_regen=True)",
       "properties": {
         "chronotype": {
           "default": "neutral",
@@ -16,9 +16,83 @@
           "type": "number"
         },
         "energy_regen_rate": {
-          "default": 5.0,
+          "default": 0.0,
+          "description": "Energy recovered per hour of elapsed time (0 = no regen needed)",
+          "minimum": 0.0,
           "title": "Energy Regen Rate",
           "type": "number"
+        },
+        "energy_drain_rate": {
+          "default": 0.0,
+          "description": "Energy lost per interaction (0 = no drain)",
+          "minimum": 0.0,
+          "title": "Energy Drain Rate",
+          "type": "number"
+        },
+        "social_drain_rate": {
+          "default": 0.0,
+          "description": "Social battery lost per interaction (0 = no drain)",
+          "minimum": 0.0,
+          "title": "Social Drain Rate",
+          "type": "number"
+        },
+        "tired_threshold": {
+          "default": 0.0,
+          "description": "Energy below this forces TIRED mood (0 = disabled)",
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Tired Threshold",
+          "type": "number"
+        },
+        "mood_inertia": {
+          "default": 0.4,
+          "description": "EMA alpha for mood shifts (0 = max inertia, 1 = instant)",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Mood Inertia",
+          "type": "number"
+        },
+        "mood_sensitivity": {
+          "default": 0.25,
+          "description": "Valence threshold to trigger mood change (0 = always shift)",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Mood Sensitivity",
+          "type": "number"
+        },
+        "auto_regen": {
+          "default": false,
+          "description": "Recover energy automatically based on elapsed time (enable for companion souls)",
+          "title": "Auto Regen",
+          "type": "boolean"
+        },
+        "focus_window_seconds": {
+          "default": 3600.0,
+          "description": "Sliding window for interaction-density focus calc (0 disables auto-focus)",
+          "minimum": 0.0,
+          "title": "Focus Window Seconds",
+          "type": "number"
+        },
+        "focus_high_threshold": {
+          "default": 3,
+          "description": "Interactions in window at or above which focus rises to 'high'",
+          "minimum": 1,
+          "title": "Focus High Threshold",
+          "type": "integer"
+        },
+        "focus_max_threshold": {
+          "default": 10,
+          "description": "Interactions in window at or above which focus rises to 'max'",
+          "minimum": 1,
+          "title": "Focus Max Threshold",
+          "type": "integer"
+        },
+        "trust_chain_max_entries": {
+          "default": 0,
+          "description": "Maximum entries the trust chain may carry before touch-time pruning fires. 0 (default) disables pruning and preserves the unbounded-chain behaviour. Positive values cause append() to compress the non-genesis history into a single signed `chain.pruned` marker once the cap is reached. The full archival design lives in v0.5.x.",
+          "minimum": 0,
+          "title": "Trust Chain Max Entries",
+          "type": "integer"
         }
       },
       "title": "Biorhythms",
