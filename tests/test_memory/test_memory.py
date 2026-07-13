@@ -489,9 +489,15 @@ class TestPublicTierAccess:
         assert isinstance(result["old_count"], int)
         assert isinstance(result["new_count"], int)
 
-    def test_graph_edges_returns_list(self, manager):
+    def test_graph_edges_returns_list_of_dicts(self, manager):
+        """graph_edges() must return plain dicts, not Pydantic models."""
+        manager._graph.add_entity("Alice", "person", source_memory_id="m1")
+        manager._graph.add_entity("Bob", "person", source_memory_id="m2")
+        manager._graph.add_relationship("Alice", "Bob", "knows")
         edges = manager.graph_edges()
         assert isinstance(edges, list)
+        assert len(edges) >= 1
+        assert isinstance(edges[0], dict)
 
     def test_graph_entity_count_returns_int(self, manager):
         count = manager.graph_entity_count()

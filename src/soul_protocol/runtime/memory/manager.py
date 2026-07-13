@@ -2385,9 +2385,9 @@ class MemoryManager:
         new_count = len(self._graph.entities())
         return {"old_count": old_count, "new_count": new_count}
 
-    def graph_edges(self) -> list:
-        """Return all active edges from the knowledge graph."""
-        return self._graph.list_edges()
+    def graph_edges(self) -> list[dict]:
+        """Return all active edges from the knowledge graph as plain dicts."""
+        return [edge.model_dump() for edge in self._graph.list_edges()]
 
     def graph_entity_count(self) -> int:
         """Return the number of entities in the knowledge graph."""
