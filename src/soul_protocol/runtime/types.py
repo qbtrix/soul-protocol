@@ -76,15 +76,26 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from .bond import Bond
 from soul_protocol.spec.memory import (
     MemoryCategory as MemoryCategory,
+)
+from soul_protocol.spec.memory import (
     MemoryEntry as MemoryEntry,
+)
+from soul_protocol.spec.memory import (
     MemoryProvenance as MemoryProvenance,
+)
+from soul_protocol.spec.memory import (
     MemoryType as MemoryType,
+)
+from soul_protocol.spec.memory import (
     MemoryVisibility as MemoryVisibility,
+)
+from soul_protocol.spec.memory import (
     SomaticMarker as SomaticMarker,
 )
+
+from .bond import Bond
 
 # ============ Identity ============
 
