@@ -2385,6 +2385,30 @@ class MemoryManager:
         new_count = len(self._graph.entities())
         return {"old_count": old_count, "new_count": new_count}
 
+    def graph_edges(self) -> list:
+        """Return all active edges from the knowledge graph."""
+        return self._graph.list_edges()
+
+    def graph_entity_count(self) -> int:
+        """Return the number of entities in the knowledge graph."""
+        return len(self._graph.entities())
+
+    def core_memory_dict(self) -> dict:
+        """Return core memory as a plain dict (persona, human, etc.)."""
+        core = self._core_manager.get()
+        return core.model_dump() if hasattr(core, "model_dump") else {"persona": "", "human": ""}
+
+    def custom_layer_entries(self) -> list:
+        """Return all entries from custom (user-defined) layers.
+
+        Used by CLI ``soul recall --recent`` to include custom-layer entries
+        in the cross-tier recency view.
+        """
+        entries: list = []
+        for store in self._custom_layers.values():
+            entries.extend(store.values())
+        return entries
+
     # ---- Serialization ----
 
     def to_dict(self) -> dict:

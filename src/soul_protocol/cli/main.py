@@ -1414,8 +1414,7 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
                     + soul.memory.social_entries()
                 )
                 # Include custom layers in --recent across-the-board view
-                for store in soul.memory._custom_layers.values():
-                    all_memories.extend(store.values())
+                all_memories.extend(soul.memory.custom_layer_entries())
                 if domain is not None:
                     all_memories = [m for m in all_memories if m.domain == domain]
             if user_id is not None:

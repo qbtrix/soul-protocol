@@ -432,11 +432,19 @@ class TestSignificanceShortCircuit:
 class TestPublicTierAccess:
     """Verify MemoryManager public API methods match their private counterparts."""
 
-    async def test_episodic_entries_returns_list(self, manager):
-        await manager.observe(Interaction(user_input="test input", agent_output="test output"))
-        entries = manager.episodic_entries()
-        assert isinstance(entries, list)
-        assert len(entries) >= 1
+    def test_episodic_entries_returns_list(self, manager):
+        """episodic_entries() returns a list; add an entry directly to avoid significance filtering."""
+        import asyncio
+
+        async def _test():
+            await manager.add(
+                MemoryEntry(content="hello world", memory_type="episodic", type=MemoryType.EPISODIC)
+            )
+            entries = manager.episodic_entries()
+            assert isinstance(entries, list)
+            assert len(entries) >= 1
+
+        asyncio.run(_test())
 
     async def test_semantic_facts_returns_list(self, manager):
         await manager.observe(
@@ -481,6 +489,23 @@ class TestPublicTierAccess:
         assert isinstance(result["old_count"], int)
         assert isinstance(result["new_count"], int)
 
+    def test_graph_edges_returns_list(self, manager):
+        edges = manager.graph_edges()
+        assert isinstance(edges, list)
+
+    def test_graph_entity_count_returns_int(self, manager):
+        count = manager.graph_entity_count()
+        assert isinstance(count, int)
+        assert count >= 0
+
+    def test_core_memory_dict_returns_dict(self, manager):
+        d = manager.core_memory_dict()
+        assert isinstance(d, dict)
+
+    def test_custom_layer_entries_returns_list(self, manager):
+        entries = manager.custom_layer_entries()
+        assert isinstance(entries, list)
+
 
 class TestSoulPublicAPI:
     """Verify Soul convenience methods for #284."""
@@ -498,8 +523,8 @@ class TestSoulPublicAPI:
         soul._state.current.energy = 10.0
         soul._state.current.social_battery = 20.0
         soul.reset_energy()
-        assert soul.state.current.energy == 100.0
-        assert soul.state.current.social_battery == 100.0
+        assert soul.state.energy == 100.0
+        assert soul.state.social_battery == 100.0
 
     async def test_reset_bond(self):
         from soul_protocol.runtime.soul import Soul
