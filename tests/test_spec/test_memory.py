@@ -22,7 +22,9 @@ def test_memory_entry_defaults():
 
 def test_memory_entry_with_metadata():
     """MemoryEntry stores arbitrary metadata without alteration."""
-    entry = MemoryEntry(layer="core", content="met a user",
+    entry = MemoryEntry(
+        layer="core",
+        content="met a user",
         metadata={"importance": 9, "tags": ["social", "first-meeting"]},
     )
 

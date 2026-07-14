@@ -202,10 +202,12 @@ def test_schema_drift():
         path = SCHEMAS_DIR / f"{name}.schema.json"
         assert path.exists(), f"Missing on-disk schema: {path}"
         on_disk = json.loads(path.read_text())
-        
+
         # We dump and load to ensure types like UUID/datetime are serialized exactly as they would be to JSON
         memory_json = json.loads(json.dumps(schema, default=str))
-        assert on_disk == memory_json, f"Schema drift detected in {name}.schema.json! Run scripts/generate_schemas.py"
+        assert on_disk == memory_json, (
+            f"Schema drift detected in {name}.schema.json! Run scripts/generate_schemas.py"
+        )
 
     # Check combined schema
     defs = {}
@@ -225,10 +227,12 @@ def test_schema_drift():
         "$ref": "#/$defs/SoulConfig",
         "$defs": defs,
     }
-    
+
     path = SCHEMAS_DIR / "soul-protocol.schema.json"
     assert path.exists(), f"Missing on-disk schema: {path}"
     on_disk = json.loads(path.read_text())
     memory_json = json.loads(json.dumps(combined, default=str))
-    
-    assert on_disk == memory_json, "Schema drift detected in soul-protocol.schema.json! Run scripts/generate_schemas.py"
+
+    assert on_disk == memory_json, (
+        "Schema drift detected in soul-protocol.schema.json! Run scripts/generate_schemas.py"
+    )

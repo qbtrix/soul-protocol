@@ -309,9 +309,6 @@ class SelfImage(BaseModel):
 # ============ Memory ============
 
 
-
-
-
 class CoreMemory(BaseModel):
     """Always-loaded memory — persona description + human profile."""
 

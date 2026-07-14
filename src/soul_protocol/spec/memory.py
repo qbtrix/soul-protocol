@@ -206,7 +206,10 @@ class MemoryEntry(BaseModel):
         "json_schema_extra": {
             "anyOf": [
                 {"required": ["type"], "properties": {"type": {"not": {"type": "null"}}}},
-                {"required": ["layer"], "properties": {"layer": {"type": "string", "minLength": 1}}}
+                {
+                    "required": ["layer"],
+                    "properties": {"layer": {"type": "string", "minLength": 1}},
+                },
             ]
         }
     }

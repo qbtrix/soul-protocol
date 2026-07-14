@@ -127,7 +127,9 @@ class TestSpecMemoryEntry:
         assert entry.superseded is False
 
     def test_spec_roundtrip(self):
-        entry = SpecMemoryEntry(layer="core", content="spec roundtrip",
+        entry = SpecMemoryEntry(
+            layer="core",
+            content="spec roundtrip",
             ingested_at=datetime(2025, 6, 15),
             superseded=True,
         )
