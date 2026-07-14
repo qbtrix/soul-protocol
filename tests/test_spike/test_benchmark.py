@@ -92,8 +92,7 @@ def _seed_corpus_dict(store: DictMemoryStore) -> None:
 
 def _seed_corpus_journal(store: JournalBackedMemoryStore) -> None:
     for content, tier, importance in CANONICAL_CORPUS:
-        entry = MemoryEntry(
-            content=content,
+        entry = MemoryEntry(layer="core", content=content,
             source="benchmark",
             metadata={"importance": importance},
         )
@@ -189,8 +188,7 @@ def test_benchmark_write_latency_comparison(
 
     def journal_writer() -> None:
         for i in range(100):
-            entry = MemoryEntry(
-                content=f"write latency probe {i}",
+            entry = MemoryEntry(layer="core", content=f"write latency probe {i}",
                 source="bench",
             )
             journal_store.store("episodic", entry)
@@ -234,7 +232,7 @@ def test_benchmark_search_latency_comparison(
         )
         journal_store.store(
             "semantic",
-            MemoryEntry(content=content, source="bench"),
+            MemoryEntry(layer="core", content=content, source="bench"),
         )
 
     queries = topics * 20  # 120 queries total

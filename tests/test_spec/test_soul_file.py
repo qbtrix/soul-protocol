@@ -24,7 +24,7 @@ def _make_store_with_entries(*entries: tuple[str, str]) -> DictMemoryStore:
     """Helper: (layer, content) pairs -> populated DictMemoryStore."""
     store = DictMemoryStore()
     for layer, content in entries:
-        store.store(layer, MemoryEntry(content=content))
+        store.store(layer, MemoryEntry(layer="core", content=content))
     return store
 
 

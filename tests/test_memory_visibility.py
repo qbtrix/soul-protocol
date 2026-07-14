@@ -273,7 +273,7 @@ class TestSpecMemoryVisibility:
         from soul_protocol.spec.memory import MemoryEntry as SpecEntry
         from soul_protocol.spec.memory import MemoryVisibility as SpecVis
 
-        entry = SpecEntry(content="test")
+        entry = SpecEntry(layer="core", content="test")
         assert entry.visibility == SpecVis.BONDED
 
     def test_spec_visibility_values(self):

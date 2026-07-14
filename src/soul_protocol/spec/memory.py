@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol, Self, runtime_checkable
@@ -210,9 +211,11 @@ class MemoryEntry(BaseModel):
         }
     }
 
-    id: str = ""
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
     type: MemoryType | None = None
     content: str
+    source: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
     importance: int = Field(default=5, ge=1, le=10)
     emotion: str | None = None
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -315,6 +318,15 @@ class MemoryEntry(BaseModel):
         if self.type is None and not self.layer:
             raise ValueError("MemoryEntry must have either a 'type' or a non-empty 'layer'")
         return self
+
+    @property
+    def timestamp(self) -> datetime:
+        """Backward compatibility alias for created_at."""
+        return self.created_at
+
+    @timestamp.setter
+    def timestamp(self, value: datetime) -> None:
+        self.created_at = value
 
 
 @runtime_checkable

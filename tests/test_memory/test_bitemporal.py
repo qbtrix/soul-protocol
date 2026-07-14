@@ -119,16 +119,15 @@ class TestSpecMemoryEntry:
     """Tests for the spec-layer MemoryEntry additions."""
 
     def test_spec_ingested_at_default_none(self):
-        entry = SpecMemoryEntry(content="spec test")
+        entry = SpecMemoryEntry(layer="core", content="spec test")
         assert entry.ingested_at is None
 
     def test_spec_superseded_default_false(self):
-        entry = SpecMemoryEntry(content="spec test")
+        entry = SpecMemoryEntry(layer="core", content="spec test")
         assert entry.superseded is False
 
     def test_spec_roundtrip(self):
-        entry = SpecMemoryEntry(
-            content="spec roundtrip",
+        entry = SpecMemoryEntry(layer="core", content="spec roundtrip",
             ingested_at=datetime(2025, 6, 15),
             superseded=True,
         )

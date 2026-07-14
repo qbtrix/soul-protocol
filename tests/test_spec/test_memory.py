@@ -9,21 +9,20 @@ from soul_protocol.spec import DictMemoryStore, MemoryEntry, MemoryStore
 
 def test_memory_entry_defaults():
     """MemoryEntry auto-generates a 12-char hex id and a timestamp."""
-    entry = MemoryEntry(content="test content")
+    entry = MemoryEntry(layer="core", content="test content")
 
     assert entry.content == "test content"
     assert len(entry.id) == 12
     assert all(c in "0123456789abcdef" for c in entry.id)
     assert entry.timestamp is not None
     assert entry.source == ""
-    assert entry.layer == ""
+    assert entry.layer == "core"
     assert entry.metadata == {}
 
 
 def test_memory_entry_with_metadata():
     """MemoryEntry stores arbitrary metadata without alteration."""
-    entry = MemoryEntry(
-        content="met a user",
+    entry = MemoryEntry(layer="core", content="met a user",
         metadata={"importance": 9, "tags": ["social", "first-meeting"]},
     )
 
@@ -34,7 +33,7 @@ def test_memory_entry_with_metadata():
 def test_dict_store_basic():
     """store() persists an entry; recall() returns it from the correct layer."""
     store = DictMemoryStore()
-    entry = MemoryEntry(content="hello world")
+    entry = MemoryEntry(layer="core", content="hello world")
 
     returned_id = store.store("episodic", entry)
 
@@ -48,9 +47,9 @@ def test_dict_store_layers():
     """Entries stored in different layers are isolated from each other."""
     store = DictMemoryStore()
 
-    store.store("episodic", MemoryEntry(content="met Aria today"))
-    store.store("semantic", MemoryEntry(content="the sky is blue"))
-    store.store("episodic", MemoryEntry(content="had a dream"))
+    store.store("episodic", MemoryEntry(layer="core", content="met Aria today"))
+    store.store("semantic", MemoryEntry(layer="core", content="the sky is blue"))
+    store.store("episodic", MemoryEntry(layer="core", content="had a dream"))
 
     episodic = store.recall("episodic")
     semantic = store.recall("semantic")
@@ -64,9 +63,9 @@ def test_dict_store_search():
     """search() returns entries with token overlap to the query."""
     store = DictMemoryStore()
 
-    store.store("episodic", MemoryEntry(content="the cat sat on the mat"))
-    store.store("semantic", MemoryEntry(content="dogs are loyal animals"))
-    store.store("episodic", MemoryEntry(content="the cat chased a bird"))
+    store.store("episodic", MemoryEntry(layer="core", content="the cat sat on the mat"))
+    store.store("semantic", MemoryEntry(layer="core", content="dogs are loyal animals"))
+    store.store("episodic", MemoryEntry(layer="core", content="the cat chased a bird"))
 
     results = store.search("cat mat")
 
@@ -82,7 +81,7 @@ def test_dict_store_search():
 def test_dict_store_delete():
     """delete() removes an entry by id and returns True; False if not found."""
     store = DictMemoryStore()
-    entry = MemoryEntry(content="to be deleted")
+    entry = MemoryEntry(layer="core", content="to be deleted")
     store.store("episodic", entry)
 
     result = store.delete(entry.id)
@@ -107,8 +106,8 @@ def test_dict_store_layers_list():
     # Empty store — no layers
     assert store.layers() == []
 
-    store.store("episodic", MemoryEntry(content="first"))
-    store.store("semantic", MemoryEntry(content="second"))
+    store.store("episodic", MemoryEntry(layer="core", content="first"))
+    store.store("semantic", MemoryEntry(layer="core", content="second"))
 
     layer_names = store.layers()
     assert set(layer_names) == {"episodic", "semantic"}
@@ -125,9 +124,9 @@ def test_dict_store_count():
     """count() returns total or per-layer entry count."""
     store = DictMemoryStore()
 
-    store.store("episodic", MemoryEntry(content="a"))
-    store.store("episodic", MemoryEntry(content="b"))
-    store.store("semantic", MemoryEntry(content="c"))
+    store.store("episodic", MemoryEntry(layer="core", content="a"))
+    store.store("episodic", MemoryEntry(layer="core", content="b"))
+    store.store("semantic", MemoryEntry(layer="core", content="c"))
 
     assert store.count() == 3
     assert store.count("episodic") == 2
@@ -145,7 +144,7 @@ def test_dict_store_implements_protocol():
 def test_store_sets_layer_on_entry():
     """store() mutates entry.layer to match the target layer name."""
     store = DictMemoryStore()
-    entry = MemoryEntry(content="test")
+    entry = MemoryEntry(layer="core", content="test")
 
     store.store("procedural", entry)
 
@@ -157,9 +156,9 @@ def test_recall_returns_newest_first():
     import time
 
     store = DictMemoryStore()
-    store.store("episodic", MemoryEntry(content="first"))
+    store.store("episodic", MemoryEntry(layer="core", content="first"))
     time.sleep(0.01)
-    store.store("episodic", MemoryEntry(content="second"))
+    store.store("episodic", MemoryEntry(layer="core", content="second"))
 
     recalled = store.recall("episodic")
 
@@ -171,7 +170,7 @@ def test_recall_limit():
     """recall() respects the limit parameter."""
     store = DictMemoryStore()
     for i in range(10):
-        store.store("episodic", MemoryEntry(content=f"entry {i}"))
+        store.store("episodic", MemoryEntry(layer="core", content=f"entry {i}"))
 
     recalled = store.recall("episodic", limit=3)
 

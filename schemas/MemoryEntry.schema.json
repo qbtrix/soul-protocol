@@ -100,7 +100,6 @@
   "description": "A single memory with metadata.\n\nv0.4.0 (#41) additions: ``layer`` is the canonical going-forward layer\nname (free-form string). Defaults to the ``type`` value when not given,\nso legacy callers using ``MemoryEntry(type=MemoryType.SEMANTIC)`` get\n``layer=\"semantic\"`` for free. ``domain`` is a sub-namespace inside the\nlayer (``\"finance\"``, ``\"legal\"``, ``\"default\"``); defaults to\n``\"default\"`` so 0.3.x entries round-trip without migration.\n\nv0.3.4 additions: category (extraction taxonomy), abstract (L0 ~100 tokens),\noverview (L1 ~1K tokens) for progressive content loading, salience (retrieval\nweight). All new fields default to None for backwards compatibility.\n\nv0.2.0 additions: somatic markers (emotional context), access_timestamps\n(full history for ACT-R decay), significance score, and general_event_id\n(Conway hierarchy link). All new fields default to None/empty for\nbackwards compatibility with v0.1.0 data.",
   "properties": {
     "id": {
-      "default": "",
       "title": "Id",
       "type": "string"
     },
@@ -118,6 +117,16 @@
     "content": {
       "title": "Content",
       "type": "string"
+    },
+    "source": {
+      "default": "",
+      "title": "Source",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
     },
     "importance": {
       "default": 5,
