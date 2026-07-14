@@ -61,3 +61,18 @@ def test_recover_missing_reference(tmp_path):
 
     assert result.exit_code == 0
     assert "failed" in result.output.lower() or "Recovery failed" in result.output
+
+
+def test_archive_unknown_tier(tmp_path):
+    """archive with an unknown tier prints a clean error, not a traceback."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "unknown-tier.soul")
+
+    runner.invoke(cli, ["birth", "TierBot", "-o", soul_path])
+    result = runner.invoke(cli, ["archive", soul_path, "-t", "local"])
+
+    assert result.exit_code == 0
+    assert "Archive failed" in result.output
+    assert "local" in result.output
+    # Must NOT contain a raw traceback
+    assert "Traceback" not in result.output

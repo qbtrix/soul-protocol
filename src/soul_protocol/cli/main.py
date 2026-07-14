@@ -906,7 +906,11 @@ def archive(path, tiers):
         manager.register(MockIPFSProvider())
         manager.register(MockArweaveProvider())
         manager.register(MockBlockchainProvider())
-        results = await manager.archive(soul_data, soul.did, tiers=tier_list)
+        try:
+            results = await manager.archive(soul_data, soul.did, tiers=tier_list)
+        except ValueError as exc:
+            console.print(f"[red]Archive failed:[/red] {exc}")
+            return
 
         # Persist archive results into the .soul manifest
         _update_soul_manifest(path, results)
