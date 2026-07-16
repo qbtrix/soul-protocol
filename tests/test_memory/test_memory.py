@@ -422,3 +422,59 @@ class TestSignificanceShortCircuit:
         # assess_significance scored low
         mgr._cognitive.extract_entities.assert_called_once()
         mgr._cognitive.update_self_model.assert_called_once()
+
+
+def test_from_dict_rewires_recall_engine_graph(manager: MemoryManager):
+    """Regression test for Issue #281: graph-augmented recall works after from_dict.
+
+    The original bug: from_dict() rebuilt the KnowledgeGraph but the RecallEngine
+    kept a stale reference to the old, empty graph.  This test exercises the
+    actual symptom — recall returning no graph-augmented results after a
+    serialize/deserialize round-trip.
+    """
+    import asyncio
+
+    async def _test():
+        # 1. Seed graph entities + a relationship
+        manager._graph.add_entity("Alice", "person")
+        manager._graph.add_entity("Bob", "person")
+        manager._graph.add_relationship("Alice", "Bob", "friend_of")
+
+        # 2. Store a semantic memory mentioning "Bob"
+        bob_entry = MemoryEntry(
+            content="Bob helped me with the Python project yesterday",
+            type=MemoryType.SEMANTIC,
+            importance=8,
+        )
+        await manager.add(bob_entry)
+
+        # 3. Serialize → deserialize (simulates awaken / reincarnate)
+        state = manager.to_dict()
+        restored = MemoryManager.from_dict(state, MemorySettings())
+
+        # 4. Use the recall engine directly with use_graph=True to
+        #    verify graph augmentation works after restore.
+        #    Query "Alice" — graph should traverse Alice→Bob and
+        #    search for "Bob"-related memories.
+        results = await restored._recall_engine.recall(
+            "Alice",
+            use_graph=True,
+            limit=10,
+        )
+
+        # Without the fix, restored._recall_engine._graph pointed at
+        # the old empty graph, so graph augmentation found zero entities
+        # and this returned nothing.
+        assert len(results) > 0, (
+            "Graph-augmented recall returned no results after from_dict — "
+            "the recall engine is still pointing at the old, empty graph."
+        )
+
+        # At least one result should mention Bob (surfaced via graph edge)
+        bob_mentioned = any("Bob" in r.content for r in results)
+        assert bob_mentioned, (
+            f"Expected a Bob-related memory via graph traversal, "
+            f"got: {[r.content[:60] for r in results]}"
+        )
+
+    asyncio.run(_test())
