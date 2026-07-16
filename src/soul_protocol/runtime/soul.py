@@ -3005,8 +3005,8 @@ class Soul:
 
     @property
     def eval_history(self) -> list:
-        """Return the evaluator's history list."""
-        return self._evaluator._history
+        """Return a copy of the evaluator's history list."""
+        return list(self._evaluator._history)
 
     def clear_eval_history(self) -> int:
         """Clear all evaluation history entries.

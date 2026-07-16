@@ -198,6 +198,26 @@ Parse a SOUL.md-formatted string into a Soul. Does not accept an engine or searc
 | `pending_mutations` | `list[Mutation]` | Unapproved evolution proposals. |
 | `evolution_history` | `list[Mutation]` | All resolved mutations (approved and rejected). |
 
+#### MemoryManager Public API
+
+The `soul.memory` property exposes read-only access to individual memory tiers, so that interface layers don't need to reach into private stores:
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `episodic_entries()` | `list[MemoryEntry]` | All episodic memory entries. |
+| `semantic_facts(*, include_superseded=False)` | `list[MemoryEntry]` | All semantic facts. |
+| `procedural_entries()` | `list[MemoryEntry]` | All procedural memory entries. |
+| `social_entries()` | `list[MemoryEntry]` | All social memory entries. |
+| `custom_layer_entries()` | `list[MemoryEntry]` | All entries from custom (user-defined) layers. |
+| `graph_entities()` | `list[dict]` | All entities from the knowledge graph. |
+| `graph_remove_entity(name)` | `None` | Remove a single entity from the knowledge graph. |
+| `clear_graph()` | `None` | Clear all entities, edges, and provenance from the knowledge graph. |
+| `rebuild_graph()` | `dict` | Clear and rebuild the knowledge graph from episodic + semantic memories. Returns dict with `old_count` and `new_count`. |
+| `remove_episodic(memory_id)` | `bool` | Remove an episodic memory by ID. |
+| `remove_semantic(memory_id)` | `bool` | Remove a semantic fact by ID. |
+| `remove_procedural(memory_id)` | `bool` | Remove a procedural memory by ID. |
+
+
 ### Memory Operations
 
 #### `soul.remember()`

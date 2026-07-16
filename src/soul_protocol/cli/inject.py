@@ -78,7 +78,7 @@ async def build_context_block(
     human = core.human or "(empty)"
 
     # Recent memories (episodic, most recent first)
-    entries = soul._memory._episodic.entries()[:memory_limit]
+    entries = soul.memory.episodic_entries()[:memory_limit]
 
     # Build memory lines
     if entries:
