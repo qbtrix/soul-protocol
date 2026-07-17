@@ -5,6 +5,9 @@
 # Updated: 2026-07-18 (#284) — Added public convenience API for CLI/MCP:
 #   memory (property), eval_history (property), clear_eval_history(),
 #   reset_energy(), reset_bond().
+# Updated: 2026-07-17 (#287) — note() MERGE now sets the new entry's
+#   ``supersedes`` back-edge and appends a supersede-audit record so
+#   provenance walks via _walk_supersedes_chain() work correctly.
 # Updated: 2026-06-16 (feat/soul-skills-procedural) — remember() and note() now
 #   accept a ``provenance: MemoryProvenance`` kwarg (default HUMAN) so an
 #   autonomous loop (PocketPaw's self-improving skills reviewer) can stamp the
@@ -1618,11 +1621,25 @@ class Soul:
             )
             similarity = None
             if target_id is not None:
+                # #287: Set supersedes back-edge on the new entry so
+                # _walk_supersedes_chain() can trace provenance.
+                new_entry, _ = self._memory_lookup_sync(new_id)
+                if new_entry is not None:
+                    new_entry.supersedes = target_id
                 for e in existing:
                     if e.id == target_id:
                         e.superseded_by = new_id
                         similarity = _jaccard_similarity(content, e.content)
                         break
+                # #287: Record audit trail for provenance.
+                self._memory._supersede_audit.append(
+                    {
+                        "old_id": target_id,
+                        "new_id": new_id,
+                        "reason": "note-merge",
+                        "superseded_at": datetime.now().isoformat(),
+                    }
+                )
             return {
                 "action": "MERGE",
                 "id": new_id,

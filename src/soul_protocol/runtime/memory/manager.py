@@ -3,6 +3,10 @@
 #   semantic_facts(), procedural_entries(), social_entries(), graph_entities(),
 #   graph_edges(), clear_graph(), rebuild_graph(), custom_layer_entries().
 #   CLI and MCP now call these instead of reaching into private attributes.
+# Updated: 2026-07-17 (#287) — Memory correctness cleanups: raw-text contradiction
+#   fallback now stores a replacement fact (was sentinel string → knowledge loss),
+#   observe() batch dedup appends stored facts to the comparison set so within-batch
+#   near-duplicates are caught.
 # Updated: 2026-07-11 (#281) — Rewire recall engine graph reference after
 #   from_dict(). The RecallEngine held a stale reference to the pre-restore
 #   empty KnowledgeGraph, so graph-augmented recall returned nothing after
@@ -1063,6 +1067,7 @@ class MemoryManager:
             elif action == "MERGE" and merge_id:
                 # Store first so fact.id is populated, then link superseded
                 await self.add(fact)
+                fact.supersedes = merge_id
                 for ef in existing_facts:
                     if ef.id == merge_id:
                         ef.superseded_by = fact.id
@@ -1073,10 +1078,15 @@ class MemoryManager:
                         )
                         break
                 stored_facts.append(fact)
+                # #287: append to comparison set so subsequent batch facts
+                # are checked against this one (prevents within-batch dupes).
+                existing_facts.append(fact)
             else:
                 # CREATE
                 await self.add(fact)
                 stored_facts.append(fact)
+                # #287: same within-batch dedup fix for CREATE path.
+                existing_facts.append(fact)
         facts = stored_facts
         if facts:
             logger.debug("Facts extracted and stored: count=%d", len(facts))
@@ -1161,21 +1171,46 @@ class MemoryManager:
                     continue
                 if cr.old_memory_id in already_superseded:
                     continue
+                # #287: Store the raw text as a real replacement fact so the
+                # soul doesn't lose the knowledge. Previously this used a
+                # sentinel string "raw-text-contradiction" and never stored
+                # the new fact, causing knowledge loss.
+                replacement = MemoryEntry(
+                    content=raw_text,
+                    type=MemoryType.SEMANTIC,
+                    importance=5,
+                    supersedes=cr.old_memory_id,
+                )
+                if user_id is not None:
+                    replacement.user_id = user_id
+                if domain != "default":
+                    replacement.domain = domain
+                await self.add(replacement)
                 for existing_fact in all_semantic_raw:
                     if existing_fact.id == cr.old_memory_id:
                         existing_fact.superseded = True
-                        existing_fact.superseded_by = "raw-text-contradiction"
+                        existing_fact.superseded_by = replacement.id
                         logger.debug(
-                            "Raw-text contradiction: old_id=%s superseded, reason=%s",
+                            "Raw-text contradiction: old_id=%s superseded by %s, reason=%s",
                             cr.old_memory_id,
+                            replacement.id,
                             cr.reason,
                         )
                         break
                 already_superseded.add(cr.old_memory_id)
+                # Audit trail for provenance walks.
+                self._supersede_audit.append(
+                    {
+                        "old_id": cr.old_memory_id,
+                        "new_id": replacement.id,
+                        "reason": cr.reason or "raw-text-contradiction",
+                        "superseded_at": datetime.now().isoformat(),
+                    }
+                )
                 contradictions.append(
                     {
                         "old_id": cr.old_memory_id,
-                        "new_id": "raw-text-contradiction",
+                        "new_id": replacement.id,
                         "reason": cr.reason,
                         "confidence": cr.confidence,
                     }
