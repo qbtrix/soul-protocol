@@ -1,4 +1,6 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-07-17 (#286) — Catch unknown-tier ValueError in ``soul archive``;
+#   exit 1 so scripts can detect failure.
 # Updated: 2026-04-29 (#42) — Trust chain commands: ``soul verify`` checks
 #   integrity of a soul's signed action history. ``soul audit`` prints a
 #   human-readable timeline; supports --filter <prefix> and --limit; --json
@@ -910,7 +912,7 @@ def archive(path, tiers):
             results = await manager.archive(soul_data, soul.did, tiers=tier_list)
         except ValueError as exc:
             console.print(f"[red]Archive failed:[/red] {exc}")
-            return
+            raise SystemExit(1)
 
         # Persist archive results into the .soul manifest
         _update_soul_manifest(path, results)
