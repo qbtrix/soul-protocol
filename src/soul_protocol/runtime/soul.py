@@ -1,4 +1,7 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-07-18 (#284) — Added public convenience API for CLI/MCP:
+#   memory (property), eval_history (property), clear_eval_history(),
+#   reset_energy(), reset_bond().
 # Updated: 2026-06-16 (feat/soul-skills-procedural) — remember() and note() now
 #   accept a ``provenance: MemoryProvenance`` kwarg (default HUMAN) so an
 #   autonomous loop (PocketPaw's self-improving skills reviewer) can stamp the

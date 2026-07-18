@@ -1,5 +1,8 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
 # 36 tools (31 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-07-18 (#284) — Replaced ~12 private attribute accesses with
+#   public MemoryManager API (episodic_entries(), semantic_facts(), etc.).
+#   MCP tools no longer reach into _m._episodic or _m._graph internals.
 # Updated: 2026-05-02 (#192) — Brain-aligned memory update primitive tools.
 #   Adds soul_confirm, soul_update, soul_supersede, soul_purge, and
 #   soul_reinstate. Existing soul_forget shifts from hard delete to

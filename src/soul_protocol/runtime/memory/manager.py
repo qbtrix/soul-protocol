@@ -1,4 +1,12 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-07-18 (#284) — Added public tier access API: episodic_entries(),
+#   semantic_facts(), procedural_entries(), social_entries(), graph_entities(),
+#   graph_edges(), clear_graph(), rebuild_graph(), custom_layer_entries().
+#   CLI and MCP now call these instead of reaching into private attributes.
+# Updated: 2026-07-11 (#281) — Rewire recall engine graph reference after
+#   from_dict(). The RecallEngine held a stale reference to the pre-restore
+#   empty KnowledgeGraph, so graph-augmented recall returned nothing after
+#   awaken/reincarnate.
 # Updated: 2026-06-16 (feat/soul-skills-procedural) — adds
 #   consolidate_agent_procedures(): a curator pass over PROCEDURAL memories that
 #   only ever considers AGENT-authored entries (provenance == AGENT). It finds
@@ -2492,6 +2500,8 @@ class MemoryManager:
         graph_data = data.get("graph", {})
         if graph_data:
             manager._graph = KnowledgeGraph.from_dict(graph_data)
+            # Re-wire the recall engine to point to the restored graph (#281)
+            manager._recall_engine.rebind_graph(manager._graph)
 
         self_model_data = data.get("self_model", {})
         if self_model_data:

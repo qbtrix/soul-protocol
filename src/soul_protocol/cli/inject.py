@@ -1,4 +1,7 @@
 # cli/inject.py — Soul context injection into agent platform config files.
+# Updated: 2026-07-18 (#284) — Switched from private _m._episodic._entries to
+#   public MemoryManager.episodic_entries() API. Stops CLI from breaking when
+#   runtime internals are renamed.
 # Updated: 2026-03-18 — Added behavioral instructions for auto soul_recall.
 # Created: 2026-03-13 — Fast CLI-based alternative to MCP for injecting soul
 #   context (identity, core memory, state, recent memories) into agent configs.

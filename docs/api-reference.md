@@ -197,6 +197,9 @@ Parse a SOUL.md-formatted string into a Soul. Does not accept an engine or searc
 | `general_events` | `list[GeneralEvent]` | Conway hierarchy general events accumulated from experience. |
 | `pending_mutations` | `list[Mutation]` | Unapproved evolution proposals. |
 | `evolution_history` | `list[Mutation]` | All resolved mutations (approved and rejected). |
+| `memory` | `MemoryManager` | Read-only access to the underlying memory manager for querying tiers. |
+| `eval_history` | `list[str]` | A log of evaluation runs applied to this soul. |
+
 
 #### MemoryManager Public API
 
@@ -827,6 +830,30 @@ def to_system_prompt(self) -> str
 Generate a complete LLM system prompt from DNA, core memory, state, and self-model insights. Not async.
 
 **Returns:** `str`
+
+#### `soul.reset_energy()`
+
+```python
+def reset_energy(self) -> None
+```
+
+Reset the soul's `energy` and `social_battery` back to 100. Useful for testing or when manually transitioning states.
+
+#### `soul.reset_bond()`
+
+```python
+def reset_bond(self) -> None
+```
+
+Reset the soul's core bond strength (towards the primary user) back to 50. Useful for resetting relationships in tests.
+
+#### `soul.clear_eval_history()`
+
+```python
+def clear_eval_history(self) -> int
+```
+
+Clear the log of previous evaluation runs (`soul.eval_history`) and return the number of runs removed.
 
 ### Evolution
 

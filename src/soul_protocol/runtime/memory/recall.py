@@ -1,4 +1,7 @@
 # memory/recall.py — RecallEngine for cross-store memory retrieval.
+# Updated: 2026-07-11 (#281) — Added rebind_graph() so from_dict() can
+#   re-point the engine at the restored KnowledgeGraph without reaching
+#   into _graph directly.
 # Updated: 2026-03-29 — Added progressive parameter to recall(). When progressive=True,
 #   returns up to limit*2 entries: primary (full content) + overflow (abstract-only copies).
 #   Overflow entries with no abstract keep their original content unchanged.
@@ -108,6 +111,15 @@ class RecallEngine:
         self._procedural = procedural
         self._strategy = strategy if strategy is not None else BM25SearchStrategy()
         self._personality = personality
+        self._graph = graph
+
+    def rebind_graph(self, graph: KnowledgeGraph | None) -> None:
+        """Replace the graph reference used for graph-augmented recall.
+
+        Called by ``MemoryManager.from_dict()`` after deserializing a new
+        KnowledgeGraph so that subsequent recall queries see the restored
+        entities instead of the old, empty graph (#281).
+        """
         self._graph = graph
 
     async def recall(

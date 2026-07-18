@@ -1,4 +1,8 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-07-18 (#284) — Replaced ~45 private attribute accesses
+#   (soul._memory, m._episodic, m._graph_entities.clear(), etc.) with public
+#   MemoryManager API methods. `repair --rebuild-graph` now calls
+#   manager.rebuild_graph() instead of clearing internals directly.
 # Updated: 2026-05-05 (#231) — Adds `soul note <path> "<fact>"` — the dedup
 #   pipeline counterpart to `soul remember`. Routes through Soul.note() so
 #   repeated calls with similar content collapse into SKIP / MERGE rather

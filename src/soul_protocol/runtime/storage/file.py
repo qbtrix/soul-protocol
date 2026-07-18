@@ -1,4 +1,6 @@
 # storage/file.py — FileStorage backend persisting souls to the local filesystem.
+# Updated: 2026-07-12 (#283) — Added "archives" to _FLAT_TIERS so flat
+#   directory saves include consolidated conversation summaries.
 # Updated: 2026-04-29 (#42) — Trust chain + keystore land alongside the soul.
 #   ``trust_chain/chain.json`` and per-entry ``trust_chain/entry_NNN.json`` are
 #   written when the chain has any entries. ``keys/public.key`` is always
@@ -159,6 +161,7 @@ _FLAT_TIERS: list[tuple[str, object]] = [
     ("graph", {}),
     ("self_model", {}),
     ("general_events", []),
+    ("archives", []),  # v0.5.0 (#283) — consolidated memory summaries
 ]
 
 _LAYER_TIERS = ("episodic", "semantic", "procedural", "social")
