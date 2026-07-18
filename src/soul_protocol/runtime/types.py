@@ -1,4 +1,7 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-07-18 (#285) — MemoryEntry consolidated into spec/memory.py.
+#   runtime/types.py re-exports it for backward compatibility. Removed
+#   duplicate MemoryVisibility, MemoryCategory, MemoryProvenance definitions.
 # Updated: 2026-04-29 (#192) — Brain-aligned memory update primitives.
 #   MemoryEntry gains three additive fields used by the v0.5.0 verbs
 #   (confirm / update / supersede / forget / purge / reinstate):

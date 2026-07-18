@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from soul_protocol.spec import DictMemoryStore, MemoryEntry, MemoryStore
 
 
@@ -177,3 +179,51 @@ def test_recall_limit():
     recalled = store.recall("episodic", limit=3)
 
     assert len(recalled) == 3
+
+
+# --- #285: strict "type or layer" enforcement --------------------------------
+
+
+def test_content_only_raises():
+    """MemoryEntry(content='x') with no type and no layer must raise."""
+    with pytest.raises(ValueError, match="type.*layer"):
+        MemoryEntry(content="just text")
+
+
+def test_type_only_accepted():
+    """MemoryEntry(content='x', type=...) is accepted without an explicit layer."""
+    from soul_protocol.spec.memory import MemoryType
+
+    entry = MemoryEntry(content="hello", type=MemoryType.SEMANTIC)
+    assert entry.type == MemoryType.SEMANTIC
+    # layer should auto-fill from type
+    assert entry.layer == "semantic"
+
+
+def test_layer_only_accepted():
+    """MemoryEntry(content='x', layer='custom') is accepted without a type."""
+    entry = MemoryEntry(content="hello", layer="custom")
+    assert entry.layer == "custom"
+    assert entry.type is None
+
+
+def test_id_default_is_uuid_hex():
+    """#285: id defaults to a random uuid hex, not empty string."""
+    entry = MemoryEntry(content="test", layer="episodic")
+    assert entry.id  # non-empty
+    assert len(entry.id) == 12
+
+
+@pytest.mark.asyncio
+async def test_legacy_soul_round_trip(tmp_path):
+    """A legacy-shaped .soul with type-only MemoryEntry round-trips."""
+    from soul_protocol.runtime.soul import Soul
+
+    soul = await Soul.birth("LegacyBot", archetype="test")
+    await soul.remember("I like Python", importance=7)
+    path = str(tmp_path / "legacy.soul")
+    await soul.export(path)
+
+    restored = await Soul.awaken(path)
+    facts = restored._memory._semantic.facts()
+    assert any("Python" in f.content for f in facts)

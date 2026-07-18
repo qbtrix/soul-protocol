@@ -1,4 +1,8 @@
 # memory.py — Memory primitives for the core layer.
+# Updated: 2026-07-18 (#285) — Consolidated MemoryEntry from runtime/types.py
+#   into spec layer as the single source of truth. Added strict model_validator
+#   requiring at least one of ``type`` or non-empty ``layer``. ``id`` defaults
+#   to a random uuid hex (was ``""``). Removed duplicate MemoryVisibility.
 # Updated: v0.4.0 (#41) — Open layer namespaces + domain isolation. Added
 #   LAYER_* string constants (LAYER_CORE, LAYER_EPISODIC, LAYER_SEMANTIC,
 #   LAYER_PROCEDURAL, LAYER_SOCIAL) so runtimes have well-known names without
