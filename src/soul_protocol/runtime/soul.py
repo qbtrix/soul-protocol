@@ -1,4 +1,71 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-06-16 (feat/soul-skills-procedural) — remember() and note() now
+#   accept a ``provenance: MemoryProvenance`` kwarg (default HUMAN) so an
+#   autonomous loop (PocketPaw's self-improving skills reviewer) can stamp the
+#   procedures it learns as AGENT-authored. Adds Soul.curate_agent_procedures():
+#   a curator pass that consolidates overlapping AGENT-created procedures
+#   (marking the weaker one superseded) and never touches HUMAN procedures or
+#   hard-deletes anything. Delegates to MemoryManager.consolidate_agent_procedures().
+# Updated: 2026-05-05 (#231) — Adds Soul.note() — a fact-shaped writer that
+#   routes through reconcile_fact() (Jaccard + containment dedup) before
+#   storing. Mirrors remember() but applies SKIP/MERGE/CREATE so callers
+#   (CLI, scripts, hooks) stop accumulating duplicates. Episodic memories
+#   bypass dedup (events are unique by time). Returns a dict with action,
+#   id, existing_id, similarity. Contradiction detection is plumbed but
+#   not yet wired (TODO in body).
+# Updated: 2026-04-29 (#192) — Brain-aligned memory update primitives. Adds
+#   six runtime verbs gated by a prediction-error score and a 1-hour
+#   reconsolidation window opened by recall:
+#     - confirm(id):    refresh activation + optionally restore weight
+#     - update(id, p):  in-place patch within the reconsolidation window
+#     - supersede:      now requires PE >= 0.85 by default (extends 0.4.0)
+#     - forget(id):     semantics shift — drops retrieval_weight to 0.05
+#     - purge(id):      explicit hard delete with .soul.bak payload hash
+#     - reinstate(id):  restores retrieval_weight to 1.0 after forget
+#   Soul gains:
+#     - _reconsolidation_window dict (id → datetime). Recall opens an entry;
+#       update verifies it's still open (1h TTL, LRU-capped at 1000).
+#       Reset on awaken — the window is transient cellular state, never
+#       persisted.
+#     - last_recall_provenance accessor: a sidecar dict mapping memory_id
+#       to the full supersedes-chain. Built every recall when entries
+#       carry superseded_by chain links.
+#     - _open_reconsolidation_window helper called by recall.
+#   PE bands per RFC §3 (locked): confirm <0.2, update [0.2, 0.85),
+#   supersede >= 0.85. Out-of-band PE raises PredictionErrorOutOfBandError.
+#   Old single-id Soul.forget(memory_id) shape preserved for back-compat;
+#   the existing bulk Soul.forget(query) path also stays — its semantic now
+#   matches the runtime-wide weight-decay shift but the return shape is
+#   unchanged.
+# Updated: 2026-04-30 (#108, #190) — Graph traversal + typed entity ontology.
+#   - New ``Soul.graph`` property returns a GraphView for typed read access
+#     to the knowledge graph (nodes/edges/neighbors/path/subgraph/to_mermaid).
+#   - ``Soul.recall`` accepts three new kwargs: ``graph_walk`` (filter
+#     memories by entities reachable from a starting node), ``page_token``
+#     (resume a previous walk), ``token_budget`` (cap total content size,
+#     overflow falls back to L0 abstracts via the F1 mechanism).
+#   - ``Soul.observe`` now appends ``graph.entity_added`` and
+#     ``graph.relation_added`` trust-chain entries when the extractor
+#     pipeline lands new entities or edges. Payload is compact
+#     (id/type/source — never full content).
+# Updated: 2026-04-30 (#201, #202) — Trust-chain observability fixes.
+#   - _safe_append_chain accepts an optional ``summary`` string forwarded to
+#     TrustChainManager.append. Callsites for memory.write, memory.forget,
+#     memory.supersede, evolution.proposed/applied, and learning.event now
+#     pass an explicit summary where the registry default would be lossy.
+#   - _safe_append_chain logging is split: the verification-only path
+#     (no public key, _PublicOnlyProvider) stays at DEBUG; an unexpected
+#     exception during ``append`` now logs at WARNING with structured
+#     fields (action, error type, error message, soul name) under the
+#     ``runtime.chain_append_skipped`` event so observability can surface
+#     real audit-trail gaps that were previously hidden in DEBUG noise.
+# Updated: 2026-04-29 (#199, #200, #205, #204) — Trust-chain hardening bundle.
+#   * #199 + #200 + #205 are spec-layer changes (see spec/trust.py); Soul
+#     callsites are unchanged but benefit from the stricter checks.
+#   * #204: Soul.verify_chain now accepts entries whose public_key matches
+#     the current keystore key OR any key in
+#     ``Keystore.previous_public_keys``. Default empty allow-list keeps
+#     the v0.4.0 strict-current-key behavior — opt-in for key rotation.
 # Updated: 2026-04-29 (#42) — Trust chain integration. Soul.__init__ instantiates
 #   a TrustChainManager + Ed25519SignatureProvider; keys load from the soul's
 #   keystore when available, generated otherwise. Memory writes (observe),
@@ -148,6 +215,7 @@ from .evolution.manager import EvolutionManager
 from .export.pack import pack_soul
 from .export.unpack import unpack_soul
 from .identity.did import generate_did
+from .memory.dedup import _jaccard_similarity, reconcile_fact
 from .memory.manager import MemoryManager
 from .memory.strategy import SearchStrategy
 from .skills import Skill, SkillRegistry
@@ -164,6 +232,7 @@ from .types import (
     Interaction,
     LifecycleState,
     MemoryEntry,
+    MemoryProvenance,
     MemoryType,
     MemoryVisibility,
     Mutation,
@@ -175,6 +244,27 @@ from .types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# v0.5.0 (#192) — Brain-aligned memory update primitives — RFC defaults
+# ---------------------------------------------------------------------------
+# PE bands (locked by captain per RFC §10 review, not configurable in 0.5.0):
+#   - confirm   → PE < 0.2
+#   - update    → 0.2 <= PE < 0.85   (window must be open)
+#   - supersede → PE >= 0.85
+# Reconsolidation window TTL: 1 hour (matches lab-rat reconsolidation literature).
+# Retrieval-weight floor: 0.1. forget() drops to 0.05 (below the floor →
+#   invisible to recall but still on disk and recoverable via reinstate()).
+_PE_CONFIRM_MAX: float = 0.2
+_PE_UPDATE_MIN: float = 0.2
+_PE_UPDATE_MAX: float = 0.85
+_PE_SUPERSEDE_MIN: float = 0.85
+_RECONSOLIDATION_WINDOW_TTL_SECONDS: float = 3600.0
+_RECONSOLIDATION_WINDOW_MAX: int = 1000
+_FORGET_WEIGHT_TARGET: float = 0.05
+_REINSTATE_WEIGHT: float = 1.0
+_RECALL_WEIGHT_FLOOR: float = 0.1
 
 
 # ---------------------------------------------------------------------------
@@ -463,6 +553,22 @@ class Soul:
         # never serialised into the .soul file.
         self._last_retrieval: RetrievalTrace | None = None
 
+        # v0.5.0 (#192) — Reconsolidation window state. Maps memory_id to
+        # the timestamp when the entry was last surfaced via recall(). The
+        # 1-hour TTL makes the trace "stable again" outside the window;
+        # update() raises ReconsolidationWindowClosedError when the entry
+        # is missing or stale. LRU-capped at 1000 entries (drop the oldest
+        # by timestamp when adding the 1001st). Reset on awaken — the
+        # window models cellular destabilization, which has no offline
+        # counterpart, so persisting it across sessions would be wrong.
+        self._reconsolidation_window: dict[str, datetime] = {}
+        # Provenance sidecar — populated after every recall() that touches
+        # superseded entries. Keyed by memory_id, value is the list of
+        # ProvenanceLink dicts walking the supersedes chain back to the
+        # oldest known version. Sidecar (not on MemoryEntry) so the on-disk
+        # shape stays unchanged.
+        self._last_recall_provenance: dict[str, list[dict]] = {}
+
         # v0.4.0 (#42) — Trust chain. Initialized lazily-but-eagerly: provider
         # is generated fresh on every __init__; awaken() replaces it via
         # _restore_trust_chain() when a keystore is found in the archive.
@@ -472,9 +578,13 @@ class Soul:
         self._signature_provider: Ed25519SignatureProvider = Ed25519SignatureProvider()
         self._keystore.private_key_bytes = self._signature_provider.private_key_bytes
         self._keystore.public_key_bytes = self._signature_provider.public_key_bytes
+        # Touch-time chain pruning cap (#203) is read from the soul's
+        # Biorhythms config. 0 (default) preserves the unbounded-chain
+        # behaviour from prior versions; positive values cap the chain.
         self._trust_chain_manager: TrustChainManager = TrustChainManager(
             did=self._identity.did,
             provider=self._signature_provider,
+            max_entries=self._chain_max_entries(),
         )
         self._bonds.set_on_change(self._on_bond_change)
 
@@ -512,7 +622,20 @@ class Soul:
             did=self._identity.did,
             provider=self._signature_provider,
             chain=chain,
+            max_entries=self._chain_max_entries(),
         )
+
+    def _chain_max_entries(self) -> int:
+        """Read the trust-chain pruning cap from biorhythms (#203).
+
+        Returns 0 when biorhythms is unavailable or the cap is unset, which
+        disables auto-pruning (the legacy unbounded-chain behaviour).
+        """
+        bio = getattr(getattr(self._dna, "biorhythms", None), "trust_chain_max_entries", 0)
+        try:
+            return max(0, int(bio))
+        except (TypeError, ValueError):
+            return 0
 
     def _on_bond_change(
         self,
@@ -521,10 +644,14 @@ class Soul:
         delta: float,
         new_strength: float,
     ) -> None:
-        """Bridge BondRegistry events into the trust chain (#42)."""
-        # Defensive: if the chain manager doesn't have a private key, skip
-        # silently rather than break read-only flows. Same for the no-public
-        # case which can happen during __init__ before keys are restored.
+        """Bridge BondRegistry events into the trust chain (#42).
+
+        Routes through :meth:`_safe_append_chain` which handles the
+        verification-only/no-key cases. The registry's default formatter
+        for ``bond.strengthen`` / ``bond.weaken`` produces a useful
+        summary from this payload shape (#201) — no need to pass an
+        explicit ``summary=`` here.
+        """
         if not self._signature_provider.public_key:
             return
         self._safe_append_chain(
@@ -536,8 +663,15 @@ class Soul:
             },
         )
 
-    def _safe_append_chain(self, action: str, payload: dict) -> None:
-        """Append an entry to the trust chain, swallowing read-only failures.
+    def _safe_append_chain(
+        self,
+        action: str,
+        payload: dict,
+        *,
+        summary: str | None = None,
+    ) -> None:
+        """Append an entry to the trust chain. Swallow expected read-only
+        failures, log unexpected ones at WARNING.
 
         Wrapper used by every callsite (observe, supersede, forget_one,
         propose_evolution, approve_evolution, learn, bond callback). Souls
@@ -545,17 +679,47 @@ class Soul:
         error rather than break the action that just happened. Verification
         on the receiving side still works because every entry carries its
         own embedded public key.
+
+        Two failure paths, two log levels (#202):
+
+        - **Verification-only mode** (``_PublicOnlyProvider`` or empty
+          public key) is the documented flow for souls loaded without a
+          private key. Logged at DEBUG so observability isn't noisy for
+          this expected case.
+        - **Unexpected exception during ``append``** (a real ``ValueError``,
+          ``RuntimeError``, or ``TypeError`` from ``sign()`` or downstream)
+          is logged at WARNING with structured fields under the
+          ``runtime.chain_append_skipped`` event. Observability surfaces
+          should treat WARNING here as "audit-trail gap" — the operation
+          happened but no chain entry was signed.
+
+        ``summary`` is forwarded to :meth:`TrustChainManager.append` and
+        stored on the resulting entry. When ``None``, the action's default
+        formatter from :data:`_SUMMARY_FORMATTERS` is used (#201).
         """
         if not self._signature_provider.public_key:
+            logger.debug(
+                "Trust chain append skipped (no public key) action=%s soul=%s",
+                action,
+                self.name,
+            )
             return
         if isinstance(self._signature_provider, _PublicOnlyProvider):
+            logger.debug(
+                "Trust chain append skipped (verification-only mode) action=%s soul=%s",
+                action,
+                self.name,
+            )
             return
         try:
-            self._trust_chain_manager.append(action, payload)
-        except (ValueError, RuntimeError):
-            logger.debug(
-                "Skipping trust chain append for action=%s (no private key)",
+            self._trust_chain_manager.append(action, payload, summary=summary)
+        except (ValueError, RuntimeError, TypeError) as exc:
+            logger.warning(
+                "runtime.chain_append_skipped action=%s error_type=%s error=%s soul=%s",
                 action,
+                type(exc).__name__,
+                str(exc),
+                self.name,
             )
 
     # ============ Trust chain public API (#42) ============
@@ -582,11 +746,16 @@ class Soul:
         """Verify the integrity of this soul's trust chain.
 
         Two-stage check:
-        1. Every entry's ``public_key`` matches the soul's loaded public key
-           (binds the chain to *this* identity, not just any key that signed
-           a self-consistent chain).
+        1. Every entry's ``public_key`` matches EITHER the soul's loaded
+           public key OR any key in the keystore's
+           ``previous_public_keys`` allow-list (#204). The allow-list
+           defaults to empty, in which case this collapses to the
+           strict-current-key check from v0.4.0. Populating it lets a
+           soul rotate its signing key while keeping older entries
+           verifiable.
         2. The chain itself is internally valid via :func:`verify_chain` —
-           signatures, hash chain, seq monotonicity, future-timestamp skew.
+           signatures, hash chain, seq monotonicity, future-timestamp
+           skew, and timestamp monotonicity (#199).
 
         The pubkey binding is skipped when the keystore has no public key
         (e.g. a freshly-birthed soul before its first save). It is the
@@ -599,9 +768,11 @@ class Soul:
 
         pub_bytes = self._keystore.public_key_bytes
         if pub_bytes:
-            expected_pk = base64.b64encode(pub_bytes).decode("ascii")
+            allowed = {base64.b64encode(pub_bytes).decode("ascii")}
+            for prev_bytes in self._keystore.previous_public_keys:
+                allowed.add(base64.b64encode(prev_bytes).decode("ascii"))
             for entry in self._trust_chain_manager.chain.entries:
-                if entry.public_key != expected_pk:
+                if entry.public_key not in allowed:
                     return False, f"public key mismatch at seq {entry.seq}"
         return self._trust_chain_manager.verify()
 
@@ -1097,6 +1268,20 @@ class Soul:
         """
         return self._memory.self_model
 
+    @property
+    def graph(self):
+        """Typed read view over the soul's knowledge graph.
+
+        Returns a :class:`GraphView` exposing ``nodes``, ``edges``,
+        ``neighbors``, ``path``, ``subgraph``, and ``to_mermaid``. The
+        backing :class:`KnowledgeGraph` is updated by ``observe()`` (which
+        also emits trust-chain entries) — direct mutation is possible via
+        the storage class but bypasses auditing.
+        """
+        from soul_protocol.runtime.memory.graph_view import GraphView
+
+        return GraphView(self._memory._graph)
+
     # ============ DNA & System Prompt ============
 
     def to_system_prompt(self, *, safety_guardrails: bool = True) -> str:
@@ -1223,6 +1408,7 @@ class Soul:
         scope: list[str] | None = None,
         domain: str = "default",
         user_id: str | None = None,
+        provenance: MemoryProvenance = MemoryProvenance.HUMAN,
     ) -> str:
         """Soul remembers something. Returns memory ID.
 
@@ -1249,7 +1435,221 @@ class Soul:
                 scope=scope or [],
                 domain=domain,
                 user_id=user_id,
+                provenance=provenance,
             )
+        )
+
+    async def note(
+        self,
+        content: str,
+        *,
+        type: MemoryType = MemoryType.SEMANTIC,
+        importance: int = 5,
+        emotion: str | None = None,
+        entities: list[str] | None = None,
+        visibility: MemoryVisibility = MemoryVisibility.BONDED,
+        scope: list[str] | None = None,
+        domain: str = "default",
+        user_id: str | None = None,
+        dedup: bool = True,
+        detect_contradictions: bool | None = None,
+        provenance: MemoryProvenance = MemoryProvenance.HUMAN,
+    ) -> dict:
+        """Note a fact, routing through the dedup pipeline before storing.
+
+        Unlike :meth:`remember` (a blunt append), ``note()`` runs the new
+        content through :func:`reconcile_fact` against existing entries in
+        the matching tier and applies the SKIP / MERGE / CREATE decision.
+        This mirrors the smart path used by
+        :meth:`MemoryManager.observe`, but takes a single fact-shaped
+        string rather than an :class:`Interaction` (no LLM-driven fact
+        extraction, no significance gating).
+
+        Episodic memories bypass dedup (events are unique by time).
+        Passing ``dedup=False`` falls through to :meth:`remember` so
+        callers can still force a blunt write.
+
+        ``detect_contradictions`` defaults to ``True`` for semantic and
+        ``False`` for the other tiers. The contradiction-detection wiring
+        is left for a follow-up (see issue #231).
+
+        Args:
+            content: Fact text to note.
+            type: Memory tier (default: semantic).
+            importance: Importance score 1-10.
+            emotion: Optional emotion tag.
+            entities: Optional entity list.
+            visibility: Visibility tier (default: bonded).
+            scope: Optional RBAC/ABAC scope tags.
+            domain: Sub-namespace inside the layer (default ``"default"``).
+                When non-default, dedup is restricted to entries with the
+                same domain.
+            user_id: Optional bonded user attribution.
+            dedup: When True (default), run reconcile_fact before storing.
+                When False, behave like remember() — write unconditionally.
+            detect_contradictions: When True, run contradiction detection
+                on stored facts (currently a TODO — see #231).
+                Defaults to True for semantic, False otherwise.
+            provenance: Authorship tag (default HUMAN). Pass
+                ``MemoryProvenance.AGENT`` when an autonomous loop is writing
+                the fact so the curator can consolidate it without touching
+                human-authored memories.
+
+        Returns:
+            ``{"action": str, "id": str | None, "existing_id": str | None,
+            "similarity": float | None}`` where ``action`` is one of
+            ``"CREATE"``, ``"SKIP"``, ``"MERGE"``. For SKIP, ``id`` is
+            ``None`` and ``existing_id`` points at the near-duplicate. For
+            MERGE, ``id`` is the new entry and ``existing_id`` is the
+            superseded one. For CREATE, ``existing_id`` and ``similarity``
+            are ``None``.
+
+        See: https://github.com/qbtrix/soul-protocol/issues/231
+        """
+        # Resolve detect_contradictions default per tier.
+        if detect_contradictions is None:
+            detect_contradictions = type == MemoryType.SEMANTIC
+        # TODO: wire ContradictionDetector — see issue #231 follow-up.
+        _ = detect_contradictions  # currently unused; reserved for follow-up.
+
+        # Episodic and dedup-off: blunt write via remember().
+        if type == MemoryType.EPISODIC or not dedup:
+            new_id = await self.remember(
+                content,
+                type=type,
+                importance=importance,
+                emotion=emotion,
+                entities=entities,
+                visibility=visibility,
+                scope=scope,
+                domain=domain,
+                user_id=user_id,
+                provenance=provenance,
+            )
+            return {
+                "action": "CREATE",
+                "id": new_id,
+                "existing_id": None,
+                "similarity": None,
+            }
+
+        # Pull existing entries from the tier store that matches the type.
+        if type == MemoryType.SEMANTIC:
+            existing = self._memory._semantic.facts()
+        elif type == MemoryType.PROCEDURAL:
+            existing = self._memory._procedural.entries()
+        elif type == MemoryType.SOCIAL:
+            existing = self._memory._social.entries()
+        else:
+            # Defensive — fall through to a blunt write for unknown types
+            # rather than silently mis-deduping against the wrong store.
+            new_id = await self.remember(
+                content,
+                type=type,
+                importance=importance,
+                emotion=emotion,
+                entities=entities,
+                visibility=visibility,
+                scope=scope,
+                domain=domain,
+                user_id=user_id,
+                provenance=provenance,
+            )
+            return {
+                "action": "CREATE",
+                "id": new_id,
+                "existing_id": None,
+                "similarity": None,
+            }
+
+        # Domain isolation: when the caller asks for a non-default domain,
+        # only dedup against entries in the same domain. Default domain
+        # dedups against the full store (matches MemoryManager.observe()).
+        if domain != "default":
+            existing = [e for e in existing if e.domain == domain]
+
+        action, target_id = reconcile_fact(content, existing)
+
+        if action == "SKIP":
+            similarity: float | None = None
+            if target_id is not None:
+                for e in existing:
+                    if e.id == target_id:
+                        similarity = _jaccard_similarity(content, e.content)
+                        break
+            return {
+                "action": "SKIP",
+                "id": None,
+                "existing_id": target_id,
+                "similarity": similarity,
+            }
+
+        if action == "MERGE":
+            new_id = await self.remember(
+                content,
+                type=type,
+                importance=importance,
+                emotion=emotion,
+                entities=entities,
+                visibility=visibility,
+                scope=scope,
+                domain=domain,
+                user_id=user_id,
+                provenance=provenance,
+            )
+            similarity = None
+            if target_id is not None:
+                for e in existing:
+                    if e.id == target_id:
+                        e.superseded_by = new_id
+                        similarity = _jaccard_similarity(content, e.content)
+                        break
+            return {
+                "action": "MERGE",
+                "id": new_id,
+                "existing_id": target_id,
+                "similarity": similarity,
+            }
+
+        # CREATE
+        new_id = await self.remember(
+            content,
+            type=type,
+            importance=importance,
+            emotion=emotion,
+            entities=entities,
+            visibility=visibility,
+            scope=scope,
+            domain=domain,
+            user_id=user_id,
+            provenance=provenance,
+        )
+        return {
+            "action": "CREATE",
+            "id": new_id,
+            "existing_id": None,
+            "similarity": None,
+        }
+
+    async def curate_agent_procedures(self, *, similarity_threshold: float = 0.6) -> dict:
+        """Curate AGENT-authored procedural memories.
+
+        Idle/scheduled pass for the self-improving skills loop: consolidates
+        overlapping procedures that an autonomous reviewer wrote (provenance
+        AGENT), marking the weaker of each near-duplicate pair superseded. It
+        never inspects or modifies HUMAN-authored procedures and never
+        hard-deletes — superseded entries stay in the store and simply stop
+        surfacing in recall.
+
+        Args:
+            similarity_threshold: Overlap floor for two agent procedures to be
+                treated as near-duplicates. Defaults to 0.6.
+
+        Returns:
+            ``{"considered": int, "consolidated": int, "superseded_ids": list[str]}``.
+        """
+        return await self._memory.consolidate_agent_procedures(
+            similarity_threshold=similarity_threshold
         )
 
     async def recall(
@@ -1267,6 +1667,11 @@ class Soul:
         user_id: str | None = None,
         layer: str | None = None,
         domain: str | None = None,
+        graph_walk: dict | None = None,
+        page_token: str | None = None,
+        token_budget: int | None = None,
+        min_weight: float = _RECALL_WEIGHT_FLOOR,
+        include_superseded: bool = False,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories with visibility + scope filtering.
 
@@ -1292,12 +1697,60 @@ class Soul:
         ``domain`` (#41): when set, results are filtered to entries with
         a matching ``domain``. Default ``None`` returns every domain.
 
+        ``graph_walk`` (#108): when given, restrict results to memories
+        linked to entities reachable from ``graph_walk["start"]`` within
+        ``graph_walk["depth"]`` (default 2) hops. Optional
+        ``graph_walk["edge_types"]`` whitelists relation predicates during
+        traversal. Returned memories rank by combined relevance + graph
+        distance — closer entities surface first.
+
+        ``page_token`` (#108): resume a previous graph_walk recall. The
+        token encodes the original query + walk plus an offset. Pass the
+        ``next_page_token`` attribute of the previous :class:`RecallResults`
+        to read the next page. Mismatched query/walk raises ValueError.
+
+        ``token_budget`` (#108): cap the cumulative content size of returned
+        memories. Once the budget is reached, overflow entries fall back to
+        their L0 abstract (the F1 progressive disclosure mechanism). Budget
+        is in tokens; converted to characters via ~4 chars/token.
+
+        When ``graph_walk`` or ``token_budget`` is used, the return value
+        is a :class:`RecallResults` (a ``list`` subclass) carrying an
+        optional ``next_page_token`` attribute alongside the entries.
+        Existing callers that just iterate over the list keep working.
+
         Populates ``self.last_retrieval`` with a :class:`RetrievalTrace`
         receipt every call, regardless of whether results were found. The
         receipt is in-memory only — never serialised into the ``.soul``
         file. Consumers read it after the call to append to their own log.
         """
         import time as _time
+
+        from soul_protocol.runtime.memory.graph_recall import (
+            RecallResults,
+            apply_token_budget,
+            decode_page_token,
+            encode_page_token,
+            filter_by_graph_walk,
+            rank_with_graph_distance,
+            signature_for_walk,
+        )
+
+        # Resolve page_token first so a mismatched token short-circuits before
+        # we do any work. The token carries both the original walk and the
+        # offset, so we override graph_walk + start offset from the token.
+        token_offset = 0
+        if page_token is not None:
+            payload = decode_page_token(page_token)
+            expected_sig = signature_for_walk(query, graph_walk or payload.get("graph_walk"))
+            if payload.get("signature") != expected_sig:
+                raise ValueError(
+                    "page_token does not match the current query/graph_walk; "
+                    "tokens are bound to the original recall call"
+                )
+            token_offset = int(payload.get("offset", 0))
+            if graph_walk is None:
+                graph_walk = payload.get("graph_walk")
 
         # Resolve effective bond strength: caller-supplied wins, else per-user
         # bond when user_id is set, else default bond.
@@ -1308,9 +1761,16 @@ class Soul:
         else:
             effective_bond = self._bonds.default.bond_strength
         start = _time.monotonic()
+
+        # When graph_walk is active, fetch a wider candidate pool so post-walk
+        # filtering still has a shot at producing ``limit`` results.
+        fetch_limit = limit
+        if graph_walk is not None:
+            fetch_limit = max(limit * 4, 40)
+
         results = await self._memory.recall(
             query=query,
-            limit=limit,
+            limit=fetch_limit,
             types=types,
             min_importance=min_importance,
             requester_id=requester_id,
@@ -1320,13 +1780,91 @@ class Soul:
             user_id=user_id,
             layer=layer,
             domain=domain,
+            min_weight=min_weight,
         )
+        # v0.5.0 (#192) — When include_superseded is True, top up the result
+        # set with superseded entries that the underlying store filtered out.
+        # This is the path the provenance walker uses to walk the chain.
+        if include_superseded:
+            seen_ids = {r.id for r in results}
+            for store in (
+                self._memory._semantic.facts(include_superseded=True),
+                self._memory._episodic.entries(),
+                self._memory._procedural.entries(),
+            ):
+                for entry in store:
+                    if entry.id in seen_ids:
+                        continue
+                    if (
+                        getattr(entry, "superseded_by", None) is not None
+                        and query.lower() in entry.content.lower()
+                    ):
+                        results.append(entry)
+                        seen_ids.add(entry.id)
         if scopes:
             from soul_protocol.spec.scope import match_scope
 
             results = [
                 entry for entry in results if match_scope(getattr(entry, "scope", None), scopes)
             ]
+
+        # ---- Graph-walk filter (#108) ----
+        next_token: str | None = None
+        truncated_for_budget = False
+        total_estimate: int | None = None
+        if graph_walk is not None:
+            graph_view = self.graph
+            distance_map = graph_view.reachable(
+                graph_walk.get("start", ""),
+                depth=int(graph_walk.get("depth", 2)),
+                edge_types=graph_walk.get("edge_types"),
+            )
+            # Build a large candidate pool. The user query gives the initial
+            # relevance order; we augment with all memories that mention any
+            # reachable entity so callers passing a weak query still see the
+            # graph neighborhood. Pulling the full memory set in one pass is
+            # more reliable than per-entity searches that each cap at small
+            # limits and overlap.
+            seen_ids = {r.id for r in results}
+            all_memories: list[MemoryEntry] = []
+            for store in (
+                self._memory._semantic.facts(),
+                self._memory._episodic.entries(),
+                self._memory._procedural.entries(),
+            ):
+                all_memories.extend(store)
+            for entry in all_memories:
+                if entry.id not in seen_ids:
+                    results.append(entry)
+                    seen_ids.add(entry.id)
+
+            filtered, _ = filter_by_graph_walk(results, graph_walk, graph_view)
+            ranked = rank_with_graph_distance(filtered, distance_map)
+            total_estimate = len(ranked)
+
+            # Apply offset for resuming pagination
+            page = ranked[token_offset : token_offset + limit]
+
+            # Pagination — if we have more, mint a token for the caller
+            consumed = token_offset + len(page)
+            if consumed < total_estimate:
+                next_token = encode_page_token(
+                    {
+                        "query": query,
+                        "graph_walk": graph_walk,
+                        "offset": consumed,
+                        "signature": signature_for_walk(query, graph_walk),
+                    }
+                )
+            results = page
+        else:
+            # No graph_walk — keep the standard slice semantics
+            results = list(results)[:limit]
+
+        # ---- Token-budget overflow (#108) ----
+        if token_budget is not None and token_budget > 0:
+            results, truncated_for_budget = apply_token_budget(results, token_budget)
+
         elapsed_ms = int((_time.monotonic() - start) * 1000)
         self._last_retrieval = _build_trace(
             query=query,
@@ -1337,6 +1875,32 @@ class Soul:
         )
         if not results:
             logger.debug("Recall returned no results: query_len=%d", len(query))
+
+        # v0.5.0 (#192) — Open the reconsolidation window for every returned
+        # entry. update() consults this map to decide whether an in-place
+        # patch is allowed within the 1h post-recall window. LRU eviction
+        # keeps the map bounded.
+        for entry in results:
+            self._open_reconsolidation_window(entry.id)
+
+        # v0.5.0 (#192) — Provenance sidecar. Reset and rebuild on every
+        # recall so callers always see fresh chains for the entries this
+        # call actually returned.
+        self._last_recall_provenance = {}
+        for entry in results:
+            chain = self._walk_supersedes_chain(entry.id)
+            if chain:
+                self._last_recall_provenance[entry.id] = chain
+
+        # Wrap when graph features are in play so the caller sees the token.
+        # Otherwise return a plain list to keep the legacy contract bit-stable.
+        if graph_walk is not None or token_budget is not None or page_token is not None:
+            return RecallResults(
+                results,
+                next_page_token=next_token,
+                total_estimate=total_estimate,
+                truncated_for_budget=truncated_for_budget,
+            )
         return results
 
     async def smart_recall(
@@ -1449,15 +2013,36 @@ class Soul:
         # Delegate to psychology-informed memory pipeline
         result = await self._memory.observe(interaction, user_id=user_id, domain=domain)
 
-        # Update knowledge graph from extracted entities
+        # Update knowledge graph from extracted entities. We snapshot
+        # entity/edge state before and after the update so we can emit
+        # trust-chain entries for the *net-new* additions only.
         raw_entities = result["entities"]
+        before_entities = set(self._memory._graph._entities.keys())
+        before_edges = {
+            (e.source, e.target, e.relation)
+            for e in self._memory._graph._edges
+            if e.is_currently_active()
+        }
         if raw_entities:
             graph_entities: list[dict] = []
             for ent in raw_entities:
                 graph_ent: dict = {
                     "name": ent["name"],
                     "entity_type": ent.get("type", "unknown"),
-                    "relationships": [],
+                    # Preserve any entity-to-entity edges the extractor
+                    # produced. The legacy code dropped these — keeping them
+                    # is required for the typed graph API to actually have
+                    # edges to traverse.
+                    "relationships": list(ent.get("relationships", [])),
+                    # Forward the LLM extractor's edge_metadata (carrying
+                    # source_memory_id + extracted_at) so edges record their
+                    # provenance. update_graph() reads this dict.
+                    "edge_metadata": ent.get("edge_metadata"),
+                    # New v0.5.0: forward source_memory_id so the entity's
+                    # provenance list grows on each touch.
+                    "source_memory_id": (ent.get("edge_metadata") or {}).get("source_memory_id"),
+                    # Optional weight from LLM extractor (#190 phase 2)
+                    "weight": ent.get("weight"),
                 }
                 relation = ent.get("relation")
                 if relation:
@@ -1465,6 +2050,36 @@ class Soul:
                 graph_entities.append(graph_ent)
 
             await self._memory.update_graph(graph_entities)
+
+        # Compute deltas and emit trust-chain entries for net-new graph state.
+        after_entities = set(self._memory._graph._entities.keys())
+        after_edges = {
+            (e.source, e.target, e.relation)
+            for e in self._memory._graph._edges
+            if e.is_currently_active()
+        }
+        new_entities = after_entities - before_entities
+        new_edges = after_edges - before_edges
+        for entity_name in sorted(new_entities):
+            etype = self._memory._graph._entities.get(entity_name, "unknown")
+            self._safe_append_chain(
+                "graph.entity_added",
+                {
+                    "entity_id": entity_name,
+                    "type": etype,
+                    "source": result.get("episodic_id"),
+                },
+            )
+        for source_name, target_name, relation_name in sorted(new_edges):
+            self._safe_append_chain(
+                "graph.relation_added",
+                {
+                    "source": source_name,
+                    "target": target_name,
+                    "relation": relation_name,
+                    "memory": result.get("episodic_id"),
+                },
+            )
 
         # Update state based on interaction + detected sentiment
         self._state.on_interaction(interaction, somatic=result.get("somatic"))
@@ -1545,7 +2160,7 @@ class Soul:
                 "count": len(all_ids),
                 "ids": all_ids,
             },
-        )
+        )  # Summary defaults to the registry formatter — "<count> memor(y|ies)".
 
     async def forget_by_id(self, memory_id: str) -> bool:
         """Soul forgets a specific memory by ID. Returns True on hit.
@@ -1558,11 +2173,17 @@ class Soul:
         return await self._memory.remove(memory_id)
 
     async def forget_one(self, memory_id: str) -> dict:
-        """Audited single-id deletion. Returns a dict with deletion results.
+        """Audited single-id deletion (LEGACY, pre-0.5.0).
 
-        Same shape as :meth:`forget` / :meth:`forget_entity` / :meth:`forget_before`
-        plus ``found`` and ``tier`` keys.  Records a deletion audit entry
-        (without the deleted content) when the entry exists.
+        DEPRECATED: as of v0.5.0 (#192), prefer :meth:`forget` for the
+        non-destructive weight-decay path or :meth:`purge` for the
+        explicit GDPR / privacy hard delete. This method keeps the
+        v0.4.x hard-delete behaviour so existing CLI flows that wrap it
+        directly still work.
+
+        Same shape as :meth:`forget_entity` / :meth:`forget_before`
+        plus ``found`` and ``tier`` keys.  Records a deletion audit
+        entry (without the deleted content) when the entry exists.
 
         Appends a ``memory.forget`` entry to the trust chain on success
         with ``{id, tier}`` payload (#42).
@@ -1572,8 +2193,345 @@ class Soul:
             self._safe_append_chain(
                 "memory.forget",
                 {"id": memory_id, "tier": result.get("tier")},
-            )
+            )  # Summary defaults to "deleted <tier>/<id-prefix>".
         return result
+
+    # ============ v0.5.0 (#192) — Brain-aligned memory update primitives ============
+
+    def _open_reconsolidation_window(self, memory_id: str) -> None:
+        """Mark ``memory_id`` as having an open reconsolidation window.
+
+        Called by :meth:`recall` for every entry surfaced. The window
+        stays open for ``_RECONSOLIDATION_WINDOW_TTL_SECONDS`` (1 hour)
+        and gates :meth:`update`. The map is LRU-capped: when it would
+        exceed ``_RECONSOLIDATION_WINDOW_MAX`` entries we drop the
+        oldest by timestamp before adding the new one.
+        """
+        now = datetime.now()
+        self._reconsolidation_window[memory_id] = now
+        if len(self._reconsolidation_window) > _RECONSOLIDATION_WINDOW_MAX:
+            # Drop the oldest entry (smallest timestamp) until under cap.
+            while len(self._reconsolidation_window) > _RECONSOLIDATION_WINDOW_MAX:
+                oldest_id = min(
+                    self._reconsolidation_window,
+                    key=lambda k: self._reconsolidation_window[k],
+                )
+                del self._reconsolidation_window[oldest_id]
+
+    def _is_reconsolidation_window_open(self, memory_id: str) -> tuple[bool, datetime | None]:
+        """Return ``(is_open, opened_at)`` for ``memory_id``.
+
+        The window is open when the entry is in the map AND its timestamp
+        is within the TTL. Stale entries are evicted on lookup so the map
+        stays small even between LRU sweeps.
+        """
+        opened_at = self._reconsolidation_window.get(memory_id)
+        if opened_at is None:
+            return False, None
+        elapsed = (datetime.now() - opened_at).total_seconds()
+        if elapsed > _RECONSOLIDATION_WINDOW_TTL_SECONDS:
+            self._reconsolidation_window.pop(memory_id, None)
+            return False, opened_at
+        return True, opened_at
+
+    def _walk_supersedes_chain(self, memory_id: str) -> list[dict]:
+        """Walk ``supersedes`` back-edges from ``memory_id`` to the oldest
+        known version. Returns a list of provenance link dicts.
+
+        Each link is ``{kind, target_id, reason, prediction_error,
+        timestamp}`` where ``target_id`` is the older entry's id. The list
+        is empty for entries with no ``supersedes`` link. Audit-trail
+        lookup falls back to the in-memory ``supersede_audit`` for the
+        ``reason`` and ``timestamp`` since those are not stored on the
+        entry itself.
+        """
+        # Build an audit lookup keyed by (old_id, new_id) so we can resolve
+        # the reason/timestamp for each chain hop.
+        audit = self._memory.supersede_audit
+        audit_lookup: dict[str, dict] = {}
+        for record in audit:
+            new_id = record.get("new_id")
+            if new_id:
+                audit_lookup[new_id] = record
+
+        chain: list[dict] = []
+        cursor_id = memory_id
+        # Bounded walk — soul memory chains shouldn't realistically exceed
+        # this depth, and a hard cap protects against accidental cycles.
+        for _ in range(64):
+            cursor, _tier = self._memory_lookup_sync(cursor_id)
+            if cursor is None or not cursor.supersedes:
+                break
+            target_id = cursor.supersedes
+            record = audit_lookup.get(cursor_id, {})
+            chain.append(
+                {
+                    "kind": "supersedes",
+                    "target_id": target_id,
+                    "reason": record.get("reason"),
+                    "prediction_error": cursor.prediction_error or record.get("prediction_error"),
+                    "timestamp": record.get("superseded_at"),
+                }
+            )
+            cursor_id = target_id
+        return chain
+
+    def _memory_lookup_sync(self, memory_id: str) -> tuple[MemoryEntry | None, str | None]:
+        """Synchronous lookup across all built-in stores.
+
+        Used by the provenance walker, which is called inline from the
+        async ``recall`` path. The stores are pure dicts so no awaits are
+        needed; we read directly to avoid event-loop hops inside a single
+        call.
+        """
+        episodic = self._memory._episodic._memories.get(memory_id)
+        if episodic is not None:
+            return episodic, "episodic"
+        semantic = self._memory._semantic._facts.get(memory_id)
+        if semantic is not None:
+            return semantic, "semantic"
+        procedural = self._memory._procedural._procedures.get(memory_id)
+        if procedural is not None:
+            return procedural, "procedural"
+        return None, None
+
+    @property
+    def last_recall_provenance(self) -> dict[str, list[dict]]:
+        """Provenance sidecar for the most recent recall.
+
+        Returns a mapping from each returned memory_id to its
+        ``supersedes`` chain (list of provenance links walking back to
+        the oldest version). Empty when the last recall returned no
+        entries with chain links. Reset on every :meth:`recall` call.
+        """
+        return dict(self._last_recall_provenance)
+
+    async def confirm(
+        self,
+        memory_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> dict:
+        """Refresh activation on an entry the caller has just verified.
+
+        v0.5.0 (#192). Confirms re-up the entry's recall metadata: bumps
+        ``last_accessed``, increments ``access_count``, and clamps the
+        ``retrieval_weight`` back toward 1.0 if it has decayed below
+        full strength. PE is implicitly ~0 — confirm is the verb for
+        "this is still right." Always allowed (no PE band check, no
+        window check).
+
+        Appends a ``memory.confirm`` chain entry with ``{id, weight_after,
+        user_id}``.
+
+        Returns ``{found, id, action: "confirmed", weight}``. When
+        ``memory_id`` doesn't resolve, returns ``{found: False}`` with
+        no chain entry.
+        """
+        entry, tier = await self._memory.find_by_id(memory_id)
+        if entry is None or tier is None:
+            return {"found": False, "id": memory_id, "action": "confirmed", "weight": None}
+        now = datetime.now()
+        entry.last_accessed = now
+        entry.access_count += 1
+        entry.access_timestamps.append(now)
+        # Clamp weight back toward 1.0 — confirm restores a decayed but
+        # still-recallable entry. Forgotten entries (weight 0.05) need
+        # reinstate(), not confirm — keep the verbs distinct.
+        if entry.retrieval_weight < 1.0 and entry.retrieval_weight >= _RECALL_WEIGHT_FLOOR:
+            entry.retrieval_weight = 1.0
+        self._safe_append_chain(
+            "memory.confirm",
+            {
+                "id": memory_id,
+                "tier": tier,
+                "weight_after": entry.retrieval_weight,
+                "user_id": user_id,
+            },
+        )
+        return {
+            "found": True,
+            "id": memory_id,
+            "tier": tier,
+            "action": "confirmed",
+            "weight": entry.retrieval_weight,
+        }
+
+    async def update(
+        self,
+        memory_id: str,
+        patch: str,
+        *,
+        prediction_error: float = 0.5,
+        user_id: str | None = None,
+    ) -> dict:
+        """In-place patch within the reconsolidation window (PE in [0.2, 0.85)).
+
+        v0.5.0 (#192). Edits the entry's content directly when the entry
+        was surfaced via :meth:`recall` within the last hour. Outside the
+        window the trace is "stable again" and an in-place edit is unsafe;
+        :class:`ReconsolidationWindowClosedError` is raised so the caller
+        promotes to :meth:`supersede`.
+
+        PE must satisfy 0.2 <= PE < 0.85. PE outside the band raises
+        :class:`PredictionErrorOutOfBandError`. PE below 0.2 means
+        confirm; PE >= 0.85 means supersede.
+
+        Bumps ``last_accessed`` and ``access_count`` on the entry, stamps
+        the ``prediction_error`` field, and resets ``retrieval_weight``
+        to 1.0 (the edit re-affirms the trace).
+
+        Appends a ``memory.update`` chain entry with ``{id, tier,
+        prediction_error, user_id}``.
+
+        Returns ``{found, id, action: "updated", new_content}``.
+        """
+        from .exceptions import (
+            PredictionErrorOutOfBandError,
+            ReconsolidationWindowClosedError,
+        )
+
+        if not (_PE_UPDATE_MIN <= prediction_error < _PE_UPDATE_MAX):
+            raise PredictionErrorOutOfBandError(
+                "update",
+                prediction_error,
+                f"{_PE_UPDATE_MIN} <= PE < {_PE_UPDATE_MAX}",
+            )
+        if not patch:
+            raise ValueError("update() requires a non-empty patch")
+
+        is_open, opened_at = self._is_reconsolidation_window_open(memory_id)
+        if not is_open:
+            raise ReconsolidationWindowClosedError(
+                memory_id,
+                opened_at.isoformat() if opened_at else None,
+            )
+
+        result = await self._memory.update_in_place(
+            memory_id,
+            patch,
+            prediction_error=prediction_error,
+        )
+        if not result.get("found"):
+            return {
+                "found": False,
+                "id": memory_id,
+                "action": "updated",
+                "new_content": None,
+            }
+        # The edit re-affirms the trace; restore weight to 1.0.
+        entry, _tier = await self._memory.find_by_id(memory_id)
+        if entry is not None:
+            entry.retrieval_weight = 1.0
+        # Refresh the window — the trace was just touched.
+        self._open_reconsolidation_window(memory_id)
+        self._safe_append_chain(
+            "memory.update",
+            {
+                "id": memory_id,
+                "tier": result.get("tier"),
+                "prediction_error": prediction_error,
+                "user_id": user_id,
+            },
+        )
+        return {
+            "found": True,
+            "id": memory_id,
+            "tier": result.get("tier"),
+            "action": "updated",
+            "new_content": patch,
+        }
+
+    async def purge(
+        self,
+        memory_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> dict:
+        """Hard delete with prior-payload-hash audit trail.
+
+        v0.5.0 (#192). The destructive path reserved for GDPR / privacy /
+        safety obligations. The entry is removed from storage and the
+        chain records the deletion with the SHA-256 of the prior content
+        — verifiers can later prove the entry once existed and was
+        deleted, without storing the content itself.
+
+        ``reinstate`` cannot recover a purged entry (the data is gone).
+        For non-destructive suppression, use :meth:`forget` instead.
+
+        Appends a ``memory.purge`` chain entry with ``{id, tier,
+        prior_payload_hash, user_id}``.
+
+        Returns ``{found, id, action: "purged"}``.
+        """
+        result = await self._memory.purge_by_id(memory_id)
+        if not result.get("found"):
+            return {"found": False, "id": memory_id, "action": "purged"}
+        # Drop window + provenance state — the entry is gone.
+        self._reconsolidation_window.pop(memory_id, None)
+        self._last_recall_provenance.pop(memory_id, None)
+        self._safe_append_chain(
+            "memory.purge",
+            {
+                "id": memory_id,
+                "tier": result.get("tier"),
+                "prior_payload_hash": result.get("prior_payload_hash"),
+                "user_id": user_id,
+            },
+        )
+        return {
+            "found": True,
+            "id": memory_id,
+            "tier": result.get("tier"),
+            "action": "purged",
+            "prior_payload_hash": result.get("prior_payload_hash"),
+        }
+
+    async def reinstate(
+        self,
+        memory_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> dict:
+        """Restore a forgotten entry to full retrieval weight.
+
+        v0.5.0 (#192). The inverse of :meth:`forget`. Sets
+        ``retrieval_weight`` to 1.0. No-op when the entry is already at
+        full weight — the chain entry is still emitted for audit
+        completeness when ``found`` is True. Returns ``{found: False}``
+        without a chain entry when the id can't be resolved (typically
+        because :meth:`purge` removed it).
+
+        Appends a ``memory.reinstate`` chain entry with ``{id, tier,
+        weight_before, weight_after, user_id}``.
+
+        Returns ``{found, id, action: "reinstated", weight}``.
+        """
+        result = await self._memory.set_retrieval_weight(memory_id, _REINSTATE_WEIGHT)
+        if not result.get("found"):
+            return {
+                "found": False,
+                "id": memory_id,
+                "action": "reinstated",
+                "weight": None,
+            }
+        self._safe_append_chain(
+            "memory.reinstate",
+            {
+                "id": memory_id,
+                "tier": result.get("tier"),
+                "weight_before": result.get("weight_before"),
+                "weight_after": result.get("weight_after"),
+                "user_id": user_id,
+            },
+        )
+        return {
+            "found": True,
+            "id": memory_id,
+            "tier": result.get("tier"),
+            "action": "reinstated",
+            "weight": result.get("weight_after"),
+        }
 
     async def supersede(
         self,
@@ -1585,6 +2543,8 @@ class Soul:
         memory_type: MemoryType | None = None,
         emotion: str | None = None,
         entities: list[str] | None = None,
+        prediction_error: float = _PE_SUPERSEDE_MIN,
+        user_id: str | None = None,
     ) -> dict:
         """Mark ``old_id`` as superseded by a newly-written memory.
 
@@ -1593,14 +2553,31 @@ class Soul:
         provenance is preserved.  Search filters out superseded entries by
         default, so recall surfaces the new memory.
 
+        v0.5.0 (#192): the new entry's ``supersedes`` back-edge is set to
+        ``old_id`` (the inverse of the existing ``superseded_by`` field). The
+        ``prediction_error`` is recorded on the new entry. Default PE is
+        ``0.85``, the supersede band — pass a higher value when the change is
+        more orthogonal. PE below 0.85 raises
+        :class:`PredictionErrorOutOfBandError` because that range is the
+        ``update`` verb's territory.
+
         ``memory_type`` defaults to the old entry's tier — pass it only when
         correcting a fact stored in the wrong tier.  Records to the
         :attr:`supersede_audit` trail.
 
         Returns a dict with ``found`` / ``old_id`` / ``new_id`` / ``tier`` /
-        ``reason``.  If ``old_id`` does not resolve, ``found`` is False and
-        no new memory is written.
+        ``reason`` / ``prediction_error``. If ``old_id`` does not resolve,
+        ``found`` is False and no new memory is written.
         """
+        from .exceptions import PredictionErrorOutOfBandError
+
+        if prediction_error < _PE_SUPERSEDE_MIN:
+            raise PredictionErrorOutOfBandError(
+                "supersede",
+                prediction_error,
+                f"PE >= {_PE_SUPERSEDE_MIN}",
+            )
+
         result = await self._memory.supersede(
             old_id,
             new_content,
@@ -1609,33 +2586,144 @@ class Soul:
             memory_type=memory_type,
             emotion=emotion,
             entities=entities,
+            prediction_error=prediction_error,
         )
         if result.get("found"):
+            # The reconsolidation window for the old entry no longer
+            # applies once it's been superseded — the trace is replaced,
+            # not edited in place.
+            self._reconsolidation_window.pop(old_id, None)
             # v0.4.0 (#42) — Trust chain entry for the supersede action.
+            # Summary defaults to "replaced <old_id-prefix> with <new_id-prefix>"
+            # — see _fmt_memory_supersede in trust/manager.py.
             self._safe_append_chain(
                 "memory.supersede",
                 {
                     "old_id": result.get("old_id"),
                     "new_id": result.get("new_id"),
                     "reason": result.get("reason"),
+                    "prediction_error": prediction_error,
                 },
             )
         return result
 
-    async def forget(self, query: str) -> dict:
-        """Forget memories matching a query across all tiers.
+    async def forget(self, query_or_id: str, *, user_id: str | None = None) -> dict:
+        """Forget memories — single-id or bulk query.
 
-        Searches episodic, semantic, and procedural memory stores for
-        content matching the query, and deletes all matches. Records
-        a deletion audit entry (without storing deleted content).
+        v0.5.0 (#192) **semantic shift.** ``forget`` no longer hard-deletes.
+        It drops ``MemoryEntry.retrieval_weight`` to 0.05 (below the recall
+        floor of 0.1), making the entry invisible to recall but recoverable
+        via :meth:`reinstate`. To genuinely destroy data, use :meth:`purge`
+        (the GDPR / privacy / safety path that writes a ``.soul.bak``).
 
-        Args:
-            query: Search query to match against memory content.
+        Dispatch:
+          - If ``query_or_id`` resolves to a known memory id, this is the
+            single-id verb. Returns ``{found, id, action: "forgotten",
+            weight, tier}`` and appends a ``memory.forget`` chain entry
+            with ``{id, tier, weight_after}``.
+          - Otherwise it is the bulk query path (back-compat for
+            pre-0.5.0 ``Soul.forget(query)``). Every match has its
+            retrieval_weight dropped to 0.05. Returns the legacy shape
+            ``{episodic, semantic, procedural, total}``.
 
-        Returns:
-            Dict with deletion results per tier and total count.
+        Note that the action name on the chain is unchanged from 0.4.0
+        (``memory.forget``) — only the payload shape grows. ``user_id``
+        is currently a forward-looking arg recorded on the chain entry.
         """
-        return await self._memory.forget(query)
+        # Single-id path: try to resolve query_or_id as a memory id first.
+        entry, tier = await self._memory.find_by_id(query_or_id)
+        if entry is not None and tier is not None:
+            result = await self._memory.set_retrieval_weight(query_or_id, _FORGET_WEIGHT_TARGET)
+            self._safe_append_chain(
+                "memory.forget",
+                {
+                    "id": query_or_id,
+                    "tier": result.get("tier"),
+                    "weight_after": result.get("weight_after"),
+                    "user_id": user_id,
+                },
+            )
+            # Drop window state — a forgotten entry shouldn't be editable.
+            self._reconsolidation_window.pop(query_or_id, None)
+            return {
+                "found": True,
+                "id": query_or_id,
+                "tier": result.get("tier"),
+                "action": "forgotten",
+                "weight": result.get("weight_after"),
+            }
+
+        # Bulk query path (legacy shape). Decay every match instead of
+        # deleting. Recall's default min_weight floor of 0.1 hides the
+        # decayed entries; the legacy "Alice memories should be gone"
+        # contract still holds even though the entries persist on disk.
+        return await self._forget_bulk(query_or_id, user_id=user_id)
+
+    async def _forget_bulk(self, query: str, *, user_id: str | None = None) -> dict:
+        """Bulk weight-decay path for the legacy ``forget(query)`` surface.
+
+        Iterates the three built-in tiers, sets ``retrieval_weight`` to
+        0.05 on every entry whose content matches the query (token-overlap
+        relevance > 0). Returns the same dict shape as the pre-0.5.0
+        ``MemoryManager.forget`` so existing callers keep working.
+        """
+        from soul_protocol.runtime.memory.search import relevance_score
+
+        episodic_ids: list[str] = []
+        semantic_ids: list[str] = []
+        procedural_ids: list[str] = []
+        for entry in list(self._memory._episodic.entries()):
+            if relevance_score(query, entry.content) > 0.0:
+                entry.retrieval_weight = _FORGET_WEIGHT_TARGET
+                episodic_ids.append(entry.id)
+                self._reconsolidation_window.pop(entry.id, None)
+        for fact in list(self._memory._semantic.facts(include_superseded=True)):
+            if relevance_score(query, fact.content) > 0.0:
+                fact.retrieval_weight = _FORGET_WEIGHT_TARGET
+                semantic_ids.append(fact.id)
+                self._reconsolidation_window.pop(fact.id, None)
+        for entry in list(self._memory._procedural.entries()):
+            if relevance_score(query, entry.content) > 0.0:
+                entry.retrieval_weight = _FORGET_WEIGHT_TARGET
+                procedural_ids.append(entry.id)
+                self._reconsolidation_window.pop(entry.id, None)
+
+        total = len(episodic_ids) + len(semantic_ids) + len(procedural_ids)
+        if total > 0:
+            from datetime import UTC
+
+            # Mirror the legacy deletion_audit shape so 0.4.x callers that
+            # read `soul.deletion_audit` after a bulk forget see an entry.
+            # The action shifted from delete to weight-decay but the audit
+            # still tells the operator "these memories were forgotten."
+            self._memory._deletion_audit.append(
+                {
+                    "deleted_at": datetime.now(UTC).isoformat(),
+                    "count": total,
+                    "reason": f"forget(query='{query}')",
+                    "tiers": {
+                        "episodic": len(episodic_ids),
+                        "semantic": len(semantic_ids),
+                        "procedural": len(procedural_ids),
+                    },
+                }
+            )
+            self._safe_append_chain(
+                "memory.forget",
+                {
+                    "query": query,
+                    "tier": None,
+                    "count": total,
+                    "weight_after": _FORGET_WEIGHT_TARGET,
+                    "user_id": user_id,
+                },
+            )
+        return {
+            "episodic": episodic_ids,
+            "semantic": semantic_ids,
+            "procedural": procedural_ids,
+            "total": total,
+        }
 
     async def forget_entity(self, entity: str) -> dict:
         """Forget an entity and all related memories.
@@ -1986,6 +3074,10 @@ class Soul:
             event.evaluation_score or 0.0,
         )
         # v0.4.0 (#42) — Trust chain entry for the learning event.
+        # Custom summary because the payload omits ``summary`` — the registry
+        # default would say "learning event" with no detail. Include domain
+        # and score so the audit log surfaces what was learned and how well.
+        score_text = f"{event.evaluation_score:.2f}" if event.evaluation_score is not None else "?"
         self._safe_append_chain(
             "learning.event",
             {
@@ -1994,6 +3086,7 @@ class Soul:
                 "score": event.evaluation_score,
                 "interaction_id": getattr(event, "interaction_id", None),
             },
+            summary=f"{event.domain} (score {score_text})",
         )
         return event
 
@@ -2035,6 +3128,8 @@ class Soul:
             new_value=new_value,
             reason=reason,
         )
+        # Custom summary so audit shows "<trait> -> <new_value>" instead of just
+        # the trait name (the registry default for evolution.proposed).
         self._safe_append_chain(
             "evolution.proposed",
             {
@@ -2043,6 +3138,7 @@ class Soul:
                 "new_value": new_value,
                 "reason": reason,
             },
+            summary=f"{trait} -> {new_value}",
         )
         return mutation
 
@@ -2056,9 +3152,21 @@ class Soul:
         if result:
             self._dna = self._evolution.apply(self._dna, mutation_id)
             logger.info("Evolution approved and applied: mutation_id=%s", mutation_id)
+            # The chain payload is just the id. Resolve the trait/new_value
+            # from history so the summary shows what actually changed
+            # ("applied warmth -> high"), not just "applied mutation".
+            applied = next(
+                (m for m in self._evolution.history if getattr(m, "id", None) == mutation_id),
+                None,
+            )
+            if applied is not None:
+                summary = f"applied {applied.trait} -> {applied.new_value}"
+            else:
+                summary = f"applied mutation {mutation_id[:8]}"
             self._safe_append_chain(
                 "evolution.applied",
                 {"mutation_id": mutation_id},
+                summary=summary,
             )
         return result
 

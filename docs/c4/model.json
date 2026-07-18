@@ -1,0 +1,127 @@
+{
+  "version": "1.0",
+  "scope": "soul-protocol",
+  "generated_at": "2026-06-21T12:30:00Z",
+  "source_path": "/Users/prakash-1/Documents/paw-workspace/soul-protocol",
+  "authored": true,
+  "model": {
+    "people": [],
+    "systems": [
+      {
+        "id": "soul-protocol",
+        "name": "Soul Protocol",
+        "description": "Portable, open protocol for persistent AI companion identity. Souls remember, evolve, feel, and migrate between platforms. Ships as a Python SDK with a Click CLI and a FastMCP server.",
+        "tags": ["internal"],
+        "containers": [
+          {
+            "id": "soul-protocol-sdk",
+            "name": "Soul Protocol SDK",
+            "description": "The Python library: runtime lifecycle, 5-tier memory, trust chain, identity, evolution, export, plus a Click CLI and a FastMCP server for agent integration.",
+            "technology": "Python 3.12, Pydantic, Click, FastMCP",
+            "tags": ["internal"],
+            "kb_article": "",
+            "components": [
+              {
+                "id": "runtime",
+                "name": "Runtime",
+                "description": "Soul class lifecycle: birth/awaken, observe/remember/note/recall/dream. Central orchestrator that wires all subsystems together and drives the soul through its active session. src/soul_protocol/runtime/soul.py",
+                "technology": "Python",
+                "kb_article": ""
+              },
+              {
+                "id": "memory-tiers",
+                "name": "Memory Tiers",
+                "description": "5-tier memory architecture (core, episodic, semantic, procedural, social) plus a KnowledgeGraph tier for entity-relationship recall. MemoryManager routes writes and searches across all tiers. src/soul_protocol/runtime/memory/",
+                "technology": "Python, SQLite",
+                "kb_article": ""
+              },
+              {
+                "id": "dedup",
+                "name": "Dedup",
+                "description": "reconcile_fact() uses Jaccard + containment-coefficient token overlap to classify incoming memories as SKIP (>0.85, near-duplicate), MERGE (0.6–0.85, update existing), or CREATE (<0.6, genuinely new). src/soul_protocol/runtime/memory/dedup.py",
+                "technology": "Python",
+                "kb_article": ""
+              },
+              {
+                "id": "identity",
+                "name": "Identity",
+                "description": "DID generation (did:soul:<name>-<hex-suffix>) and per-user bond tracking via BondRegistry. Multi-bond targets allow one soul to maintain distinct relationship contexts per user. src/soul_protocol/runtime/identity/did.py + runtime/bond.py",
+                "technology": "Python",
+                "kb_article": ""
+              },
+              {
+                "id": "personality",
+                "name": "Personality",
+                "description": "OCEAN Big Five personality model (openness/conscientiousness/extraversion/agreeableness/neuroticism, each 0–1), CommunicationStyle, and Biorhythms. Modulates memory recall and response tone. src/soul_protocol/runtime/types.py",
+                "technology": "Python, Pydantic",
+                "kb_article": ""
+              },
+              {
+                "id": "trust-chain",
+                "name": "Trust Chain",
+                "description": "Ed25519 append-only signed chain that records every soul mutation. TrustChainManager owns the chain and signs new entries; supports pruning and verification. src/soul_protocol/runtime/trust/manager.py + runtime/crypto/ed25519.py",
+                "technology": "Python, cryptography",
+                "kb_article": ""
+              },
+              {
+                "id": "evolution",
+                "name": "Evolution",
+                "description": "Trait-mutation system with three modes: DISABLED (no mutations), SUPERVISED (mutations queue as pending until approved), AUTONOMOUS (mutations auto-approved on proposal). EvolutionManager drives propose/approve/apply. src/soul_protocol/runtime/evolution/manager.py",
+                "technology": "Python",
+                "kb_article": ""
+              },
+              {
+                "id": "export-format",
+                "name": "Export Format",
+                "description": ".soul zip archive: pack/unpack with optional AES-256-GCM encryption (password-derived via scrypt). Private key inclusion is caller-controlled. Keystore manages key material on disk. src/soul_protocol/runtime/export/ + runtime/crypto/keystore.py + runtime/crypto/encrypt.py",
+                "technology": "Python, cryptography",
+                "kb_article": ""
+              },
+              {
+                "id": "cli",
+                "name": "CLI",
+                "description": "Click CLI with 50+ commands: birth, init, observe, remember, recall, note, dream, feel, inject, evolve, bond, verify, audit, graph, and more. Entry point for human operators and shell scripts. src/soul_protocol/cli/main.py",
+                "technology": "Python, Click, Rich",
+                "kb_article": ""
+              },
+              {
+                "id": "mcp-server",
+                "name": "MCP Server",
+                "description": "FastMCP server exposing 36 tools (31 soul + 5 context) for AI agent integration. SoulRegistry enables multi-soul management from one server process via SOUL_DIR scanning. src/soul_protocol/mcp/server.py",
+                "technology": "Python, FastMCP",
+                "kb_article": ""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "pocketpaw",
+        "name": "PocketPaw",
+        "description": "External: self-hosted agentic OS that consumes soul-protocol as its persistent memory and identity layer for AI companions.",
+        "tags": ["external"],
+        "containers": []
+      },
+      {
+        "id": "claude-code",
+        "name": "Claude Code",
+        "description": "External: AI coding assistant that connects to soul-protocol via MCP to read and write persistent soul memories across sessions.",
+        "tags": ["external"],
+        "containers": []
+      }
+    ],
+    "relationships": [
+      {"source": "runtime", "target": "memory-tiers", "description": "reads and writes memories across all tiers", "technology": "", "style": "sync"},
+      {"source": "runtime", "target": "dedup", "description": "reconciles incoming facts before storing", "technology": "", "style": "sync"},
+      {"source": "runtime", "target": "trust-chain", "description": "appends signed entry on every mutation", "technology": "", "style": "async"},
+      {"source": "runtime", "target": "identity", "description": "resolves DID and per-user bond context", "technology": "", "style": "sync"},
+      {"source": "runtime", "target": "personality", "description": "applies OCEAN traits to recall and response tone", "technology": "", "style": "sync"},
+      {"source": "runtime", "target": "evolution", "description": "proposes and applies trait mutations", "technology": "", "style": "sync"},
+      {"source": "runtime", "target": "export-format", "description": "packs and unpacks .soul archives", "technology": "", "style": "sync"},
+      {"source": "cli", "target": "runtime", "description": "drives all soul operations via Click commands", "technology": "", "style": "sync"},
+      {"source": "mcp-server", "target": "runtime", "description": "exposes soul operations as MCP tools", "technology": "MCP/stdio", "style": "sync"},
+      {"source": "pocketpaw", "target": "mcp-server", "description": "loads/saves companion memory via MCP tools", "technology": "MCP", "style": "sync"},
+      {"source": "claude-code", "target": "mcp-server", "description": "reads and writes session memories via MCP tools", "technology": "MCP", "style": "sync"}
+    ]
+  }
+}

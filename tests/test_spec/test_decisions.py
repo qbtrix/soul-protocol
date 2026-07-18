@@ -1,4 +1,10 @@
 # test_spec/test_decisions.py — Tests for the decision-trace spec.
+# Updated: feat/rfc-09-slice-1-decision-vocabulary — cover the RFC 09
+# Decision Graph builders: ``decision.completed`` registration in
+# ACTION_NAMESPACES, ``build_policy_event`` payload shape, three
+# completion-status variants for ``build_completion_event``, and the
+# ``trace_decision_chain`` filter extension that follows
+# ``decision.completed`` (kept ``decision.graduated`` behavior intact).
 # Created: feat/decision-traces — Workstream D of Org Architecture RFC (PR #164).
 # Covers: JSON round-trips, disposition Literal enforcement, builder helpers
 # emit the right actions + payload shapes, find_corrections_for filters on
@@ -22,7 +28,9 @@ from soul_protocol.spec import (
     AgentProposal,
     DecisionGraduation,
     HumanCorrection,
+    build_completion_event,
     build_correction_event,
+    build_policy_event,
     build_proposal_event,
     cluster_correction_patterns,
     find_corrections_for,
@@ -152,6 +160,18 @@ def test_namespaces_include_decision_actions():
     assert "agent.proposed" in ACTION_NAMESPACES
     assert "human.corrected" in ACTION_NAMESPACES
     assert "decision.graduated" in ACTION_NAMESPACES
+    # RFC 07 — projection-update event that mutates an already-emitted
+    # Decision's outcome field. Registered additively in the journal's
+    # action catalog so the chain projection can recognize it.
+    assert "decision.outcome_attached" in ACTION_NAMESPACES
+    # RFC 09 — canonical chain-closing terminal event for Decision
+    # Graph chains. Distinct from ``decision.graduated`` (kept above
+    # for backward compat with the pattern-promotion subsystem).
+    assert "decision.completed" in ACTION_NAMESPACES
+    # RFC 09 chain-forming event (Instinct gate evaluations) — already
+    # in the catalog under the Graduation & Policy block, asserted here
+    # to lock the vocabulary alongside the RFC 09 builders.
+    assert "policy.evaluated" in ACTION_NAMESPACES
 
 
 def test_build_proposal_event_shape(drafter: Actor):
@@ -196,6 +216,124 @@ def test_build_correction_event_shape(reviewer: Actor):
     assert event.correlation_id == correlation_id
     assert isinstance(event.payload, dict)
     assert event.payload["disposition"] == "edited"
+
+
+# ---------- RFC 09 builders -----------------------------------------------
+
+
+def test_build_policy_event_shape(drafter: Actor):
+    correlation_id = uuid4()
+    proposal_id = uuid4()
+    event = build_policy_event(
+        actor=drafter,
+        scope=["org:sales:pocket:acme"],
+        correlation_id=correlation_id,
+        policy_name="no_outbound_after_hours",
+        passed=True,
+        causation_id=proposal_id,
+        reason="within business hours",
+    )
+    assert event.action == "policy.evaluated"
+    assert event.correlation_id == correlation_id
+    assert event.causation_id == proposal_id
+    assert isinstance(event.payload, dict)
+    assert event.payload["policy_name"] == "no_outbound_after_hours"
+    assert event.payload["passed"] is True
+    assert event.payload["reason"] == "within business hours"
+    assert event.ts.tzinfo is not None
+
+
+def test_build_policy_event_omits_optional_reason_when_none(drafter: Actor):
+    event = build_policy_event(
+        actor=drafter,
+        scope=["org:sales"],
+        correlation_id=uuid4(),
+        policy_name="rate_limit_ok",
+        passed=False,
+    )
+    assert isinstance(event.payload, dict)
+    assert "reason" not in event.payload
+    assert event.payload["passed"] is False
+    # causation_id is optional for pre-proposal policy sweeps that have
+    # no upstream cause in the chain — must default to None.
+    assert event.causation_id is None
+
+
+def test_build_policy_event_merges_payload_extras(drafter: Actor):
+    event = build_policy_event(
+        actor=drafter,
+        scope=["org:sales"],
+        correlation_id=uuid4(),
+        policy_name="pii_filter",
+        passed=True,
+        payload_extras={"rule_id": "pii-v3", "latency_ms": 12},
+    )
+    assert isinstance(event.payload, dict)
+    assert event.payload["rule_id"] == "pii-v3"
+    assert event.payload["latency_ms"] == 12
+    # Base keys remain untouched when extras don't conflict.
+    assert event.payload["policy_name"] == "pii_filter"
+
+
+def test_build_completion_event_defaults_to_landed(reviewer: Actor):
+    correlation_id = uuid4()
+    causation_id = uuid4()
+    event = build_completion_event(
+        actor=reviewer,
+        scope=["org:sales:pocket:acme"],
+        correlation_id=correlation_id,
+        causation_id=causation_id,
+    )
+    assert event.action == "decision.completed"
+    assert event.correlation_id == correlation_id
+    assert event.causation_id == causation_id
+    assert isinstance(event.payload, dict)
+    assert event.payload["status"] == "landed"
+    # Optional reason omitted when not supplied — keeps payloads tight.
+    assert "reason" not in event.payload
+    assert event.ts.tzinfo is not None
+
+
+def test_build_completion_event_supports_rejected_with_reason(reviewer: Actor):
+    event = build_completion_event(
+        actor=reviewer,
+        scope=["org:sales"],
+        correlation_id=uuid4(),
+        status="rejected",
+        reason="policy gate failed: rate_limit",
+    )
+    assert isinstance(event.payload, dict)
+    assert event.payload["status"] == "rejected"
+    assert event.payload["reason"] == "policy gate failed: rate_limit"
+
+
+def test_build_completion_event_supports_abandoned_without_causation(reviewer: Actor):
+    # Abandoned chains (timed out, superseded) may have no clear causal
+    # predecessor — causation_id must be allowed to be omitted.
+    event = build_completion_event(
+        actor=reviewer,
+        scope=["org:sales"],
+        correlation_id=uuid4(),
+        status="abandoned",
+        reason="timed out after 24h",
+    )
+    assert event.causation_id is None
+    assert isinstance(event.payload, dict)
+    assert event.payload["status"] == "abandoned"
+
+
+def test_build_completion_event_merges_payload_extras(reviewer: Actor):
+    event = build_completion_event(
+        actor=reviewer,
+        scope=["org:sales"],
+        correlation_id=uuid4(),
+        status="landed",
+        payload_extras={"outcome_ref": "email:msg-123", "side_effects": ["sent"]},
+    )
+    assert isinstance(event.payload, dict)
+    assert event.payload["outcome_ref"] == "email:msg-123"
+    assert event.payload["side_effects"] == ["sent"]
+    assert event.payload["status"] == "landed"
 
 
 # ---------- journal queries -----------------------------------------------
@@ -358,6 +496,111 @@ def test_trace_decision_chain_filters_non_decision_events(
     chain = trace_decision_chain(journal, correlation_id)
     actions = [e.action for e in chain]
     assert actions == ["agent.proposed", "human.corrected"]
+
+
+def test_trace_decision_chain_follows_rfc_09_actions(
+    journal: Journal, drafter: Actor, reviewer: Actor
+):
+    """RFC 09: ``policy.evaluated`` and ``decision.completed`` are part of
+    the Decision Graph chain and must surface in ``trace_decision_chain``
+    alongside the existing proposed/corrected/graduated events."""
+    correlation_id = uuid4()
+    base = datetime.now(UTC)
+
+    p = build_proposal_event(
+        actor=drafter,
+        scope=["org:sales"],
+        correlation_id=correlation_id,
+        proposal=AgentProposal(
+            proposal_kind="message_draft", summary="s", proposal={"body": "draft"}
+        ),
+        ts=base,
+    )
+    journal.append(p)
+    pol = build_policy_event(
+        actor=drafter,
+        scope=["org:sales"],
+        correlation_id=correlation_id,
+        policy_name="no_outbound_after_hours",
+        passed=True,
+        causation_id=p.id,
+        ts=base + timedelta(seconds=1),
+    )
+    journal.append(pol)
+    c = build_correction_event(
+        actor=reviewer,
+        scope=["org:sales"],
+        correlation_id=correlation_id,
+        causation_id=p.id,
+        correction=HumanCorrection(
+            disposition="accepted",
+            corrected_value={"body": "draft"},
+            structured_reason_tags=[],
+        ),
+        ts=base + timedelta(seconds=2),
+    )
+    journal.append(c)
+    done = build_completion_event(
+        actor=reviewer,
+        scope=["org:sales"],
+        correlation_id=correlation_id,
+        causation_id=c.id,
+        status="landed",
+        ts=base + timedelta(seconds=3),
+    )
+    journal.append(done)
+
+    chain = trace_decision_chain(journal, correlation_id)
+    actions = [e.action for e in chain]
+    assert actions == [
+        "agent.proposed",
+        "policy.evaluated",
+        "human.corrected",
+        "decision.completed",
+    ]
+
+
+def test_trace_decision_chain_still_follows_decision_graduated(
+    journal: Journal, drafter: Actor, reviewer: Actor
+):
+    """Backward-compat: ``decision.graduated`` keeps its original
+    (pattern-promotion) meaning and stays in the chain filter so older
+    queries that emit graduation events on a correlation_id still
+    surface them."""
+    from soul_protocol.spec.journal import EventEntry
+
+    correlation_id = uuid4()
+    base = datetime.now(UTC)
+
+    p, c = _seed_proposal_and_correction(
+        journal,
+        drafter=drafter,
+        reviewer=reviewer,
+        correlation_id=correlation_id,
+        proposal_ts=base,
+        correction_ts=base + timedelta(seconds=1),
+    )
+    grad_payload = DecisionGraduation(
+        pattern_summary="Use first names internally.",
+        supporting_correction_ids=[c.id],
+        graduated_to_tier="semantic",
+        confidence=0.9,
+    )
+    grad = EventEntry(
+        id=uuid4(),
+        ts=base + timedelta(seconds=2),
+        actor=drafter,
+        action="decision.graduated",
+        scope=["org:sales"],
+        correlation_id=correlation_id,
+        payload=grad_payload.model_dump(mode="json"),
+    )
+    journal.append(grad)
+
+    chain = trace_decision_chain(journal, correlation_id)
+    actions = [e.action for e in chain]
+    assert "decision.graduated" in actions
+    assert actions[-1] == "decision.graduated"
 
 
 # ---------- pattern clustering --------------------------------------------

@@ -1,6 +1,21 @@
 <!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
      memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
+     Updated: 2026-04-29 — v0.5.0 (#142): Added Optimize section documenting
+       soul_protocol.optimize — optimize(), OptimizeRunner, the Knob protocol, the four
+       built-in knobs (OceanTraitKnob, PersonaTextKnob, SignificanceThresholdKnob,
+       BondThresholdKnob), Proposer, OptimizeResult, OptimizeStep, score_of.
+     Updated: 2026-04-30 — v0.5.0 (#203): Added Biorhythms.trust_chain_max_entries (touch-time
+       chain pruning cap), TrustChainManager.prune(keep)/dry_run_prune(keep)/max_entries.
+       Auto-prune fires at append() when the cap is reached.
+     Updated: 2026-04-30 — v0.5.0 #201/#202: TrustEntry gains a non-cryptographic
+       `summary` field. TrustChainManager.append accepts an optional `summary=` parameter
+       that defaults to an action-keyed formatter registry. Soul.audit_log() rows now
+       include a `summary` key.
+     Updated: 2026-04-29 — v0.5.0 (#160): Added Evaluation section documenting the
+       soul_protocol.eval module — EvalSpec, EvalCase, EvalResult, CaseResult, the five
+       scoring kinds (keyword/regex/semantic/judge/structural), and run_eval /
+       run_eval_against_soul / run_eval_file entry points.
      Updated: 2026-04-27 — Documented user-driven memory update primitives: Soul.forget_one
        (audited single-id delete), Soul.supersede (write new memory + link old.superseded_by),
        Soul.supersede_audit property. Rewrote stale soul.forget() entry to match the real
@@ -235,6 +250,9 @@ async def recall(
     user_id: str | None = None,
     layer: str | None = None,
     domain: str | None = None,
+    graph_walk: dict | None = None,
+    page_token: str | None = None,
+    token_budget: int | None = None,
 ) -> list[MemoryEntry]
 ```
 
@@ -249,8 +267,11 @@ Search memories ranked by ACT-R activation (recency, frequency, relevance). Rele
 | `user_id` | `str \| None` | `None` | Multi-user filter (#46). When set, results restrict to memories whose `user_id` matches OR is `None` (legacy/orphan entries are visible to every user). When unset, returns all memories regardless of attribution. |
 | `layer` | `str \| None` | `None` | Restrict recall to one layer (#41). Accepts built-in names (`"episodic"`, `"semantic"`, `"procedural"`, `"social"`) or any custom layer name. |
 | `domain` | `str \| None` | `None` | Restrict recall to one domain sub-namespace (#41), e.g. `"finance"`. |
+| `graph_walk` | `dict \| None` | `None` | (#108) Filter results to memories linked to entities reachable from `graph_walk["start"]` within `graph_walk["depth"]` (default 2) hops. Optional `graph_walk["edge_types"]` whitelists relation predicates. |
+| `page_token` | `str \| None` | `None` | (#108) Resume a previous graph_walk recall. Pass the `next_page_token` attribute of a previous `RecallResults`. |
+| `token_budget` | `int \| None` | `None` | (#108) Cap cumulative content size of returned memories. Once exceeded, overflow entries fall back to their L0 abstract (F1 progressive disclosure). |
 
-**Returns:** `list[MemoryEntry]`
+**Returns:** `list[MemoryEntry]` for plain calls. When `graph_walk`, `page_token`, or `token_budget` is supplied, returns `RecallResults` (a `list` subclass) carrying `next_page_token`, `total_estimate`, and `truncated_for_budget` attributes.
 
 ```python
 # Legacy (single-user) recall
@@ -263,6 +284,21 @@ alice_memories = await soul.recall("preferences", user_id="alice", limit=5)
 finance_only = await soul.recall("revenue", domain="finance")
 all_semantic = await soul.recall("python", layer="semantic")
 combo = await soul.recall("revenue", layer="semantic", domain="finance")
+
+# Graph-walk recall (#108)
+results = await soul.recall(
+    "production rollout",
+    graph_walk={"start": "Acme", "depth": 2, "edge_types": ["mentions", "owned_by"]},
+    limit=10,
+    token_budget=4000,
+)
+if results.next_page_token:
+    page2 = await soul.recall(
+        "production rollout",
+        graph_walk={"start": "Acme", "depth": 2, "edge_types": ["mentions", "owned_by"]},
+        limit=10,
+        page_token=results.next_page_token,
+    )
 ```
 
 #### `soul.observe()`
@@ -365,19 +401,16 @@ soul.bond.strengthen(2.0)  # default bond (legacy)
 #### `soul.forget()`
 
 ```python
-async def forget(self, query: str) -> dict
+async def forget(self, query_or_id: str, *, user_id: str | None = None) -> dict
 ```
 
-Bulk-delete memories matching `query` across episodic, semantic, and procedural tiers. Records a deletion audit entry. Token-overlap match.
+**v0.5.0 (#192) semantic shift.** `forget` no longer hard-deletes — it drops `MemoryEntry.retrieval_weight` to 0.05 (below the recall floor of 0.1) so the entry stops surfacing but stays on disk and can be restored via `reinstate()`. To genuinely destroy data (GDPR / privacy / safety) call `purge()`.
 
-**Returns:** dict with keys:
+**Dispatch:**
+- If `query_or_id` resolves to a known memory id, this is the single-id verb. Returns `{found, id, action: "forgotten", weight, tier}` and appends a `memory.forget` chain entry with `{id, tier, weight_after}`.
+- Otherwise it is the bulk query path (back-compat for pre-0.5.0 `Soul.forget(query)`). Every match has its retrieval_weight dropped to 0.05. Returns the legacy shape `{episodic, semantic, procedural, total}`.
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `episodic` | `list[str]` | IDs of deleted episodic memories. |
-| `semantic` | `list[str]` | IDs of deleted semantic facts. |
-| `procedural` | `list[str]` | IDs of deleted procedural memories. |
-| `total` | `int` | Total deleted across tiers. |
+The action name on the chain is unchanged from 0.4.0 (`memory.forget`); only the payload shape grows. `user_id` is recorded on the chain entry when provided.
 
 #### `soul.forget_entity()`
 
@@ -431,12 +464,18 @@ async def supersede(
     memory_type: MemoryType | None = None,
     emotion: str | None = None,
     entities: list[str] | None = None,
+    prediction_error: float = 0.85,
+    user_id: str | None = None,
 ) -> dict
 ```
 
 Mark `old_id` as superseded by a newly-written memory. The old entry is preserved with `superseded_by = new_id`; search filters out superseded entries by default, so recall surfaces the new one. `memory_type` defaults to the old entry's tier. Records a supersede audit entry.
 
-**Returns:** dict with `found` / `old_id` / `new_id` / `tier` / `reason`. If `old_id` does not resolve, `found` is False and no new memory is written.
+**v0.5.0 (#192):**
+- The new entry's `supersedes` back-edge is set to `old_id` (the inverse of the existing `superseded_by` field). Provenance walkers can climb the chain in either direction.
+- `prediction_error` is recorded on the new entry. Default `0.85` matches the supersede band (PE >= 0.85). Calling with PE < 0.85 raises `PredictionErrorOutOfBandError` because that range is the `update` verb's territory.
+
+**Returns:** dict with `found` / `old_id` / `new_id` / `tier` / `reason` / `prediction_error`. If `old_id` does not resolve, `found` is False and no new memory is written.
 
 ```python
 result = await soul.supersede(
@@ -444,6 +483,7 @@ result = await soul.supersede(
     "User now prefers light mode",
     reason="changed during onboarding redesign",
     importance=7,
+    prediction_error=0.9,
 )
 print(result["new_id"])
 ```
@@ -464,7 +504,88 @@ Read-only copy of the deletion audit trail. Each entry: `deleted_at` (ISO timest
 def supersede_audit(self) -> list[dict]
 ```
 
-Read-only copy of the user-driven supersede audit trail. Each entry: `superseded_at` (ISO timestamp), `old_id`, `new_id`, `tier`, `reason`. Internal supersession (dream-cycle dedup, contradiction resolution during `learn`) does not append here — only explicit `supersede()` calls.
+Read-only copy of the user-driven supersede audit trail. Each entry: `superseded_at` (ISO timestamp), `old_id`, `new_id`, `tier`, `reason`, `prediction_error`. Internal supersession (dream-cycle dedup, contradiction resolution during `learn`) does not append here — only explicit `supersede()` calls.
+
+#### `soul.confirm()` (v0.5.0, #192)
+
+```python
+async def confirm(
+    self,
+    memory_id: str,
+    *,
+    user_id: str | None = None,
+) -> dict
+```
+
+Refresh activation on a memory the caller has just verified. Bumps `last_accessed`, increments `access_count`, and clamps `retrieval_weight` back toward 1.0 if it has decayed but stayed above the recall floor. PE is implicitly ~0 — no PE band check, no window check.
+
+Appends a `memory.confirm` chain entry with `{id, tier, weight_after, user_id}`.
+
+**Returns:** dict with `found` / `id` / `tier` / `action: "confirmed"` / `weight`. When `memory_id` doesn't resolve, returns `{found: False}` with no chain entry.
+
+#### `soul.update()` (v0.5.0, #192)
+
+```python
+async def update(
+    self,
+    memory_id: str,
+    patch: str,
+    *,
+    prediction_error: float = 0.5,
+    user_id: str | None = None,
+) -> dict
+```
+
+In-place patch within the reconsolidation window. Edits the entry's content directly when the entry was surfaced via `recall()` within the last hour. Outside the window the trace is "stable again" and an in-place edit is unsafe; `ReconsolidationWindowClosedError` is raised so the caller promotes to `supersede()`.
+
+PE must satisfy `0.2 <= PE < 0.85`. PE outside the band raises `PredictionErrorOutOfBandError`.
+
+Bumps `last_accessed` / `access_count`, stamps `prediction_error` on the entry, and resets `retrieval_weight` to 1.0 (the edit re-affirms the trace). Appends a `memory.update` chain entry with `{id, tier, prediction_error, user_id}`.
+
+**Returns:** dict with `found` / `id` / `tier` / `action: "updated"` / `new_content`.
+
+#### `soul.purge()` (v0.5.0, #192)
+
+```python
+async def purge(
+    self,
+    memory_id: str,
+    *,
+    user_id: str | None = None,
+) -> dict
+```
+
+Hard delete with prior-payload-hash audit trail. Reserved for GDPR / privacy / safety obligations. The entry is removed from storage; the chain records the deletion with the SHA-256 of the prior content so verifiers can later prove the entry once existed and was deleted without storing the content itself.
+
+`reinstate()` cannot recover a purged entry (the data is gone). For non-destructive suppression, use `forget()` instead. Appends a `memory.purge` chain entry with `{id, tier, prior_payload_hash, user_id}`.
+
+**Returns:** dict with `found` / `id` / `tier` / `action: "purged"` / `prior_payload_hash`.
+
+#### `soul.reinstate()` (v0.5.0, #192)
+
+```python
+async def reinstate(
+    self,
+    memory_id: str,
+    *,
+    user_id: str | None = None,
+) -> dict
+```
+
+Restore a forgotten entry to full retrieval weight. The inverse of `forget()`. Sets `retrieval_weight` to 1.0. No-op when the entry is already at full weight — the chain entry is still emitted for audit completeness when `found` is True. Returns `{found: False}` without a chain entry when the id can't be resolved (typically because `purge()` removed it).
+
+Appends a `memory.reinstate` chain entry with `{id, tier, weight_before, weight_after, user_id}`.
+
+**Returns:** dict with `found` / `id` / `tier` / `action: "reinstated"` / `weight`.
+
+#### `soul.last_recall_provenance` (v0.5.0, #192)
+
+```python
+@property
+def last_recall_provenance(self) -> dict[str, list[dict]]
+```
+
+Sidecar mapping returned-memory-id to the full `supersedes` chain walked back to the oldest known version. Reset on every `recall()` call. Each provenance link is `{kind: "supersedes", target_id, reason, prediction_error, timestamp}`. Empty for entries with no chain. The sidecar lives on the Soul instance — `MemoryEntry` itself is not mutated, so the on-disk shape stays unchanged.
 
 #### `soul.get_core_memory()`
 
@@ -543,6 +664,113 @@ print(report.summary())  # Human-readable summary
 print(f"Found {len(report.topic_clusters)} topic clusters")
 print(f"Created {report.procedures_created} procedures")
 ```
+
+### Graph (v0.5.0, #108, #190)
+
+#### `soul.graph`
+
+```python
+@property
+def graph(self) -> GraphView
+```
+
+Typed read view over the soul's knowledge graph. The backing `KnowledgeGraph` is updated by `observe()` (which also emits trust-chain entries). Direct mutation is possible via the storage class but bypasses auditing.
+
+#### `GraphView`
+
+```python
+class GraphView:
+    def nodes(*, type=None, name_match=None, limit=None) -> list[GraphNode]
+    def edges(*, source=None, target=None, relation=None) -> list[GraphEdge]
+    def neighbors(node_id, depth=1, types=None) -> list[GraphNode]
+    def path(source_id, target_id, max_depth=4) -> list[GraphEdge] | None
+    def subgraph(node_ids: list[str]) -> Subgraph
+    def to_mermaid() -> str
+    def reachable(start, depth=2, edge_types=None) -> dict[str, int]
+    def stats() -> dict
+```
+
+| Method | Returns | Notes |
+|--------|---------|-------|
+| `nodes()` | `list[GraphNode]` | Type filter accepts any string (built-in or custom). `name_match` is a case-insensitive substring filter. |
+| `edges()` | `list[GraphEdge]` | Active edges only (excludes expired ones). |
+| `neighbors()` | `list[GraphNode]` | BFS to `depth` hops. Source is always returned with `depth=0`. `types` whitelists non-source nodes. |
+| `path()` | `list[GraphEdge] \| None` | Shortest-path BFS bounded by `max_depth`. Returns `[]` when source equals target. |
+| `subgraph()` | `Subgraph` | Induced subgraph — nodes in input order, edges only between requested nodes. |
+| `to_mermaid()` | `str` | Mermaid `graph LR` block for human inspection. |
+| `reachable()` | `dict[str, int]` | Map of `node_id -> hop_distance` used by recall's `graph_walk`. |
+| `stats()` | `dict` | `{node_count, edge_count, types: {...}, relations: {...}}`. |
+
+```python
+# Browse the graph
+people = soul.graph.nodes(type="person", limit=10)
+edges = soul.graph.edges(source="Alice", relation="mentions")
+
+# Walk the neighborhood
+neighborhood = soul.graph.neighbors("Alice", depth=2, types=["person", "tool"])
+
+# Path between two entities
+chain = soul.graph.path("Captain", "PR-1024", max_depth=6)
+
+# Render for human inspection
+print(soul.graph.to_mermaid())
+```
+
+#### `GraphNode`
+
+```python
+class GraphNode(BaseModel):
+    id: str
+    type: str = "concept"
+    name: str = ""        # defaults to id when omitted
+    depth: int | None = None    # set by traversal queries
+    provenance: list[str] = []  # memory ids that produced this entity
+```
+
+#### `GraphEdge`
+
+```python
+class GraphEdge(BaseModel):
+    source: str
+    target: str
+    relation: str
+    weight: float | None = None       # 0..1 confidence (LLM extractor)
+    provenance: list[str] = []        # source memory ids
+    metadata: dict | None = None
+```
+
+#### `Subgraph`
+
+```python
+class Subgraph(BaseModel):
+    nodes: list[GraphNode] = []
+    edges: list[GraphEdge] = []
+
+    def to_mermaid() -> str
+```
+
+#### `EntityType`, `RelationType`
+
+```python
+class EntityType(StrEnum):
+    PERSON, PLACE, ORG, CONCEPT, TOOL, DOCUMENT, EVENT, RELATION
+
+class RelationType(StrEnum):
+    MENTIONS, RELATED, DEPENDS_ON, CONTRIBUTES_TO, CAUSES, FOLLOWS, SUPERSEDES, OWNED_BY
+```
+
+Both enums are open: any string is accepted as an entity type or relation predicate; the enums just name the well-known kinds for cross-module consistency.
+
+#### `RecallResults`
+
+```python
+class RecallResults(list[MemoryEntry]):
+    next_page_token: str | None
+    total_estimate: int | None
+    truncated_for_budget: bool
+```
+
+Returned by `soul.recall(graph_walk=..., page_token=..., token_budget=...)`. Iterable just like a regular list — the extra attributes carry pagination + budget metadata.
 
 ### State
 
@@ -747,6 +975,7 @@ Simulated vitality and energy patterns.
 | `focus_window_seconds` | `float` | `3600.0` | `ge=0.0` (set to 0 to disable density-driven focus) |
 | `focus_high_threshold` | `int` | `3` | `ge=1` (interactions in window at or above which focus rises to `high`) |
 | `focus_max_threshold` | `int` | `10` | `ge=1` (interactions in window at or above which focus rises to `max`) |
+| `trust_chain_max_entries` | `int` | `0` | `ge=0` (cap for touch-time chain pruning; 0 = unbounded; positive = compress old history into a `chain.pruned` marker once the cap is reached). See [docs/trust-chain.md](trust-chain.md#chain-pruning). |
 
 #### `DNA`
 
@@ -852,6 +1081,9 @@ A single memory with metadata, emotional context, and psychology-informed fields
 | `user_id` | `str \| None` | `None` | | Multi-user attribution (#46) |
 | `layer` | `str` | `""` | | Free-form layer namespace (#41). Empty string is coerced to `type.value`. |
 | `domain` | `str` | `"default"` | | Sub-namespace inside the layer (#41), e.g. `"finance"` |
+| `retrieval_weight` | `float` | `1.0` | `ge=0.0, le=1.0` | Recall weight (v0.5.0, #192). Recall filters entries below 0.1; `forget()` drops to 0.05; `reinstate()` restores to 1.0. |
+| `supersedes` | `str \| None` | `None` | | Inverse back-edge of `superseded_by` (v0.5.0, #192). Set by `supersede()` on the new entry so provenance walks work in either direction. |
+| `prediction_error` | `float \| None` | `None` | `ge=0.0, le=1.0` | PE recorded when the entry was written via `supersede()` or `update()` (v0.5.0, #192). Unset for `remember()` / `observe()`-created entries. |
 
 #### `CoreMemory`
 
@@ -1073,6 +1305,38 @@ class EmbeddingSearch:
 
 ---
 
+## Exceptions
+
+All exceptions inherit from `SoulProtocolError`.
+
+| Exception | Raised when |
+|-----------|------------|
+| `SoulFileNotFoundError` | `awaken()` cannot find a soul archive at the given path. |
+| `SoulCorruptError` | The archive is invalid (bad zip, missing manifest, etc.). |
+| `SoulExportError` | `export()` fails (disk full, permissions). |
+| `SoulRetireError` | `retire()` fails because preserve-memories save failed. |
+| `SoulEncryptedError` | An encrypted archive was loaded without a password. |
+| `SoulDecryptionError` | Decryption failed (wrong password / corrupted data). |
+| `SoulProtectedError` | A delete/retire was attempted on a soul with protected role. |
+| `DomainAccessError` | A wrapped soul attempted a write to a domain outside the allow-list. |
+| `ReconsolidationWindowClosedError` | (v0.5.0, #192) `update()` was called outside the 1-hour post-recall window. |
+| `PredictionErrorOutOfBandError` | (v0.5.0, #192) A memory-update verb was called with a `prediction_error` outside its band. |
+
+```python
+from soul_protocol.runtime.exceptions import (
+    PredictionErrorOutOfBandError,
+    ReconsolidationWindowClosedError,
+)
+
+try:
+    await soul.update(memory_id, "patch", prediction_error=0.5)
+except ReconsolidationWindowClosedError:
+    # Promote to supersede when the window has closed.
+    await soul.supersede(memory_id, "patch", prediction_error=0.9)
+```
+
+---
+
 ## Implementations
 
 ### HeuristicEngine
@@ -1192,12 +1456,37 @@ Read-only `TrustChain` view. The chain is mutated by Soul's lifecycle hooks; for
 
 ### `soul.trust_chain_manager`
 
+<a id="trustchainmanager-summary"></a>
+
 ```python
 @property
 def trust_chain_manager(self) -> TrustChainManager
 ```
 
-The `TrustChainManager` instance. Use `manager.append(action, payload)` to record a custom action that the built-in hooks don't cover.
+The `TrustChainManager` instance. Public methods of interest:
+
+```python
+def append(
+    self,
+    action: str,
+    payload: dict,
+    actor_did: str | None = None,
+    timestamp: datetime | None = None,
+    summary: str | None = None,        # #201 — non-cryptographic per-action description
+) -> TrustEntry
+```
+
+Use `manager.append(action, payload)` to record a custom action that the built-in hooks don't cover. Pass `summary=` to attach a human-readable description; when omitted, an action-keyed default formatter from `_SUMMARY_FORMATTERS` runs against the payload. The summary is stored on the resulting `TrustEntry.summary` field and surfaces in `audit_log()` rows. It is excluded from the canonical bytes used for hashing and signing — chain integrity does not depend on it.
+
+Default formatters ship for the actions Soul emits (`memory.write`, `memory.forget`, `memory.supersede`, `bond.strengthen`, `bond.weaken`, `evolution.proposed`, `evolution.applied`, `learning.event`); custom actions without a registered formatter get `summary=""` unless one is passed explicitly.
+
+The manager also exposes `prune(keep)` and `dry_run_prune(keep)` for touch-time chain pruning (#203) — see [trust-chain.md](trust-chain.md#chain-pruning).
+
+`TrustChainManager.prune(keep=None, *, reason="touch-time") -> dict` compresses every non-genesis entry into a single signed `chain.pruned` marker when the chain has more than `keep` entries. `keep=None` falls back to the manager's `max_entries` (mirrored from `Biorhythms.trust_chain_max_entries`). Returns `{count, low_seq, high_seq, reason, marker_seq}` describing the prune; `count == 0` indicates a no-op.
+
+`TrustChainManager.dry_run_prune(keep=None) -> dict` returns the same shape without mutating the chain — used by the CLI and MCP preview paths.
+
+The cap is enforced automatically at `append()` time: when `max_entries > 0` and the chain has reached the cap, `append()` runs `prune(keep=1)` before adding the new entry, so the chain is bounded as a hard ceiling.
 
 ### `soul.verify_chain()`
 
@@ -1218,7 +1507,7 @@ def audit_log(
 ) -> list[dict]
 ```
 
-Returns a list of `{seq, timestamp, action, actor_did, payload_hash}` dicts. Filter by dot-namespaced action prefix (e.g. `"memory."`) and/or take only the most recent N rows.
+Returns a list of `{seq, timestamp, action, actor_did, payload_hash, summary}` dicts. Filter by dot-namespaced action prefix (e.g. `"memory."`) and/or take only the most recent N rows. The `summary` field (added in #201) is a short human-readable description set at append time — see [`TrustChainManager.append`](#trustchainmanager-summary). Pre-#201 entries return `summary=""`.
 
 ### `Soul.export(include_keys=...)`
 
@@ -1248,10 +1537,13 @@ class TrustEntry(BaseModel):
     action: str                             # dot-namespaced (memory.write, …)
     payload_hash: str                       # SHA-256 hex of canonical payload JSON
     prev_hash: str                          # hash of previous entry (or GENESIS_PREV_HASH)
-    signature: str                          # base64 Ed25519 signature
+    signature: str                          # base64 Ed25519 signature (excluded from canonical bytes)
     algorithm: str = "ed25519"
     public_key: str                         # base64 raw 32-byte public key
+    summary: str = ""                       # non-cryptographic per-action prose (excluded from canonical bytes, #201)
 ```
+
+`summary` is a short human-readable description set at append time. It is excluded from `compute_entry_hash` and `_signing_message` so callers can edit, localise, or rewrite the summary without breaking `verify_chain()`. Pre-#201 entries that have no `summary` field on disk load with the empty default.
 
 ### `TrustChain`
 
@@ -1300,3 +1592,306 @@ from soul_protocol.spec.trust import (
 - `compute_payload_hash(payload) -> str` — canonical-JSON SHA-256 hex of an arbitrary payload
 - `compute_entry_hash(entry) -> str` — canonical-JSON SHA-256 hex of the entry minus its signature
 - `GENESIS_PREV_HASH` — the constant `"0" * 64` used as the prev_hash of seq=0
+
+---
+
+## Soul Diff (#191)
+
+Structured comparison between two souls. Lives in `soul_protocol.runtime.diff` with re-exports at the package level.
+
+```python
+from soul_protocol.runtime import Soul, SoulDiff, diff_souls, SchemaMismatchError
+
+left = await Soul.awaken("aria.soul")
+right = await Soul.awaken("aria-after-week.soul")
+diff: SoulDiff = diff_souls(left, right, include_superseded=False)
+```
+
+### `diff_souls(left, right, *, include_superseded=False) -> SoulDiff`
+
+Top-level entry point. Compares two `Soul` instances and returns a fully-populated `SoulDiff`. Sections are populated even when empty — consumers read `section.empty` to decide rendering.
+
+Raises `SchemaMismatchError` when the two souls have different `_config.version` strings; run `soul migrate <path>` on the older soul first.
+
+When `include_superseded=False` (default), memories whose `superseded_by` flipped between the two souls are filtered from the modified list; the supersession chain stays in the file but isn't surfaced. Pass `True` to populate `memory.superseded` and add the `superseded_by` field change explicitly.
+
+### `SoulDiff`
+
+Top-level Pydantic model. Fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `left_name` / `right_name` | `str` | Soul names from each side. |
+| `left_did` / `right_did` | `str` | DIDs from each side. |
+| `identity` | `IdentityDiff` | Field changes (DID, name, archetype, born, bonded_to, role, core_values). |
+| `ocean` | `OceanDiff` | OCEAN trait deltas + communication / biorhythm changes. |
+| `state` | `StateDiff` | Mood, energy, social_battery, focus changes. |
+| `core_memory` | `CoreMemoryDiff` | Persona / human content changes. |
+| `memory` | `MemoryDiff` | Per-layer + per-domain counts; added / removed / modified entries. |
+| `bond` | `BondDiff` | Default + per-user bond strength changes; added/removed users. |
+| `skills` | `SkillDiff` | Skill registry — added / removed / level + XP changes. |
+| `trust_chain` | `TrustChainDiff` | Length delta + new actions + new-entries sample. |
+| `self_model` | `SelfModelDiff` | Domain confidence shifts. |
+| `evolution` | `EvolutionDiff` | New mutations applied since the left's snapshot. |
+
+Methods:
+
+- `summary() -> dict[str, int]` — per-section change counts.
+- `empty` (property) — `True` when no section detected any change.
+- `model_dump(mode="json")` — full JSON-serializable dict (standard Pydantic).
+
+### Section models
+
+`IdentityDiff`, `StateDiff` carry `changes: list[FieldChange]`. Each `FieldChange` is `{field, before, after}`.
+
+`OceanDiff` exposes `trait_deltas: dict[str, float]` (only non-zero deltas), plus `communication_changes` and `biorhythm_changes` lists of `FieldChange`.
+
+`MemoryDiff` carries `layer_counts: list[LayerCounts]` (per-domain breakdown), plus `added`, `removed` (lists of `MemoryEntryAbstract` with truncated content), `modified` (list of `MemoryEntryChange` with content_before/content_after + field_changes), and `superseded` (only populated with `include_superseded=True`).
+
+`BondDiff` carries `changes: list[BondChange]` (per-user strength + interaction count deltas), plus `added_users` / `removed_users` lists.
+
+`SkillDiff` carries `added` / `removed` / `changed` lists of `SkillChange`.
+
+`TrustChainDiff` carries `length_before` / `length_after`, `new_actions` (distinct action names past the left's head), and `new_entries_sample` (up to 5 newest entries as `{seq, timestamp, action, actor_did}`).
+
+`SelfModelDiff` carries `added_domains` / `removed_domains` plus `changed: list[SelfModelChange]` with confidence + evidence deltas.
+
+`EvolutionDiff` carries `new_mutations: list[dict]` with the right-side mutation history past the left's mutation ids.
+
+### `SchemaMismatchError`
+
+Subclass of `ValueError`. Raised by `diff_souls` when versions differ.
+
+---
+
+## Evaluation
+
+The `soul_protocol.eval` module ships YAML-driven soul-aware evals (#160). Evals seed a soul with explicit state (memories, OCEAN, bonds, mood, energy) and then run cases against that state, so behaviour can be measured against a known starting point. See [eval-format.md](eval-format.md) for the full schema and [cli-reference.md](cli-reference.md#soul-eval) for the `soul eval` command.
+
+```python
+from soul_protocol.eval import (
+    EvalSpec,
+    EvalCase,
+    EvalResult,
+    CaseResult,
+    Scoring,
+    KeywordScoring,
+    RegexScoring,
+    SemanticScoring,
+    JudgeScoring,
+    StructuralScoring,
+    SoulSeed,
+    StateSeed,
+    MemorySeed,
+    BondSeed,
+    SchemaValidationError,
+    load_eval_spec,
+    parse_eval_spec,
+    run_eval,
+    run_eval_file,
+    run_eval_against_soul,
+)
+```
+
+### Loading
+
+- `load_eval_spec(path: str | Path) -> EvalSpec` — read and validate a YAML file. Raises `FileNotFoundError` or `SchemaValidationError`.
+- `parse_eval_spec(data: dict, *, source: str | None = None) -> EvalSpec` — validate a parsed dict. Raises `SchemaValidationError`.
+
+### Running
+
+- `run_eval(spec, *, engine=None, case_filter=None) -> EvalResult` — births a soul from `spec.seed`, applies state / memories / bonds, runs cases. When `engine` is None, judge-scoring cases skip cleanly.
+- `run_eval_file(path, *, engine=None, case_filter=None) -> EvalResult` — convenience wrapper that loads then runs.
+- `run_eval_against_soul(spec, soul, *, engine=None, case_filter=None) -> EvalResult` — run cases against an existing `Soul` without re-birthing. Used by the `soul_eval` MCP tool. The `seed` block is ignored — the soul's live state is the seed.
+
+### Result models
+
+`EvalResult`:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `spec_name` | `str` | Echo of `EvalSpec.name`. |
+| `cases` | `list[CaseResult]` | One per case that ran. |
+| `duration_ms` | `int` | Total time. |
+| `error` | `str \| None` | Set when seed application failed. |
+| `pass_count` | `int` | Cases that passed (excludes skips). |
+| `fail_count` | `int` | Cases that failed (excludes skips and errors). |
+| `skip_count` | `int` | Cases that were skipped (e.g. judge with no engine). |
+| `error_count` | `int` | Cases that raised. |
+| `total` | `int` | Length of `cases`. |
+| `all_passed` | `bool` | True when no failures and no errors. Skips do not count as failures. |
+
+`CaseResult`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `str` | Echoes `EvalCase.name`. |
+| `passed` | `bool` | Pass/fail per the scoring threshold. |
+| `score` | `float` | Normalized `[0, 1]`. |
+| `skipped` | `bool` | True for judge cases with no engine. |
+| `duration_ms` | `int` | Case wall-clock. |
+| `output` | `str` | First 1000 chars of soul output. |
+| `details` | `dict` | Kind-specific diagnostic info. |
+| `error` | `str \| None` | Set when the case raised. |
+
+### Scoring kinds
+
+`Scoring` is a discriminated union by `kind`:
+
+- `KeywordScoring(kind="keyword", expected: list[str], mode: "all"|"any" = "all", threshold: float = 1.0)`
+- `RegexScoring(kind="regex", pattern: str, threshold: float = 1.0)`
+- `SemanticScoring(kind="semantic", expected: str, threshold: float = 0.5)`
+- `JudgeScoring(kind="judge", criteria: str, threshold: float = 0.7)`
+- `StructuralScoring(kind="structural", expected: dict, threshold: float = 1.0)`
+
+For the structural keys (`output_contains_bonded_user`, `output_contains_user_id`, `mood_after`, `min_energy_after`, `max_energy_after`, `recall_min_results`, `recall_expected_substring`) see [eval-format.md](eval-format.md#structural).
+
+---
+
+## Optimize
+
+The `soul_protocol.optimize` module ships the autonomous self-improvement loop (#142). It pairs with the eval module so a soul can run an eval against itself, propose changes to its own knobs, keep changes that move the eval score up, and revert those that don't. See [soul-optimize.md](soul-optimize.md) for the concept overview and [cli-reference.md](cli-reference.md#soul-optimize) for the `soul optimize` command.
+
+```python
+from soul_protocol.optimize import (
+    optimize,
+    OptimizeRunner,
+    OptimizeResult,
+    OptimizeStep,
+    KnobProposal,
+    Knob,
+    OceanTraitKnob,
+    PersonaTextKnob,
+    SignificanceThresholdKnob,
+    BondThresholdKnob,
+    default_knobs,
+    Proposer,
+    score_of,
+)
+```
+
+### Entry point
+
+```python
+async def optimize(
+    soul: Soul,
+    eval_spec_path: str | Path | EvalSpec,
+    *,
+    iterations: int = 10,
+    target_score: float = 1.0,
+    knobs: list[Knob] | None = None,
+    engine: CognitiveEngine | None = None,
+    proposer: Proposer | None = None,
+    apply: bool = False,
+) -> OptimizeResult
+```
+
+Run the eval-improve-eval loop. Pass a YAML path or a pre-parsed `EvalSpec`. The spec's `seed` block is ignored — the live soul is the seed.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `soul` | `Soul` | required | The soul to tune. Mutated in place when `apply=True`; restored to its starting state when `apply=False`. |
+| `eval_spec_path` | `str \| Path \| EvalSpec` | required | Path to a YAML eval spec, or an already-parsed instance. |
+| `iterations` | `int` | `10` | Maximum loop iterations. |
+| `target_score` | `float` | `1.0` | Stop early when the eval score reaches this threshold. |
+| `knobs` | `list[Knob] \| None` | `default_knobs()` | Custom knob list. |
+| `engine` | `CognitiveEngine \| None` | `None` | Engine for judge cases and the LLM-assisted proposer. Without one the heuristic proposer fires and judge cases skip. |
+| `proposer` | `Proposer \| None` | `Proposer()` | Custom proposer. |
+| `apply` | `bool` | `False` | Keep kept changes and append `soul.optimize.applied` chain entries when `True`. |
+
+### Runner class
+
+```python
+runner = OptimizeRunner(
+    soul,
+    eval_spec,
+    knobs=None,
+    engine=None,
+    proposer=None,
+)
+runner.register_knob(my_custom_knob)
+result = await runner.run(iterations=20, target_score=0.9, apply=False)
+```
+
+`register_knob(knob)` appends a custom knob to the runner's pool. Custom knobs sit below the built-ins in heuristic priority so they only fire when none of the defaults moved the score.
+
+### Knob protocol
+
+```python
+@runtime_checkable
+class Knob(Protocol):
+    name: str
+    async def current_value(self, soul: Soul) -> Any: ...
+    async def apply(self, soul: Soul, value: Any) -> None: ...
+    async def revert(self, soul: Soul, original: Any) -> None: ...
+    def candidates(self, current: Any) -> list[Any]: ...
+```
+
+`apply()` and `revert()` are pure mutations — they do **not** append trust-chain entries. Chain hooks live in the runner so probe attempts that get rolled back never pollute the audit log.
+
+### Built-in knobs
+
+- `OceanTraitKnob(trait: str, *, step_sizes=(0.1, 0.2))` — adjusts one of `openness` / `conscientiousness` / `extraversion` / `agreeableness` / `neuroticism`. Candidates are ±0.1 and ±0.2 around the current value, clamped to `[0.0, 1.0]`.
+- `PersonaTextKnob(engine=None, failing_cases=None, candidates_override=None)` — proposes alternate persona phrasings via the cognitive engine. Without an engine, the heuristic side returns no candidates and the runner skips it. The `async_candidates(current)` method is the LLM path; `candidates(current)` is the override / heuristic path. The proposer wires the engine + failing-case strings into the knob automatically before each round.
+- `SignificanceThresholdKnob(*, threshold_step=1, threshold_bounds=(1, 10))` — adjusts `MemorySettings.importance_threshold` (±1) plus the boolean `MemorySettings.skip_deep_processing_on_low_significance`. A "value" is the tuple `(threshold, skip_deep)`.
+- `BondThresholdKnob(*, step_sizes=(5.0, 10.0), bounds=(0.0, 100.0))` — adjusts the soul's default `bond.bond_strength` by ±5 / ±10. Direct attribute mutation bypasses the `BondRegistry` `on_change` callback so probe-and-revert experiments stay silent.
+- `default_knobs(*, engine=None) -> list[Knob]` — convenience: one OCEAN knob per trait, plus the persona / significance / bond knobs.
+
+### Proposer
+
+```python
+class Proposer:
+    def __init__(self, *, max_proposals: int = 24): ...
+    async def propose(
+        self,
+        soul: Soul,
+        eval_result: EvalResult,
+        knobs: list[Knob],
+        engine: CognitiveEngine | None = None,
+    ) -> list[KnobProposal]: ...
+```
+
+Two paths share one entry point. When an engine is wired, the proposer asks the LLM to rank knobs by likely impact and parses the JSON response. When the LLM returns proposals, heuristic exploration is appended below them so a single under-shot LLM proposal doesn't strand the loop. When the engine errors or returns no usable proposals, the proposer falls back to the pure heuristic ranker (OCEAN traits first, then persona, then thresholds; every candidate of every knob).
+
+### Result models
+
+`OptimizeStep`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `iteration` | `int` | 1-indexed loop iteration that produced the step. |
+| `knob_name` | `str` | Name of the knob the proposal targeted. |
+| `before` | `Any` | Knob value before the trial. |
+| `after` | `Any` | Candidate value the proposal applied. |
+| `score_before` | `float` | Eval score before the trial. |
+| `score_after` | `float` | Eval score after the trial. |
+| `kept` | `bool` | True when the change improved the score and was kept; False when reverted. |
+| `reason` | `str` | Free-form explanation from the proposer. |
+| `delta` | `float` (property) | `score_after - score_before`. |
+
+`OptimizeResult`:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `spec_name` | `str` | Echoes `EvalSpec.name`. |
+| `baseline_score` | `float` | Mean per-case score at iteration 0. |
+| `final_score` | `float` | Mean per-case score after the loop. |
+| `target_score` | `float` | Threshold passed to `optimize`. |
+| `iterations_run` | `int` | How many outer iterations executed. |
+| `convergence_iteration` | `int \| None` | Iteration at which the score crossed `target_score`, or `None` if never. |
+| `applied` | `bool` | Echoes the `apply=` argument. |
+| `steps` | `list[OptimizeStep]` | Per-trial record. |
+| `knobs_touched` | `list[str]` | Sorted list of knob names that produced at least one kept change. |
+| `duration_ms` | `int` | Total wall-clock time. |
+| `improved` | `bool` (property) | True when `final_score > baseline_score`. |
+| `converged` | `bool` (property) | True when `final_score >= target_score`. |
+| `kept_steps` | `list[OptimizeStep]` (property) | Subset of `steps` where `kept=True`. |
+| `stuck_iterations` | `int` (property) | Number of iterations where no proposal was kept. |
+
+### score_of
+
+```python
+def score_of(eval_result: EvalResult) -> float
+```
+
+Mean per-case score, ignoring skipped cases. Used by the runner to decide whether a candidate improved the score; exposed publicly so callers building custom proposers / knobs can score consistently.

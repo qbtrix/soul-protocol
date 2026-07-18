@@ -1,4 +1,23 @@
-<!-- Covers: CLI installation, all 47 commands with usage examples, options tables, and output descriptions.
+<!-- Covers: CLI installation, all 51 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-04-29 — v0.5.0 (#142): Added `soul optimize` for the autonomous
+       self-improvement loop. Reads an eval spec, proposes knob changes (OCEAN, persona,
+       memory thresholds, bond strength), keeps changes that improve the score, reverts
+       otherwise. Dry-run by default; --apply persists the winning trajectory and writes
+       soul.optimize.applied trust chain entries. Count: 50 → 51.
+     Updated: 2026-04-30 — v0.5.0 (#203): Added `soul prune-chain` for touch-time chain
+       pruning. Dry-run by default; --apply to mutate; --keep N for the threshold;
+       falls back to Biorhythms.trust_chain_max_entries when --keep is omitted.
+       Count: 49 → 50.
+     Updated: 2026-04-30 — v0.5.0 (#201): `soul audit` adds a Summary column derived from
+       per-action human-readable descriptions and a `--no-summary` flag for users who want
+       the hash-only view from 0.4.0 back. JSON output always carries `summary`; pre-#201
+       entries return `summary=""`.
+     Updated: 2026-04-30 — v0.5.0 (#189): Added `soul journal init/append/query` subcommands
+       for shell-hook integration with the org-level SQLite WAL journal. Count: 48 → 49.
+     Updated: 2026-04-29 — v0.5.0 (#160): Added `soul eval` for YAML-driven soul-aware evals.
+       Runs cases against a soul seeded with explicit state (memories, OCEAN, bonds, mood,
+       energy). Supports keyword / regex / semantic / judge / structural scoring. --json,
+       --filter, --judge-engine, --verbose options. Exits 1 on any failure. Count: 47 → 48.
      Updated: 2026-04-29 — v0.4.0 (#42): Added `soul verify` and `soul audit` for trust-chain
        integrity checks and signed-action timelines. Both support --json. `soul verify` exits
        1 on a tampered chain. Count: 45 → 47.
@@ -566,6 +585,84 @@ Core memory (persona and human knowledge) is not writable through `remember`. Us
 
 ---
 
+### `soul note` (v0.5.0, #231)
+
+Note a fact in a soul, routing the new content through the dedup pipeline before it lands in the store. Use this when a script, hook, or human is writing a single fact-shaped string and you want the soul to skip near-duplicates and merge enriched supersets instead of accumulating duplicates.
+
+`soul note` differs from the other two memory writers as follows:
+
+- **vs `soul remember`** — `remember` is a blunt append. Every call adds a fresh `MemoryEntry`, even when the content is byte-identical to something already stored. `note` runs the new content through `reconcile_fact()` (Jaccard + containment over tokenized strings) and applies the resulting SKIP / MERGE / CREATE decision. Pass `--no-dedup` to opt out and get the legacy `remember` behaviour.
+- **vs `soul observe`** — `observe` is the cognitive interaction pipeline. It takes a `--user-input` + `--agent-output` pair and runs the full sentiment / significance / entity-extraction stack on top of the memory write. `note` takes a single fact-shaped string and skips fact extraction (the caller already provided the fact). Use `note` when you have a fact, `observe` when you have a conversation turn.
+
+```bash
+# Semantic by default — facts the soul should know
+soul note aria.soul "User prefers dark mode"
+soul note aria.soul "Likes Python" --importance 7
+
+# Procedural — how to do things
+soul note aria.soul "To deploy: run make deploy" --type procedural
+
+# Episodic — events that happened (dedup is bypassed for episodic)
+soul note aria.soul "Shipped v0.5 today" --type episodic --importance 8
+
+# Domain-scoped (#41) — dedup is restricted to the same domain when non-default
+soul note aria.soul "Q3 revenue up 12 percent" --domain finance --importance 8
+
+# Force a blunt write — bypass dedup
+soul note aria.soul "always store this raw" --no-dedup
+```
+
+**Dedup pipeline:**
+
+For each call against the matching tier store, `note` computes a Jaccard-with-containment similarity against the existing (non-superseded) entries and picks one of three actions:
+
+- **CREATE** (similarity below 0.6) — a genuinely new fact. Stored as a new `MemoryEntry`. Returned as `{"action": "CREATE", "id": "<new>", "existing_id": null, "similarity": null}`.
+- **SKIP** (similarity above 0.85) — the new text duplicates an existing entry. Nothing is written. Returned as `{"action": "SKIP", "id": null, "existing_id": "<existing>", "similarity": 0.92}`.
+- **MERGE** (similarity 0.6 to 0.85) — the new text enriches an existing entry. The new content is stored, the old entry's `superseded_by` field points at the new id, and only the new entry shows in default recalls. Returned as `{"action": "MERGE", "id": "<new>", "existing_id": "<old>", "similarity": 0.75}`.
+
+Episodic memories bypass dedup entirely (events are unique by time). The `--no-dedup` flag falls through to the blunt `remember` path for callers that want to force a write.
+
+**Examples by action:**
+
+```bash
+# CREATE — first time the fact is seen
+soul note aria.soul "user prefers dark mode in the editor"
+# panel: CREATED
+
+# SKIP — second call with identical text
+soul note aria.soul "user prefers dark mode in the editor"
+# panel: SKIPPED, existing id, similarity 1.00
+
+# MERGE — second call enriches the first
+soul note aria.soul "Aria likes Python"
+soul note aria.soul "Aria likes Python and async code"
+# panel on second call: MERGED, existing id, similarity 0.75
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `TEXT` | Yes | The fact text to note. |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--importance, -i INT` | `5` | Importance score 1-10. |
+| `--emotion, -e TEXT` | | Emotion tag (e.g. `happy`, `sad`). |
+| `--type, -t [episodic\|semantic\|procedural\|social]` | `semantic` | Memory tier. Episodic bypasses dedup. |
+| `--domain, -d TEXT` | `default` | Domain sub-namespace (#41). When non-default, dedup is restricted to entries with the same domain. |
+| `--no-dedup` | off | Bypass the dedup pipeline and write unconditionally. Restores the legacy `remember` behaviour. |
+| `--no-contradictions` | off | Skip contradiction detection on stored facts. (Wiring is plumbed but disabled by default — see #231.) |
+
+**Output:** A panel showing the action taken (`CREATED` / `SKIPPED` / `MERGED`), the relevant memory IDs, similarity score (when applicable), tier, domain, importance, and emotion. Border colour signals the action: green for CREATE, yellow for SKIP, cyan for MERGE.
+
+> **Naming note.** Issue #231 originally proposed `soul observe` for this command, but `soul observe` is already taken by the cognitive interaction pipeline. The command ships as `soul note` to match the runtime method (`Soul.note()`); a follow-up issue tracks the longer-term consolidation.
+
+---
+
 ### `soul recall`
 
 Query a soul's memories by text, or list the most recent memories. Returns ranked results using activation-based relevance (recency + importance + match strength).
@@ -796,9 +893,11 @@ soul prompt .soul/ | pbcopy
 
 ### `soul forget`
 
-Delete memories by ID, query, entity, or timestamp (GDPR-compliant). Searches and deletes matching memories across all tiers. Records a deletion audit entry without storing deleted content.
+Forget memories by ID, query, entity, or timestamp.
 
-Dry-run by default — preview shows what would be deleted without touching the soul. Pass `--apply` to actually execute. A `.soul.bak` backup is written before any destructive save (when the soul is a single-file `.soul` archive).
+**v0.5.0 (#192) semantic shift.** As of 0.5.0 `soul forget` no longer hard-deletes — it drops `MemoryEntry.retrieval_weight` to 0.05 (below the recall floor of 0.1) so the entry stops surfacing but stays on disk. Use `soul reinstate` to restore. For genuine deletion (GDPR / privacy / safety), use `soul purge` — that command keeps the older hard-delete behaviour with `.soul.bak` backup.
+
+Dry-run by default — preview shows what would be forgotten without touching the soul. Pass `--apply` to commit. A `.soul.bak` backup is written before the save when the soul is a single-file `.soul` archive.
 
 ```bash
 soul forget .soul/ "credit card"                         # preview by query
@@ -863,6 +962,152 @@ soul supersede aria.soul "User now prefers light mode" \
 **Output:** A panel showing the old ID, new ID, tier, reason, and the new content. Saves the soul automatically. Exits non-zero if `--old-id` does not resolve.
 
 **Audit:** Every successful supersede writes an entry to the supersede audit trail, exposed via `Soul.supersede_audit`. Internal supersession (dream-cycle dedup, contradiction resolution during `learn`) does not write to this trail — it is for explicit user intent only.
+
+**v0.5.0 (#192):** the new entry's `supersedes` back-edge is set to the old id, and the chain entry now carries `prediction_error`. Default PE is `0.85` — the supersede band. Lower PE raises `PredictionErrorOutOfBandError` because `update` is the right verb for that range.
+
+---
+
+### `soul confirm` (v0.5.0, #192)
+
+Refresh activation on a memory you have just verified.
+
+Bumps the entry's `last_accessed`, increments `access_count`, and clamps `retrieval_weight` back toward 1.0 if it had decayed. Appends a `memory.confirm` chain entry. The "this is still right" verb — no PE supplied, no window check.
+
+```bash
+soul confirm .soul/ bf0ee3453983
+soul confirm aria.soul abc123def --user prakash
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `MEMORY_ID` | Yes | ID of the memory to confirm. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--user TEXT` | Optional user_id recorded on the chain entry. |
+
+---
+
+### `soul update` (v0.5.0, #192)
+
+Patch a memory in place inside the reconsolidation window (PE in `[0.2, 0.85)`).
+
+The window opens whenever a recall surfaces this id and stays open for one hour. Outside the window an in-place update is unsafe — the call raises and the caller should switch to `soul supersede`. The CLI runs a small recall against the current entry content first so the window opens in this single invocation; you do not need to call `soul recall` separately.
+
+```bash
+soul update .soul/ bf0ee3453983 --patch "ships in July, not May"
+soul update aria.soul abc123def --patch "..." --prediction-error 0.4
+```
+
+**PE bands (locked):**
+
+- `PE  < 0.2`            → use `soul confirm`
+- `PE in [0.2, 0.85)`    → `soul update` (this command)
+- `PE >= 0.85`           → use `soul supersede`
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `MEMORY_ID` | Yes | ID of the memory to patch. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--patch TEXT` | Replacement content for the entry. **Required.** |
+| `--prediction-error FLOAT` | PE in `[0.2, 0.85)`. Default `0.5`. |
+| `--user TEXT` | Optional user_id recorded on the chain entry. |
+
+Exits non-zero on PE band violation or closed window.
+
+---
+
+### `soul purge` (v0.5.0, #192)
+
+Hard delete a memory (GDPR / privacy / safety).
+
+Genuinely removes the entry from storage. Defaults to dry-run preview — pass `--apply` to commit. The trust chain still records the purge with the prior payload hash so verifiers can later prove the entry once existed and was deleted, without storing the deleted content.
+
+`soul reinstate` cannot recover a purged entry — for non-destructive suppression, use `soul forget` instead.
+
+```bash
+soul purge .soul/ --id bf0ee3453983              # preview only
+soul purge .soul/ --id bf0ee3453983 --apply --confirm
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--id TEXT` | ID of the memory to hard-delete. **Required.** |
+| `--apply` | Commit the deletion. Without this flag, `purge` is a preview. |
+| `--confirm` | Skip the confirmation prompt (requires `--apply`). |
+| `--user TEXT` | Optional user_id recorded on the chain entry. |
+
+---
+
+### `soul reinstate` (v0.5.0, #192)
+
+Restore a forgotten memory to full retrieval weight.
+
+The inverse of `soul forget`. Sets `retrieval_weight` back to 1.0 so recall surfaces the entry again. No-op for entries already at full weight; cannot recover a purged entry.
+
+```bash
+soul reinstate .soul/ bf0ee3453983
+soul reinstate aria.soul abc123def --user prakash
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+| `MEMORY_ID` | Yes | ID of the memory to reinstate. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--user TEXT` | Optional user_id recorded on the chain entry. |
+
+---
+
+### `soul upgrade` (v0.5.0, #192)
+
+Upgrade a soul archive's memory schema to a newer format. The 0.4.x → 0.5.0 upgrade derives the `supersedes` back-edge from the existing `superseded_by` reverse map. Pydantic v2 backfills `retrieval_weight=1.0` and `prediction_error=None` at load time, so the only field this command actually persists is the back-edge.
+
+Idempotent — re-running on a 0.5.0 soul is a no-op.
+
+```bash
+soul upgrade aria.soul --to 0.5.0
+soul upgrade aria.soul --to 0.5.0 --dry-run
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a soul file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--to TEXT` | Target soul format version. Default `0.5.0`. |
+| `--dry-run` | Print the migration plan without writing. |
 
 ---
 
@@ -1219,6 +1464,98 @@ soul user invite pat@acme.com
 
 ---
 
+## Journal (#189)
+
+The `soul journal` command group exposes the org-level event journal (the SQLite WAL backend behind `soul org init`) to shell hooks, CI scripts, and non-Python runtimes. Three subcommands cover the shell cases: `init`, `append`, `query`. The Python API stays the only surface for advanced cases (custom backends, typed payload models per action).
+
+This is the right answer when you want a queryable, append-only, hash-chained log keyed by action — not the same shape as `soul remember` (BM25 fuzzy memory). See [Org Journal Spec](org-journal-spec.md) for the wire-level contract.
+
+### `soul journal init`
+
+Bootstrap a standalone SQLite WAL journal file at `<path>`. Distinct from `soul org init` — no root soul, no founder, no scope tree. Useful for an event log without the full org bootstrap, like a workspace session log, a CI audit trail, or a migration scratch pad.
+
+```bash
+soul journal init ./.journal.db
+soul journal init /tmp/ci-audit.db --force
+```
+
+| Option | Description |
+|--------|-------------|
+| `--force` | Overwrite an existing journal file (and the `-wal` / `-shm` sidecars). |
+
+### `soul journal append`
+
+Append one or more events to a journal. Single-event mode takes flags; `--stdin` reads one JSON object per line and batches them into a single Journal session. The committed `EventEntry` is echoed to stdout as JSON (with backend-assigned `seq` and `prev_hash`), so scripts can capture the event id for a follow-up `--causation-id` chain.
+
+```bash
+soul journal append ./.journal.db \
+    --action session.pr.merged.pocketpaw \
+    --actor '{"kind":"agent","id":"did:soul:claude-code"}' \
+    --payload '{"pr":1021,"sha":"abc"}' \
+    --scope session:abc123 --scope repo:pocketpaw
+
+# Stdin batch
+echo '{"action":"foo","scope":["s:1"],"payload":{}}' \
+    | soul journal append ./.journal.db --stdin
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--action TEXT` | yes (single mode) | Dot-separated action name. Action namespace is open — see [Org Journal Spec](org-journal-spec.md#action-namespaces) for the catalog. |
+| `--actor JSON` | no | JSON object matching `Actor` (`kind` + `id`). Defaults to `{"kind":"system","id":"cli"}`. |
+| `--payload JSON` | no | JSON object stored as the event payload. Defaults to `{}`. |
+| `--scope TEXT` | yes (single mode) | Scope tag. Repeatable. Events without scope are rejected. |
+| `--causation-id UUID` | no | UUID of the prior event that caused this one (decision-trace chains). |
+| `--correlation-id UUID` | no | UUID grouping this event with related events (session/flow id). |
+| `--stdin` | no | Read JSONL events from stdin instead of using the flags. Mutually exclusive with the other event flags. |
+
+In `--stdin` mode each line is a JSON object with the same field names as the flag form (`action`, `scope`, `actor`, `payload`, `causation_id`, `correlation_id`, optional `id`, optional `ts`). Blank lines are skipped. Malformed lines abort the batch with a non-zero exit code so callers don't silently drop events.
+
+### `soul journal query`
+
+Query events from a journal. Default output is a Rich table; `--json` emits a JSON array of `EventEntry` records.
+
+```bash
+soul journal query ./.journal.db --action-prefix session.pr.
+soul journal query ./.journal.db --since 2026-04-24T00:00:00Z
+soul journal query ./.journal.db --at 2026-04-20T12:00:00Z
+soul journal query ./.journal.db --scope session:abc123 --limit 50 --json
+```
+
+| Option | Description |
+|--------|-------------|
+| `--action TEXT` | Exact action match. |
+| `--action-prefix TEXT` | Match action and any descendant in the dotted namespace. Trailing dot tolerated (`session.pr.` and `session.pr` are equivalent). Mutually exclusive with `--action`. |
+| `--scope TEXT` | Scope tag to match. Repeatable; conjunction. |
+| `--correlation-id UUID` | Filter to a single correlation_id (session/flow id). |
+| `--since ISO8601` | Lower bound on timestamp (inclusive). |
+| `--until ISO8601` | Upper bound on timestamp (inclusive). |
+| `--at ISO8601` | Point-in-time replay — only return events `<= this`. Mutually exclusive with `--until`. |
+| `--limit INT` | Max results (default 100). |
+| `--offset INT` | Pagination offset. |
+| `--json` | Emit a JSON array instead of the Rich table. |
+
+### Shell-hook example
+
+A minimal `post-commit` hook in `.git/hooks/post-commit` that records every commit into a per-workspace journal:
+
+```bash
+#!/usr/bin/env bash
+set -e
+SHA=$(git rev-parse HEAD)
+TITLE=$(git log -1 --pretty=%s)
+soul journal append ./.journal.db \
+    --action session.commit.pushed \
+    --actor "{\"kind\":\"agent\",\"id\":\"did:soul:$USER\"}" \
+    --payload "{\"sha\":\"$SHA\",\"title\":\"$TITLE\"}" \
+    --scope "repo:$(basename "$PWD")" \
+    --scope "session:$(date +%Y-%m-%d)" >/dev/null
+```
+
+A next-session `soul journal query ./.journal.db --action-prefix session.` returns clean structured history.
+
+---
+
 ## Environment Variables
 
 The CLI resolves paths in this order: **explicit flag > environment variable > default**. All three variables are honored by `soul org init`, `soul org status`, `soul org destroy`, and any other command that touches the org data-dir.
@@ -1411,6 +1748,7 @@ soul audit <path>
 soul audit <path> --filter memory.
 soul audit <path> --limit 20
 soul audit <path> --json
+soul audit <path> --no-summary  # hash-only view
 ```
 
 **Arguments:**
@@ -1426,8 +1764,323 @@ soul audit <path> --json
 | `--filter <prefix>` | str | none | Filter to actions starting with `<prefix>` (e.g. `memory.`). |
 | `--limit <N>` | int | none | Show only the most recent N entries. |
 | `--json` | flag | false | Emit machine-readable JSON. |
+| `--no-summary` | flag | false | Hide the Summary column and show the hash only (#201). |
 
-The default output is a Rich table (Seq, Timestamp, Action, Actor, Payload Hash). Payloads are stored as hashes only — the table shows *what changed when*, not *what was written*.
+The default output is a Rich table with columns `Seq`, `Timestamp`, `Action`, `Actor`, `Summary`, `Payload Hash`. The `Summary` column shows a short human-readable description per entry — for example, `3 memories` for a `memory.write` action or `+0.50 for alice` for `bond.strengthen`. Pass `--no-summary` for the hash-only view that 0.4.0 shipped with.
+
+JSON output always includes `summary` on each row; `--no-summary` only affects the human table. Pre-#201 entries that have no `summary` field stored on disk return `summary=""` after Pydantic loads the legacy shape.
+
+Payloads are stored as hashes only — the table shows *what changed when*, not *what was written*.
+
+---
+
+### `soul eval`
+
+Run YAML-driven soul-aware evals against a freshly seeded soul. The eval framework lets you pin the soul's state (memories, OCEAN, bonds, mood, energy) before each test runs, so you can measure memory-driven behaviour rather than just stateless input-output. See [eval-format.md](eval-format.md) for the full schema.
+
+```bash
+soul eval <path>
+soul eval <directory>
+soul eval <path> --filter "creative"
+soul eval <path> --json
+soul eval <path> --judge-engine module:attr
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `TARGET` | Yes | Path to a `.yaml` / `.yml` eval file, or a directory of them. |
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--filter <substring>` | str | none | Run only cases whose name contains `<substring>`. |
+| `--judge-engine <module:attr>` | str | none | Engine for `judge` and `respond`-mode cases. The attribute can be a class (instantiated with no args) or a callable returning an engine. Without one, judge cases are marked SKIP. |
+| `--json` | flag | false | Emit machine-readable JSON instead of the Rich table. |
+| `--verbose / -v` | flag | false | Include per-case details / errors in table rows. |
+
+**Examples:**
+
+```bash
+soul eval tests/eval_examples/personality_expression.yaml
+soul eval tests/eval_examples/                                  # all .yaml in dir
+soul eval tests/eval_examples/ --filter "creative"
+soul eval my_eval.yaml --json | jq '.specs[].cases'
+soul eval my_eval.yaml --judge-engine my_module:make_engine
+```
+
+**Output:** one Rich table per spec (Case, Status, Score, Time, optional Details), plus a summary footer with totals. `--json` returns `{specs: [...], duration_ms, pass_count, fail_count, skip_count, error_count}`.
+
+**Exit codes:** `0` when every case passes (skipped cases don't fail the run); `1` when any case fails or any spec errors out.
+
+---
+
+### `soul optimize`
+
+Run the autonomous self-improvement loop against a soul (v0.5.0, issue #142). Reads an eval spec, identifies failing cases, proposes knob changes (OCEAN traits, persona text, memory thresholds, bond strength), applies and re-scores. Improvements are kept; everything else is reverted. Defaults to dry-run — no soul state mutates unless you pass `--apply`. See [soul-optimize.md](soul-optimize.md) for the full concept overview.
+
+```bash
+soul optimize <soul-path> <eval.yaml>
+soul optimize <soul-path> <eval.yaml> --iterations 20 --target 0.9
+soul optimize <soul-path> <eval.yaml> --apply
+soul optimize <soul-path> <eval.yaml> --json
+soul optimize <soul-path> <eval.yaml> --engine module:Class
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SOUL_PATH` | Yes | Path to a `.soul` file or `.soul/` directory. |
+| `EVAL_SPEC_PATH` | Yes | Path to a `.yaml` / `.yml` eval spec. |
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--iterations / -n <N>` | int | 10 | Maximum optimization iterations. |
+| `--target <X>` | float | 1.0 | Stop early when the eval score reaches this threshold. |
+| `--apply` | flag | false | Keep the winning trajectory and append `soul.optimize.applied` trust-chain entries. Without this flag every change reverts at end. |
+| `--engine <module:attr>` | str | none | Engine for judge cases and the LLM-assisted proposer. Without an engine the heuristic proposer fires and judge cases skip. |
+| `--json` | flag | false | Emit the full `OptimizeResult` as JSON instead of the Rich table. |
+
+**Examples:**
+
+```bash
+# Dry-run preview against the personality-expression eval
+soul optimize aria.soul tests/eval_examples/personality_expression.yaml
+
+# Apply the winning trajectory; trust chain records each kept change
+soul optimize aria.soul eval.yaml --apply
+
+# Tighter convergence target
+soul optimize aria.soul eval.yaml --iterations 20 --target 0.9
+
+# Pipe the JSON output for downstream processing
+soul optimize aria.soul eval.yaml --json | jq '.steps | map(select(.kept))'
+```
+
+**Output:** a Rich table with one row per trial (iteration, knob, before, after, score change, kept) plus a summary line `baseline X → final Y (Δ) · ran/converged · N knobs touched · duration · APPLIED|dry-run`. `--json` returns the full `OptimizeResult` Pydantic dump (`baseline_score`, `final_score`, `target_score`, `iterations_run`, `convergence_iteration`, `steps`, `knobs_touched`, `applied`, `duration_ms`).
+
+**Exit codes:** always `0` on a successful run — the loop is informational. Inspect the JSON output for hard pass/fail logic.
+
+**Safety rails:** `--apply` is opt-in. The default dry-run reverts every change applied during the run so the soul on disk stays byte-identical. With `--apply`, only changes that strictly improved the eval score are kept, and each kept change appends one signed `soul.optimize.applied` trust-chain entry with payload `{knob_name, before, after, score_delta}` for full audit.
+
+---
+
+### `soul prune-chain`
+
+Compress old trust-chain history into a signed `chain.pruned` marker (v0.5.0, issue #203). Dry-run by default — pass `--apply` to mutate the chain. Genesis (seq=0) is always preserved.
+
+```bash
+soul prune-chain <path>                       # preview, uses biorhythm cap
+soul prune-chain <path> --keep 100            # preview, custom threshold
+soul prune-chain <path> --keep 100 --apply    # execute the prune
+soul prune-chain <path> --json --apply        # machine-readable output
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to a `.soul` file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--keep <N>` | int | from `Biorhythms.trust_chain_max_entries` | Length threshold. When the chain has more than `N` entries, every non-genesis entry is compressed into a single signed marker. |
+| `--apply` | flag | false | Actually run the prune. Without this flag, the command previews only. |
+| `--reason <str>` | str | `manual` | Free-form label written onto the marker payload. |
+| `--json` | flag | false | Emit machine-readable JSON. |
+
+When the chain is already at or below `--keep`, the command reports `applied=False` with a zero-count summary.
+
+**JSON output:** `{soul, did, applied, summary, chain_length, keep}`. `summary` carries `{count, low_seq, high_seq, reason, marker_seq}`.
+
+This is the touch-time stub. The full archival design (separate `trust_chain/archive/` directory with checkpoint entries) is deferred to v0.5.x. See [docs/trust-chain.md](trust-chain.md#chain-pruning).
+
+**Exit codes:** 0 on success (whether or not anything was pruned); 2 when no `--keep` is provided AND the soul has no biorhythm cap (auto-prune disabled).
+
+---
+
+## Diff (#191)
+
+### `soul diff <left> <right>`
+
+Compare two soul files at the soul level — identity, OCEAN, state, core memory, memories, bond, skills, trust chain, self-model, evolution. Read-only; never modifies either input. Works for any combination of zip and dir formats.
+
+```bash
+soul diff aria.soul aria-after-week.soul
+soul diff aria.soul aria-after-week.soul --json
+soul diff aria.soul aria-after-week.soul --section memory
+soul diff aria.soul aria-after-week.soul --include-superseded
+soul diff aria.soul aria-after-week.soul --format markdown
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--format [text\|json\|markdown]` | Output format. `text` is the default Rich panel; `json` emits a `SoulDiff` dict; `markdown` emits a paste-ready table for PR bodies. |
+| `--json` | Shortcut for `--format json`. |
+| `--section <name>` | Narrow to one section. Accepts `identity`, `ocean` (alias `dna`), `state`, `core` (alias `core-memory`), `memory`, `bond`, `skills`, `trust` (alias `trust-chain`), `self` (alias `self-model`), `evolution`. |
+| `--include-superseded` | Show the supersession chain explicitly. By default, memories whose `superseded_by` field changed are filtered out of the modified list since they still live in the file — but reviewers usually want to see the new memory, not the chain. |
+| `--summary-only` | Print per-section counts instead of the full diff. |
+
+**Output structure (text mode):**
+
+```
+Soul diff: aria → aria-after-week
+
+Identity
+  (no changes — section omitted)
+
+OCEAN / DNA
+  openness          ↑ 0.020
+  conscientiousness ↓ 0.010
+
+Memories
+  Layer counts
+    semantic   2 → 4
+    procedural 0 → 1
+  + semantic   id=34e53f imp=8: 'Second test memory: this is the kind of...'
+  ~ semantic   id=78ef90: importance 7 → 9
+  + procedural id=11223344 imp=5: 'New how-to: ...'
+
+Bond
+  user            Strength             Interactions
+  (default)       50.0 ↑ 53.5          0 → 7
+  alice           50.0 ↑ 51.2          0 → 3
+  + new bonded users: alice
+
+Skills
+  + analyst (level 1, 0 XP)
+```
+
+Sections are omitted when empty so a no-op diff stays terse. JSON output always includes the full structure.
+
+**Schema mismatch:**
+
+Different schema versions on the two souls error out cleanly:
+
+```
+$ soul diff old.soul new.soul
+error: Schema version mismatch: left='1.0.0', right='1.1.0'. Soul diff
+requires both files to share a schema version. Migrate the older soul
+with `soul migrate <path>` first.
+```
+
+**Programmatic use:**
+
+```python
+from soul_protocol.runtime import Soul, diff_souls
+
+left = await Soul.awaken("aria.soul")
+right = await Soul.awaken("aria-after-week.soul")
+diff = diff_souls(left, right, include_superseded=False)
+print(diff.summary())
+# {"identity": 0, "memories_added": 2, "bonds": 1, ...}
+```
+
+The returned `SoulDiff` is a Pydantic model — see [API reference](api-reference.md#souldiff) for the full field list.
+
+---
+
+## Graph layer (#108, #190)
+
+`soul graph` is a subcommand group for inspecting the knowledge graph. Five subcommands cover listing, traversal, and human-readable rendering.
+
+### `soul graph nodes <path>`
+
+```
+soul graph nodes <path> [--type TYPE] [--match SUBSTRING] [--limit N] [--json]
+```
+
+List nodes in the graph. The default output is a Rich table with id, type, and provenance (the memory ids that produced the entity). Pass `--json` for machine-readable output.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--type` | str | none | Filter by entity type (built-in or custom). |
+| `--match` | str | none | Case-insensitive substring filter on entity name. |
+| `--limit` | int | none | Cap the number of rows. |
+| `--json` | flag | false | Emit JSON. |
+
+```bash
+soul graph nodes mysoul.soul --type person --json
+soul graph nodes mysoul.soul --match alice
+```
+
+### `soul graph edges <path>`
+
+```
+soul graph edges <path> [--source X] [--target Y] [--relation R] [--json]
+```
+
+List active edges. Filters can be combined.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--source` | str | none | Filter by source entity id. |
+| `--target` | str | none | Filter by target entity id. |
+| `--relation` | str | none | Filter by relation predicate. |
+| `--json` | flag | false | Emit JSON. |
+
+```bash
+soul graph edges mysoul.soul --source Alice
+soul graph edges mysoul.soul --relation owned_by --json
+```
+
+### `soul graph neighbors <path> <node_id>`
+
+```
+soul graph neighbors <path> <node_id> [--depth N] [--types t1,t2] [--json]
+```
+
+List nodes within `--depth` hops of `node_id` (default 1). The starting node is always included with `depth=0`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--depth` | int | 1 | Maximum hops out from `node_id`. |
+| `--types` | str | none | Comma-separated whitelist of entity types for non-source nodes. |
+| `--json` | flag | false | Emit JSON. |
+
+```bash
+soul graph neighbors mysoul.soul Alice --depth 2 --types person,tool
+```
+
+### `soul graph path <path> <source_id> <target_id>`
+
+```
+soul graph path <path> <source_id> <target_id> [--max-depth N] [--json]
+```
+
+Find the shortest chain of edges from `source_id` to `target_id`. Returns the chain in traversal order. JSON output carries a `found` flag plus `edges` list.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--max-depth` | int | 4 | Maximum hops to consider. |
+| `--json` | flag | false | Emit JSON. |
+
+```bash
+soul graph path mysoul.soul Captain PR-1024 --max-depth 6
+```
+
+Exit code is `0` whether or not a path exists — the JSON `found` flag (or the textual "No path" message) signals the answer.
+
+### `soul graph mermaid <path>`
+
+```
+soul graph mermaid <path>
+```
+
+Print the full graph as a Mermaid `graph LR` block. Pipe into a Mermaid renderer (e.g. `mmdc`) for a visual:
+
+```bash
+soul graph mermaid mysoul.soul | mmdc -i - -o graph.png
+```
 
 ---
 
@@ -1437,6 +2090,7 @@ The default output is a Rich table (Seq, Timestamp, Action, Actor, Payload Hash)
 |------|---------|
 | 0 | Success |
 | 1 | Error (missing file, invalid format, user cancelled, chain verification failed) |
+| 2 | Configuration error (e.g. `soul prune-chain` invoked with no `--keep` and no biorhythm cap) |
 
 ## File Format Support
 

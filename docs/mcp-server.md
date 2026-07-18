@@ -1,6 +1,14 @@
-<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 26 tools
-     (14 soul/memory + 5 context + 5 psychology + 2 trust chain), 3 resources, 2 prompts,
-     auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
+<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 28 tools
+     (14 soul/memory + 5 context + 5 psychology + 3 trust chain + 1 eval), 3 resources,
+     2 prompts, auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
+     Updated: 2026-04-30 — v0.5.0 (#203): Added soul_prune_chain MCP tool for touch-time
+     chain pruning. Dry-run by default; pass apply=true to mutate the chain. Tool count: 27 → 28.
+     Updated: 2026-04-29 — v0.5.0 (#142): Added soul_optimize MCP tool for the autonomous
+       self-improvement loop. Defaults to apply=False (dry-run). When apply=True, kept
+       changes write soul.optimize.applied trust chain entries.
+     Updated: 2026-04-29 — v0.5.0 (#160): Added soul_eval MCP tool for running YAML eval
+     specs against the active soul. Accepts yaml_path or yaml_string. Returns the EvalResult
+     as JSON. Tool count: 26 → 27.
      Updated: 2026-04-29 — v0.4.0 (#42): Added soul_verify and soul_audit MCP tools for
      trust-chain integrity checks and signed-action timelines. Tool count: 24 → 26.
      Updated: 2026-04-06 — Added soul_dream tool for offline batch memory consolidation.
@@ -88,9 +96,9 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (26)
+## Tools (29)
 
-All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 24 tools break down as: 9 soul management, 5 memory, 5 context (LCM), and 5 psychology pipeline (v0.2.7).
+All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 29 tools break down as: 9 soul management, 5 memory, 5 context (LCM), 5 psychology pipeline (v0.2.7), 3 trust chain (`soul_verify`, `soul_audit`, `soul_prune_chain`), 1 eval (v0.5.0 #160), and 1 graph (`soul_graph_query`, v0.5.0 #108/#190).
 
 **Multi-soul targeting:** When the server is running with `SOUL_DIR` and multiple souls are loaded, all tools accept an optional `soul` parameter (string) to target a specific soul by name or ID. If omitted, the tool operates on the currently active soul.
 
@@ -452,6 +460,193 @@ Return a human-readable timeline of signed actions on the soul's trust chain (#4
 **Returns:** JSON `{soul, did, entries: [...]}`.
 
 Payloads themselves are not on chain — only their hashes — so this tool surfaces *what changed when*, not *what was written*.
+
+---
+
+### `soul_graph_query`
+
+Discriminated query tool for the soul's knowledge graph (#108, #190). The `kind` parameter selects the operation:
+
+| `kind` | Required params | Returns |
+|--------|----------------|---------|
+| `nodes` | none (filters: `type`, `name_match`, `limit`) | `{count, nodes: [...]}` |
+| `edges` | none (filters: `source`, `target`, `relation`) | `{count, edges: [...]}` |
+| `neighbors` | `node_id` (optional: `depth`, `types`) | `{start, depth, count, nodes: [...]}` |
+| `path` | `source_id`, `target_id` (optional: `max_depth`) | `{found, source, target, edges: [...]}` |
+| `subgraph` | `node_ids` | `{nodes: [...], edges: [...]}` |
+| `mermaid` | none | `{mermaid: "graph LR ..."}` |
+| `stats` | none | `{node_count, edge_count, types: {...}, relations: {...}}` |
+
+```json
+{
+  "kind": "neighbors",
+  "node_id": "Alice",
+  "depth": 2,
+  "types": ["person", "tool"]
+}
+```
+
+Unknown `kind` values return `{"error": "unknown kind: ..."}` with no exception. All responses are JSON.
+
+The graph is read-mostly: mutations land via `soul_observe` (which runs the typed-ontology extractor and emits `graph.entity_added` / `graph.relation_added` trust-chain entries). There is no MCP tool for direct graph mutation in 0.5.0 — keep edits flowing through observation so the audit trail stays complete.
+
+---
+
+### `soul_prune_chain`
+
+Compress old trust-chain history into a signed `chain.pruned` marker (#203). Touch-time stub for v0.5.0. Returns a dry-run preview by default; pass `apply=true` to actually mutate the chain. Genesis (seq=0) is always preserved.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `keep` | `int` | `None` | Length threshold. When the chain has more than `keep` entries, every non-genesis entry is compressed into a single signed marker. Defaults to `Biorhythms.trust_chain_max_entries`. |
+| `apply` | `bool` | `false` | When `false` (default), return a dry-run preview only. When `true`, mutate the chain. |
+| `reason` | `str` | `manual` | Free-form label written onto the marker payload. |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted). |
+
+**Returns:** JSON `{soul, did, applied, summary, chain_length, keep}`. `summary` carries `{count, low_seq, high_seq, reason, marker_seq}`.
+
+When the chain is already at or below `keep`, the tool reports `applied=false` with a zero-count summary even if `apply=true` was passed (no marker is written for a no-op). When neither `keep` nor a biorhythm cap is set, the tool returns `{applied: false, error: "..."}`.
+
+The mutation is staged into the active soul; the registry's auto-save persists it on shutdown. The full archival design (separate archive directory with checkpoint entries) is deferred to v0.5.x.
+
+---
+
+### `soul_eval`
+
+Run a YAML eval spec against the active soul (#160). Unlike the CLI `soul eval` command — which births a fresh soul from the spec's `seed` block — this MCP tool runs against the soul that is already loaded, so an agent can self-evaluate against its current state.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `yaml_path` | `str` | `None` | Filesystem path to a `.yaml` / `.yml` spec (mutually exclusive with `yaml_string`) |
+| `yaml_string` | `str` | `None` | Raw YAML text — handy when an agent generates its own cases |
+| `case_filter` | `str` | `None` | Run only cases whose name contains this substring |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{spec_name, cases: [...], duration_ms, pass_count, fail_count, skip_count, error_count}`.
+
+The `seed` block on the spec is intentionally ignored — the soul's live memories, OCEAN, bonds, and state are the seed. Only `cases` run. Pass `yaml_path` **or** `yaml_string`, not both.
+
+See [eval-format.md](eval-format.md) for the YAML schema and the supported scoring kinds (keyword / regex / semantic / judge / structural).
+
+---
+
+### `soul_confirm` (v0.5.0, #192)
+
+Refresh activation on a memory the agent has just verified.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `memory_id` | `str` | required | ID of the memory to confirm |
+| `user_id` | `str \| None` | `None` | Optional user_id recorded on the chain entry |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{status, soul, memory_id, tier, weight}`. `status` is `"confirmed"` on hit, `"not_found"` otherwise.
+
+---
+
+### `soul_update` (v0.5.0, #192)
+
+Patch a memory in place inside the reconsolidation window (PE in `[0.2, 0.85)`).
+
+The window opens whenever a recall surfaces this id and stays open for one hour. The tool runs a small recall against the current entry content first so the window opens in this single call. Outside the window the call returns `{status: "error", error: "ReconsolidationWindowClosedError"}` so the agent can promote to `soul_supersede`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `memory_id` | `str` | required | ID of the memory to patch |
+| `patch` | `str` | required | Replacement content |
+| `prediction_error` | `float` | `0.5` | PE in `[0.2, 0.85)` |
+| `user_id` | `str \| None` | `None` | Optional user_id recorded on the chain entry |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{status, soul, memory_id, tier, new_content, prediction_error}` on success. PE outside the band returns `{status: "error", error: "PredictionErrorOutOfBandError"}`.
+
+---
+
+### `soul_supersede` (v0.5.0, #192 — extends 0.4.0)
+
+Write a new memory and link the old as superseded (PE >= 0.85).
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `old_id` | `str` | required | ID of the memory being replaced |
+| `new_content` | `str` | required | Content for the new memory |
+| `reason` | `str \| None` | `None` | Optional free-form reason recorded in the audit trail |
+| `prediction_error` | `float` | `0.85` | PE in `[0.85, 1.0]` |
+| `importance` | `int` | `5` | Importance score for the new memory (1-10) |
+| `user_id` | `str \| None` | `None` | Optional user_id recorded on the chain entry |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{status, soul, old_id, new_id, reason, prediction_error}` on success. PE below 0.85 returns `{status: "error", error: "PredictionErrorOutOfBandError"}`.
+
+The new entry's `supersedes` back-edge points at `old_id`, and `old.superseded_by` points at the new entry. Recall surfaces the new entry; the provenance walker climbs the chain.
+
+---
+
+### `soul_purge` (v0.5.0, #192)
+
+Hard delete a memory (GDPR / privacy / safety). Defaults to dry-run preview — pass `apply=true` to commit.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `memory_id` | `str` | required | ID of the memory to hard-delete |
+| `apply` | `bool` | `false` | Must be true to actually delete |
+| `user_id` | `str \| None` | `None` | Optional user_id recorded on the chain entry |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{status, soul, memory_id, tier, prior_payload_hash}`. `status` is `"purged"` on hit (with `apply=true`), `"preview"` on dry-run, `"not_found"` when the id can't be resolved.
+
+The trust chain still records the purge with the prior payload hash so verifiers can later prove the entry once existed and was deleted, without storing the deleted content.
+
+---
+
+### `soul_reinstate` (v0.5.0, #192)
+
+Restore a forgotten memory to full retrieval weight. The inverse of `soul_forget`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `memory_id` | `str` | required | ID of the memory to reinstate |
+| `user_id` | `str \| None` | `None` | Optional user_id recorded on the chain entry |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{status, soul, memory_id, tier, weight}`. `status` is `"reinstated"` on hit, `"not_found"` when the id can't be resolved (typically because the entry was purged).
+
+---
+
+### `soul_forget` (v0.5.0 semantic shift)
+
+Forget memories matching a query — **v0.5.0 (#192) shifted from hard delete to non-destructive weight-decay**. Matched entries have their `retrieval_weight` dropped below the recall floor so they stop surfacing, but stay on disk and can be restored via `soul_reinstate`. For genuine deletion (GDPR / safety) call `soul_purge`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `query` | `str` | required | Search query for memories to weight-decay |
+| `confirm` | `bool` | `false` | Must be true to actually run the decay (safety gate) |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `{status, soul, query, total, tiers}`. `status` is `"forgotten"` on apply, `"preview"` on dry-run.
+
+---
+
+### `soul_optimize`
+
+Run the autonomous self-improvement loop against the active soul (#142). Drives the eval-improve-eval cycle: run an eval, propose knob changes (OCEAN traits, persona text, memory thresholds, bond strength) for failing cases, re-run the eval, keep changes that improve the score, revert otherwise. Pairs with [`soul_eval`](#soul_eval) so "improvement" is a measurable signal rather than a vibe.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `yaml_path` | `str` | `None` | Filesystem path to a `.yaml` / `.yml` eval spec (mutually exclusive with `yaml_string`) |
+| `yaml_string` | `str` | `None` | Raw YAML eval spec text |
+| `iterations` | `int` | `10` | Maximum loop iterations |
+| `target_score` | `float` | `1.0` | Stop early when the eval score reaches this threshold |
+| `apply` | `bool` | `false` | Keep changes and append `soul.optimize.applied` chain entries when `true` (default `false` — dry-run) |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON `OptimizeResult`: `spec_name`, `baseline_score`, `final_score`, `target_score`, `iterations_run`, `convergence_iteration`, `applied`, `steps` (each with `iteration`, `knob_name`, `before`, `after`, `score_before`, `score_after`, `kept`, `reason`), `knobs_touched`, `duration_ms`.
+
+The spec's `seed` block is intentionally ignored — the active soul's live state is the seed.
+
+**Safety rails.** `apply=False` is the default. In that mode every change applied during the run is reverted at the end and no trust chain entries are written. Set `apply=True` to keep the winning trajectory; per-kept-change `soul.optimize.applied` entries are appended to the soul's signed audit log. Reverted proposals never write chain entries either way.
+
+See [soul-optimize.md](soul-optimize.md) for the concept overview and the knob model. See [eval-format.md](eval-format.md) for how to author the eval that drives the loop.
 
 ---
 

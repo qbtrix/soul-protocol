@@ -1,5 +1,24 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 30 tools (25 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# 36 tools (31 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-05-02 (#192) — Brain-aligned memory update primitive tools.
+#   Adds soul_confirm, soul_update, soul_supersede, soul_purge, and
+#   soul_reinstate. Existing soul_forget shifts from hard delete to
+#   weight-decay (matching the Soul.forget v0.5.0 semantics). PE band
+#   errors and reconsolidation-window errors are caught and returned as
+#   {status: "error", error: ...} JSON so agents can act on them rather
+#   than treating them as crashes.
+# Updated: 2026-05-02 (#142) — `soul_optimize` tool runs the autonomous
+#   improvement loop against the active soul. Drives eval → propose → re-eval
+#   → keep/revert; defaults to dry-run (apply=False). Pairs with #160 (soul_eval)
+#   to make "improvement" a measurable signal.
+# Updated: 2026-04-30 (#203) — Touch-time chain pruning: ``soul_prune_chain``
+#   compresses a soul's old trust-chain history into a signed chain.pruned
+#   marker. Defaults to dry-run; pass ``apply=True`` to mutate the chain.
+#   Defers the full archival design to v0.5.x.
+# Updated: 2026-04-29 (#160) — `soul_eval` tool runs a YAML eval spec against
+#   the active soul (no birth, no seed) so agents can self-evaluate their
+#   current state. Accepts yaml_path or yaml_string. Returns the EvalResult
+#   as JSON.
 # Updated: 2026-04-29 (#42) — Trust chain tools: ``soul_verify`` returns chain
 #   integrity status; ``soul_audit`` returns the human-readable timeline of
 #   signed actions, with optional action_prefix and limit. JSON-only output —
@@ -1189,20 +1208,21 @@ async def soul_forget(
     confirm: bool = False,
     soul: str | None = None,
 ) -> str:
-    """Delete memories matching a query (GDPR-compliant).
+    """Forget memories matching a query (v0.5.0 weight-decay).
 
-    Searches across all memory tiers (episodic, semantic, procedural) and
-    deletes matching entries. Records a deletion audit entry without storing
-    deleted content.
+    v0.5.0 (#192) shifted forget from hard delete to non-destructive
+    weight-decay: matched entries have their retrieval_weight dropped
+    below the recall floor so they stop surfacing, but stay on disk and
+    can be restored via soul_reinstate. For genuine deletion (GDPR /
+    safety) call soul_purge.
 
     Args:
         query: Search query to match against memory content
-        confirm: Must be true to actually delete (safety gate)
+        confirm: Must be true to actually run the decay (safety gate)
         soul: Target soul name (uses active soul if omitted)
     """
     s = await _resolve_soul(soul)
     if not confirm:
-        # Dry-run: search but don't delete
         results = await s.recall(query, limit=50)
         return json.dumps(
             {
@@ -1210,18 +1230,265 @@ async def soul_forget(
                 "soul": s.name,
                 "query": query,
                 "matching_count": len(results),
-                "hint": "Set confirm=true to delete these memories",
+                "hint": "Set confirm=true to weight-decay these memories",
             }
         )
     result = await s.forget(query)
     _registry.mark_modified(soul)
     return json.dumps(
         {
-            "status": "deleted",
+            "status": "forgotten",
             "soul": s.name,
             "query": query,
-            "total_deleted": result.get("total_deleted", 0),
-            "tiers": result.get("tiers", {}),
+            "total": result.get("total", 0),
+            "tiers": {
+                "episodic": len(result.get("episodic", [])),
+                "semantic": len(result.get("semantic", [])),
+                "procedural": len(result.get("procedural", [])),
+            },
+        }
+    )
+
+
+# v0.5.0 (#192) — Brain-aligned memory update primitive MCP tools.
+# Each tool wraps the corresponding Soul method and returns JSON.
+
+
+@mcp.tool
+async def soul_confirm(
+    memory_id: str,
+    user_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Refresh activation on a verified memory.
+
+    Bumps last_accessed and access_count, restores any decayed
+    retrieval_weight back toward 1.0, and appends a memory.confirm
+    chain entry. The "this is still right" verb — no PE supplied,
+    no window check.
+
+    Args:
+        memory_id: ID of the memory to confirm
+        user_id: Optional user_id to record on the chain entry
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    result = await s.confirm(memory_id, user_id=user_id)
+    if result.get("found"):
+        _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "status": "confirmed" if result.get("found") else "not_found",
+            "soul": s.name,
+            "memory_id": memory_id,
+            "tier": result.get("tier"),
+            "weight": result.get("weight"),
+        }
+    )
+
+
+@mcp.tool
+async def soul_update(
+    memory_id: str,
+    patch: str,
+    prediction_error: float = 0.5,
+    user_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """In-place patch within the reconsolidation window.
+
+    The window opens whenever soul_recall returns the entry; it stays
+    open for one hour. Outside the window the call raises and the agent
+    should switch to soul_supersede. PE band [0.2, 0.85). PE outside
+    the band raises — call soul_confirm for PE<0.2 and soul_supersede
+    for PE>=0.85.
+
+    Args:
+        memory_id: ID of the memory to patch
+        patch: Replacement content
+        prediction_error: PE in [0.2, 0.85). Default 0.5
+        user_id: Optional user_id to record on the chain entry
+        soul: Target soul name (uses active soul if omitted)
+    """
+    from ..runtime.exceptions import (
+        PredictionErrorOutOfBandError,
+        ReconsolidationWindowClosedError,
+    )
+
+    s = await _resolve_soul(soul)
+    # Open the window via recall against the current content so the tool
+    # is usable in a single call (matching the CLI behaviour).
+    existing, _ = await s._memory.find_by_id(memory_id)
+    if existing is not None:
+        await s.recall(existing.content[:100])
+    try:
+        result = await s.update(
+            memory_id,
+            patch,
+            prediction_error=prediction_error,
+            user_id=user_id,
+        )
+    except (PredictionErrorOutOfBandError, ReconsolidationWindowClosedError) as exc:
+        return json.dumps(
+            {
+                "status": "error",
+                "soul": s.name,
+                "memory_id": memory_id,
+                "error": type(exc).__name__,
+                "message": str(exc),
+            }
+        )
+    if result.get("found"):
+        _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "status": "updated" if result.get("found") else "not_found",
+            "soul": s.name,
+            "memory_id": memory_id,
+            "tier": result.get("tier"),
+            "new_content": result.get("new_content"),
+            "prediction_error": prediction_error,
+        }
+    )
+
+
+@mcp.tool
+async def soul_supersede(
+    old_id: str,
+    new_content: str,
+    reason: str | None = None,
+    prediction_error: float = 0.85,
+    importance: int = 5,
+    user_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Write a new memory and link the old as superseded (PE >= 0.85).
+
+    The orthogonal-trace verb. The new entry's supersedes back-edge
+    points at old_id, and old.superseded_by points at the new entry.
+    Recall surfaces the new entry; provenance walkers can climb back
+    to the older versions.
+
+    Args:
+        old_id: ID of the memory being replaced
+        new_content: Content for the new memory
+        reason: Optional free-form reason recorded in the audit trail
+        prediction_error: PE in [0.85, 1.0]. Default 0.85
+        importance: Importance score for the new memory (1-10)
+        user_id: Optional user_id to record on the chain entry
+        soul: Target soul name (uses active soul if omitted)
+    """
+    from ..runtime.exceptions import PredictionErrorOutOfBandError
+
+    s = await _resolve_soul(soul)
+    try:
+        result = await s.supersede(
+            old_id,
+            new_content,
+            reason=reason,
+            prediction_error=prediction_error,
+            importance=importance,
+            user_id=user_id,
+        )
+    except PredictionErrorOutOfBandError as exc:
+        return json.dumps(
+            {
+                "status": "error",
+                "soul": s.name,
+                "old_id": old_id,
+                "error": type(exc).__name__,
+                "message": str(exc),
+            }
+        )
+    if result.get("found"):
+        _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "status": "superseded" if result.get("found") else "not_found",
+            "soul": s.name,
+            "old_id": old_id,
+            "new_id": result.get("new_id"),
+            "reason": result.get("reason"),
+            "prediction_error": prediction_error,
+        }
+    )
+
+
+@mcp.tool
+async def soul_purge(
+    memory_id: str,
+    apply: bool = False,
+    user_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Hard delete a memory (GDPR / privacy / safety).
+
+    Genuinely removes the entry from storage. Defaults to dry-run
+    preview — pass apply=True to commit. The trust chain still records
+    the purge with the prior payload hash so verifiers can later prove
+    the entry once existed and was deleted without storing the deleted
+    content. Cannot be reversed by soul_reinstate.
+
+    Args:
+        memory_id: ID of the memory to hard-delete
+        apply: Must be true to actually delete (safety gate)
+        user_id: Optional user_id to record on the chain entry
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    if not apply:
+        entry, tier = await s._memory.find_by_id(memory_id)
+        return json.dumps(
+            {
+                "status": "preview" if entry is not None else "not_found",
+                "soul": s.name,
+                "memory_id": memory_id,
+                "tier": tier,
+                "hint": "Set apply=true to commit the hard delete",
+            }
+        )
+    result = await s.purge(memory_id, user_id=user_id)
+    if result.get("found"):
+        _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "status": "purged" if result.get("found") else "not_found",
+            "soul": s.name,
+            "memory_id": memory_id,
+            "tier": result.get("tier"),
+            "prior_payload_hash": result.get("prior_payload_hash"),
+        }
+    )
+
+
+@mcp.tool
+async def soul_reinstate(
+    memory_id: str,
+    user_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Restore a forgotten memory to full retrieval weight.
+
+    The inverse of soul_forget. Sets retrieval_weight back to 1.0 so
+    recall surfaces the entry again. No-op for entries already at full
+    weight; cannot recover a purged entry.
+
+    Args:
+        memory_id: ID of the memory to reinstate
+        user_id: Optional user_id to record on the chain entry
+        soul: Target soul name (uses active soul if omitted)
+    """
+    s = await _resolve_soul(soul)
+    result = await s.reinstate(memory_id, user_id=user_id)
+    if result.get("found"):
+        _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "status": "reinstated" if result.get("found") else "not_found",
+            "soul": s.name,
+            "memory_id": memory_id,
+            "tier": result.get("tier"),
+            "weight": result.get("weight"),
         }
     )
 
@@ -1663,7 +1930,9 @@ async def soul_audit(
 ) -> str:
     """Return a human-readable timeline of signed actions on the soul's chain.
 
-    Each row carries ``{seq, timestamp, action, actor_did, payload_hash}``.
+    Each row carries ``{seq, timestamp, action, actor_did, payload_hash, summary}``.
+    The ``summary`` field (#201) is a short per-action human-readable
+    description set at append time — pre-#201 entries return ``""``.
     Use ``action_prefix`` (e.g. ``"memory."``) to scope to one category.
     Use ``limit`` to take only the most recent N rows (tail behaviour).
 
@@ -1675,6 +1944,347 @@ async def soul_audit(
     s = await _resolve_soul(soul)
     log = s.audit_log(action_prefix=action_prefix, limit=limit)
     return json.dumps({"soul": s.name, "did": s.did, "entries": log})
+
+
+@mcp.tool
+async def soul_graph_query(
+    kind: str,
+    soul: str | None = None,
+    type: str | None = None,  # noqa: A002 - public param name
+    name_match: str | None = None,
+    limit: int | None = None,
+    source: str | None = None,
+    target: str | None = None,
+    relation: str | None = None,
+    node_id: str | None = None,
+    depth: int = 1,
+    types: list[str] | None = None,
+    source_id: str | None = None,
+    target_id: str | None = None,
+    max_depth: int = 4,
+    node_ids: list[str] | None = None,
+) -> str:
+    """Query the soul's knowledge graph (#108, #190).
+
+    Discriminated by ``kind`` over the GraphView operations:
+
+    - ``nodes``: list nodes; honors ``type``, ``name_match``, ``limit``.
+    - ``edges``: list active edges; honors ``source``, ``target``, ``relation``.
+    - ``neighbors``: list nodes within ``depth`` hops of ``node_id``.
+        ``types`` filters non-source nodes by type.
+    - ``path``: shortest path of edges from ``source_id`` to ``target_id``,
+        bounded by ``max_depth``.
+    - ``subgraph``: subgraph induced by ``node_ids``.
+    - ``mermaid``: render full graph as a Mermaid block.
+    - ``stats``: node/edge counts plus type and relation histograms.
+
+    All responses are JSON. Unknown ``kind`` values return an error.
+    """
+    s = await _resolve_soul(soul)
+    view = s.graph
+
+    if kind == "nodes":
+        nodes = view.nodes(type=type, name_match=name_match, limit=limit)
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "nodes",
+                "count": len(nodes),
+                "nodes": [n.model_dump() for n in nodes],
+            }
+        )
+    if kind == "edges":
+        edges = view.edges(source=source, target=target, relation=relation)
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "edges",
+                "count": len(edges),
+                "edges": [e.model_dump() for e in edges],
+            }
+        )
+    if kind == "neighbors":
+        if not node_id:
+            return json.dumps({"error": "neighbors requires node_id"})
+        result = view.neighbors(node_id, depth=depth, types=types)
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "neighbors",
+                "start": node_id,
+                "depth": depth,
+                "count": len(result),
+                "nodes": [n.model_dump() for n in result],
+            }
+        )
+    if kind == "path":
+        if not source_id or not target_id:
+            return json.dumps({"error": "path requires source_id and target_id"})
+        chain = view.path(source_id, target_id, max_depth=max_depth)
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "path",
+                "source": source_id,
+                "target": target_id,
+                "found": chain is not None,
+                "edges": [e.model_dump() for e in chain] if chain else [],
+            }
+        )
+    if kind == "subgraph":
+        if not node_ids:
+            return json.dumps({"error": "subgraph requires node_ids"})
+        sub = view.subgraph(node_ids)
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "subgraph",
+                "nodes": [n.model_dump() for n in sub.nodes],
+                "edges": [e.model_dump() for e in sub.edges],
+            }
+        )
+    if kind == "mermaid":
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "mermaid",
+                "mermaid": view.to_mermaid(),
+            }
+        )
+    if kind == "stats":
+        return json.dumps(
+            {
+                "soul": s.name,
+                "kind": "stats",
+                **view.stats(),
+            }
+        )
+    return json.dumps({"error": f"unknown kind: {kind}"})
+
+
+@mcp.tool
+async def soul_prune_chain(
+    keep: int | None = None,
+    apply: bool = False,
+    reason: str = "manual",
+    soul: str | None = None,
+) -> str:
+    """Compress old trust-chain history into a signed chain.pruned marker (#203).
+
+    Touch-time stub for v0.5.0. Returns dry-run preview by default; pass
+    ``apply=True`` to actually mutate the chain. Genesis (seq=0) is always
+    preserved. The marker carries ``{count, low_seq, high_seq, reason}`` so
+    an auditor can reconstruct what was dropped.
+
+    Returns JSON ``{soul, did, applied, summary, chain_length, keep}``.
+    ``summary`` is the prune summary (count/low_seq/high_seq/marker_seq).
+
+    The full archival design (separate trust_chain/archive/ directory with
+    checkpoint entries spanning archive files) is deferred to v0.5.x.
+
+    Args:
+        keep: Length threshold. When the chain has more than ``keep``
+            entries, non-genesis history is compressed into a single marker.
+            Defaults to the soul's Biorhythms.trust_chain_max_entries.
+        apply: When False (default), return a dry-run preview only. When
+            True, mutate the chain.
+        reason: Free-form label written onto the marker payload.
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    mgr = s.trust_chain_manager
+
+    effective_keep = keep if keep is not None else mgr.max_entries
+    if effective_keep is None or effective_keep <= 0:
+        return json.dumps(
+            {
+                "soul": s.name,
+                "did": s.did,
+                "applied": False,
+                "error": (
+                    "no keep value provided and the soul's Biorhythms."
+                    "trust_chain_max_entries is 0 (auto-prune disabled)"
+                ),
+            }
+        )
+
+    # Always preview first so we can avoid a mutation when there is
+    # nothing to drop. Reporting applied=True for a no-op would confuse
+    # auditors of the chain (no marker entry was actually written).
+    preview = mgr.dry_run_prune(keep=effective_keep)
+    if not apply or preview["count"] == 0:
+        return json.dumps(
+            {
+                "soul": s.name,
+                "did": s.did,
+                "applied": False,
+                "summary": preview,
+                "chain_length": mgr.length,
+                "keep": effective_keep,
+            }
+        )
+
+    summary = mgr.prune(keep=effective_keep, reason=reason)
+    # Mark the soul modified so the registry's auto-save persists the
+    # mutated chain on shutdown. Tools that mutate state follow this
+    # pattern (soul_observe, soul_remember, etc.).
+    _registry.mark_modified(soul)
+    return json.dumps(
+        {
+            "soul": s.name,
+            "did": s.did,
+            "applied": True,
+            "summary": summary,
+            "chain_length": mgr.length,
+            "keep": effective_keep,
+        }
+    )
+
+
+@mcp.tool
+async def soul_eval(
+    yaml_path: str | None = None,
+    yaml_string: str | None = None,
+    case_filter: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """Run a YAML eval spec against the active soul (#160).
+
+    Unlike the CLI ``soul eval`` command — which births a fresh soul
+    from the spec's ``seed`` block — this MCP tool runs against the
+    soul that is already loaded so an agent can self-evaluate against
+    its current state.
+
+    Either ``yaml_path`` or ``yaml_string`` is required (not both):
+
+    - ``yaml_path``: filesystem path to a YAML eval file.
+    - ``yaml_string``: raw YAML text (handy when the agent generates
+      its own eval cases programmatically).
+
+    The ``seed`` block on the spec is intentionally ignored — the soul's
+    live memories, OCEAN, bonds, and state are the seed. Only ``cases``
+    run.
+
+    Args:
+        yaml_path: Path to a .yaml/.yml file (mutually exclusive with
+            yaml_string).
+        yaml_string: Raw YAML text.
+        case_filter: Optional substring filter on case names.
+        soul: Target soul name (uses active soul if omitted).
+
+    Returns:
+        JSON string with the EvalResult: spec_name, cases (each with
+        name, passed, score, skipped, output, details), pass/fail/skip
+        counts, and total duration_ms.
+    """
+    if (yaml_path is None) == (yaml_string is None):
+        return json.dumps(
+            {
+                "error": "exactly one of yaml_path / yaml_string is required",
+            }
+        )
+
+    from soul_protocol.eval import (  # lazy — keeps cold-start small
+        load_eval_spec,
+        parse_eval_spec,
+        run_eval_against_soul,
+    )
+
+    if yaml_string is not None:
+        try:
+            import yaml as _yaml
+
+            data = _yaml.safe_load(yaml_string)
+            if not isinstance(data, dict):
+                return json.dumps({"error": "yaml_string must contain a mapping at top level"})
+            spec = parse_eval_spec(data)
+        except Exception as e:
+            return json.dumps({"error": f"failed to parse yaml_string: {e}"})
+    else:
+        try:
+            spec = load_eval_spec(yaml_path)
+        except Exception as e:
+            return json.dumps({"error": f"failed to load {yaml_path}: {e}"})
+
+    s = await _resolve_soul(soul)
+    result = await run_eval_against_soul(spec, s, case_filter=case_filter)
+    return json.dumps(result.model_dump(mode="json"))
+
+
+@mcp.tool
+async def soul_optimize(
+    yaml_path: str | None = None,
+    yaml_string: str | None = None,
+    iterations: int = 10,
+    target_score: float = 1.0,
+    apply: bool = False,
+    soul: str | None = None,
+) -> str:
+    """Run the autonomous self-improvement loop against the active soul (#142).
+
+    Drives the eval-improve-eval cycle: run an eval, propose knob changes
+    (OCEAN traits, persona text, memory thresholds, bond strength) for
+    failing cases, re-run the eval, keep changes that improve the score,
+    revert otherwise. Pairs with ``soul_eval`` to make "improvement" a
+    measurable signal rather than a vibe.
+
+    Either ``yaml_path`` or ``yaml_string`` is required. The spec's
+    ``seed`` block is ignored — the active soul's live state is the seed.
+
+    Defaults to ``apply=False`` (dry-run): every change applied during the
+    run is reverted at the end so the soul remains byte-identical. Set
+    ``apply=True`` to keep the winning trajectory; per-kept-change
+    ``soul.optimize.applied`` trust chain entries are appended.
+
+    Args:
+        yaml_path: Path to a .yaml/.yml eval spec (mutually exclusive
+            with yaml_string).
+        yaml_string: Raw YAML eval spec text.
+        iterations: Maximum loop iterations (default 10).
+        target_score: Stop early when the eval score reaches this
+            threshold (default 1.0).
+        apply: Keep changes and write trust-chain entries when True
+            (default False — dry-run only).
+        soul: Target soul name (uses active soul if omitted).
+
+    Returns:
+        JSON string with the OptimizeResult: spec_name, baseline_score,
+        final_score, target_score, iterations_run, convergence_iteration,
+        steps (each with iteration, knob_name, before, after, scores,
+        kept), knobs_touched, duration_ms.
+    """
+    if (yaml_path is None) == (yaml_string is None):
+        return json.dumps({"error": "exactly one of yaml_path / yaml_string is required"})
+
+    from soul_protocol.eval import load_eval_spec, parse_eval_spec  # lazy
+    from soul_protocol.optimize import optimize as run_optimize
+
+    if yaml_string is not None:
+        try:
+            import yaml as _yaml
+
+            data = _yaml.safe_load(yaml_string)
+            if not isinstance(data, dict):
+                return json.dumps({"error": "yaml_string must contain a mapping at top level"})
+            spec = parse_eval_spec(data)
+        except Exception as e:
+            return json.dumps({"error": f"failed to parse yaml_string: {e}"})
+    else:
+        try:
+            spec = load_eval_spec(yaml_path)
+        except Exception as e:
+            return json.dumps({"error": f"failed to load {yaml_path}: {e}"})
+
+    s = await _resolve_soul(soul)
+    result = await run_optimize(
+        s,
+        spec,
+        iterations=iterations,
+        target_score=target_score,
+        engine=getattr(s, "_engine", None),
+        apply=apply,
+    )
+    return json.dumps(result.model_dump(mode="json"))
 
 
 # --- Resources (3) ---

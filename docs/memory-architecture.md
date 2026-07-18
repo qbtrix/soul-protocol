@@ -102,23 +102,92 @@ Procedural memory stores learned patterns, preferences, and how-to knowledge. Th
 
 ### Tier 5: Knowledge Graph
 
-The knowledge graph tracks entity relationships using directed edges.
+The knowledge graph tracks typed entity relationships using directed edges.
 
 Structure:
 
-- Entities: dict mapping name to type (technology, person, project, place)
-- Edges: list of `(source, target, relation)` tuples
-- Relations: `uses`, `builds`, `prefers`, `works_at`, `learns`, `related_to`
-- No external dependencies -- implemented with plain Python dicts
+- Entities: dict mapping name to type plus an optional list of memory-id provenance
+- Edges: list of `(source, target, relation)` tuples with optional `weight` and metadata
+- No external dependencies — implemented with plain Python dicts
 - Duplicate edges are silently ignored
 - Entities are auto-created when a relationship references them
+
+#### Typed entity ontology (v0.5.0, #190)
+
+Eight built-in entity kinds plus open-string extension. Use `EntityType.PERSON`, `EntityType.TOOL`, etc. when the well-known kinds fit; pass any string when they don't:
+
+| Built-in | Use for |
+|----------|---------|
+| `person` | Humans (Alice, the user) |
+| `place` | Geographic or virtual locations |
+| `org` | Companies, teams, projects with org-like ownership |
+| `concept` | Abstract ideas, topics, methodologies |
+| `tool` | Technologies, libraries, software |
+| `document` | Files, articles, written artefacts |
+| `event` | Time-bound activities |
+| `relation` | Reified relationships (when an edge needs to carry data) |
+
+Custom strings (`"pr"`, `"channel"`, `"library"`, `"issue"`) pass through untouched — `EntityType` just names the well-known ones so they don't drift across modules.
+
+Eight built-in relation predicates: `mentions`, `related`, `depends_on`, `contributes_to`, `causes`, `follows`, `supersedes`, `owned_by`. Same open-string contract — any predicate is accepted on an edge.
+
+#### Extraction contract
+
+The cognitive engine's `extract_entities` returns one dict per entity:
+
+```python
+{
+    "name": "Alice",
+    "type": "person",
+    "relation": "knows",          # optional first-person relation to user
+    "relationships": [             # entity-to-entity edges
+        {"target": "Acme", "relation": "owned_by", "weight": 0.9},
+    ],
+    "edge_metadata": {"source_memory_id": "ep-1", "extracted_at": "..."},
+    "source_memory_id": "ep-1",
+}
+```
+
+When an LLM `CognitiveEngine` is wired, the prompt asks for the typed ontology + relations + weight directly. When no engine is configured, the heuristic extractor produces typed entities via a translation table (`technology` -> `tool`, `organization` -> `org`, etc.) — the heuristic stays in place for offline / cost-constrained souls.
+
+Re-extraction on the same interaction is **idempotent**: identical entities and edges are deduped, but the `(source, target, relation)` triple's metadata picks up the second memory's id in its `provenance` list.
+
+#### Traversal API
+
+`Soul.graph` returns a `GraphView` with read methods:
+
+```python
+soul.graph.nodes(type="person", name_match="ali", limit=20)
+soul.graph.edges(source="Alice", relation="mentions")
+soul.graph.neighbors("Alice", depth=2, types=["person", "tool"])
+soul.graph.path("Alice", "Acme", max_depth=4)        # shortest path BFS
+soul.graph.subgraph(["Alice", "Bob", "Acme"])
+soul.graph.to_mermaid()                               # human inspection
+```
+
+`Soul.recall` accepts a `graph_walk` parameter that filters memories to those linked to entities reachable within `depth` hops:
+
+```python
+results = await soul.recall(
+    "production rollout",
+    graph_walk={"start": "Acme", "depth": 2, "edge_types": ["mentions", "owned_by"]},
+    limit=10,
+    token_budget=4000,   # overflow falls back to L0 abstracts (F1 mechanism)
+)
+if results.next_page_token:
+    next_page = await soul.recall(..., page_token=results.next_page_token)
+```
+
+Memories rank by combined relevance + graph distance — closer entities surface first.
+
+Trust chain entries (`graph.entity_added`, `graph.relation_added`) record net-new graph state on each `observe()` call. Payloads are compact (id/type/source) so the chain doesn't redundantly store memory content.
 
 Example graph state after a few interactions:
 
 ```
-Python --[uses]--> User
-Acme --[builds]--> User
-FastAPI --[uses]--> User
+Python  (tool)  --[uses]--> User       (person)
+Acme    (org)   --[builds]--> User
+FastAPI (tool)  --[uses]--> User
 ```
 
 
@@ -877,3 +946,58 @@ soul.skills.get("python")  # Skill(id="python", level=3, xp=45, ...)
 ```
 
 Skills persist through export/awaken via `SoulConfig.skills`.
+
+## Memory update primitives (v0.5.0, #192)
+
+Six runtime verbs for correcting, refreshing, suppressing, or restoring memories. The vocabulary mirrors how brains actually handle updates — the cog-sci grounding lives in the [RFC](rfc-memory-update-primitives.md); this section is the runtime-level operator's view.
+
+### The PE / window / weight model
+
+Three knobs gate every update:
+
+- **prediction_error (PE)** — caller-supplied score in `[0.0, 1.0]`. PE answers "how surprising is this change?"
+- **reconsolidation window** — opens whenever `recall()` returns an entry, stays open for one hour, gates `update()`. Models cellular destabilization: a just-recalled trace is briefly editable; outside the window the trace is stable again and edits must write a new orthogonal trace.
+- **retrieval_weight** — per-entry weight in `[0.0, 1.0]`. Recall filters entries with `weight < 0.1` by default. `forget()` drops to 0.05 (invisible to recall, still on disk). `reinstate()` restores to 1.0.
+
+### The six verbs
+
+| Verb | PE band | Window | Side effect |
+|------|---------|--------|-------------|
+| `confirm(id)` | implicit ~0 (no check) | n/a | Bumps `last_accessed` / `access_count`, restores any decayed weight to 1.0 |
+| `update(id, patch)` | `[0.2, 0.85)` | must be open | Replaces content in place, stamps `prediction_error`, resets weight to 1.0 |
+| `supersede(old, new)` | `>= 0.85` | n/a | Writes a new entry, sets `old.superseded_by = new.id` and `new.supersedes = old.id` |
+| `forget(id)` | not gated | closes window for id | Drops weight to 0.05 (recall filters it out) |
+| `purge(id)` | not gated | closes window for id | Hard delete + chain entry with prior payload hash |
+| `reinstate(id)` | not gated | n/a | Restores weight to 1.0 |
+
+PE outside the verb's band raises `PredictionErrorOutOfBandError`. `update()` outside the window raises `ReconsolidationWindowClosedError`. Both errors are recoverable — the caller switches to the right verb (confirm for low PE, supersede for high PE or closed window).
+
+### Recall provenance
+
+Every `recall()` call resets `Soul.last_recall_provenance` and walks the `supersedes` back-edge for every returned entry that has a chain. Each provenance link is `{kind: "supersedes", target_id, reason, prediction_error, timestamp}`. The walk follows the chain back to the oldest known version. The sidecar lives on the Soul instance — `MemoryEntry` itself is not mutated, so the on-disk shape stays the same.
+
+### Trust chain entries
+
+Every verb except `confirm` is destructive or audit-worthy and lands a signed entry on the trust chain:
+
+- `memory.confirm` → `{id, tier, weight_after, user_id}`
+- `memory.update` → `{id, tier, prediction_error, user_id}`
+- `memory.supersede` → `{old_id, new_id, reason, prediction_error, user_id}`
+- `memory.forget` → `{id, tier, weight_after, user_id}` (single-id) or `{query, count, weight_after, user_id}` (bulk)
+- `memory.purge` → `{id, tier, prior_payload_hash, user_id}`
+- `memory.reinstate` → `{id, tier, weight_before, weight_after, user_id}`
+
+`purge` is the only verb that destroys data; the rest are non-destructive and unwindable by inverse operations. `purge` still records the SHA-256 of the prior content so verifiers can later prove the entry once existed without storing the content itself.
+
+### Why this isn't just "edit/delete"
+
+Plain edit/delete loses provenance and treats every change the same. The brain doesn't:
+
+- Some changes are confirmations (the trace was right) — no new memory needed.
+- Some are minor corrections (the trace was almost right, recently recalled) — patch in place.
+- Some are major contradictions (the trace was wrong, write a new orthogonal one) — supersede.
+- Some are safety obligations (forget this immediately) — weight-decay or purge.
+
+The verbs match the situation. The PE / window / weight model makes the choice mechanical: pick the verb whose band matches the PE, confirm the window is open if the verb needs it, accept the side effect.
+
+For the full theory and references (Nader / LeDoux on reconsolidation, Sevenster / Beckers / Kindt on PE gating, Bjork / Wimber on forgetting as inhibition, Anderson on ACT-R), see [`docs/rfc-memory-update-primitives.md`](rfc-memory-update-primitives.md).

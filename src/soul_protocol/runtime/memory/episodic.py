@@ -1,4 +1,8 @@
 # memory/episodic.py — EpisodicStore for timestamped interaction memories.
+# Updated: 2026-05-29 — Added add_entry() to store a pre-built MemoryEntry
+#   VERBATIM (fixes #234 + sibling importance-drop bug). The Interaction-based
+#   add()/add_with_psychology() builders that wrap content in the
+#   "User: ...\nAgent: ..." envelope are left untouched — observe relies on them.
 # Updated: 2026-03-29 — Filter archived entries from search() results (F2).
 # Updated: 2026-03-13 — Added update_entry() public method for updating fields
 #   on stored entries (replaces direct _memories dict access from manager.py).
@@ -108,6 +112,37 @@ class EpisodicStore:
 
         self._memories[memory_id] = entry
         return memory_id
+
+    async def add_entry(self, entry: MemoryEntry) -> str:
+        """Store a pre-built :class:`MemoryEntry` VERBATIM.
+
+        Unlike :meth:`add` and :meth:`add_with_psychology` — which build a
+        ``"User: ...\\nAgent: ..."`` envelope from an :class:`Interaction` and
+        hardcode importance — this stores the entry exactly as the caller
+        constructed it. Used by the blunt ``Soul.remember(type=EPISODIC)`` /
+        ``Soul.note(...)`` path so content, importance, emotion, entities,
+        somatic, significance, visibility, scope, domain, and user_id all
+        survive the write (fixes #234 and the sibling importance-drop bug).
+
+        Generates an id when ``entry.id`` is empty, forces
+        ``type = MemoryType.EPISODIC``, seeds ``access_timestamps`` from
+        ``created_at`` when empty, and runs the same capacity/eviction logic
+        as :meth:`add`.
+
+        Returns the stored memory ID.
+        """
+        entry.type = MemoryType.EPISODIC
+        if not entry.id:
+            entry.id = uuid.uuid4().hex[:12]
+        if not entry.access_timestamps:
+            entry.access_timestamps = [entry.created_at]
+
+        # Evict if at capacity (mirrors add()).
+        if len(self._memories) >= self._max_entries:
+            self._evict_least_significant()
+
+        self._memories[entry.id] = entry
+        return entry.id
 
     def update_entry(self, memory_id: str, **kwargs) -> bool:
         """Update fields on an existing episodic entry.

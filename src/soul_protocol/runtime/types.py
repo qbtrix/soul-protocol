@@ -1,4 +1,22 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-04-29 (#192) — Brain-aligned memory update primitives.
+#   MemoryEntry gains three additive fields used by the v0.5.0 verbs
+#   (confirm / update / supersede / forget / purge / reinstate):
+#     - retrieval_weight: float (0.0..1.0, default 1.0). Gates whether
+#       recall surfaces the entry. forget() drops it to 0.05 (below the
+#       default recall floor of 0.1). reinstate() restores it to 1.0.
+#     - supersedes: str | None (default None). Inverse back-edge of the
+#       existing ``superseded_by`` field. supersede() now sets both ends
+#       so callers can walk provenance in either direction.
+#     - prediction_error: float | None (default None). PE score recorded
+#       on the new entry when supersede()/update() write it. Unset for
+#       remember()/observe()-created entries — they have no caller-supplied
+#       PE score because no prior trace existed to predict against.
+#   Pre-0.5 souls round-trip cleanly: Pydantic v2 fills in the defaults at
+#   load time, so awaken() never has to mutate stored data.
+# Updated: 2026-04-29 (#203) — Biorhythms.trust_chain_max_entries: configurable
+#   cap for touch-time chain pruning. Default 0 = unbounded (preserves prior
+#   behaviour). Positive values trigger pruning when the chain reaches the cap.
 # Updated: 2026-04-29 (#41) — User-defined memory layers + domain isolation.
 #   MemoryType keeps the four built-in StrEnum members (CORE, EPISODIC,
 #   SEMANTIC, PROCEDURAL) plus SOCIAL for the new relationship layer; the
@@ -198,6 +216,19 @@ class Biorhythms(BaseModel):
         description="Interactions in window at or above which focus rises to 'max'",
     )
 
+    # Trust chain pruning (#203) — touch-time stub
+    trust_chain_max_entries: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Maximum entries the trust chain may carry before touch-time pruning fires. "
+            "0 (default) disables pruning and preserves the unbounded-chain behaviour. "
+            "Positive values cause append() to compress the non-genesis history into a "
+            "single signed `chain.pruned` marker once the cap is reached. The full "
+            "archival design lives in v0.5.x."
+        ),
+    )
+
 
 class DNA(BaseModel):
     """The soul's complete personality blueprint."""
@@ -277,6 +308,21 @@ class MemoryVisibility(StrEnum):
     PUBLIC = "public"
     BONDED = "bonded"
     PRIVATE = "private"
+
+
+class MemoryProvenance(StrEnum):
+    """Who authored a memory entry.
+
+    Distinguishes human-authored memories from those written autonomously
+    by an agent (e.g. PocketPaw's self-improving skills loop, where a forked
+    write-only reviewer learns a procedure from a session transcript). The
+    curator only ever consolidates / archives ``AGENT`` entries — human-authored
+    procedures are never touched. Defaults to ``HUMAN`` so pre-provenance souls
+    round-trip without migration.
+    """
+
+    HUMAN = "human"
+    AGENT = "agent"
 
 
 class MemoryType(StrEnum):
@@ -387,6 +433,26 @@ class MemoryEntry(BaseModel):
     # context like "finance" vs "legal" inside the same layer of facts.
     # Empty string is coerced to "default" by ``_coerce_layer_domain``.
     domain: str = "default"
+    # v0.5.0 (#192) — Brain-aligned memory update primitives. See RFC at
+    # docs/rfc-memory-update-primitives.md. Backfilled to defaults on awaken
+    # for pre-0.5 souls — no migration code needed at load time.
+    retrieval_weight: float = Field(default=1.0, ge=0.0, le=1.0)
+    # Inverse back-edge of ``superseded_by``. supersede() sets both sides so
+    # provenance walks work in either direction. None for entries that have
+    # not replaced an older entry.
+    supersedes: str | None = None
+    # PE score recorded when this entry was written via supersede() or
+    # update(). Unset for entries from remember() / observe() — they had no
+    # prior trace to predict against. Captured in the trust chain payload too,
+    # so verifiers can re-derive how confident the runtime was in the change.
+    prediction_error: float | None = Field(default=None, ge=0.0, le=1.0)
+    # feat/soul-skills-procedural — authorship tag. HUMAN for every memory the
+    # human or the standard observe/remember path writes; AGENT for memories an
+    # autonomous loop authors (PocketPaw's self-improving skills reviewer). The
+    # procedural curator only consolidates / archives AGENT entries; it never
+    # touches HUMAN-authored procedures and never hard-deletes. Defaults to
+    # HUMAN so pre-provenance souls round-trip with no migration.
+    provenance: MemoryProvenance = MemoryProvenance.HUMAN
 
     @model_validator(mode="before")
     @classmethod
@@ -435,11 +501,19 @@ class MemorySettings(BaseModel):
     human_tokens: int = 500
     # F5 auto-consolidation — archive + reflect every N interactions
     consolidation_interval: int = 20
-    # When True, skip entity extraction (step 5) and self-model update (step 6)
-    # for interactions that are not significant after the full pipeline
-    # (including fact-based promotion in step 4b). Saves 2 LLM calls per
-    # low-value interaction.
+    # When True, skip the self-model update (step 6) for interactions that
+    # aren't significant after the full pipeline (including fact-based
+    # promotion in step 4b). Self-model gating is correct — chitchat doesn't
+    # add signal to the model.
     skip_deep_processing_on_low_significance: bool = True
+    # When True (default), run entity extraction (step 5) on every observed
+    # interaction regardless of significance. Trivial conversations still
+    # mention entities ("how's Alice?", "saw Project X update") and the
+    # graph should track them at reduced cost. Set False to restore pre-#220
+    # behaviour where significance-skipping also dropped entity extraction;
+    # in that mode the entity graph plateaus quickly under low-significance
+    # daily use. (#220)
+    always_extract_entities: bool = True
     # LLM-based reranking on recall. Off by default because it adds an LLM
     # call on every smart_recall invocation. Callers who need relevance
     # quality over latency can opt in by constructing MemorySettings with

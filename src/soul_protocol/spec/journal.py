@@ -1,4 +1,18 @@
 # journal.py — Org Journal primitives (Actor, DataRef, EventEntry).
+# Updated: feat/rfc-09-slice-1-decision-vocabulary — register
+# ``decision.completed`` in ACTION_NAMESPACES as the canonical
+# chain-closing terminal event for Decision Graph chains (RFC 09).
+# Kept ``decision.graduated`` alongside it; that action retains its
+# original meaning (pattern promotion from episodic to semantic
+# memory) and is unchanged. The vocabulary split resolves a collision
+# RFC 09 surfaced — earlier drafts were reusing ``decision.graduated``
+# for two different purposes.
+# Updated: feat/rfc07-decision-outcome-attached — register
+# ``decision.outcome_attached`` in ACTION_NAMESPACES. RFC 07 introduces
+# this action as a projection-update event that mutates a Decision's
+# outcome after first emit. The hash chain excludes ``outcome``, which
+# is what makes the mutation safe; this is the only spec action that
+# mutates a prior projection record.
 # Updated: feat/0.3.2-spike — add EventEntry.seq (backend-assigned, None until
 # committed). Journal.append now returns the committed EventEntry so callers
 # can thread seq through idempotency/pagination without racing MAX(seq) or
@@ -99,7 +113,27 @@ ACTION_NAMESPACES: tuple[str, ...] = (
     # Decisions
     "agent.proposed",
     "human.corrected",
+    # ``decision.graduated`` (original meaning, unchanged): a recurring
+    # correction pattern has been promoted from episodic to semantic /
+    # core memory. Producer: the graduation subsystem. See
+    # :class:`soul_protocol.spec.decisions.DecisionGraduation`. Kept in
+    # the catalog for backward compatibility — RFC 09's chain-closing
+    # event is ``decision.completed`` (below), not this one.
     "decision.graduated",
+    # RFC 07 (Decision Graph Query Layer): projection-update event that
+    # mutates an already-emitted Decision's ``outcome`` field after the
+    # chain has closed. The hash chain excludes ``outcome``, so this
+    # post-hoc update is safe — it is the only event in the spec that
+    # mutates a prior projection record.
+    "decision.outcome_attached",
+    # RFC 09 (Decision Graph projection): the canonical chain-closing
+    # terminal event for a Decision Graph chain. Emitted once per
+    # closed chain with a ``status`` of ``landed`` / ``rejected`` /
+    # ``abandoned``. Distinct from ``decision.graduated`` above — that
+    # action means pattern promotion into semantic memory and operates
+    # on a different subsystem. See
+    # :func:`soul_protocol.spec.decisions.build_completion_event`.
+    "decision.completed",
     # Credentials & Zero-Copy
     "credential.acquired",
     "credential.used",
