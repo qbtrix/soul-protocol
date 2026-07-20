@@ -299,8 +299,13 @@ def test_load_soul_full_recovers_from_bak(
     asyncio.run(_test())
 
 
-def test_replace_with_backup_does_not_delete_orphan_bak(tmp_path):
-    """When target is absent and .bak exists, _replace_with_backup keeps the .bak."""
+def test_replace_with_backup_does_not_delete_orphan_bak(tmp_path, monkeypatch):
+    """When target is absent and .bak exists, _replace_with_backup must NOT
+    delete the .bak before the swap — it may be the only surviving copy.
+
+    We monkeypatch os.replace to fail on the source→target step and then
+    verify that the orphan .bak is still intact.
+    """
     target = tmp_path / "soul"
     bak = tmp_path / "soul.bak"
     source = tmp_path / "new_soul"
@@ -313,12 +318,53 @@ def test_replace_with_backup_does_not_delete_orphan_bak(tmp_path):
     source.mkdir()
     (source / "soul.json").write_text('{"new": true}', encoding="utf-8")
 
-    # target doesn't exist — .bak should NOT be deleted before the swap
-    storage_file._replace_with_backup(source, target, keep_backup=False)
+    real_replace = os.replace
 
-    # After swap: target has new data, .bak is gone (it was the old orphan)
+    def fail_on_source_to_target(src, dst):
+        """Fail when trying to place source into target position."""
+        if Path(dst) == target and Path(src) == source:
+            raise OSError("simulated crash during replace")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(storage_file.os, "replace", fail_on_source_to_target)
+
+    with pytest.raises(OSError, match="simulated crash"):
+        storage_file._replace_with_backup(source, target, keep_backup=False)
+
+    # The orphan .bak must still exist — it was the ONLY surviving copy
+    # and should NOT have been deleted before the swap completed.
+    assert bak.exists(), ".bak was deleted before the swap completed"
+    assert (bak / "soul.json").read_text(encoding="utf-8") == '{"good": true}'
+
+
+def test_recover_backup_race_safe(tmp_path, monkeypatch):
+    """If another process already promoted .bak, _recover_backup handles
+    the FileNotFoundError gracefully instead of crashing.
+
+    We monkeypatch os.replace to raise FileNotFoundError (simulating a
+    concurrent promoter) while the target already exists (the other
+    process completed recovery).
+    """
+    target = tmp_path / "mysoul"
+    bak = tmp_path / "mysoul.bak"
+
+    # Set up: .bak exists, target is absent — classic recovery scenario
+    bak.mkdir()
+    (bak / "soul.json").write_text('{"data": true}', encoding="utf-8")
+
+    def race_replace(src, dst):
+        """Simulate: another process already moved .bak → target."""
+        # Create the target (as if the other process recovered it)
+        Path(dst).mkdir(exist_ok=True)
+        (Path(dst) / "soul.json").write_text('{"data": true}', encoding="utf-8")
+        raise FileNotFoundError("simulated: .bak already moved by another process")
+
+    monkeypatch.setattr(storage_file.os, "replace", race_replace)
+
+    # Should return True (path now exists) instead of crashing
+    result = storage_file._recover_backup(target)
+    assert result is True
     assert target.exists()
-    assert (target / "soul.json").read_text(encoding="utf-8") == '{"new": true}'
 
 
 def test_save_soul_flat_removes_stale_layout_json(
@@ -351,27 +397,37 @@ def test_save_soul_flat_removes_stale_layout_json(
     asyncio.run(_test())
 
 
-def test_recover_backup_race_safe(tmp_path):
-    """If another process already promoted .bak, _recover_backup succeeds gracefully."""
-    target = tmp_path / "mysoul"
-    bak = tmp_path / "mysoul.bak"
+def test_save_soul_flat_preserves_private_key(
+    config: SoulConfig,
+    tmp_path,
+):
+    """Flat save with include_keys=False must NOT prune keys/private_key (#296 review)."""
+    import asyncio
 
-    # Simulate: .bak exists but another process promotes it mid-call
-    bak.mkdir()
-    (bak / "soul.json").write_text('{"data": true}', encoding="utf-8")
+    async def _test():
+        soul_dir = tmp_path / ".soul"
+        # First save — simulate a save that included keys
+        await storage_file.save_soul_flat(
+            config,
+            {"core": {"persona": "v1"}, "keys": {"keys/public.key": b"pk123"}},
+            soul_dir,
+        )
 
-    real_replace = os.replace
+        # Manually place a private_key file (as if a prior save included it)
+        keys_dir = soul_dir / "keys"
+        keys_dir.mkdir(exist_ok=True)
+        priv_key = keys_dir / "private_key"
+        priv_key.write_text("SECRET_KEY_DATA", encoding="utf-8")
 
-    def simulate_race(src, dst):
-        # First do the real replace, then simulate the second caller
-        real_replace(src, dst)
+        # Second save — keys dict has NO private_key (include_keys=False scenario)
+        await storage_file.save_soul_flat(
+            config,
+            {"core": {"persona": "v2"}, "keys": {"keys/public.key": b"pk123"}},
+            soul_dir,
+        )
 
-    # First call succeeds normally
-    result = storage_file._recover_backup(target)
-    assert result is True
-    assert target.exists()
-    assert not bak.exists()
+        # private_key must NOT have been pruned
+        assert priv_key.exists(), "keys/private_key was pruned by save with include_keys=False"
+        assert priv_key.read_text(encoding="utf-8") == "SECRET_KEY_DATA"
 
-    # Now simulate: both target and bak gone (nothing to recover)
-    result2 = storage_file._recover_backup(target)
-    assert result2 is False  # path already exists, no recovery needed
+    asyncio.run(_test())

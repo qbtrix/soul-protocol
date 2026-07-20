@@ -3303,7 +3303,7 @@ class Soul:
                 trust_chain_data=trust_chain_data,
                 key_files=key_files,
             )
-            write_bytes_atomic(Path(path), data, keep_backup=True)
+            write_bytes_atomic(Path(path), data, keep_backup=False)
             logger.info(
                 "Soul exported: name=%s, path=%s, size=%d bytes",
                 self.name,

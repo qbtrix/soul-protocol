@@ -106,8 +106,13 @@ async def test_export_and_awaken(tmp_path):
     assert restored.lifecycle == LifecycleState.ACTIVE
 
 
-async def test_export_overwrite_keeps_previous_file_backup(tmp_path):
-    """Overwriting an export keeps the previous archive as a .bak fallback."""
+async def test_export_overwrite_does_not_leave_backup(tmp_path):
+    """Export overwrites in place without leaving a .bak (#296 review).
+
+    Exports are meant to be shared — a .bak next to the archive would leak
+    the previous soul's full memory.  ``keep_backup=False`` is the default
+    for export.
+    """
     soul = await Soul.birth("Aria")
     soul_path = tmp_path / "aria.soul"
     old_data = b"previous archive"
@@ -116,7 +121,9 @@ async def test_export_overwrite_keeps_previous_file_backup(tmp_path):
     await soul.export(soul_path)
 
     assert soul_path.read_bytes() != old_data
-    assert (tmp_path / "aria.soul.bak").read_bytes() == old_data
+    assert not (tmp_path / "aria.soul.bak").exists(), (
+        "Export should not leave a .bak — it leaks the previous soul's data"
+    )
 
 
 async def test_system_prompt():

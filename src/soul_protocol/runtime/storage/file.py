@@ -151,7 +151,13 @@ def _recover_backup(path: Path) -> bool:
 
 
 def write_bytes_atomic(path: Path, data: bytes, *, keep_backup: bool = True) -> None:
-    """Write bytes via temp file + fsync + atomic replace."""
+    """Write bytes via temp file + fsync + atomic replace.
+
+    For a single file, ``os.replace(temp, target)`` is atomic on its own:
+    the path always resolves to old or new, never missing.  If
+    ``keep_backup`` is True, we *copy* (not move) the previous version to
+    ``.bak`` **before** the replace so there is no absent-path window.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -166,7 +172,17 @@ def write_bytes_atomic(path: Path, data: bytes, *, keep_backup: bool = True) -> 
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        _replace_with_backup(tmp_path, path, keep_backup=keep_backup)
+
+        # Copy (not move) old file to .bak before the atomic replace so
+        # the canonical path is never absent.
+        if keep_backup and path.exists():
+            backup = _backup_path(path)
+            import shutil
+
+            shutil.copy2(path, backup)
+
+        os.replace(tmp_path, path)
+        _fsync_directory(path.parent)
     except Exception:
         _remove_path(tmp_path)
         raise
@@ -275,6 +291,13 @@ async def load_soul(path: Path) -> SoulConfig | None:
 
     ``path`` should point to a directory containing ``soul.json``.
     Returns ``None`` if the file does not exist.
+
+    .. note::
+
+        This function does **not** perform crash recovery.  If the soul
+        directory vanished mid-swap, the ``.bak`` sibling is not promoted.
+        Use ``load_soul_full()`` or ``Soul.awaken()`` for crash-safe
+        loading — they call ``_recover_backup()`` automatically.
     """
     soul_json = path / "soul.json"
     if not soul_json.exists():
@@ -635,6 +658,15 @@ async def save_soul_flat(
         # but are absent from the new one (e.g. _layout.json after a
         # layout change from nested to flat).  Only touch managed
         # directories — never delete user files at the top level.
+        #
+        # Exception: keys/private_key and keys/private.pem are excluded
+        # from pruning.  A save with include_keys=False omits these from
+        # the new file set, but deleting them would destroy the user's
+        # signing capability — that should require an explicit action.
+        _prune_protected = {
+            Path("keys") / "private_key",
+            Path("keys") / "private.pem",
+        }
         managed_dirs = ["memory", "trust_chain", "keys"]
         for mdir_name in managed_dirs:
             mdir = path / mdir_name
@@ -644,7 +676,7 @@ async def save_soul_flat(
                 if not old_file.is_file():
                     continue
                 rel = old_file.relative_to(path)
-                if rel not in new_files:
+                if rel not in new_files and rel not in _prune_protected:
                     old_file.unlink()
             # Remove empty subdirectories left behind
             for old_dir in sorted(
