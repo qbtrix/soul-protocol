@@ -158,6 +158,16 @@ class TestExportPasswordRoundTrip:
             restored = await Soul.awaken(path, password="mysecret")
             assert restored.name == "RoundTrip"
 
+            # Assert encrypted memory tiers survived the round-trip (#294 review).
+            # The name lives in the plaintext manifest — this catches bugs that
+            # silently drop encrypted memory data during export or awaken.
+            facts = restored._memory._semantic.facts()
+            assert len(facts) > 0, (
+                "No semantic facts after encrypted round-trip — "
+                "encrypted memory tiers were likely dropped."
+            )
+            assert any("Secret memory" in f.content for f in facts)
+
         asyncio.run(_test())
 
     def test_awaken_with_wrong_password_fails(self, tmp_path):
@@ -208,6 +218,9 @@ class TestCLIRoundTrip:
         )
         assert result.exit_code == 0
         assert "CLIRoundTrip" in result.output
+        # Verify inspect shows memory counts survived encryption (#294 review).
+        # The inspect panel header is "Memory", and shows "Semantic      1".
+        assert "Semantic" in result.output and "1" in result.output
 
     def test_cli_export_unpack_roundtrip(self, tmp_path):
         """export --password → unpack --password should unpack successfully."""

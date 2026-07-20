@@ -1,4 +1,7 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-08-04 (#294) — Wires `--password` flag into `soul export`,
+#   `soul inspect`, and `soul unpack` for AES-256-GCM encryption at rest.
+#   Password is prompt-only (is_flag=True) so it never leaks into shell history.
 # Updated: 2026-07-17 (#286) — Catch unknown-tier ValueError in ``soul archive``;
 #   exit 1 so scripts can detect failure.
 # Updated: 2026-07-18 (#284) — Replaced ~45 private attribute accesses

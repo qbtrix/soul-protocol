@@ -14,6 +14,12 @@ When you export with `--password`, the archive is encrypted using:
   `manifest.json`, which remains readable so tools can detect that the
   archive is encrypted without needing the password.
 
+> **Privacy note:** The manifest intentionally keeps the soul's **name**,
+> **DID**, and **role** in plaintext so that tooling can index and display
+> archives without decryption. If you are encrypting for privacy, be aware
+> that the soul's identity header is visible — only the memory tiers,
+> trust chain, and signing keys are protected by the password.
+
 The `cryptography` Python package is required:
 
 ```bash
