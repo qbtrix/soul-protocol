@@ -1496,9 +1496,7 @@ def recall_cmd(
                     "created": entry.created_at.isoformat(),
                     "user_id": entry.user_id,
                     "score": (
-                        round(entry.recall_score, 4)
-                        if entry.recall_score is not None
-                        else None
+                        round(entry.recall_score, 4) if entry.recall_score is not None else None
                     ),
                 }
                 for entry in entries

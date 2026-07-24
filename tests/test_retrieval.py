@@ -346,9 +346,7 @@ class TestRecallScoresAndFloor:
         assert "orchestration handles pod scaling" in contents[0]  # strong survives
         assert all("passing footnote" not in c for c in contents)  # weak dropped
 
-    async def test_floor_above_all_matches_returns_empty(
-        self, populated_recall: RecallEngine
-    ):
+    async def test_floor_above_all_matches_returns_empty(self, populated_recall: RecallEngine):
         """A floor above every match's relevance yields no results."""
         # The floor gate keeps an entry when relevance >= floor, so floor=1.0
         # is inclusive — the strong match has overlap exactly 1.0 and would
@@ -442,29 +440,23 @@ class TestGraphAugmentationExemptFromFloor:
         # 0.5 floor: the graph-augmented Python memory has 0.0 overlap with
         # 'Tell me about FastAPI'. Pre-fix the floor dropped it; it must
         # survive because the graph entity-term search already validated it.
-        results = await engine.recall(
-            "Tell me about FastAPI", limit=10, relevance_floor=0.5
+        results = await engine.recall("Tell me about FastAPI", limit=10, relevance_floor=0.5)
+        assert any("Python remains the language" in r.content for r in results), (
+            "graph-augmented candidate was wrongly dropped by the relevance floor"
         )
-        assert any(
-            "Python remains the language" in r.content for r in results
-        ), "graph-augmented candidate was wrongly dropped by the relevance floor"
 
     async def test_floor_still_drops_weak_direct_match_with_graph(self):
         """The exemption is scoped: a weak *direct* match is still floored out."""
         engine = await _graph_recall_engine()
-        results = await engine.recall(
-            "Tell me about FastAPI", limit=10, relevance_floor=0.5
-        )
+        results = await engine.recall("Tell me about FastAPI", limit=10, relevance_floor=0.5)
         # 'name-drops fastapi' shares ~1/3 of the query tokens — it is a
         # direct text-search candidate, so the floor still applies to it.
-        assert all(
-            "throwaway note" not in r.content for r in results
-        ), "weak direct match should still be dropped by the floor"
+        assert all("throwaway note" not in r.content for r in results), (
+            "weak direct match should still be dropped by the floor"
+        )
 
     async def test_graph_candidate_present_at_default_floor(self):
         """Sanity: at floor 0.0 the graph-augmented entry is present too."""
         engine = await _graph_recall_engine()
-        results = await engine.recall(
-            "Tell me about FastAPI", limit=10, relevance_floor=0.0
-        )
+        results = await engine.recall("Tell me about FastAPI", limit=10, relevance_floor=0.0)
         assert any("Python remains the language" in r.content for r in results)

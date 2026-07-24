@@ -34,9 +34,7 @@ class TestRecallJsonScore:
         _remember(soul_path, "Python deployment uses Docker and Kubernetes")
 
         runner = CliRunner()
-        result = runner.invoke(
-            cli, ["recall", soul_path, "python deployment docker", "--json"]
-        )
+        result = runner.invoke(cli, ["recall", soul_path, "python deployment docker", "--json"])
         assert result.exit_code == 0, result.output
 
         payload = json.loads(result.output)
@@ -52,9 +50,7 @@ class TestRecallJsonScore:
         _remember(soul_path, "The team ships releases every other Friday")
 
         runner = CliRunner()
-        result = runner.invoke(
-            cli, ["recall", soul_path, "team ships releases", "--json"]
-        )
+        result = runner.invoke(cli, ["recall", soul_path, "team ships releases", "--json"])
         assert result.exit_code == 0, result.output
 
         payload = json.loads(result.output)
