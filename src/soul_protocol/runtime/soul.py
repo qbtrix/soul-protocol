@@ -1546,11 +1546,13 @@ class Soul:
                         if e.id == cr.old_memory_id:
                             e.superseded = True
                             break
-                    contradiction_results.append({
-                        "old_id": cr.old_memory_id,
-                        "reason": cr.reason,
-                        "confidence": cr.confidence,
-                    })
+                    contradiction_results.append(
+                        {
+                            "old_id": cr.old_memory_id,
+                            "reason": cr.reason,
+                            "confidence": cr.confidence,
+                        }
+                    )
 
         # Episodic and dedup-off: blunt write via remember().
         if type == MemoryType.EPISODIC or not dedup:

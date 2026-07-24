@@ -30,8 +30,6 @@ async def test_raw_text_contradiction_marks_old_no_replacement():
     old_id = await soul.remember("User lives in New York City", importance=7)
     assert old_id is not None
 
-
-
     # Observe with a contradicting statement using a verb pattern the
     # heuristic detector recognises ("I reside in" → location change).
     interaction = Interaction(
@@ -64,9 +62,7 @@ async def test_raw_text_contradiction_marks_old_no_replacement():
         facts_after = list(soul._memory._semantic.facts(include_superseded=True))
         # Check no entry has raw user_input as its content
         raw_entries = [f for f in facts_after if f.content == "I reside in Amsterdam now"]
-        assert len(raw_entries) == 0, (
-            "Raw user_input should NOT be stored as a semantic fact"
-        )
+        assert len(raw_entries) == 0, "Raw user_input should NOT be stored as a semantic fact"
 
     # Regardless, verify no sentinel string exists
     all_facts = soul._memory._semantic.facts(include_superseded=True)
@@ -105,9 +101,7 @@ async def test_internal_contradiction_not_in_public_audit():
         internal = soul._memory._internal_supersede_log
         contradicted_ids = {c["old_id"] for c in contradictions}
         matching = [r for r in internal if r.get("old_id") in contradicted_ids]
-        assert len(matching) >= 1, (
-            "Contradiction should be logged in _internal_supersede_log"
-        )
+        assert len(matching) >= 1, "Contradiction should be logged in _internal_supersede_log"
         # Verify fields: tier, prediction_error, superseded_at
         record = matching[0]
         assert "tier" in record, "Internal log should include 'tier'"
@@ -115,9 +109,7 @@ async def test_internal_contradiction_not_in_public_audit():
         assert "superseded_at" in record, "Internal log should include 'superseded_at'"
         # Verify timezone-aware timestamp (contains +00:00 or Z)
         ts = record["superseded_at"]
-        assert "+00:00" in ts or ts.endswith("Z"), (
-            f"Timestamp should be UTC-aware, got: {ts}"
-        )
+        assert "+00:00" in ts or ts.endswith("Z"), f"Timestamp should be UTC-aware, got: {ts}"
 
 
 # --- Bug 2: note() MERGE should set supersedes back-edge -------------------
@@ -191,9 +183,7 @@ async def test_note_merge_records_audit_trail():
     assert "prediction_error" in record, "Audit record should include 'prediction_error'"
     # Verify timezone-aware timestamp
     ts = record["superseded_at"]
-    assert "+00:00" in ts or ts.endswith("Z"), (
-        f"Timestamp should be UTC-aware, got: {ts}"
-    )
+    assert "+00:00" in ts or ts.endswith("Z"), f"Timestamp should be UTC-aware, got: {ts}"
 
 
 # --- Bug 3: observe() batch dedup should catch within-batch duplicates ------
