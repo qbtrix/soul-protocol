@@ -239,6 +239,7 @@ from .types import (
     LifecycleState,
     MemoryEntry,
     MemoryProvenance,
+    MemorySettings,
     MemoryType,
     MemoryVisibility,
     Mutation,
@@ -822,6 +823,7 @@ class Soul:
         biorhythms: dict[str, Any] | None = None,
         persona: str | None = None,
         seed_domains: dict[str, list[str]] | None = None,
+        memory_settings: MemorySettings | None = None,
         role: str = "",
         # DSPy integration — optional optimized cognitive processing
         use_dspy: bool = False,
@@ -856,13 +858,21 @@ class Soul:
             seed_domains: Custom seed domains for the self-model, e.g.
                           {"cooking": ["recipe", "bake", ...]}. Replaces
                           the default 6 bootstrapping domains.
+            memory_settings: Optional memory behavior settings. When omitted,
+                ``MemorySettings()`` defaults are used.
             use_dspy: If True, use DSPy-optimized cognitive processing.
                 Requires the dspy package to be installed (pip install soul-protocol[dspy]).
                 Falls back silently to heuristic if dspy is not available.
             dspy_model: DSPy-compatible LM model string (default: claude-haiku-4-5).
             dspy_optimized_path: Path to pre-optimized DSPy module weights.
-            **kwargs: Additional arguments (reserved for future use).
+            **kwargs: Additional arguments reserved for future use. Ignored with
+                a warning so typoed configuration arguments are visible without
+                breaking forward compatibility.
         """
+        if kwargs:
+            unexpected = ", ".join(sorted(kwargs))
+            logger.warning("Ignoring unsupported Soul.birth() keyword argument(s): %s", unexpected)
+
         identity = Identity(
             did=generate_did(name),
             name=name,
@@ -901,6 +911,7 @@ class Soul:
         config = SoulConfig(
             identity=identity,
             dna=dna,
+            memory=memory_settings or MemorySettings(),
             lifecycle=LifecycleState.ACTIVE,
         )
 

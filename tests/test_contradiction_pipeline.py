@@ -15,7 +15,7 @@ async def test_location_contradiction_across_sessions(tmp_path):
     """NYC → Amsterdam: moving should supersede the old location fact."""
     from soul_protocol import Soul
 
-    soul = await Soul.birth(name="TestSoul", soul_dir=str(tmp_path))
+    soul = await Soul.birth(name="TestSoul")
 
     # Session 1: establish location
     await soul.observe(
@@ -57,7 +57,7 @@ async def test_employer_contradiction_across_sessions(tmp_path):
     """TechCorp → Stripe: job change should supersede old employer fact."""
     from soul_protocol import Soul
 
-    soul = await Soul.birth(name="TestSoul", soul_dir=str(tmp_path))
+    soul = await Soul.birth(name="TestSoul")
 
     await soul.observe(
         Interaction(
