@@ -3,6 +3,11 @@
 #   (soul._memory, m._episodic, m._graph_entities.clear(), etc.) with public
 #   MemoryManager API methods. `repair --rebuild-graph` now calls
 #   manager.rebuild_graph() instead of clearing internals directly.
+# Updated: 2026-07-24 (#247) — `soul recall --json` now emits a `score` field
+#   per result (the entry's ACT-R activation score). Added a `--min-relevance`
+#   flag (0.0-1.0) that plumbs through to recall() as the graded relevance
+#   floor; weak query matches below the floor are dropped. Default 0.0 leaves
+#   recall behaviour unchanged.
 # Updated: 2026-05-05 (#231) — Adds `soul note <path> "<fact>"` — the dedup
 #   pipeline counterpart to `soul remember`. Routes through Soul.note() so
 #   repeated calls with similar content collapse into SKIP / MERGE rather
@@ -1384,7 +1389,27 @@ def note_cmd(path, text, importance, emotion, memory_type, domain, no_dedup, no_
     default=None,
     help="Filter recall to a specific domain sub-namespace, e.g. 'finance' (#41).",
 )
-def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_id, layer, domain):
+@click.option(
+    "--min-relevance",
+    "min_relevance",
+    type=click.FloatRange(0.0, 1.0),
+    default=0.0,
+    help="Graded relevance floor (0.0-1.0). Drops weak query matches whose "
+    "token overlap is below this fraction. Default 0.0 keeps every match (#247).",
+)
+def recall_cmd(
+    path,
+    query,
+    recent,
+    limit,
+    min_importance,
+    full,
+    as_json,
+    user_id,
+    layer,
+    domain,
+    min_relevance,
+):
     """Query a Soul's memories.
 
     \b
@@ -1397,6 +1422,7 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
       soul recall aria.soul "preferences" --user alice
       soul recall aria.soul "revenue" --layer semantic --domain finance
       soul recall aria.soul "alice" --layer social
+      soul recall aria.soul "python deployment" --min-relevance 0.3
     """
 
     async def _recall():
@@ -1439,6 +1465,7 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
                 user_id=user_id,
                 layer=layer,
                 domain=domain,
+                relevance_floor=min_relevance,
             )
             title = f'Recall — {soul.name} — "{query}"'
         else:
@@ -1454,6 +1481,10 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
 
         # --json: machine-readable JSON array
         if as_json:
+            # `score` is the entry's ACT-R activation score for this query —
+            # the value recall ranked on (#247). It is null for `--recent`
+            # output, which lists memories chronologically with no query to
+            # score against. Rounded to 4 places for stable, readable output.
             items = [
                 {
                     "type": entry.type.value,
@@ -1464,6 +1495,9 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
                     "emotion": entry.emotion,
                     "created": entry.created_at.isoformat(),
                     "user_id": entry.user_id,
+                    "score": (
+                        round(entry.recall_score, 4) if entry.recall_score is not None else None
+                    ),
                 }
                 for entry in entries
             ]

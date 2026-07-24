@@ -1245,6 +1245,7 @@ class MemoryManager:
         layer: str | None = None,
         domain: str | None = None,
         min_weight: float = 0.1,
+        relevance_floor: float = 0.0,
     ) -> list[MemoryEntry]:
         """Recall memories from the appropriate stores.
 
@@ -1267,6 +1268,14 @@ class MemoryManager:
         surfacing automatically. Set to ``0.0`` to bypass the filter and
         see weight-decayed entries again (used by ``soul recall
         --include-forgotten`` and the provenance walker).
+
+        ``relevance_floor`` (#247): graded cutoff on query relevance
+        (0.0-1.0). A candidate whose token-overlap score is below the floor
+        is dropped during ranking. Default 0.0 keeps every candidate the
+        stores returned; a positive floor drops weak, near-incidental
+        matches. Unlike ``min_weight`` and ``min_importance``, this gate
+        looks at how well the memory matches the query, not at intrinsic
+        properties of the memory.
 
         Filters are applied post-fetch so the underlying ranking stays
         intact. Fetch limit is widened when filters are active so the
@@ -1301,6 +1310,7 @@ class MemoryManager:
                 bond_strength=bond_strength,
                 bond_threshold=bond_threshold,
                 progressive=progressive,
+                relevance_floor=relevance_floor,
             )
 
         if user_id is not None:

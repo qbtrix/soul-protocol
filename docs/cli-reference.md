@@ -691,6 +691,9 @@ soul recall aria.soul --recent 10 --user alice
 soul recall aria.soul "revenue" --layer semantic --domain finance
 soul recall aria.soul "alice" --layer social
 soul recall aria.soul --recent 5 --domain legal
+
+# Graded relevance floor (#247) — drop weak query matches
+soul recall aria.soul "python deployment docker" --min-relevance 0.3
 ```
 
 **Arguments:**
@@ -712,8 +715,9 @@ soul recall aria.soul --recent 5 --domain legal
 | `--user TEXT` | | Filter results to memories attributed to this `user_id` (#46). Legacy entries with no `user_id` are also returned. |
 | `--layer TEXT` | | Filter to one layer (`episodic`, `semantic`, `procedural`, `social`, or any custom layer name) (#41). |
 | `--domain, -d TEXT` | | Filter to one domain sub-namespace, e.g. `finance` (#41). |
+| `--min-relevance FLOAT` | `0.0` | Graded relevance floor (0.0-1.0). Drops weak query matches whose token overlap is below this fraction. Default `0.0` keeps every match (#247). |
 
-**Output:** A table of ranked memories with type, content, importance, emotion, and timestamp. Use `--full` or `--json` when an agent or script needs machine-readable output. The JSON payload includes `user_id`, `layer`, and `domain` fields per entry.
+**Output:** A table of ranked memories with type, content, importance, emotion, and timestamp. Use `--full` or `--json` when an agent or script needs machine-readable output. The JSON payload includes `user_id`, `layer`, `domain`, and `score` fields per entry. The `score` is the entry's activation score for the query (`null` for `--recent` output, which has no query to score against).
 
 ---
 

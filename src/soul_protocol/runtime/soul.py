@@ -268,6 +268,10 @@ _RECONSOLIDATION_WINDOW_MAX: int = 1000
 _FORGET_WEIGHT_TARGET: float = 0.05
 _REINSTATE_WEIGHT: float = 1.0
 _RECALL_WEIGHT_FLOOR: float = 0.1
+# #247 — Default graded relevance floor for recall(). 0.0 keeps every
+# candidate the stores returned (historical behaviour); callers raise it to
+# drop weak query matches.
+_RECALL_RELEVANCE_FLOOR: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -1675,6 +1679,7 @@ class Soul:
         token_budget: int | None = None,
         min_weight: float = _RECALL_WEIGHT_FLOOR,
         include_superseded: bool = False,
+        relevance_floor: float = _RECALL_RELEVANCE_FLOOR,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories with visibility + scope filtering.
 
@@ -1721,6 +1726,13 @@ class Soul:
         is a :class:`RecallResults` (a ``list`` subclass) carrying an
         optional ``next_page_token`` attribute alongside the entries.
         Existing callers that just iterate over the list keep working.
+
+        ``relevance_floor`` (#247): graded cutoff on query relevance
+        (0.0-1.0). A candidate whose token-overlap score is below the floor
+        is dropped during ranking. Default 0.0 leaves recall unchanged; a
+        positive floor drops weak matches that clear the store gate only
+        barely. Each returned entry carries its activation score on the
+        ``recall_score`` field.
 
         Populates ``self.last_retrieval`` with a :class:`RetrievalTrace`
         receipt every call, regardless of whether results were found. The
@@ -1784,6 +1796,7 @@ class Soul:
             layer=layer,
             domain=domain,
             min_weight=min_weight,
+            relevance_floor=relevance_floor,
         )
         # v0.5.0 (#192) — When include_superseded is True, top up the result
         # set with superseded entries that the underlying store filtered out.
