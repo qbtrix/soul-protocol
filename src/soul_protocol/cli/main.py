@@ -1,4 +1,8 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-07-18 (#284) — Replaced ~45 private attribute accesses
+#   (soul._memory, m._episodic, m._graph_entities.clear(), etc.) with public
+#   MemoryManager API methods. `repair --rebuild-graph` now calls
+#   manager.rebuild_graph() instead of clearing internals directly.
 # Updated: 2026-05-05 (#231) — Adds `soul note <path> "<fact>"` — the dedup
 #   pipeline counterpart to `soul remember`. Routes through Soul.note() so
 #   repeated calls with similar content collapse into SKIP / MERGE rather
@@ -470,7 +474,7 @@ def inspect(path):
         soul = await Soul.awaken(path)
         age = (datetime.now() - soul.born).days
         p = soul.dna.personality
-        mem = soul._memory
+        mem = soul.memory
 
         # ── Identity panel ──
         identity_lines = [
@@ -529,9 +533,9 @@ def inspect(path):
         )
 
         # ── Memory stats panel ──
-        episodic_ct = len(mem._episodic.entries())
-        semantic_ct = len(mem._semantic.facts())
-        procedural_ct = len(mem._procedural.entries())
+        episodic_ct = len(mem.episodic_entries())
+        semantic_ct = len(mem.semantic_facts())
+        procedural_ct = len(mem.procedural_entries())
         total = soul.memory_count
 
         mem_table = Table(show_header=False, box=None, padding=(0, 2))
@@ -1405,17 +1409,16 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
             # filter post-hoc so the legacy --recent path keeps its
             # cross-tier ordering.
             if layer is not None:
-                all_memories = soul._memory.layer(layer).entries(domain=domain)
+                all_memories = soul.memory.layer(layer).entries(domain=domain)
             else:
                 all_memories = (
-                    soul._memory._episodic.entries()
-                    + soul._memory._semantic.facts()
-                    + soul._memory._procedural.entries()
-                    + soul._memory._social.entries()
+                    soul.memory.episodic_entries()
+                    + soul.memory.semantic_facts()
+                    + soul.memory.procedural_entries()
+                    + soul.memory.social_entries()
                 )
                 # Include custom layers in --recent across-the-board view
-                for store in soul._memory._custom_layers.values():
-                    all_memories.extend(store.values())
+                all_memories.extend(soul.memory.custom_layer_entries())
                 if domain is not None:
                     all_memories = [m for m in all_memories if m.domain == domain]
             if user_id is not None:
@@ -1535,10 +1538,10 @@ def layers_cmd(path, as_json):
         from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
-        layer_names = soul._memory.known_layers()
+        layer_names = soul.memory.known_layers()
         layout: dict[str, dict[str, int]] = {}
         for layer_name in layer_names:
-            layout[layer_name] = soul._memory.domains_in_layer(layer_name)
+            layout[layer_name] = soul.memory.domains_in_layer(layer_name)
 
         if as_json:
             click.echo(json.dumps({"soul": soul.name, "layers": layout}, indent=2))
@@ -2603,7 +2606,7 @@ def update_cmd(path, memory_id, patch_text, prediction_error, user_id):
         # the current content of the entry so the CLI is usable in a single
         # invocation (the alternative is a separate ``soul recall`` call
         # before each update).
-        existing, _ = await soul._memory.find_by_id(memory_id)
+        existing, _ = await soul.memory.find_by_id(memory_id)
         if existing is not None:
             await soul.recall(existing.content[:100])
         try:
@@ -2685,7 +2688,7 @@ def purge_cmd(path, memory_id, apply_changes, user_id, skip_confirm):
 
         soul = await Soul.awaken(path)
         if not apply_changes:
-            entry, tier = await soul._memory.find_by_id(memory_id)
+            entry, tier = await soul.memory.find_by_id(memory_id)
             if entry is None:
                 console.print(
                     f"[dim]Preview:[/dim] no memory with id "
@@ -2819,9 +2822,9 @@ def upgrade_cmd(path, target_version, dry_run):
         # handled retrieval_weight=1.0 and prediction_error=None at load
         # time, so the back-edge is the only thing we actually persist.
         all_entries = []
-        all_entries.extend(soul._memory._episodic._memories.values())
-        all_entries.extend(soul._memory._semantic._facts.values())
-        all_entries.extend(soul._memory._procedural._procedures.values())
+        all_entries.extend(soul.memory.episodic_entries())
+        all_entries.extend(soul.memory.semantic_facts())
+        all_entries.extend(soul.memory.procedural_entries())
 
         backedges = 0
         weight_default_count = 0
@@ -3383,14 +3386,14 @@ def health_cmd(path):
         from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
-        mm = soul._memory
+        mm = soul.memory
 
-        episodic = builtins.list(mm._episodic.entries())
-        semantic = builtins.list(mm._semantic.facts())
-        procedural = builtins.list(mm._procedural.entries())
-        graph_nodes = mm._graph.entities()
+        episodic = mm.episodic_entries()
+        semantic = mm.semantic_facts()
+        procedural = mm.procedural_entries()
+        graph_nodes = mm.graph_entities()
         skills = soul.skills.skills
-        evals = soul.evaluator._history
+        evals = soul.eval_history
         total = len(episodic) + len(semantic) + len(procedural)
 
         # Detect duplicates
@@ -3520,21 +3523,18 @@ def cleanup_cmd(
         from soul_protocol.runtime.soul import Soul
 
         soul = await Soul.awaken(path)
-        mm = soul._memory
+        mm = soul.memory
         actions = []
 
         # 1. Deduplicate
         if dedup:
             compressor = MemoryCompressor()
-            for tier_name, store in [
-                ("episodic", mm._episodic),
-                ("semantic", mm._semantic),
-                ("procedural", mm._procedural),
+            for tier_name, get_entries in [
+                ("episodic", mm.episodic_entries),
+                ("semantic", mm.semantic_facts),
+                ("procedural", mm.procedural_entries),
             ]:
-                if tier_name == "semantic":
-                    entries = builtins.list(store.facts())
-                else:
-                    entries = builtins.list(store.entries())
+                entries = get_entries()
                 if not entries:
                     continue
                 deduped = compressor.deduplicate(entries, similarity_threshold=0.8)
@@ -3544,31 +3544,27 @@ def cleanup_cmd(
 
         # 2. Stale evaluation procedurals
         if stale_evals:
-            procedural = builtins.list(mm._procedural.entries())
+            procedural = mm.procedural_entries()
             stale = [p for p in procedural if p.content.startswith("Scored ") and p.importance <= 5]
             if stale:
                 actions.append(("stale_evals", "procedural", {p.id for p in stale}))
 
         # 3. Orphan graph nodes
         if orphan_nodes:
-            all_mems = (
-                builtins.list(mm._episodic.entries())
-                + builtins.list(mm._semantic.facts())
-                + builtins.list(mm._procedural.entries())
-            )
+            all_mems = mm.episodic_entries() + mm.semantic_facts() + mm.procedural_entries()
             all_content = " ".join(m.content for m in all_mems).lower()
-            nodes = mm._graph.entities()
+            nodes = mm.graph_entities()
             orphans = [n for n in nodes if n.lower() not in all_content and len(n) > 2]
             if orphans:
                 actions.append(("orphan_nodes", "graph", orphans))
 
         # 4. Low importance
         if low_importance > 0:
-            for tier_name, store in [("episodic", mm._episodic), ("semantic", mm._semantic)]:
-                if tier_name == "semantic":
-                    entries = builtins.list(store.facts())
-                else:
-                    entries = builtins.list(store.entries())
+            for tier_name, get_entries in [
+                ("episodic", mm.episodic_entries),
+                ("semantic", mm.semantic_facts),
+            ]:
+                entries = get_entries()
                 low = [m for m in entries if m.importance <= low_importance]
                 if low:
                     actions.append(("low_importance", tier_name, {m.id for m in low}))
@@ -3614,16 +3610,16 @@ def cleanup_cmd(
         for action_type, target, items in actions:
             if action_type == "orphan_nodes":
                 for node in items:
-                    mm._graph.remove_entity(node)
+                    mm.graph_remove_entity(node)
                     removed += 1
             elif action_type in ("dedup", "stale_evals", "low_importance"):
                 for mid in items:
                     if target == "episodic":
-                        await mm._episodic.remove(mid)
+                        await mm.remove_episodic(mid)
                     elif target == "semantic":
-                        await mm._semantic.remove(mid)
+                        await mm.remove_semantic(mid)
                     elif target == "procedural":
-                        await mm._procedural.remove(mid)
+                        await mm.remove_procedural(mid)
                     removed += 1
 
         # Back up before the destructive save so an accidental cleanup
@@ -3660,44 +3656,20 @@ def repair_cmd(
         changes = []
 
         if reset_energy:
-            soul._state.current.energy = 100.0
-            soul._state.current.social_battery = 100.0
+            soul.reset_energy()
             changes.append("Reset energy and social battery to 100%")
 
         if reset_bond:
-            soul._identity.bond.bond_strength = 50.0
+            soul.reset_bond()
             changes.append("Reset bond strength to 50.0")
 
         if rebuild_graph:
-            # Clear and rebuild from all memories
-            mm = soul._memory
-            old_count = len(mm._graph.entities())
-            mm._graph._entities.clear()
-            mm._graph._edges.clear()
-
-            all_mems = builtins.list(mm._episodic.entries()) + builtins.list(mm._semantic.facts())
-            from soul_protocol.runtime.types import Interaction
-
-            for mem in all_mems:
-                # Extract entities from memory content using the heuristic extractor
-                interaction = Interaction(user_input=mem.content, agent_output="")
-                entities = mm.extract_entities(interaction)
-                if entities:
-                    graph_entities = []
-                    for ent in entities:
-                        graph_ent = {
-                            "name": ent["name"],
-                            "entity_type": ent.get("type", "unknown"),
-                        }
-                        graph_entities.append(graph_ent)
-                    await mm.update_graph(graph_entities)
-
-            new_count = len(mm._graph.entities())
-            changes.append(f"Rebuilt graph: {old_count} → {new_count} nodes")
+            mm = soul.memory
+            result = await mm.rebuild_graph()
+            changes.append(f"Rebuilt graph: {result['old_count']} → {result['new_count']} nodes")
 
         if clear_evals:
-            count = len(soul.evaluator._history)
-            soul.evaluator._history.clear()
+            count = soul.clear_eval_history()
             changes.append(f"Cleared {count} evaluation entries")
 
         if clear_skills:
@@ -3706,10 +3678,10 @@ def repair_cmd(
             changes.append(f"Cleared {count} skills")
 
         if clear_procedural:
-            mm = soul._memory
-            procs = builtins.list(mm._procedural.entries())
+            mm = soul.memory
+            procs = mm.procedural_entries()
             for p in procs:
-                await mm._procedural.remove(p.id)
+                await mm.remove_procedural(p.id)
             changes.append(f"Cleared {len(procs)} procedural memories")
 
         if not changes:
