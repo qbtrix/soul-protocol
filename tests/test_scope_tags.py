@@ -129,11 +129,11 @@ class TestNormaliseScopes:
 
 class TestMemoryEntryScopeField:
     def test_default_is_empty_list(self) -> None:
-        entry = MemoryEntry(content="hi")
+        entry = MemoryEntry(layer="core", content="hi")
         assert entry.scope == []
 
     def test_round_trip_preserves_scope(self) -> None:
-        entry = MemoryEntry(content="hi", scope=["org:sales:*", "org:marketing:read"])
+        entry = MemoryEntry(layer="core", content="hi", scope=["org:sales:*", "org:marketing:read"])
         restored = MemoryEntry.model_validate(entry.model_dump())
         assert restored.scope == entry.scope
 

@@ -46,7 +46,7 @@ def test_save_and_open(tmp_path):
     """save() writes a .soul file; open() restores identity and memories."""
     path = tmp_path / "test.soul"
     soul = SoulContainer.create("Aria", traits={"role": "assistant"})
-    soul.memory.store("episodic", MemoryEntry(content="hello world"))
+    soul.memory.store("episodic", MemoryEntry(layer="core", content="hello world"))
     soul.save(path)
 
     restored = SoulContainer.open(path)
@@ -64,9 +64,9 @@ def test_save_and_open_multiple_memories(tmp_path):
     """save/open preserves multiple memories across multiple layers."""
     path = tmp_path / "multi.soul"
     soul = SoulContainer.create("Multi")
-    soul.memory.store("episodic", MemoryEntry(content="episodic one"))
-    soul.memory.store("episodic", MemoryEntry(content="episodic two"))
-    soul.memory.store("semantic", MemoryEntry(content="semantic one"))
+    soul.memory.store("episodic", MemoryEntry(layer="core", content="episodic one"))
+    soul.memory.store("episodic", MemoryEntry(layer="core", content="episodic two"))
+    soul.memory.store("semantic", MemoryEntry(layer="core", content="semantic one"))
     soul.save(path)
 
     restored = SoulContainer.open(path)

@@ -176,3 +176,63 @@ def test_combined_schema_file_exists():
     assert "$defs" in content
     assert "SoulConfig" in content["$defs"]
     assert "$ref" in content
+
+
+def test_schema_drift():
+    """CI drift test: ensure on-disk schemas match generated schemas exactly."""
+    # Generate schemas in memory
+    individual = {}
+    for model in ALL_MODELS:
+        name = model.__name__
+        if isinstance(model, type) and issubclass(model, BaseModel):
+            schema = model.model_json_schema()
+        elif isinstance(model, type) and issubclass(model, Enum):
+            schema = {
+                "title": model.__name__,
+                "description": model.__doc__ or "",
+                "type": "string",
+                "enum": [m.value for m in model],
+            }
+        else:
+            pytest.fail(f"Unsupported type: {model}")
+        individual[name] = schema
+
+    # Check individual schemas
+    for name, schema in individual.items():
+        path = SCHEMAS_DIR / f"{name}.schema.json"
+        assert path.exists(), f"Missing on-disk schema: {path}"
+        on_disk = json.loads(path.read_text())
+
+        # We dump and load to ensure types like UUID/datetime are serialized exactly as they would be to JSON
+        memory_json = json.loads(json.dumps(schema, default=str))
+        assert on_disk == memory_json, (
+            f"Schema drift detected in {name}.schema.json! Run scripts/generate_schemas.py"
+        )
+
+    # Check combined schema
+    defs = {}
+    for name, schema in individual.items():
+        if "$defs" in schema:
+            for def_name, def_schema in schema["$defs"].items():
+                defs[def_name] = def_schema
+        model_def = {k: v for k, v in schema.items() if k != "$defs"}
+        defs[name] = model_def
+
+    combined = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/OCEAN/soul-protocol/schemas/soul-protocol.schema.json",
+        "title": "Soul Protocol",
+        "description": "Complete JSON Schema bundle for the Digital Soul Protocol (DSP) v1.0. "
+        "Defines every model used in .soul files, memory entries, evolution, and state.",
+        "$ref": "#/$defs/SoulConfig",
+        "$defs": defs,
+    }
+
+    path = SCHEMAS_DIR / "soul-protocol.schema.json"
+    assert path.exists(), f"Missing on-disk schema: {path}"
+    on_disk = json.loads(path.read_text())
+    memory_json = json.loads(json.dumps(combined, default=str))
+
+    assert on_disk == memory_json, (
+        "Schema drift detected in soul-protocol.schema.json! Run scripts/generate_schemas.py"
+    )
