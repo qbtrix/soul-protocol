@@ -16,7 +16,6 @@ import pytest
 from soul_protocol.runtime.soul import Soul
 from soul_protocol.runtime.types import Interaction
 
-
 # --- Bug 1: raw-text contradiction should NOT store a replacement -----------
 # PR#302 review: the test must actually call observe() with a user_input
 # that triggers the verb-fact heuristic contradiction path.
@@ -31,8 +30,7 @@ async def test_raw_text_contradiction_marks_old_no_replacement():
     old_id = await soul.remember("User lives in New York City", importance=7)
     assert old_id is not None
 
-    facts_before = list(soul._memory._semantic.facts(include_superseded=True))
-    count_before = len(facts_before)
+
 
     # Observe with a contradicting statement using a verb pattern the
     # heuristic detector recognises ("I reside in" → location change).
@@ -215,7 +213,7 @@ async def test_observe_batch_dedup_within_batch():
         user_input="I prefer Python for backend work. I prefer Python for backend development.",
         agent_output="Python is great for backends!",
     )
-    result = await soul._memory.observe(interaction)
+    await soul._memory.observe(interaction)
 
     # After one observe, check that we don't have duplicate facts.
     facts = list(soul._memory._semantic.facts(include_superseded=False))
@@ -254,7 +252,6 @@ async def test_note_detect_contradictions_wired():
     # After the note, verify the old fact about Berlin is marked superseded
     # (if the heuristic detector caught the contradiction).
     facts = list(soul._memory._semantic.facts(include_superseded=True))
-    berlin_facts = [f for f in facts if "Berlin" in f.content]
     tokyo_facts = [f for f in facts if "Tokyo" in f.content]
 
     # At minimum, the Tokyo fact should exist
