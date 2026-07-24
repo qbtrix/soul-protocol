@@ -306,6 +306,18 @@
       "title": "Is Summarized",
       "type": "boolean"
     },
+    "recall_score": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Recall Score"
+    },
     "scope": {
       "items": {
         "type": "string"
