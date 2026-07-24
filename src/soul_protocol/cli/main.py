@@ -1163,7 +1163,7 @@ def remember_cmd(path, text, importance, emotion, memory_type, domain):
     )
     console.print(
         "[yellow]DeprecationWarning:[/yellow] `soul remember` is deprecated. "
-        "Use `soul note <path> \"<fact>\"` (or add `--no-dedup` for raw writes). "
+        'Use `soul note <path> "<fact>"` (or add `--no-dedup` for raw writes). '
         "Scheduled for removal in 0.7.0."
     )
 
