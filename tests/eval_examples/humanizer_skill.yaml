@@ -41,7 +41,10 @@ cases:
         before the next release.
     scoring:
       kind: regex
-      pattern: '^(?!.*[“”‘’\U0001F680\U0001F4A1✅]).*$'
+      # \A (not ^) so re.MULTILINE|DOTALL can't re-anchor the negative lookahead
+      # on a later clean line — otherwise search() always matches and the gate
+      # is vacuous (a curly quote / emoji anywhere would still score 1.0).
+      pattern: '\A(?!.*[“”‘’\U0001F680\U0001F4A1✅]).*'
       threshold: 1.0
 
   - name: "judge_strips_significance_inflation"
