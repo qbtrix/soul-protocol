@@ -202,7 +202,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -1531,8 +1531,26 @@ class Soul:
         # Resolve detect_contradictions default per tier.
         if detect_contradictions is None:
             detect_contradictions = type == MemoryType.SEMANTIC
-        # TODO: wire ContradictionDetector — see issue #231 follow-up.
-        _ = detect_contradictions  # currently unused; reserved for follow-up.
+        # Wire ContradictionDetector for semantic notes (#239 / PR#302 review).
+        # When enabled, check the incoming content against existing semantic
+        # facts.  Contradictions are reported (old fact marked) but no
+        # replacement is stored — the note itself serves as the replacement.
+        contradiction_results = []
+        if detect_contradictions and type == MemoryType.SEMANTIC:
+            existing_semantic = self._memory._semantic.facts(include_superseded=False)
+            detector = self._memory._contradiction_detector
+            cresults = await detector.detect_heuristic(content, existing_semantic)
+            for cr in cresults:
+                if cr.is_contradiction and cr.old_memory_id:
+                    for e in existing_semantic:
+                        if e.id == cr.old_memory_id:
+                            e.superseded = True
+                            break
+                    contradiction_results.append({
+                        "old_id": cr.old_memory_id,
+                        "reason": cr.reason,
+                        "confidence": cr.confidence,
+                    })
 
         # Episodic and dedup-off: blunt write via remember().
         if type == MemoryType.EPISODIC or not dedup:
@@ -1626,18 +1644,27 @@ class Soul:
                 new_entry, _ = self._memory_lookup_sync(new_id)
                 if new_entry is not None:
                     new_entry.supersedes = target_id
+                # #287 / PR#302: Set superseded flag on old entry.
                 for e in existing:
                     if e.id == target_id:
                         e.superseded_by = new_id
+                        if hasattr(e, "superseded"):
+                            try:
+                                e.superseded = True
+                            except Exception:  # pragma: no cover
+                                pass
                         similarity = _jaccard_similarity(content, e.content)
                         break
-                # #287: Record audit trail for provenance.
+                # Record audit trail via public list (note-merge is user-driven).
+                tier_name = type.value if hasattr(type, "value") else str(type)
                 self._memory._supersede_audit.append(
                     {
+                        "superseded_at": datetime.now(UTC).isoformat(),
                         "old_id": target_id,
                         "new_id": new_id,
+                        "tier": tier_name,
                         "reason": "note-merge",
-                        "superseded_at": datetime.now().isoformat(),
+                        "prediction_error": None,
                     }
                 )
             return {

@@ -723,6 +723,11 @@ class MemoryManager:
         # write to this list — the audit is for explicit user intent.
         self._supersede_audit: list[dict] = []
 
+        # 2026-07-22 (#288 review) — Internal supersession log, separate from
+        # the public supersede_audit.  Dream-cycle dedup, raw-text contradiction
+        # resolution, and other automatic processes append here.
+        self._internal_supersede_log: list[dict] = []
+
         # v0.2.1 — Cognitive processor (LLM or heuristic)
         # Lazy import to avoid circular dependency:
         #   cognitive.engine → memory.attention → memory.__init__ → memory.manager
@@ -1171,46 +1176,38 @@ class MemoryManager:
                     continue
                 if cr.old_memory_id in already_superseded:
                     continue
-                # #287: Store the raw text as a real replacement fact so the
-                # soul doesn't lose the knowledge. Previously this used a
-                # sentinel string "raw-text-contradiction" and never stored
-                # the new fact, causing knowledge loss.
-                replacement = MemoryEntry(
-                    content=raw_text,
-                    type=MemoryType.SEMANTIC,
-                    importance=5,
-                    supersedes=cr.old_memory_id,
-                )
-                if user_id is not None:
-                    replacement.user_id = user_id
-                if domain != "default":
-                    replacement.domain = domain
-                await self.add(replacement)
+                # #287 / PR#302 review: Do NOT store a replacement entry.
+                # Storing raw user_input as a semantic fact promotes unbounded,
+                # unsanitized first-person text into a tier that expects
+                # normalized third-person facts.  Instead, just report the
+                # contradiction — the next extraction cycle will settle it
+                # with a properly shaped fact.  Nothing is lost because the
+                # old fact stays (marked contradicted, not deleted).
                 for existing_fact in all_semantic_raw:
                     if existing_fact.id == cr.old_memory_id:
                         existing_fact.superseded = True
-                        existing_fact.superseded_by = replacement.id
                         logger.debug(
-                            "Raw-text contradiction: old_id=%s superseded by %s, reason=%s",
+                            "Raw-text contradiction detected: old_id=%s, reason=%s",
                             cr.old_memory_id,
-                            replacement.id,
                             cr.reason,
                         )
                         break
                 already_superseded.add(cr.old_memory_id)
-                # Audit trail for provenance walks.
-                self._supersede_audit.append(
+                # Internal log — does NOT pollute the public supersede_audit.
+                self._internal_supersede_log.append(
                     {
                         "old_id": cr.old_memory_id,
-                        "new_id": replacement.id,
+                        "new_id": None,
+                        "tier": "semantic",
                         "reason": cr.reason or "raw-text-contradiction",
-                        "superseded_at": datetime.now().isoformat(),
+                        "prediction_error": None,
+                        "superseded_at": datetime.now(UTC).isoformat(),
                     }
                 )
                 contradictions.append(
                     {
                         "old_id": cr.old_memory_id,
-                        "new_id": replacement.id,
+                        "new_id": None,
                         "reason": cr.reason,
                         "confidence": cr.confidence,
                     }
