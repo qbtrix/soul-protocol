@@ -2,7 +2,11 @@
      Created: 2026-04-29 — Documents the YAML schema, scoring kinds,
        runner contract, and CLI / MCP entry points for soul-aware evals.
        Companion to docs/api-reference.md (EvalSpec, EvalResult,
-       run_eval) and docs/cli-reference.md (`soul eval`). -->
+       run_eval) and docs/cli-reference.md (`soul eval`).
+     Updated: 2026-05-21 (paw-workspace#47) — Documented the `prompt`
+       case mode, which scores a verbatim prompt or skill output without
+       a soul. Used to evaluate workspace prompts and skills (/humanize).
+       Companion example: tests/eval_examples/humanizer_skill.yaml. -->
 
 # Soul-aware Eval Format
 
@@ -16,6 +20,12 @@ interactions, current mood and energy. The same prompt to a soul that's
 "tired with low bond strength" produces a meaningfully different output
 than to one that's "energetic with high bond strength" — and that's the
 entire point of the protocol.
+
+The format also handles a stateless case. A `prompt`-mode case scores a
+verbatim prompt or skill output directly, with no soul involved. That is
+how you point the same harness at workspace prompts and skills — for
+example scoring the `/humanize` skill's output for AI tells. See
+[Prompt mode](#prompt-mode-scoring-prompts-and-skills) below.
 
 This page documents the schema and the runner. For the CLI command see
 [cli-reference.md](cli-reference.md#soul-eval). For the MCP tool see
@@ -97,10 +107,11 @@ EvalSpec
         │   ├── message: str            # required
         │   ├── user_id: str | null
         │   ├── domain: str | null
-        │   ├── mode: "respond" | "recall"
+        │   ├── mode: "respond" | "recall" | "prompt"
         │   ├── observe: bool            # default false
         │   ├── recall_limit: int        # default 5
-        │   └── recall_layer: str | null
+        │   ├── recall_layer: str | null
+        │   └── reference: str | null    # prompt mode — the pre-transform text
         └── scoring: Scoring             # see below
 ```
 
@@ -130,16 +141,62 @@ also queryable via `inputs.recall_layer`.
 A case has three parts:
 
 1. **Mode** — `respond` (the soul produces a reply via context_for + the
-   engine) or `recall` (`Soul.recall(query=message, ...)`).
+   engine), `recall` (`Soul.recall(query=message, ...)`), or `prompt`
+   (the soul is skipped; `message` is scored verbatim — see
+   [Prompt mode](#prompt-mode-scoring-prompts-and-skills)).
 2. **Inputs** — message, optional `user_id` (multi-user routing),
-   optional `domain` (for v0.4.0 domain isolation), and recall knobs.
+   optional `domain` (for v0.4.0 domain isolation), recall knobs, and the
+   prompt-mode `reference`.
 3. **Scoring** — one of the five kinds below. The `kind` field is the
    discriminator; Pydantic resolves the right scorer at parse time.
 
 `observe: true` runs `Soul.observe()` after producing the response, so
 the soul's state mutates. By default `observe: false` keeps the state
 identical to the seed across cases — recommended for deterministic
-evals.
+evals. `observe` does nothing in `prompt` mode (there is no soul to
+observe).
+
+### Prompt mode — scoring prompts and skills
+
+Most cases drive a soul. A `prompt`-mode case does not: it takes the
+case's `message` as a verbatim string — a prompt, or the output of a
+skill — and hands it straight to the scorer. No soul is birthed, no
+context is built, the `seed` block is ignored.
+
+This is the path for evaluating the workspace's own prompts and skills.
+The motivating case is `/humanize`: feed the skill's output in as
+`message`, describe the qualities a good humanized text should have in a
+`judge` block, and the eval tells you whether an edit to the skill made
+its output better or worse.
+
+```yaml
+cases:
+  - name: "rewrite drops the puffery"
+    inputs:
+      mode: prompt
+      # `reference` — the original text the skill was given.
+      reference: |
+        Version 2.0 stands as an enduring testament to our commitment.
+      # `message` — the candidate output to score.
+      message: |
+        Version 2.0 shipped Tuesday with offline mode.
+    scoring:
+      kind: judge
+      criteria: |
+        The candidate output should state plainly what changed, with no
+        significance-inflation language. It should keep the facts and
+        stay shorter than the reference.
+```
+
+`reference` is optional and prompt-mode only. When set, the `judge`
+scorer shows it to the LLM as a separate "Reference input" block, so
+criteria can ask whether the candidate improved on the original rather
+than judging it in isolation. Any scoring kind works in prompt mode —
+`regex` and `keyword` give you deterministic gates that pass without an
+engine — but `judge` is the natural fit for "is this output good."
+
+The shipped reference spec is
+[`tests/eval_examples/humanizer_skill.yaml`](../tests/eval_examples/humanizer_skill.yaml).
 
 ## Scoring kinds
 
@@ -309,4 +366,5 @@ a follow-up the optimizer would benefit from, file an issue against it.
 - [api-reference.md](api-reference.md#evaluation) — Python API
 - [cli-reference.md](cli-reference.md#soul-eval) — `soul eval` command
 - [mcp-server.md](mcp-server.md#soul_eval) — `soul_eval` MCP tool
-- `tests/eval_examples/` — five shipped example specs
+- `tests/eval_examples/` — shipped example specs, including
+  `humanizer_skill.yaml` for the prompt-mode `/humanize` eval

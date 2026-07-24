@@ -16,6 +16,9 @@
        soul_protocol.eval module — EvalSpec, EvalCase, EvalResult, CaseResult, the five
        scoring kinds (keyword/regex/semantic/judge/structural), and run_eval /
        run_eval_against_soul / run_eval_file entry points.
+     Updated: 2026-05-21 (paw-workspace#47): Added the Case modes table to the
+       Evaluation section — documents the new `prompt` mode (scores a verbatim
+       prompt or skill output, soul skipped) and the `reference` input field.
      Updated: 2026-04-27 — Documented user-driven memory update primitives: Soul.forget_one
        (audited single-id delete), Soul.supersede (write new memory + link old.superseded_by),
        Soul.supersede_audit property. Rewrote stale soul.forget() entry to match the real
@@ -1750,6 +1753,18 @@ from soul_protocol.eval import (
 - `run_eval(spec, *, engine=None, case_filter=None) -> EvalResult` — births a soul from `spec.seed`, applies state / memories / bonds, runs cases. When `engine` is None, judge-scoring cases skip cleanly.
 - `run_eval_file(path, *, engine=None, case_filter=None) -> EvalResult` — convenience wrapper that loads then runs.
 - `run_eval_against_soul(spec, soul, *, engine=None, case_filter=None) -> EvalResult` — run cases against an existing `Soul` without re-birthing. Used by the `soul_eval` MCP tool. The `seed` block is ignored — the soul's live state is the seed.
+
+### Case modes
+
+`CaseInputs.mode` selects how the runner produces the text the scorer sees:
+
+| Mode | What runs | Output scored |
+|------|-----------|---------------|
+| `respond` (default) | Soul produces a reply via `context_for` + the engine | The reply |
+| `recall` | `Soul.recall(query=message, ...)` | The recalled memories, rendered as text |
+| `prompt` | Nothing — the soul is skipped, `seed` is ignored | `inputs.message`, verbatim |
+
+`prompt` mode scores a standalone prompt or skill output. Set `inputs.reference` (prompt-mode only) to the pre-transform text and a `judge` case compares the candidate against it. See [eval-format.md](eval-format.md#prompt-mode-scoring-prompts-and-skills).
 
 ### Result models
 
