@@ -659,13 +659,15 @@ async def save_soul_flat(
         # layout change from nested to flat).  Only touch managed
         # directories — never delete user files at the top level.
         #
-        # Exception: keys/private_key and keys/private.pem are excluded
-        # from pruning.  A save with include_keys=False omits these from
-        # the new file set, but deleting them would destroy the user's
-        # signing capability — that should require an explicit action.
+        # Exception: the private signing key (keys/private.key, per
+        # PRIVATE_KEY_FILENAME in crypto/keystore.py) is excluded from
+        # pruning.  A save with include_keys=False omits it from the new
+        # file set, but deleting it would destroy the user's signing
+        # capability — that should require an explicit action.
+        from soul_protocol.runtime.crypto.keystore import PRIVATE_KEY_FILENAME
+
         _prune_protected = {
-            Path("keys") / "private_key",
-            Path("keys") / "private.pem",
+            Path(PRIVATE_KEY_FILENAME),  # keys/private.key
         }
         managed_dirs = ["memory", "trust_chain", "keys"]
         for mdir_name in managed_dirs:

@@ -401,8 +401,10 @@ def test_save_soul_flat_preserves_private_key(
     config: SoulConfig,
     tmp_path,
 ):
-    """Flat save with include_keys=False must NOT prune keys/private_key (#296 review)."""
+    """Flat save with include_keys=False must NOT prune keys/private.key (#296 review)."""
     import asyncio
+
+    from soul_protocol.runtime.crypto.keystore import PRIVATE_KEY_FILENAME
 
     async def _test():
         soul_dir = tmp_path / ".soul"
@@ -413,21 +415,23 @@ def test_save_soul_flat_preserves_private_key(
             soul_dir,
         )
 
-        # Manually place a private_key file (as if a prior save included it)
-        keys_dir = soul_dir / "keys"
-        keys_dir.mkdir(exist_ok=True)
-        priv_key = keys_dir / "private_key"
+        # Manually place the private key file using the REAL filename
+        # (keys/private.key, per PRIVATE_KEY_FILENAME in crypto/keystore.py)
+        priv_key = soul_dir / PRIVATE_KEY_FILENAME
+        priv_key.parent.mkdir(exist_ok=True)
         priv_key.write_text("SECRET_KEY_DATA", encoding="utf-8")
 
-        # Second save — keys dict has NO private_key (include_keys=False scenario)
+        # Second save — keys dict has NO private.key (include_keys=False scenario)
         await storage_file.save_soul_flat(
             config,
             {"core": {"persona": "v2"}, "keys": {"keys/public.key": b"pk123"}},
             soul_dir,
         )
 
-        # private_key must NOT have been pruned
-        assert priv_key.exists(), "keys/private_key was pruned by save with include_keys=False"
+        # private.key must NOT have been pruned
+        assert priv_key.exists(), (
+            f"{PRIVATE_KEY_FILENAME} was pruned by save with include_keys=False"
+        )
         assert priv_key.read_text(encoding="utf-8") == "SECRET_KEY_DATA"
 
     asyncio.run(_test())
