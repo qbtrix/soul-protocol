@@ -517,14 +517,43 @@ total      = 1.0 * base + 1.5 * spread + 0.5 * emo + noise(0, 0.1)
 
 `soul.recall(query)` searches across episodic, semantic, and procedural stores simultaneously:
 
-1. Each store runs its own `search()` to find candidates with relevance > 0.0
+1. Each store runs its own `search()` to find candidates with token overlap above the relevance floor
 2. All candidates are merged into a single list
 3. Candidates are scored by ACT-R activation (without noise)
-4. **Visibility filtering** is applied based on requester identity and bond strength (v0.2.5)
-5. Results are sorted by activation descending and returned up to `limit`
-6. Access timestamps on retrieved entries are updated (strengthens future recall)
+4. The **graded relevance floor** drops candidates whose token overlap with the query is below `relevance_floor` (graph-augmented candidates are exempt — they matched a related entity term, not the original query)
+5. **Visibility filtering** is applied based on requester identity and bond strength (v0.2.5)
+6. Results are sorted by activation descending and returned up to `limit`, each carrying its activation score on `recall_score`
+7. Access timestamps on retrieved entries are updated (strengthens future recall)
 
 The timestamp update creates a reinforcement loop: memories that get recalled become easier to recall again. This mirrors the psychological "use it or lose it" principle.
+
+### Recall scores and the graded relevance floor
+
+Every entry returned by `recall()` carries a `recall_score` — its ACT-R activation score for the query that surfaced it, the same value the engine ranked on. The field is runtime-only: it is not written to the `.soul` file, because a score is meaningless without a query and would go stale on the next recall. Entries listed without a query (for example via `soul recall --recent`) have `recall_score` left as `None`.
+
+`soul recall --json` includes the score per result:
+
+```json
+[
+  {"type": "semantic", "content": "Python deployment uses Docker", "score": 1.6905}
+]
+```
+
+The relevance floor is a graded, configurable cutoff. Historically each store's `search()` kept any memory with non-zero token overlap, so a single incidental shared word earned a result slot. `recall()` now accepts a `relevance_floor` (0.0-1.0): a candidate whose token-overlap score falls below the floor is dropped before ranking. The floor is checked against raw token overlap, not the activation total, so a recency or emotion boost cannot carry an off-topic memory past it. The check is inclusive — a candidate is kept when `relevance >= floor` — so a floor of `1.0` still keeps a perfect-overlap match. Values below `0.0` are treated as `0.0`.
+
+**Graph-augmented entries are exempt from the floor.** When graph augmentation is on (see below), a memory can enter the result set because it matched a *related graph entity term*, not the original query. Its token overlap with the original query is often zero, so applying the floor against the original query would silently drop every graph-augmented result. The floor therefore applies only to candidates the text search produced for the original query; graph-augmented candidates were already validated by the entity-term search and pass through regardless of the floor.
+
+The default floor is `0.0`, which keeps the historical behaviour — raising the default would silently drop matches that existing callers expect. Callers opt into a stricter cutoff:
+
+```python
+# Drop weak matches: keep only memories where at least a third of the
+# query tokens are present.
+focused = await soul.recall("python deployment docker", relevance_floor=0.3)
+```
+
+```bash
+soul recall aria.soul "python deployment docker" --min-relevance 0.3
+```
 
 ```python
 memories = await soul.recall("Python deployment", limit=5)

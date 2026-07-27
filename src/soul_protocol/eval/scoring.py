@@ -4,6 +4,16 @@
 #   functions of (soul, case, output) — no side effects on the soul. The
 #   judge scorer is the only one that requires an engine; it returns a
 #   "skipped" outcome when no engine is configured rather than failing.
+# Updated: 2026-05-21 (paw-workspace#47) — The judge scorer now adds a
+#   "Reference input" block to its prompt when the case carries
+#   `inputs.reference` (set by prompt-mode cases). This lets a /humanize or
+#   skill eval ask the judge to compare a candidate output against the
+#   original text it was meant to transform. No new scoring kind is added —
+#   prompt/skill outputs reuse JudgeScoring.
+# Updated: 2026-05-21 — Gate `inputs.reference` to prompt-mode cases. The
+#   field's docstring says it is ignored outside prompt mode; score_judge
+#   now honors that, so a respond/recall case carrying `reference` no
+#   longer silently drops the user message from the judge prompt.
 
 from __future__ import annotations
 
@@ -191,6 +201,26 @@ Score the output from 0.0 (does not meet criteria at all) to 1.0
 """
 
 
+# Used for prompt-mode cases that carry a `reference` — the original text a
+# skill was meant to transform. The judge compares the candidate against it.
+_JUDGE_PROMPT_WITH_REFERENCE = """You are evaluating the output of a text-processing prompt or skill.
+
+Criteria:
+{criteria}
+
+Reference input (the original text the skill was given):
+{reference}
+
+Candidate output (the text to score):
+{output}
+
+Score the candidate output from 0.0 (does not meet criteria at all) to
+1.0 (fully meets criteria). Return JSON only — no other text:
+
+{{"score": <0.0-1.0>, "reasoning": "<one sentence>"}}
+"""
+
+
 _JSON_RE = re.compile(r"\{.*?\}", re.DOTALL)
 
 
@@ -206,6 +236,11 @@ async def score_judge(
     failed) so a CI run that lacks API credentials can still validate
     the rest of the eval suite. When the judge call fails or returns
     unparseable output, score 0.0 with details explaining why.
+
+    When the case carries ``inputs.reference`` (a prompt-mode case scoring
+    a skill output against the text it transformed), the judge prompt
+    shows that reference as a separate block so the criteria can ask the
+    judge to compare candidate against original.
     """
     if engine is None:
         return ScoreOutcome(
@@ -217,11 +252,23 @@ async def score_judge(
             },
         )
 
-    prompt = _JUDGE_PROMPT.format(
-        criteria=spec.criteria.strip(),
-        message=case.inputs.message,
-        output=execution.output_text,
-    )
+    # `reference` is a prompt-mode-only field — its docstring on
+    # CaseInputs says so. Gate it on the mode so a respond/recall case
+    # that happens to set `reference` does not silently switch to the
+    # reference template (which omits the user's actual message).
+    reference = case.inputs.reference if case.inputs.mode == "prompt" else None
+    if reference:
+        prompt = _JUDGE_PROMPT_WITH_REFERENCE.format(
+            criteria=spec.criteria.strip(),
+            reference=reference,
+            output=execution.output_text,
+        )
+    else:
+        prompt = _JUDGE_PROMPT.format(
+            criteria=spec.criteria.strip(),
+            message=case.inputs.message,
+            output=execution.output_text,
+        )
     try:
         raw = await engine.think(prompt)
     except Exception as e:  # pragma: no cover — network / engine errors

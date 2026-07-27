@@ -1,7 +1,7 @@
 {
   "$defs": {
     "Biorhythms": {
-      "description": "Simulated vitality and energy patterns.",
+      "description": "Simulated vitality and energy patterns.\n\nDefaults to \"always-on\" mode with no energy/social drain \u2014 appropriate for\ndeveloper tools, consulting agents, and most non-companion use cases.\nFor companion souls that should simulate fatigue and recovery, set\nenergy_drain_rate, social_drain_rate, and auto_regen explicitly::\n\n    Biorhythms(energy_drain_rate=2.0, social_drain_rate=5.0, auto_regen=True)",
       "properties": {
         "chronotype": {
           "default": "neutral",
@@ -16,9 +16,83 @@
           "type": "number"
         },
         "energy_regen_rate": {
-          "default": 5.0,
+          "default": 0.0,
+          "description": "Energy recovered per hour of elapsed time (0 = no regen needed)",
+          "minimum": 0.0,
           "title": "Energy Regen Rate",
           "type": "number"
+        },
+        "energy_drain_rate": {
+          "default": 0.0,
+          "description": "Energy lost per interaction (0 = no drain)",
+          "minimum": 0.0,
+          "title": "Energy Drain Rate",
+          "type": "number"
+        },
+        "social_drain_rate": {
+          "default": 0.0,
+          "description": "Social battery lost per interaction (0 = no drain)",
+          "minimum": 0.0,
+          "title": "Social Drain Rate",
+          "type": "number"
+        },
+        "tired_threshold": {
+          "default": 0.0,
+          "description": "Energy below this forces TIRED mood (0 = disabled)",
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Tired Threshold",
+          "type": "number"
+        },
+        "mood_inertia": {
+          "default": 0.4,
+          "description": "EMA alpha for mood shifts (0 = max inertia, 1 = instant)",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Mood Inertia",
+          "type": "number"
+        },
+        "mood_sensitivity": {
+          "default": 0.25,
+          "description": "Valence threshold to trigger mood change (0 = always shift)",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Mood Sensitivity",
+          "type": "number"
+        },
+        "auto_regen": {
+          "default": false,
+          "description": "Recover energy automatically based on elapsed time (enable for companion souls)",
+          "title": "Auto Regen",
+          "type": "boolean"
+        },
+        "focus_window_seconds": {
+          "default": 3600.0,
+          "description": "Sliding window for interaction-density focus calc (0 disables auto-focus)",
+          "minimum": 0.0,
+          "title": "Focus Window Seconds",
+          "type": "number"
+        },
+        "focus_high_threshold": {
+          "default": 3,
+          "description": "Interactions in window at or above which focus rises to 'high'",
+          "minimum": 1,
+          "title": "Focus High Threshold",
+          "type": "integer"
+        },
+        "focus_max_threshold": {
+          "default": 10,
+          "description": "Interactions in window at or above which focus rises to 'max'",
+          "minimum": 1,
+          "title": "Focus Max Threshold",
+          "type": "integer"
+        },
+        "trust_chain_max_entries": {
+          "default": 0,
+          "description": "Maximum entries the trust chain may carry before touch-time pruning fires. 0 (default) disables pruning and preserves the unbounded-chain behaviour. Positive values cause append() to compress the non-genesis history into a single signed `chain.pruned` marker once the cap is reached. The full archival design lives in v0.5.x.",
+          "minimum": 0,
+          "title": "Trust Chain Max Entries",
+          "type": "integer"
         }
       },
       "title": "Biorhythms",
@@ -51,6 +125,30 @@
         }
       },
       "title": "Bond",
+      "type": "object"
+    },
+    "BondTarget": {
+      "description": "An entity this soul is bonded to.\n\nBond targets are portable \u2014 they travel with the soul across platforms.\nThe bond_type field classifies the relationship kind.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "default": "",
+          "title": "Label",
+          "type": "string"
+        },
+        "bond_type": {
+          "default": "human",
+          "title": "Bond Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "BondTarget",
       "type": "object"
     },
     "CommunicationStyle": {
@@ -150,6 +248,13 @@
           },
           "title": "History",
           "type": "array"
+        },
+        "pending": {
+          "items": {
+            "$ref": "#/$defs/Mutation"
+          },
+          "title": "Pending",
+          "type": "array"
         }
       },
       "title": "EvolutionConfig",
@@ -165,7 +270,7 @@
       "type": "string"
     },
     "Identity": {
-      "description": "A soul's unique identity with cryptographic DID.",
+      "description": "A soul's unique identity with cryptographic DID.\n\nMulti-bond support: ``bonds`` holds a list of BondTarget entities.\nThe legacy ``bonded_to`` field is preserved for backward compatibility.\nOn model_post_init, if bonded_to is set and bonds is empty, bonds is\nauto-populated from bonded_to (migration path).",
       "properties": {
         "did": {
           "default": "",
@@ -179,6 +284,11 @@
         "archetype": {
           "default": "",
           "title": "Archetype",
+          "type": "string"
+        },
+        "role": {
+          "default": "",
+          "title": "Role",
           "type": "string"
         },
         "born": {
@@ -197,6 +307,13 @@
           ],
           "default": null,
           "title": "Bonded To"
+        },
+        "bonds": {
+          "items": {
+            "$ref": "#/$defs/BondTarget"
+          },
+          "title": "Bonds",
+          "type": "array"
         },
         "origin_story": {
           "default": "",
@@ -279,6 +396,26 @@
           "default": 500,
           "title": "Human Tokens",
           "type": "integer"
+        },
+        "consolidation_interval": {
+          "default": 20,
+          "title": "Consolidation Interval",
+          "type": "integer"
+        },
+        "skip_deep_processing_on_low_significance": {
+          "default": true,
+          "title": "Skip Deep Processing On Low Significance",
+          "type": "boolean"
+        },
+        "always_extract_entities": {
+          "default": true,
+          "title": "Always Extract Entities",
+          "type": "boolean"
+        },
+        "smart_recall_enabled": {
+          "default": false,
+          "title": "Smart Recall Enabled",
+          "type": "boolean"
         }
       },
       "title": "MemorySettings",
@@ -405,7 +542,7 @@
       "type": "object"
     },
     "SoulState": {
-      "description": "The soul's current emotional and energy state.",
+      "description": "The soul's current emotional and energy state.\n\n``focus`` is the effective level (one of FOCUS_LEVELS). When\n``focus_override`` is None, StateManager recomputes focus from\n``recent_interactions`` density on each interaction or status read.\nSetting ``focus_override`` to a level locks focus to that value\nuntil cleared (set focus_override back to None or call\n``manager.update(focus=\"auto\")``).",
       "properties": {
         "mood": {
           "$ref": "#/$defs/Mood",
@@ -422,6 +559,18 @@
           "default": "medium",
           "title": "Focus",
           "type": "string"
+        },
+        "focus_override": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Focus Override"
         },
         "social_battery": {
           "default": 100.0,
@@ -442,6 +591,14 @@
           ],
           "default": null,
           "title": "Last Interaction"
+        },
+        "recent_interactions": {
+          "items": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "title": "Recent Interactions",
+          "type": "array"
         }
       },
       "title": "SoulState",
@@ -476,6 +633,34 @@
     "lifecycle": {
       "$ref": "#/$defs/LifecycleState",
       "default": "born"
+    },
+    "skills": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Skills",
+      "type": "array"
+    },
+    "evaluation_history": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Evaluation History",
+      "type": "array"
+    },
+    "interaction_count": {
+      "default": 0,
+      "title": "Interaction Count",
+      "type": "integer"
+    },
+    "bonds_per_user": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Bond"
+      },
+      "title": "Bonds Per User",
+      "type": "object"
     }
   },
   "required": [

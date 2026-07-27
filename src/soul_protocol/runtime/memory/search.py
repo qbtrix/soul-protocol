@@ -1,4 +1,11 @@
 # memory/search.py — Token-overlap and BM25 relevance scoring for memory search.
+# Updated: feat/recall-graded-floor (#247) — Added DEFAULT_RELEVANCE_FLOOR and
+#   passes_relevance_floor() so the store-level gate is a named, configurable
+#   threshold instead of a bare `score > 0.0` literal. Default 0.0 keeps the
+#   "any token overlap" behaviour; callers raise it to drop weak matches.
+#   passes_relevance_floor() docstring clarifies the boundary semantics: the
+#   comparison is inclusive (score >= floor) and a negative floor is treated
+#   as 0.0 (clamped to the historical strict-positive gate, not honoured).
 # Updated: phase1-ablation-fixes — Added BM25Index class for term-frequency-saturated,
 #   length-normalized retrieval scoring. BM25 uses IDF weighting, k1=1.2, b=0.75.
 #   Token-overlap relevance_score() kept as fallback.
@@ -131,6 +138,50 @@ def relevance_score(query: str, content: str) -> float:
     expanded_content = _expand_synonyms(content_tokens)
     overlap = query_tokens & expanded_content
     return len(overlap) / len(query_tokens)
+
+
+# ---------------------------------------------------------------------------
+# Relevance floor — graded, configurable cutoff for the store-level gate
+# ---------------------------------------------------------------------------
+
+# Default relevance floor for store-level search gates. A memory's
+# token-overlap score must clear this value to earn a slot.
+#
+# The default is 0.0, which means the gate keeps the historical "any token
+# overlap at all is a candidate" behaviour — raising the floor would silently
+# drop matches that older callers expect to see. A caller that wants a graded
+# cutoff (drop weak, near-incidental matches) passes a positive floor, e.g.
+# ``relevance_floor=0.3`` keeps only memories where a third of the query
+# tokens are present. ``RecallEngine`` and the ``soul recall`` CLI expose
+# this knob so the cutoff is opt-in rather than a surprise.
+DEFAULT_RELEVANCE_FLOOR: float = 0.0
+
+
+def passes_relevance_floor(score: float, floor: float = DEFAULT_RELEVANCE_FLOOR) -> bool:
+    """Return True when a relevance score clears the configured floor.
+
+    Replaces the bare ``score > 0.0`` gate that every store's ``search()``
+    used. At the default floor of 0.0 the behaviour is identical: any
+    positive score passes. With a positive floor the gate becomes graded —
+    a weak match scoring below the floor is dropped instead of taking a slot.
+
+    Args:
+        score: The token-overlap relevance score (0.0-1.0).
+        floor: Minimum score required to pass. At 0.0 (default) any
+            positive score passes; a positive floor drops weak matches.
+            Values below 0.0 are treated as 0.0 — a negative floor cannot
+            mean "pass everything including zero overlap", so it is clamped
+            to the historical strict-positive gate rather than honoured.
+            The comparison is inclusive (``score >= floor``): a floor of
+            1.0 still passes a perfect-overlap score of 1.0.
+
+    Returns:
+        True if the score clears the floor and should be kept.
+    """
+    if floor <= 0.0:
+        # Preserve the historical strict-positive gate exactly.
+        return score > 0.0
+    return score >= floor
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,8 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: 2026-07-18 (#284) — Added public tier access API: episodic_entries(),
+#   semantic_facts(), procedural_entries(), social_entries(), graph_entities(),
+#   graph_edges(), clear_graph(), rebuild_graph(), custom_layer_entries().
+#   CLI and MCP now call these instead of reaching into private attributes.
 # Updated: 2026-07-11 (#281) — Rewire recall engine graph reference after
 #   from_dict(). The RecallEngine held a stale reference to the pre-restore
 #   empty KnowledgeGraph, so graph-augmented recall returned nothing after
@@ -1241,6 +1245,7 @@ class MemoryManager:
         layer: str | None = None,
         domain: str | None = None,
         min_weight: float = 0.1,
+        relevance_floor: float = 0.0,
     ) -> list[MemoryEntry]:
         """Recall memories from the appropriate stores.
 
@@ -1263,6 +1268,14 @@ class MemoryManager:
         surfacing automatically. Set to ``0.0`` to bypass the filter and
         see weight-decayed entries again (used by ``soul recall
         --include-forgotten`` and the provenance walker).
+
+        ``relevance_floor`` (#247): graded cutoff on query relevance
+        (0.0-1.0). A candidate whose token-overlap score is below the floor
+        is dropped during ranking. Default 0.0 keeps every candidate the
+        stores returned; a positive floor drops weak, near-incidental
+        matches. Unlike ``min_weight`` and ``min_importance``, this gate
+        looks at how well the memory matches the query, not at intrinsic
+        properties of the memory.
 
         Filters are applied post-fetch so the underlying ranking stays
         intact. Fetch limit is widened when filters are active so the
@@ -1297,6 +1310,7 @@ class MemoryManager:
                 bond_strength=bond_strength,
                 bond_threshold=bond_threshold,
                 progressive=progressive,
+                relevance_floor=relevance_floor,
             )
 
         if user_id is not None:
@@ -2316,6 +2330,89 @@ class MemoryManager:
             + len(self._semantic._facts)
             + len(self._procedural._procedures)
         )
+
+    # ---- Public tier access (v0.5.0 #284) ----
+    # These methods expose read-only access to individual memory tiers so
+    # that interface layers (CLI, MCP) don't need to reach into private stores.
+
+    def episodic_entries(self) -> list:
+        """Return all episodic memory entries."""
+        return list(self._episodic.entries())
+
+    def semantic_facts(self, *, include_superseded: bool = False) -> list:
+        """Return all semantic facts."""
+        return list(self._semantic.facts(include_superseded=include_superseded))
+
+    def procedural_entries(self) -> list:
+        """Return all procedural memory entries."""
+        return list(self._procedural.entries())
+
+    def social_entries(self) -> list:
+        """Return all social memory entries."""
+        return list(self._social.entries())
+
+    async def remove_episodic(self, memory_id: str) -> bool:
+        """Remove an episodic memory by ID."""
+        return await self._episodic.remove(memory_id)
+
+    async def remove_semantic(self, memory_id: str) -> bool:
+        """Remove a semantic fact by ID."""
+        return await self._semantic.remove(memory_id)
+
+    async def remove_procedural(self, memory_id: str) -> bool:
+        """Remove a procedural memory by ID."""
+        return await self._procedural.remove(memory_id)
+
+    # ---- Public graph access (v0.5.0 #284) ----
+
+    def graph_entities(self) -> list:
+        """Return all entities from the knowledge graph."""
+        return self._graph.entities()
+
+    def graph_remove_entity(self, name: str) -> None:
+        """Remove a single entity from the knowledge graph."""
+        self._graph.remove_entity(name)
+
+    def clear_graph(self) -> None:
+        """Clear all entities, edges, and provenance from the knowledge graph."""
+        self._graph._entities.clear()
+        self._graph._edges.clear()
+        self._graph._provenance.clear()
+
+    async def rebuild_graph(self) -> dict:
+        """Clear and rebuild the knowledge graph from all episodic + semantic memories.
+
+        Returns a dict with ``old_count`` and ``new_count`` for reporting.
+        """
+        from soul_protocol.runtime.types import Interaction
+
+        old_count = len(self._graph.entities())
+        self.clear_graph()
+
+        all_mems = list(self._episodic.entries()) + list(self._semantic.facts())
+        for mem in all_mems:
+            interaction = Interaction(user_input=mem.content, agent_output="")
+            entities = self.extract_entities(interaction)
+            if entities:
+                graph_entities = [
+                    {"name": ent["name"], "entity_type": ent.get("type", "unknown")}
+                    for ent in entities
+                ]
+                await self.update_graph(graph_entities)
+
+        new_count = len(self._graph.entities())
+        return {"old_count": old_count, "new_count": new_count}
+
+    def custom_layer_entries(self) -> list:
+        """Return all entries from custom (user-defined) layers.
+
+        Used by CLI ``soul recall --recent`` to include custom-layer entries
+        in the cross-tier recency view.
+        """
+        entries: list = []
+        for store in self._custom_layers.values():
+            entries.extend(store.values())
+        return entries
 
     # ---- Serialization ----
 

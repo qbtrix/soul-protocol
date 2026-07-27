@@ -1,6 +1,6 @@
 # Soul Protocol JSON Schemas
 
-Machine-readable [JSON Schema](https://json-schema.org/) definitions for every data model in the Digital Soul Protocol (DSP). These schemas are auto-generated from the canonical Pydantic models in `src/soul_protocol/types.py`.
+Machine-readable [JSON Schema](https://json-schema.org/) definitions for every data model in the Digital Soul Protocol (DSP). These schemas are auto-generated from the canonical Pydantic models in `src/soul_protocol/spec/memory.py` and `src/soul_protocol/runtime/types.py`.
 
 ## What's here
 
@@ -63,7 +63,7 @@ check-jsonschema --schemafile schemas/SoulConfig.schema.json my_soul.json
 
 ## Regenerating
 
-Schemas are generated from the Pydantic source of truth. To regenerate after changing `types.py`:
+Schemas are generated from the Pydantic source of truth. To regenerate after changing the models:
 
 ```bash
 uv run python scripts/generate_schemas.py

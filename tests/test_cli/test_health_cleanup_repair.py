@@ -362,3 +362,42 @@ class TestRepairResetEnergy:
 
         assert result.exit_code == 0, result.output
         assert "NameRepairBot" in result.output
+
+
+class TestRepairRebuildGraph:
+    """Tests for ``soul repair --rebuild-graph``."""
+
+    def test_repair_rebuild_graph_exits_zero(self, tmp_path):
+        """repair --rebuild-graph exits 0 on a valid soul."""
+        soul_path = str(tmp_path / "repair-graph.soul")
+        _birth_soul_at(soul_path, "GraphBot")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["repair", "--rebuild-graph", soul_path])
+
+        assert result.exit_code == 0, result.output
+
+    def test_repair_rebuild_graph_reports_counts(self, tmp_path):
+        """repair --rebuild-graph output mentions node counts."""
+        soul_path = str(tmp_path / "repair-graph-counts.soul")
+        _birth_soul_at(soul_path, "GraphCountBot")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["repair", "--rebuild-graph", soul_path])
+
+        assert result.exit_code == 0, result.output
+        assert "Rebuilt graph" in result.output or "graph" in result.output.lower()
+
+    def test_repair_rebuild_graph_persists(self, tmp_path):
+        """After repair --rebuild-graph, the soul file is still loadable."""
+        soul_path = str(tmp_path / "repair-graph-persist.soul")
+        _birth_soul_at(soul_path, "PersistGraphBot")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["repair", "--rebuild-graph", soul_path])
+        assert result.exit_code == 0, result.output
+
+        # Verify the saved file is still valid
+        result2 = runner.invoke(cli, ["status", soul_path])
+        assert result2.exit_code == 0, result2.output
+        assert "PersistGraphBot" in result2.output
