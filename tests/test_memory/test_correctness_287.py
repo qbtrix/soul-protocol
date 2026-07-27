@@ -1,13 +1,11 @@
 # tests/test_memory/test_correctness_287.py — Regression tests for issue #287.
 # Created: 2026-07-17 (#287)
-# Updated: 2026-07-24 (PR#302 review) — Rewrote tests 1 and 3 to actually
-#   exercise the fixed code paths via observe(), not just assert pre-existing
-#   behaviour. Added test for detect_contradictions wiring in note().
+# Updated: 2026-07-27 (PR#302 review 2) — Dropped vacuous
+#   detect_contradictions test (deferred to #239). Remaining tests:
 #
 #   1. Raw-text contradiction marks old fact but does NOT store a replacement.
 #   2. note() MERGE sets supersedes back-edge and audit record.
 #   3. observe() batch dedup compares within-batch facts.
-#   4. note() detect_contradictions is wired (not a no-op).
 
 from __future__ import annotations
 
@@ -216,33 +214,3 @@ async def test_observe_batch_dedup_within_batch():
     assert len(python_facts) <= 1, (
         f"Expected at most 1 fact about python+backend, got {len(python_facts)}: {python_facts}"
     )
-
-
-# --- Bug 4: detect_contradictions in note() should be wired (#239) ----------
-
-
-@pytest.mark.asyncio
-async def test_note_detect_contradictions_wired():
-    """note() with detect_contradictions=True should flag contradicting facts."""
-    soul = await Soul.birth("Aria", archetype="t")
-
-    # Seed a verb-pattern fact
-    await soul.note("User lives in Berlin")
-
-    # Note a contradicting fact — the detector should catch this
-    result = await soul.note(
-        "User lives in Tokyo",
-        detect_contradictions=True,
-    )
-
-    # The note itself should still succeed (CREATE or MERGE depending on
-    # similarity score — these are dissimilar enough to be CREATE).
-    assert result["action"] in ("CREATE", "MERGE", "SKIP")
-
-    # After the note, verify the old fact about Berlin is marked superseded
-    # (if the heuristic detector caught the contradiction).
-    facts = list(soul._memory._semantic.facts(include_superseded=True))
-    tokyo_facts = [f for f in facts if "Tokyo" in f.content]
-
-    # At minimum, the Tokyo fact should exist
-    assert len(tokyo_facts) >= 1, "Tokyo fact should be stored"

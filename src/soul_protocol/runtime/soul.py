@@ -1531,28 +1531,10 @@ class Soul:
         # Resolve detect_contradictions default per tier.
         if detect_contradictions is None:
             detect_contradictions = type == MemoryType.SEMANTIC
-        # Wire ContradictionDetector for semantic notes (#239 / PR#302 review).
-        # When enabled, check the incoming content against existing semantic
-        # facts.  Contradictions are reported (old fact marked) but no
-        # replacement is stored — the note itself serves as the replacement.
-        contradiction_results = []
-        if detect_contradictions and type == MemoryType.SEMANTIC:
-            existing_semantic = self._memory._semantic.facts(include_superseded=False)
-            detector = self._memory._contradiction_detector
-            cresults = await detector.detect_heuristic(content, existing_semantic)
-            for cr in cresults:
-                if cr.is_contradiction and cr.old_memory_id:
-                    for e in existing_semantic:
-                        if e.id == cr.old_memory_id:
-                            e.superseded = True
-                            break
-                    contradiction_results.append(
-                        {
-                            "old_id": cr.old_memory_id,
-                            "reason": cr.reason,
-                            "confidence": cr.confidence,
-                        }
-                    )
+        # TODO(#239): Wire ContradictionDetector into note() — detect
+        # contradictions, set supersede pointers, and return contradicted_id.
+        # Currently deferred; the observe() path already handles contradictions
+        # via the per-interaction loop in _resolve_contradictions().
 
         # Episodic and dedup-off: blunt write via remember().
         if type == MemoryType.EPISODIC or not dedup:
@@ -2367,6 +2349,9 @@ class Soul:
         procedural = self._memory._procedural._procedures.get(memory_id)
         if procedural is not None:
             return procedural, "procedural"
+        social = self._memory._social._entries.get(memory_id)
+        if social is not None:
+            return social, "social"
         return None, None
 
     @property
