@@ -1,6 +1,68 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
 # Updated: 2026-07-17 (#286) — Catch unknown-tier ValueError in ``soul archive``;
 #   exit 1 so scripts can detect failure.
+# Updated: 2026-07-18 (#284) — Replaced ~45 private attribute accesses
+#   (soul._memory, m._episodic, m._graph_entities.clear(), etc.) with public
+#   MemoryManager API methods. `repair --rebuild-graph` now calls
+#   manager.rebuild_graph() instead of clearing internals directly.
+# Updated: 2026-07-24 (#247) — `soul recall --json` now emits a `score` field
+#   per result (the entry's ACT-R activation score). Added a `--min-relevance`
+#   flag (0.0-1.0) that plumbs through to recall() as the graded relevance
+#   floor; weak query matches below the floor are dropped. Default 0.0 leaves
+#   recall behaviour unchanged.
+# Updated: 2026-05-05 (#231) — Adds `soul note <path> "<fact>"` — the dedup
+#   pipeline counterpart to `soul remember`. Routes through Soul.note() so
+#   repeated calls with similar content collapse into SKIP / MERGE rather
+#   than accumulating duplicate semantic facts. Flags: --no-dedup (force
+#   blunt write), --no-contradictions (skip contradiction detection,
+#   plumbed for follow-up). Output panel reports CREATED / SKIPPED /
+#   MERGED with the relevant memory IDs and similarity score.
+#
+#   Naming deviation from the brief: the brief named the new command
+#   `soul observe`, but a pre-existing `soul observe` (cognitive
+#   pipeline, --user-input + --agent-output) lives later in this file
+#   and would shadow the new handler at click dispatch time. Registered
+#   as `soul note` to match the runtime method (Soul.note()). The
+#   follow-up issue should rename / consolidate.
+# Updated: 2026-05-02 (#192) — Brain-aligned memory update primitive commands.
+#   - `soul confirm <path> <id>`     refresh activation on a verified memory.
+#   - `soul update <path> <id> --patch <text>`  in-place patch within the
+#     1-hour reconsolidation window. PE band [0.2, 0.85). The CLI calls
+#     recall against the current entry content first so the window opens
+#     in this single invocation.
+#   - `soul purge <path> --id <id> --apply`  hard delete with .soul.bak
+#     and a payload-hash audit entry. Reserved for GDPR / safety paths.
+#   - `soul reinstate <path> <id>`   restore retrieval_weight to 1.0.
+#   - `soul forget` semantics shift to weight-decay (single-id and bulk).
+#     Help text updated; behaviour was a hard delete before.
+#   - `soul upgrade <path> --to 0.5.0 [--dry-run]`  derive the supersedes
+#     back-edge from existing superseded_by. Pydantic v2 backfills the
+#     other new defaults at load time.
+# Updated: 2026-05-02 (#142) — Wire `soul optimize <soul-path> <eval.yaml>` from
+#   cli/optimize.py. Drives the autonomous self-improvement loop: eval → propose
+#   knob change → re-eval → keep/revert. Defaults to dry-run; --apply keeps the
+#   winning trajectory and appends soul.optimize.applied trust chain entries.
+# Updated: 2026-04-30 (#191) — Wire `soul diff <left> <right>` from cli/diff.py.
+#   Renders a structured comparison (identity / OCEAN / state / memories /
+#   bond / skills / trust chain / self-model / evolution) in text, json, or
+#   markdown. Read-only; raises a clean error on schema mismatch.
+# Updated: 2026-04-30 (#203) — `soul prune-chain` lands as the touch-time
+#   pruning stub for v0.5.0. Dry-run preview by default, --apply to execute,
+#   --keep N for explicit length, defaults to Biorhythms.trust_chain_max_entries.
+#   Mirrors the `soul cleanup` / `soul forget` safety pattern.
+# Updated: 2026-04-30 (#201) — ``soul audit`` Rich table now includes a
+#   Summary column derived from each entry's per-action human-readable
+#   description (set at append time via TrustChainManager.append's new
+#   ``summary=`` parameter or the action-keyed default formatter
+#   registry). New ``--no-summary`` flag hides the column for callers
+#   who only want the hash. JSON output always includes ``summary``.
+# Updated: 2026-04-30 (#189) — Wire `soul journal {init,append,query}`
+#   subcommand group from cli/journal.py. Lets shell hooks, CI, and non-Python
+#   runtimes append structured events without spinning up a Python session.
+# Updated: 2026-04-29 (#160) — `soul eval` command for YAML-driven soul-aware
+#   evals. Registers from cli/eval_cmd.py. Runs one .yaml spec or every
+#   .yaml under a directory; passes/fails based on per-case scoring; exit
+#   code 0 = all pass (skipped allowed), 1 = any fail/error.
 # Updated: 2026-04-29 (#42) — Trust chain commands: ``soul verify`` checks
 #   integrity of a soul's signed action history. ``soul audit`` prints a
 #   human-readable timeline; supports --filter <prefix> and --limit; --json

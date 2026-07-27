@@ -78,3 +78,16 @@ def test_archive_unknown_tier(tmp_path):
     assert "local" in result.output
     # Must NOT contain a raw traceback
     assert "Traceback" not in result.output
+
+
+def test_archive_two_tier_flags(tmp_path):
+    """archive with repeated -t flags archives to multiple tiers (#286 review)."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "multi-tier.soul")
+
+    runner.invoke(cli, ["birth", "MultiBot", "-o", soul_path])
+    result = runner.invoke(cli, ["archive", soul_path, "-t", "ipfs", "-t", "arweave"])
+
+    assert result.exit_code == 0
+    assert "ipfs" in result.output.lower()
+    assert "arweave" in result.output.lower()
