@@ -110,6 +110,13 @@
       },
       "title": "History",
       "type": "array"
+    },
+    "pending": {
+      "items": {
+        "$ref": "#/$defs/Mutation"
+      },
+      "title": "Pending",
+      "type": "array"
     }
   },
   "title": "EvolutionConfig",

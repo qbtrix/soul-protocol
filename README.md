@@ -207,6 +207,7 @@ pip install -e ".[dev]"
 soul init "Aria" --archetype "The Compassionate Creator"
 soul inspect .soul/
 soul status .soul/
+soul note .soul/ "User prefers concise PR summaries" --type semantic
 ```
 
 ### Python

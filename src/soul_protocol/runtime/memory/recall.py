@@ -1,4 +1,18 @@
 # memory/recall.py — RecallEngine for cross-store memory retrieval.
+# Updated: 2026-07-11 (#281) — Added rebind_graph() so from_dict() can
+#   re-point the engine at the restored KnowledgeGraph without reaching
+#   into _graph directly.
+# Updated: 2026-07-24 (#247) — recall() now scores each candidate once via
+#   activation_breakdown(), writes the activation score onto the returned
+#   entry's recall_score field, and applies a graded relevance floor
+#   (relevance_floor param) that drops weak matches below the threshold.
+#   Default floor is 0.0 (current behaviour) so callers opt into the cutoff.
+#   Graph-augmented candidates are EXEMPT from the floor: they matched a
+#   related graph entity term, not the original query, so floor-checking
+#   them against the original query would drop them all. The pre-graph
+#   candidate IDs are captured before augmentation; only those are floored.
+#   recall_score is set on the live store object (exclude=True, so no .soul
+#   risk); the comment at the assignment notes the in-memory race trade-off.
 # Updated: 2026-03-29 — Added progressive parameter to recall(). When progressive=True,
 #   returns up to limit*2 entries: primary (full content) + overflow (abstract-only copies).
 #   Overflow entries with no abstract keep their original content unchanged.
@@ -31,7 +45,7 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from soul_protocol.runtime.memory.activation import compute_activation
+from soul_protocol.runtime.memory.activation import activation_breakdown
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
 from soul_protocol.runtime.memory.procedural import ProceduralStore
@@ -51,6 +65,13 @@ MAX_ACCESS_TIMESTAMPS: int = 100
 # Default bond strength threshold for BONDED memory access.
 # Souls start at bond_strength=50, so 30 means even new bonds get some access.
 DEFAULT_BOND_THRESHOLD: float = 30.0
+
+# Default graded relevance floor (#247). A candidate's token-overlap score
+# must clear this to survive ranking. 0.0 keeps the historical behaviour:
+# any candidate the stores returned is ranked. A positive floor (e.g. 0.3)
+# drops weak, near-incidental matches before they take a result slot. The
+# default stays 0.0 so existing recalls are unchanged; callers opt in.
+DEFAULT_RELEVANCE_FLOOR: float = 0.0
 
 
 def filter_by_visibility(
@@ -110,6 +131,15 @@ class RecallEngine:
         self._personality = personality
         self._graph = graph
 
+    def rebind_graph(self, graph: KnowledgeGraph | None) -> None:
+        """Replace the graph reference used for graph-augmented recall.
+
+        Called by ``MemoryManager.from_dict()`` after deserializing a new
+        KnowledgeGraph so that subsequent recall queries see the restored
+        entities instead of the old, empty graph (#281).
+        """
+        self._graph = graph
+
     async def recall(
         self,
         query: str,
@@ -121,6 +151,7 @@ class RecallEngine:
         bond_strength: float = 100.0,
         bond_threshold: float = DEFAULT_BOND_THRESHOLD,
         progressive: bool = False,
+        relevance_floor: float = DEFAULT_RELEVANCE_FLOOR,
     ) -> list[MemoryEntry]:
         """Search across memory stores and return activation-ranked results.
 
@@ -128,6 +159,10 @@ class RecallEngine:
         mentioned in the query are looked up via progressive_context(level=1).
         Related entity names are used as additional search terms to surface
         graph-connected memories that pure text matching would miss.
+
+        Each returned entry carries its activation score on the
+        ``recall_score`` field — the same number this engine ranks on — so
+        callers can see why a result placed where it did.
 
         Args:
             query: Search string for activation scoring.
@@ -141,9 +176,20 @@ class RecallEngine:
             bond_strength: Bond strength with the requester (0-100).
                 Only used when requester_id is not None.
             bond_threshold: Minimum bond strength for BONDED memory access.
+            relevance_floor: Graded cutoff on query relevance (0.0-1.0).
+                A candidate whose token-overlap score is below the floor is
+                dropped before ranking. Default 0.0 keeps every candidate the
+                stores returned (historical behaviour); a positive floor
+                drops weak matches. The floor is checked against raw token
+                overlap, not the activation total, so recency and emotion
+                cannot lift an off-topic memory past it. The check is
+                inclusive (kept when ``relevance >= floor``): a floor of 1.0
+                still keeps a perfect-overlap match. Graph-augmented
+                candidates are exempt — see the floor logic below for why.
 
         Returns:
-            List of MemoryEntry sorted by activation score descending.
+            List of MemoryEntry sorted by activation score descending, each
+            with ``recall_score`` set to its activation score.
         """
         results: list[MemoryEntry] = []
         search_all = types is None
@@ -169,6 +215,13 @@ class RecallEngine:
         # Apply importance filter to non-semantic results (semantic already filtered)
         if min_importance > 0:
             results = [r for r in results if r.importance >= min_importance]
+
+        # IDs of candidates the text search produced *before* graph
+        # augmentation. The relevance floor below only applies to these:
+        # graph-augmented candidates matched an entity term, not the
+        # original query, so floor-checking them against the original
+        # query would wrongly drop them (#247).
+        pre_graph_ids: set[str] = {r.id for r in results}
 
         # --- Graph augmentation: surface graph-connected memories ---
         if use_graph and self._graph is not None:
@@ -224,21 +277,61 @@ class RecallEngine:
 
         now = datetime.now()
 
-        # Score by ACT-R activation (deterministic — no noise in recall ranking)
-        # Uses pluggable strategy for spreading activation if provided (v0.2.2)
-        # Uses personality modulation for trait-influenced ranking (v0.3.3)
-        results.sort(
-            key=lambda e: (
-                -compute_activation(
-                    e,
-                    query,
-                    now=now,
-                    noise=False,
-                    strategy=self._strategy,
-                    personality=self._personality,
-                )
-            ),
-        )
+        # Score each candidate once by ACT-R activation (deterministic — no
+        # noise in recall ranking). Uses the pluggable strategy for spreading
+        # activation (v0.2.2) and personality modulation for trait-influenced
+        # ranking (v0.3.3). The breakdown also carries the raw token-overlap
+        # relevance, which the graded floor below checks (#247).
+        scored: list[tuple[float, MemoryEntry]] = []
+        for entry in results:
+            breakdown = activation_breakdown(
+                entry,
+                query,
+                now=now,
+                noise=False,
+                strategy=self._strategy,
+                personality=self._personality,
+            )
+            # Graded relevance floor (#247): drop weak matches whose query
+            # overlap is below the floor. Checked against raw relevance so a
+            # recency or emotion boost cannot carry an off-topic memory
+            # through. At floor 0.0 nothing is dropped here — the stores
+            # already filtered zero-overlap candidates.
+            #
+            # Graph-augmented candidates are EXEMPT from the floor. They were
+            # surfaced by searching a graph entity term, not the original
+            # query, so their overlap with the original query is often ~0.
+            # The entity-term search already validated their relevance; a
+            # positive floor here would silently drop every graph-augmented
+            # result and neuter graph augmentation. Only candidates the text
+            # search produced for the original query are floor-checked.
+            is_graph_augmented = entry.id not in pre_graph_ids
+            if (
+                relevance_floor > 0.0
+                and not is_graph_augmented
+                and breakdown.relevance < relevance_floor
+            ):
+                continue
+            # Surface the activation score on the entry so callers (and
+            # `soul recall --json`) can see the ranking signal.
+            #
+            # Trade-off: this mutates the live store object in place rather
+            # than a copy. Two recalls running concurrently against the same
+            # store could race on this field. We accept it deliberately —
+            # `recall_score` has `exclude=True`, so a stale value never
+            # reaches the `.soul` file; the worst case is one in-flight
+            # recall reading another's score. The access-metadata loop below
+            # likewise mutates shared store objects on purpose (the recall
+            # reinforcement loop depends on it), so copying only here would
+            # be a half-measure. The progressive path copies because it
+            # rewrites `content` — a *persisted* field — which is a genuine
+            # corruption risk; `recall_score` is not.
+            entry.recall_score = breakdown.total
+            scored.append((breakdown.total, entry))
+
+        # Sort by activation descending.
+        scored.sort(key=lambda pair: -pair[0])
+        results = [entry for _, entry in scored]
 
         # Progressive disclosure: return primary (full) + overflow (abstract-only)
         if progressive:

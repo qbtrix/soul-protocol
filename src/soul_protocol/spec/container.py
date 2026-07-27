@@ -25,7 +25,7 @@ class SoulContainer:
 
         # Create a new soul
         soul = SoulContainer.create("Aria", traits={"role": "assistant"})
-        soul.memory.store("episodic", MemoryEntry(content="Hello!"))
+        soul.memory.store("episodic", MemoryEntry(content="Hello!", layer="episodic"))
         soul.save("aria.soul")
 
         # Open an existing soul

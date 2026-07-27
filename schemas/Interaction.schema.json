@@ -1,13 +1,45 @@
 {
-  "description": "A single user-agent interaction for the soul to observe.",
+  "$defs": {
+    "Participant": {
+      "description": "A participant in an interaction.\n\nRole is a free-form string \u2014 runtimes define their own roles.\nCommon roles: \"user\", \"agent\", \"soul\", \"system\", \"observer\".",
+      "properties": {
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "content"
+      ],
+      "title": "Participant",
+      "type": "object"
+    }
+  },
+  "description": "A multi-participant interaction for the soul to observe.\n\nGeneralized from the original 2-party model. Supports N participants.\nBackward compatible: ``user_input`` and ``agent_output`` properties\nreturn the first \"user\" and \"agent\" participant content. The legacy\nconstructor ``Interaction(user_input=..., agent_output=...)`` still\nworks via the model_validator that auto-converts to participants.\n\nUse ``from_pair()`` for the common 2-party case.",
   "properties": {
-    "user_input": {
-      "title": "User Input",
-      "type": "string"
-    },
-    "agent_output": {
-      "title": "Agent Output",
-      "type": "string"
+    "participants": {
+      "items": {
+        "$ref": "#/$defs/Participant"
+      },
+      "title": "Participants",
+      "type": "array"
     },
     "channel": {
       "default": "unknown",
@@ -25,10 +57,6 @@
       "type": "object"
     }
   },
-  "required": [
-    "user_input",
-    "agent_output"
-  ],
   "title": "Interaction",
   "type": "object"
 }

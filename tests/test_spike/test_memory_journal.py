@@ -39,6 +39,7 @@ def _make_entry(
     source: str = "user",
 ) -> MemoryEntry:
     return MemoryEntry(
+        layer="core",
         content=content,
         source=source,
         metadata={"importance": importance, "tags": tags or []},

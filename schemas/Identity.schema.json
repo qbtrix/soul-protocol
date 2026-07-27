@@ -28,9 +28,33 @@
       },
       "title": "Bond",
       "type": "object"
+    },
+    "BondTarget": {
+      "description": "An entity this soul is bonded to.\n\nBond targets are portable \u2014 they travel with the soul across platforms.\nThe bond_type field classifies the relationship kind.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "default": "",
+          "title": "Label",
+          "type": "string"
+        },
+        "bond_type": {
+          "default": "human",
+          "title": "Bond Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "BondTarget",
+      "type": "object"
     }
   },
-  "description": "A soul's unique identity with cryptographic DID.",
+  "description": "A soul's unique identity with cryptographic DID.\n\nMulti-bond support: ``bonds`` holds a list of BondTarget entities.\nThe legacy ``bonded_to`` field is preserved for backward compatibility.\nOn model_post_init, if bonded_to is set and bonds is empty, bonds is\nauto-populated from bonded_to (migration path).",
   "properties": {
     "did": {
       "default": "",
@@ -44,6 +68,11 @@
     "archetype": {
       "default": "",
       "title": "Archetype",
+      "type": "string"
+    },
+    "role": {
+      "default": "",
+      "title": "Role",
       "type": "string"
     },
     "born": {
@@ -62,6 +91,13 @@
       ],
       "default": null,
       "title": "Bonded To"
+    },
+    "bonds": {
+      "items": {
+        "$ref": "#/$defs/BondTarget"
+      },
+      "title": "Bonds",
+      "type": "array"
     },
     "origin_story": {
       "default": "",
