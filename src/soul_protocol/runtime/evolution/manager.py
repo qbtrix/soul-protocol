@@ -1,4 +1,7 @@
 # evolution/manager.py — EvolutionManager for proposing, approving, and applying DNA mutations.
+# Updated: 2026-07-29 (#289) — _get_nested_attr and _set_nested_attr now raise
+#   ValueError on invalid trait paths. _set_nested_attr coercion extracted to
+#   _coerce_nested_value. propose() validates the new value before recording.
 # Updated: Fixed pending mutations not persisting — moved from in-memory list to
 #   EvolutionConfig.pending so mutations survive save/reload cycles.
 # Updated: Wired check_triggers() to accept optional evaluation_triggers from

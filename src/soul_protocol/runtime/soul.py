@@ -2,6 +2,9 @@
 # Updated: 2026-08-08 (#292) — Entity-derived skills now tagged with
 #   SkillSource.ENTITY so they are excluded from public_profile() and A2A cards.
 #   observe() entity extraction path passes source=SkillSource.ENTITY to Skill().
+# Updated: 2026-07-29 (#289) — Soul.birth() now warns on unknown **kwargs so
+#   typoed config keys are visible. evolution/manager._set_nested_attr() raises
+#   ValueError on invalid trait paths instead of silently creating new attrs.
 # Updated: 2026-07-18 (#284) — Added public convenience API for CLI/MCP:
 #   memory (property), eval_history (property), clear_eval_history(),
 #   reset_energy(), reset_bond().
@@ -239,7 +242,6 @@ from .types import (
     LifecycleState,
     MemoryEntry,
     MemoryProvenance,
-    MemorySettings,
     MemoryType,
     MemoryVisibility,
     Mutation,
@@ -823,7 +825,6 @@ class Soul:
         biorhythms: dict[str, Any] | None = None,
         persona: str | None = None,
         seed_domains: dict[str, list[str]] | None = None,
-        memory_settings: MemorySettings | None = None,
         role: str = "",
         # DSPy integration — optional optimized cognitive processing
         use_dspy: bool = False,
@@ -858,8 +859,6 @@ class Soul:
             seed_domains: Custom seed domains for the self-model, e.g.
                           {"cooking": ["recipe", "bake", ...]}. Replaces
                           the default 6 bootstrapping domains.
-            memory_settings: Optional memory behavior settings. When omitted,
-                ``MemorySettings()`` defaults are used.
             use_dspy: If True, use DSPy-optimized cognitive processing.
                 Requires the dspy package to be installed (pip install soul-protocol[dspy]).
                 Falls back silently to heuristic if dspy is not available.
@@ -911,7 +910,6 @@ class Soul:
         config = SoulConfig(
             identity=identity,
             dna=dna,
-            memory=memory_settings or MemorySettings(),
             lifecycle=LifecycleState.ACTIVE,
         )
 
