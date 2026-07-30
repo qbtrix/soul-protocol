@@ -117,7 +117,6 @@ async def birth(
     bonded_to: str | None = None,
     engine: CognitiveEngine | None = None,
     search_strategy: SearchStrategy | None = None,
-    memory_settings: MemorySettings | None = None,
     **kwargs,
 ) -> Soul
 ```
@@ -134,7 +133,6 @@ Create a new soul with a unique DID. Sets lifecycle to `ACTIVE` and initializes 
 | `bonded_to` | `str \| None` | `None` | Entity this soul is bonded to |
 | `engine` | `CognitiveEngine \| None` | `None` | LLM backend |
 | `search_strategy` | `SearchStrategy \| None` | `None` | Custom retrieval scoring |
-| `memory_settings` | `MemorySettings \| None` | `None` | Custom memory behavior settings |
 | `**kwargs` | | | Reserved for future use; ignored with a warning |
 
 **Returns:** `Soul`
