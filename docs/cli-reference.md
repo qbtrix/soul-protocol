@@ -354,6 +354,29 @@ soul migrate SOUL.md --output aria.soul
 
 ---
 
+### `soul unpack`
+
+Unpack a `.soul` file into a browsable directory. Creates a folder with readable YAML/JSON files you can browse in VS Code, diff with git, and edit directly.
+
+```bash
+soul unpack guardian.soul              # → .soul/soul/
+soul unpack guardian.soul -d guardian/  # → guardian/
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SOURCE` | Yes | Path to a `.soul` file. |
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--dir PATH` | `-d` | Target directory (default: `.soul/<name>/`). |
+
+---
+
 ### `soul retire`
 
 Retire a soul gracefully. By default, saves all memories before transitioning the soul to a `RETIRED` lifecycle state. Prompts for confirmation.
@@ -376,6 +399,29 @@ soul retire aria.soul --preserve-memories
 | `--preserve-memories` | Save memories before retiring. On by default. |
 
 **Behavior:** The CLI prompts "Are you sure you want to retire {name}?" before proceeding. On confirmation, it persists the soul (if `--preserve-memories` is active), sets the lifecycle to `RETIRED`, clears working memory, and resets state.
+
+---
+
+### `soul delete`
+
+Delete a `.soul` file from disk. Refuses for souls with `role="root"` (use `soul org destroy` instead). Prompts for confirmation unless `--yes` is supplied.
+
+```bash
+soul delete aria.soul
+soul delete aria.soul --yes
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to the `.soul` file to delete. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--yes` | Skip confirmation prompt. |
 
 ---
 
@@ -726,7 +772,7 @@ soul recall aria.soul "python deployment docker" --min-relevance 0.3
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--limit, -l INT` | `10` | Maximum results to return. |
+| `--limit, -n INT` | `10` | Maximum results to return. |
 | `--min-importance INT` | `0` | Filter out memories below this importance score. |
 | `--recent, -r INT` | | Show N most recent memories instead of searching. |
 | `--full` | off | Return untruncated content (for LLM consumption). |

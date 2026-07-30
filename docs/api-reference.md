@@ -237,6 +237,7 @@ async def remember(
     importance: int = 5,
     emotion: str | None = None,
     entities: list[str] | None = None,
+    provenance: MemoryProvenance = MemoryProvenance.HUMAN,
 ) -> str
 ```
 
@@ -251,6 +252,7 @@ Store a new memory. Returns the generated memory ID.
 | `entities` | `list[str] \| None` | `None` | Referenced entities |
 | `domain` | `str` | `"default"` | Sub-namespace inside the layer (#41), e.g. `"finance"` or `"legal"` |
 | `user_id` | `str \| None` | `None` | Multi-user attribution (#46) |
+| `provenance` | `MemoryProvenance` | `HUMAN` | Who authored the memory: `HUMAN` (default) or `AGENT` (#272). Agent-authored procedures can be curated via `curate_agent_procedures()`. |
 
 **Returns:** `str` -- memory ID
 
@@ -262,6 +264,35 @@ mid = await soul.remember(
     "Q3 revenue up 12 percent", domain="finance", importance=8
 )
 ```
+
+#### `soul.curate_agent_procedures()`
+
+```python
+async def curate_agent_procedures(
+    self,
+    *,
+    similarity_threshold: float = 0.6,
+) -> dict
+```
+
+Consolidate `AGENT`-authored procedural memories (#272). Idle/scheduled pass for the self-improving skills loop: finds overlapping procedures stamped with `provenance=AGENT` and marks the weaker of each near-duplicate pair as superseded. **Never touches `HUMAN`-authored procedures** and never hard-deletes — superseded entries stay in the store and simply stop surfacing in recall.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `similarity_threshold` | `float` | `0.6` | Overlap floor for two agent procedures to be treated as near-duplicates |
+
+**Returns:** `{"considered": int, "consolidated": int, "superseded_ids": list[str]}`
+
+#### `MemoryProvenance` enum
+
+```python
+from soul_protocol.spec.memory import MemoryProvenance
+
+MemoryProvenance.HUMAN   # "human" — default for all user-written memories
+MemoryProvenance.AGENT   # "agent" — for autonomously-written procedures
+```
+
+Distinguishes human-authored memories from those written by an autonomous agent (e.g. PocketPaw's self-improving skills loop). The curator (`curate_agent_procedures`) only ever consolidates `AGENT` entries — human-authored procedures are never touched.
 
 #### `soul.recall()`
 

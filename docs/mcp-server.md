@@ -1,5 +1,6 @@
-<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 28 tools
-     (14 soul/memory + 5 context + 5 psychology + 3 trust chain + 1 eval), 3 resources,
+<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 39 tools
+     (14 soul/memory + 5 context + 5 psychology + 3 trust chain + 5 memory primitives
+     + 2 maintenance + 1 eval + 1 graph + 1 optimize + 1 core edit + 1 forget), 3 resources,
      2 prompts, auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
      Updated: 2026-04-30 — v0.5.0 (#203): Added soul_prune_chain MCP tool for touch-time
      chain pruning. Dry-run by default; pass apply=true to mutate the chain. Tool count: 27 → 28.
@@ -96,9 +97,9 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (29)
+## Tools (39)
 
-All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 29 tools break down as: 9 soul management, 5 memory, 5 context (LCM), 5 psychology pipeline (v0.2.7), 3 trust chain (`soul_verify`, `soul_audit`, `soul_prune_chain`), 1 eval (v0.5.0 #160), and 1 graph (`soul_graph_query`, v0.5.0 #108/#190).
+All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 39 tools break down as: 9 soul management, 5 memory, 5 context (LCM), 5 psychology pipeline (v0.2.7), 3 trust chain (`soul_verify`, `soul_audit`, `soul_prune_chain`), 5 memory update primitives (`soul_confirm`, `soul_update`, `soul_supersede`, `soul_purge`, `soul_reinstate`; v0.5.0 #192), 1 eval (`soul_eval`), 1 graph (`soul_graph_query`), 1 optimize (`soul_optimize`), 2 maintenance (`soul_health`, `soul_cleanup`), 1 core memory editing (`soul_edit_core`), and 1 semantic forget shift (`soul_forget`).
 
 **Multi-soul targeting:** When the server is running with `SOUL_DIR` and multiple souls are loaded, all tools accept an optional `soul` parameter (string) to target a specific soul by name or ID. If omitted, the tool operates on the currently active soul.
 
@@ -647,6 +648,47 @@ The spec's `seed` block is intentionally ignored — the active soul's live stat
 **Safety rails.** `apply=False` is the default. In that mode every change applied during the run is reverted at the end and no trust chain entries are written. Set `apply=True` to keep the winning trajectory; per-kept-change `soul.optimize.applied` entries are appended to the soul's signed audit log. Reverted proposals never write chain entries either way.
 
 See [soul-optimize.md](soul-optimize.md) for the concept overview and the knob model. See [eval-format.md](eval-format.md) for how to author the eval that drives the loop.
+
+---
+
+### `soul_health`
+
+Run a health audit on the soul's memory, skills, bond, and graph. Returns per-tier memory counts, duplicate detection, orphan graph nodes, bond/skill anomalies, and low-importance memory buildup.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON object with `soul`, `tiers` (episodic/semantic/procedural/total counts), `graph_nodes`, `skills`, `eval_history`, `bond_strength`, `duplicates`, `low_importance`, `stale_evals`, `orphan_nodes`, `bond_issues`, `skill_issues`, `issues` (flattened list), `healthy` (boolean).
+
+---
+
+### `soul_cleanup`
+
+Run cleanup on the soul — deduplicate memories and remove stale evals. Dry-run by default.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dry_run` | `bool` | `true` | Preview what would be cleaned without changing anything |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON object with `soul`, `status` (`dry_run` / `cleaned` / `clean`), `actions` (list of `{action, tier, count}`), `total_removed`, `removed` (alias), and optional `backup_path`.
+
+**Note:** "Cleaned N items" may report fewer than the dry-run preview because removal counting uses the actual return value from per-tier remove methods (some entries may have already been removed between plan and execute).
+
+---
+
+### `soul_edit_core`
+
+Update the soul's core memory (always-loaded persona and human knowledge). Core memory is never evicted — it persists across every interaction.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `persona` | `str` | `None` | New persona text (soul's self-description). Omit to keep current. |
+| `human` | `str` | `None` | New human knowledge text. Omit to keep current. |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON object with `status`, `soul`, `persona`, `human`. If both `persona` and `human` are omitted, returns the current core memory values with a `hint` field.
 
 ---
 
