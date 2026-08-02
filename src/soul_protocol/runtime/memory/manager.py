@@ -613,7 +613,7 @@ class LayerView:
     The view is stateless — it just dispatches calls. Re-create freely.
     """
 
-    def __init__(self, manager: "MemoryManager", name: str) -> None:
+    def __init__(self, manager: MemoryManager, name: str) -> None:
         self._manager = manager
         self._name = name
 
@@ -673,8 +673,8 @@ class MemoryManager:
         core: CoreMemory,
         settings: MemorySettings,
         core_values: list[str] | None = None,
-        engine: "CognitiveEngine | None" = None,
-        search_strategy: "SearchStrategy | None" = None,
+        engine: CognitiveEngine | None = None,
+        search_strategy: SearchStrategy | None = None,
         seed_domains: dict[str, list[str]] | None = None,
         dspy_processor: object | None = None,
         personality: Personality | None = None,
@@ -742,7 +742,7 @@ class MemoryManager:
                 entity_extractor=self.extract_entities,
             )
 
-    def set_engine(self, engine: "CognitiveEngine") -> None:
+    def set_engine(self, engine: CognitiveEngine) -> None:
         """Swap the CognitiveEngine at runtime without re-initializing the MemoryManager.
 
         Called by Soul.set_engine() when a new engine becomes available after
@@ -2453,10 +2453,10 @@ class MemoryManager:
         data: dict,
         settings: MemorySettings,
         core_values: list[str] | None = None,
-        engine: "CognitiveEngine | None" = None,
-        search_strategy: "SearchStrategy | None" = None,
+        engine: CognitiveEngine | None = None,
+        search_strategy: SearchStrategy | None = None,
         personality: Personality | None = None,
-    ) -> "MemoryManager":
+    ) -> MemoryManager:
         """Deserialize memory state from a plain dict.
 
         Args:

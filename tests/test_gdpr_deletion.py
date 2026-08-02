@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from soul_protocol.runtime.soul import Soul
-from soul_protocol.runtime.types import Interaction, MemoryEntry, MemoryType, MemoryProvenance
+from soul_protocol.runtime.types import Interaction, MemoryEntry, MemoryType
 
 
 @pytest.fixture
@@ -483,6 +483,7 @@ class TestStoreLevel:
 # Social-tier deletion tests (#291)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 async def soul_with_social_memories(soul):
     """Soul pre-loaded with social memories for social-tier deletion tests."""
@@ -590,9 +591,7 @@ class TestSocialDeletion:
         result = await soul.forget_before(cutoff)
         assert result["total"] > 0
         assert "social" in result
-        assert len(result["social"]) > 0, (
-            "forget_before should have deleted old social entries"
-        )
+        assert len(result["social"]) > 0, "forget_before should have deleted old social entries"
 
         social_after = len(soul._memory._social.entries())
         assert social_after < social_before, "Social store should have fewer entries"
