@@ -2690,7 +2690,7 @@ class Soul:
     async def _forget_bulk(self, query: str, *, user_id: str | None = None) -> dict:
         """Bulk weight-decay path for the legacy ``forget(query)`` surface.
 
-        Iterates the three built-in tiers, sets ``retrieval_weight`` to
+        Iterates all built-in tiers, sets ``retrieval_weight`` to
         0.05 on every entry whose content matches the query (token-overlap
         relevance > 0). Returns the same dict shape as the pre-0.5.0
         ``MemoryManager.forget`` so existing callers keep working.
@@ -2700,6 +2700,7 @@ class Soul:
         episodic_ids: list[str] = []
         semantic_ids: list[str] = []
         procedural_ids: list[str] = []
+        social_ids: list[str] = []
         for entry in list(self._memory._episodic.entries()):
             if relevance_score(query, entry.content) > 0.0:
                 entry.retrieval_weight = _FORGET_WEIGHT_TARGET
@@ -2715,8 +2716,14 @@ class Soul:
                 entry.retrieval_weight = _FORGET_WEIGHT_TARGET
                 procedural_ids.append(entry.id)
                 self._reconsolidation_window.pop(entry.id, None)
+        # v0.6.0 (#291) — Include social tier in the bulk weight-decay path.
+        for entry in list(self._memory._social.entries()):
+            if relevance_score(query, entry.content) > 0.0:
+                entry.retrieval_weight = _FORGET_WEIGHT_TARGET
+                social_ids.append(entry.id)
+                self._reconsolidation_window.pop(entry.id, None)
 
-        total = len(episodic_ids) + len(semantic_ids) + len(procedural_ids)
+        total = len(episodic_ids) + len(semantic_ids) + len(procedural_ids) + len(social_ids)
         if total > 0:
             from datetime import UTC
 
@@ -2733,6 +2740,7 @@ class Soul:
                         "episodic": len(episodic_ids),
                         "semantic": len(semantic_ids),
                         "procedural": len(procedural_ids),
+                        "social": len(social_ids),
                     },
                 }
             )
@@ -2750,6 +2758,7 @@ class Soul:
             "episodic": episodic_ids,
             "semantic": semantic_ids,
             "procedural": procedural_ids,
+            "social": social_ids,
             "total": total,
         }
 
