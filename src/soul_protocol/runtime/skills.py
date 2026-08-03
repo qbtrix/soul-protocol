@@ -9,14 +9,33 @@
 #   procedure each time that procedure is used, auto-creating the skill on
 #   first use. Returns True when the grant crosses a level boundary (the
 #   graduation signal PocketPaw's skills loop uses to materialize a SKILL.md).
+# Updated: 2026-08-03 (#292) — Added SkillSource enum and Skill.source field
+#   so entity-derived skills (auto-created from extracted names during observe())
+#   can be excluded from public_profile() and A2A agent cards.  Added
+#   SkillRegistry.public_skills() to centralize the filter.
 
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 
 from pydantic import BaseModel, Field
 
 from soul_protocol.spec.learning import LearningEvent
+
+
+class SkillSource(str, Enum):
+    """How a skill was created — controls public-surface visibility.
+
+    ``ENTITY`` skills are auto-created from extracted entity names during
+    ``observe()`` and may contain private person/organisation names.  They
+    are excluded from ``public_profile()`` and A2A agent cards (#292).
+    """
+
+    MANUAL = "manual"          # explicitly registered by user/developer
+    ENTITY = "entity"          # auto-created from extracted entity names
+    PROCEDURE = "procedure"    # auto-created by grant_xp_for_procedure_use
+    LEARNING = "learning"      # auto-created by grant_xp_from_learning
 
 
 class Skill(BaseModel):
@@ -29,6 +48,7 @@ class Skill(BaseModel):
     xp_to_next: int = 100  # XP needed for next level
     config: dict = Field(default_factory=dict)
     last_used: datetime = Field(default_factory=datetime.now)
+    source: SkillSource = SkillSource.MANUAL
 
     def add_xp(self, amount: int) -> bool:
         """Add XP. Returns True if leveled up."""
@@ -57,6 +77,14 @@ class SkillRegistry(BaseModel):
     def add(self, skill: Skill) -> None:
         if not self.get(skill.id):
             self.skills.append(skill)
+
+    def public_skills(self) -> list[Skill]:
+        """Return skills safe for public exposure.
+
+        Excludes ``ENTITY``-sourced skills whose names may contain private
+        person or organisation names extracted from conversation (#292).
+        """
+        return [s for s in self.skills if s.source != SkillSource.ENTITY]
 
     def grant_xp(self, skill_id: str, amount: int) -> bool:
         skill = self.get(skill_id)
@@ -100,7 +128,7 @@ class SkillRegistry(BaseModel):
         """
         skill = self.get(skill_id)
         if not skill:
-            skill = Skill(id=skill_id, name=skill_id)
+            skill = Skill(id=skill_id, name=skill_id, source=SkillSource.PROCEDURE)
             self.add(skill)
         return skill.add_xp(amount)
 
@@ -111,7 +139,7 @@ class SkillRegistry(BaseModel):
             skill_id = event.domain.lower().replace(" ", "_")
         skill = self.get(skill_id)
         if not skill:
-            skill = Skill(id=skill_id, name=event.domain)
+            skill = Skill(id=skill_id, name=event.domain, source=SkillSource.LEARNING)
             self.add(skill)
         score = event.evaluation_score if event.evaluation_score is not None else 0.5
         xp_amount = int(20 * (0.5 + score) * event.confidence)

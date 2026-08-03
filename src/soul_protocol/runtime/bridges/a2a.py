@@ -46,9 +46,9 @@ class A2AAgentCardBridge:
             "neuroticism": personality.neuroticism,
         }
 
-        # Map soul skills to A2A skills
+        # Map soul skills to A2A skills — exclude entity-derived skills (#292)
         a2a_skills: list[dict] = []
-        for sk in soul.skills.skills:
+        for sk in soul.skills.public_skills():
             a2a_skills.append(
                 A2ASkill(
                     id=sk.id,

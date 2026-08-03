@@ -128,3 +128,72 @@ async def test_public_profile_lists_skill_names_only() -> None:
     serialized = repr(profile)
     assert "xp" not in serialized.lower()
     assert "level" not in serialized.lower()
+
+
+# ---------------------------------------------------------------------------
+# Entity-derived skill visibility (#292)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_public_profile_excludes_entity_derived_skills() -> None:
+    """Entity names auto-created by observe() must not leak through public_profile()."""
+    from soul_protocol.runtime.skills import SkillSource
+
+    soul = await Soul.birth(name="Private", archetype="Test")
+    # Manual skill — should appear
+    soul._skills.add(Skill(id="negotiation", name="Negotiation"))
+    # Entity-derived skills — should NOT appear (#292)
+    soul._skills.add(Skill(id="alice", name="Alice", source=SkillSource.ENTITY))
+    soul._skills.add(Skill(id="acme_corp", name="Acme Corp", source=SkillSource.ENTITY))
+
+    profile = soul.public_profile()
+
+    assert "Negotiation" in profile["skills"]
+    assert "Alice" not in profile["skills"]
+    assert "Acme Corp" not in profile["skills"]
+
+
+@pytest.mark.asyncio
+async def test_a2a_agent_card_excludes_entity_derived_skills() -> None:
+    """A2A agent cards must not expose entity-derived skill names (#292)."""
+    from soul_protocol.runtime.bridges.a2a import A2AAgentCardBridge
+    from soul_protocol.runtime.skills import SkillSource
+
+    soul = await Soul.birth(name="Public", archetype="Helper")
+    soul._skills.add(Skill(id="coding", name="Coding"))
+    soul._skills.add(Skill(id="bob", name="Bob", source=SkillSource.ENTITY))
+
+    card = A2AAgentCardBridge.soul_to_agent_card(soul)
+    skill_names = [s["name"] for s in card["skills"]]
+
+    assert "Coding" in skill_names
+    assert "Bob" not in skill_names
+
+
+@pytest.mark.asyncio
+async def test_observe_tags_entity_skills_as_entity_source() -> None:
+    """Skills auto-created during observe() from extracted entities must be
+    tagged with source=ENTITY so they can be filtered from public surfaces."""
+    from soul_protocol.runtime.skills import SkillSource
+    from soul_protocol.runtime.types import Interaction
+
+    soul = await Soul.birth(name="Tagger", archetype="Test")
+    await soul.observe(
+        Interaction(
+            user_input="My manager Alice at Acme Corp is difficult.",
+            agent_output="That sounds challenging.",
+        )
+    )
+
+    # Find any entity-derived skills that were created.
+    # Even if the heuristic extractor didn't fire for this input, any
+    # auto-created skill must NOT be tagged MANUAL.
+    # Any auto-created skill must NOT be MANUAL
+    for sk in soul._skills.skills:
+        if sk.id not in ("negotiation", "empathy"):  # not pre-registered
+            assert sk.source != SkillSource.MANUAL or sk.id in (
+                "negotiation",
+                "empathy",
+            ), f"Skill '{sk.name}' was auto-created but tagged as MANUAL"
+

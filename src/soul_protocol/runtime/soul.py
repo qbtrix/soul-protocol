@@ -1211,7 +1211,7 @@ class Soul:
             "agreeableness": float(getattr(ocean, "agreeableness", 0.5)),
             "neuroticism": float(getattr(ocean, "neuroticism", 0.5)),
         }
-        skill_names = sorted(s.name for s in self._skills.skills)
+        skill_names = sorted(s.name for s in self._skills.public_skills())
         return {
             "did": self._identity.did,
             "name": self._identity.name,
@@ -2124,9 +2124,9 @@ class Soul:
             if skill:
                 skill.add_xp(xp_amount)
             else:
-                from .skills import Skill
+                from .skills import Skill, SkillSource
 
-                new_skill = Skill(id=entity_name, name=entity["name"])
+                new_skill = Skill(id=entity_name, name=entity["name"], source=SkillSource.ENTITY)
                 new_skill.add_xp(xp_amount)
                 self._skills.add(new_skill)
 
@@ -3077,9 +3077,9 @@ class Soul:
             if skill:
                 skill.add_xp(xp_amount)
             else:
-                from .skills import Skill
+                from .skills import Skill, SkillSource
 
-                new_skill = Skill(id=skill_id, name=domain)
+                new_skill = Skill(id=skill_id, name=domain, source=SkillSource.LEARNING)
                 new_skill.add_xp(xp_amount)
                 self._skills.add(new_skill)
 
