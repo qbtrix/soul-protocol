@@ -32,10 +32,10 @@ class SkillSource(StrEnum):
     are excluded from ``public_profile()`` and A2A agent cards (#292).
     """
 
-    MANUAL = "manual"          # explicitly registered by user/developer
-    ENTITY = "entity"          # auto-created from extracted entity names
-    PROCEDURE = "procedure"    # auto-created by grant_xp_for_procedure_use
-    LEARNING = "learning"      # auto-created by grant_xp_from_learning
+    MANUAL = "manual"  # explicitly registered by user/developer
+    ENTITY = "entity"  # auto-created from extracted entity names
+    PROCEDURE = "procedure"  # auto-created by grant_xp_for_procedure_use
+    LEARNING = "learning"  # auto-created by grant_xp_from_learning
 
 
 class Skill(BaseModel):

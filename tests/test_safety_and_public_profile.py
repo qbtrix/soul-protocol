@@ -196,4 +196,3 @@ async def test_observe_tags_entity_skills_as_entity_source() -> None:
                 "negotiation",
                 "empathy",
             ), f"Skill '{sk.name}' was auto-created but tagged as MANUAL"
-
