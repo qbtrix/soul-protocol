@@ -17,14 +17,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 from soul_protocol.spec.learning import LearningEvent
 
 
-class SkillSource(str, Enum):
+class SkillSource(StrEnum):
     """How a skill was created — controls public-surface visibility.
 
     ``ENTITY`` skills are auto-created from extracted entity names during
