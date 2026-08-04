@@ -27,11 +27,19 @@ class MockIPFSProvider:
     def tier_name(self) -> str:
         return "ipfs"
 
+    @property
+    def content_addressed(self) -> bool:
+        return True
+
     def _generate_cid(self, data: bytes) -> str:
         """Generate a mock CID from content hash (content-addressed)."""
         digest = hashlib.sha256(data).hexdigest()
         # Mimic CIDv1 base32 format prefix
         return f"bafybeig{digest[:48]}"
+
+    def compute_reference(self, data: bytes) -> str:
+        """Compute the expected CID for the given data."""
+        return self._generate_cid(data)
 
     async def archive(self, soul_data: bytes, soul_id: str, **kwargs: Any) -> ArchiveResult:
         """Archive soul data to mock IPFS."""

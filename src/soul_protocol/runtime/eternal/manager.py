@@ -88,6 +88,11 @@ class EternalStorageManager:
         Iterates through sources, attempting retrieval from the matching
         provider. Returns the first successful result.
 
+        For content-addressed tiers (e.g. IPFS), verifies that the
+        retrieved bytes hash to the expected reference.  A compromised
+        gateway returning different data for a valid CID is detected
+        and rejected (#293).
+
         Raises:
             ValueError: If no provider is registered for a source's tier.
             RuntimeError: If all sources fail.
@@ -106,6 +111,19 @@ class EternalStorageManager:
 
             try:
                 data = await provider.retrieve(source.reference)
+
+                # Content-address verification (#293): for tiers where the
+                # reference IS the content hash (e.g. IPFS CID), verify the
+                # retrieved bytes hash to the expected reference.
+                if getattr(provider, "content_addressed", False):
+                    expected = provider.compute_reference(data)
+                    if expected != source.reference:
+                        errors.append(
+                            f"{source.tier}: content-address mismatch "
+                            f"(expected {source.reference}, got {expected})"
+                        )
+                        continue
+
                 return data
             except Exception as exc:
                 errors.append(f"{source.tier}: {exc}")

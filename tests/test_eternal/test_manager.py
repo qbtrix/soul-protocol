@@ -150,3 +150,69 @@ class TestVerifyAll:
 
         status = await mgr.verify_all(SOUL_ID)
         assert status == {"ipfs": True}
+
+
+class TestContentAddressVerification:
+    """Tests for #293: content-address hash verification on recover()."""
+
+    async def test_recover_detects_tampered_ipfs_content(self):
+        """A compromised IPFS gateway returning wrong data must be rejected."""
+        mgr = EternalStorageManager()
+        ipfs = MockIPFSProvider()
+        mgr.register(ipfs)
+
+        # Archive genuine data
+        results = await mgr.archive(SAMPLE_DATA, SOUL_ID, tiers=["ipfs"])
+        cid = results[0].reference
+
+        # Tamper: overwrite the CID's stored data with different bytes
+        ipfs._store[cid] = b"this-is-not-the-original-data"
+
+        source = RecoverySource(tier="ipfs", reference=cid)
+        with pytest.raises(RuntimeError, match="content-address mismatch"):
+            await mgr.recover([source])
+
+    async def test_recover_non_content_addressed_skips_check(self):
+        """Arweave (non-content-addressed) should recover without hash check."""
+        mgr = EternalStorageManager()
+        arweave = MockArweaveProvider()
+        mgr.register(arweave)
+
+        results = await mgr.archive(SAMPLE_DATA, SOUL_ID, tiers=["arweave"])
+        tx_id = results[0].reference
+
+        # Even if we replace the stored data, Arweave is not content-addressed
+        # so the manager should NOT reject it (no hash to verify against).
+        arweave._store[tx_id] = b"different-payload"
+
+        source = RecoverySource(tier="arweave", reference=tx_id)
+        recovered = await mgr.recover([source])
+        assert recovered == b"different-payload"
+
+    async def test_content_addressed_property_on_providers(self):
+        """All providers must report the correct content_addressed value."""
+        assert MockIPFSProvider().content_addressed is True
+        assert MockArweaveProvider().content_addressed is False
+        assert MockBlockchainProvider().content_addressed is False
+
+    async def test_tampered_ipfs_falls_back_to_arweave(self):
+        """If IPFS is tampered, recover() should try the next source."""
+        mgr = EternalStorageManager()
+        ipfs = MockIPFSProvider()
+        arweave = MockArweaveProvider()
+        mgr.register(ipfs)
+        mgr.register(arweave)
+
+        ipfs_results = await mgr.archive(SAMPLE_DATA, SOUL_ID, tiers=["ipfs"])
+        arweave_results = await mgr.archive(SAMPLE_DATA, SOUL_ID, tiers=["arweave"])
+
+        # Tamper IPFS
+        ipfs._store[ipfs_results[0].reference] = b"tampered"
+
+        # Recovery should skip IPFS (mismatch) and succeed via Arweave
+        sources = [
+            RecoverySource(tier="ipfs", reference=ipfs_results[0].reference),
+            RecoverySource(tier="arweave", reference=arweave_results[0].reference),
+        ]
+        recovered = await mgr.recover(sources)
+        assert recovered == SAMPLE_DATA

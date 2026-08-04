@@ -38,11 +38,34 @@ class EternalStorageProvider(Protocol):
     All backends must implement archive, retrieve, and verify.
     The tier_name property identifies which storage tier this
     provider represents (e.g., 'ipfs', 'arweave', 'blockchain', 'local').
+
+    Updated: 2026-08-04 (#293) — Added ``content_addressed`` property and
+    ``compute_reference()`` method so ``EternalStorageManager.recover()``
+    can verify retrieved bytes against the content-addressed reference.
     """
 
     @property
     def tier_name(self) -> str:
         """Name of this storage tier (e.g., 'ipfs', 'arweave')."""
+        ...
+
+    @property
+    def content_addressed(self) -> bool:
+        """Whether this tier uses content-addressing.
+
+        Content-addressed tiers derive the reference (e.g. CID) from a hash
+        of the archived bytes.  ``recover()`` verifies retrieved data against
+        the reference for these tiers, rejecting substitution attacks (#293).
+        """
+        ...
+
+    def compute_reference(self, data: bytes) -> str:
+        """Compute the canonical reference for *data*.
+
+        Only meaningful when ``content_addressed`` is True.  The manager
+        calls this after retrieval and compares the result to the stored
+        reference.  Non-content-addressed tiers should return ``""``.
+        """
         ...
 
     async def archive(self, soul_data: bytes, soul_id: str, **kwargs: Any) -> ArchiveResult:

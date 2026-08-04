@@ -32,6 +32,13 @@ class MockBlockchainProvider:
     def tier_name(self) -> str:
         return "blockchain"
 
+    @property
+    def content_addressed(self) -> bool:
+        return False
+
+    def compute_reference(self, data: bytes) -> str:
+        return ""
+
     def _mint_token_id(self, soul_id: str) -> str:
         """Generate a mock token ID for a soul."""
         self._token_counter += 1
