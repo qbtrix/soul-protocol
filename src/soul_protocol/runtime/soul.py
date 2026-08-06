@@ -1080,6 +1080,11 @@ class Soul:
                 raise SoulCorruptError("<bytes>", str(e)) from e
         else:
             path = Path(source)
+            # Crash recovery: if the path vanished mid-swap but .bak
+            # exists, promote it before we check existence (#282).
+            from .storage.file import _recover_backup
+
+            _recover_backup(path)
             if not path.exists():
                 raise SoulFileNotFoundError(str(path))
             try:
@@ -3333,6 +3338,7 @@ class Soul:
                 devices). See docs/trust-chain.md for the threat model.
         """
         from .exceptions import SoulExportError
+        from .storage.file import write_bytes_atomic
 
         try:
             memory_data = self._memory.to_dict()
@@ -3345,7 +3351,7 @@ class Soul:
                 trust_chain_data=trust_chain_data,
                 key_files=key_files,
             )
-            Path(path).write_bytes(data)
+            write_bytes_atomic(Path(path), data, keep_backup=False)
             logger.info(
                 "Soul exported: name=%s, path=%s, size=%d bytes",
                 self.name,
