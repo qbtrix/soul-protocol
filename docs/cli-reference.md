@@ -1647,7 +1647,7 @@ Archive a `.soul` file to eternal storage tiers (IPFS, Arweave, Blockchain). Use
 
 ```bash
 soul archive my-soul.soul
-soul archive .soul/ --tiers ipfs arweave
+soul archive .soul/ -t ipfs -t arweave
 ```
 
 **Arguments:**

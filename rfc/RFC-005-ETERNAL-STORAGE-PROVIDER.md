@@ -148,8 +148,8 @@ itself. This provides:
 The runtime supports archiving to multiple tiers simultaneously:
 
 ```bash
-soul archive aria.soul --tiers local,ipfs
-soul recover aria.soul --source ipfs
+soul archive aria.soul -t ipfs -t arweave
+soul recover QmRef123... --tier ipfs --output recovered.soul
 soul eternal-status aria.soul
 ```
 

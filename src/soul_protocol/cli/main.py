@@ -1,4 +1,6 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-07-17 (#286) — Catch unknown-tier ValueError in ``soul archive``;
+#   exit 1 so scripts can detect failure.
 # Updated: 2026-07-18 (#284) — Replaced ~45 private attribute accesses
 #   (soul._memory, m._episodic, m._graph_entities.clear(), etc.) with public
 #   MemoryManager API methods. `repair --rebuild-graph` now calls
@@ -989,7 +991,11 @@ def archive(path, tiers):
         manager.register(MockIPFSProvider())
         manager.register(MockArweaveProvider())
         manager.register(MockBlockchainProvider())
-        results = await manager.archive(soul_data, soul.did, tiers=tier_list)
+        try:
+            results = await manager.archive(soul_data, soul.did, tiers=tier_list)
+        except ValueError as exc:
+            console.print(f"[red]Archive failed:[/red] {exc}")
+            raise SystemExit(1)
 
         # Persist archive results into the .soul manifest
         _update_soul_manifest(path, results)
