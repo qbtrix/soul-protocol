@@ -247,11 +247,24 @@ soul inspect ./souls/sage.yaml
 |----------|----------|-------------|
 | `PATH` | Yes | Path to a `.soul`, `.yaml`, `.json`, or `.md` file. |
 
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--password / -p` | Decrypt an encrypted `.soul` file (prompts interactively for password). |
+
 **Output:** A formatted table showing:
 
 - **Identity:** DID, archetype, born date, age in days, lifecycle stage
 - **State:** Mood, energy (%), focus, social battery (%)
 - **Personality (OCEAN):** Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism (each 0.00-1.00)
+
+**Example with encrypted soul:**
+
+```bash
+soul inspect encrypted.soul --password
+# Prompts: Decryption password: ****
+```
 
 ---
 
@@ -289,6 +302,9 @@ soul export aria.soul --output aria.yaml --format yaml
 
 # Export to human-readable Markdown (DNA only)
 soul export aria.soul --output aria.md --format md
+
+# Export with AES-256-GCM encryption (prompts interactively for password)
+soul export aria.soul -o encrypted.soul --password
 ```
 
 **Arguments:**
@@ -303,6 +319,7 @@ soul export aria.soul --output aria.md --format md
 |--------|-------|-------------|
 | `--output PATH` | `-o` | Output file path. **Required.** |
 | `--format FORMAT` | `-f` | Target format: `soul` (zip archive), `json`, `yaml`, `md` (markdown). Defaults to `soul`. |
+| `--password / -p` | Encrypt the `.soul` archive with AES-256-GCM using a scrypt-derived key. All files except `manifest.json` are encrypted (`.enc` extension). Only applies to `soul` format. |
 
 **Format details:**
 
