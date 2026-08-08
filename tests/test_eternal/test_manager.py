@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from soul_protocol.runtime.eternal.manager import EternalStorageManager
@@ -172,8 +174,15 @@ class TestContentAddressVerification:
         with pytest.raises(RuntimeError, match="content-address mismatch"):
             await mgr.recover([source])
 
-    async def test_recover_non_content_addressed_skips_check(self):
-        """Arweave (non-content-addressed) should recover without hash check."""
+    async def test_arweave_has_no_content_address_verification_known_gap(self):
+        """Arweave is not content-addressed in this mock — known gap.
+
+        Real Arweave transactions carry ``data_root`` (a Merkle root over
+        the data chunks inside the signed tx), so authenticity IS derivable
+        — just not by a bare hash compare.  This test documents the gap;
+        a follow-up should add Merkle-root verification to the Arweave
+        provider once a real gateway is wired in.
+        """
         mgr = EternalStorageManager()
         arweave = MockArweaveProvider()
         mgr.register(arweave)
@@ -181,8 +190,8 @@ class TestContentAddressVerification:
         results = await mgr.archive(SAMPLE_DATA, SOUL_ID, tiers=["arweave"])
         tx_id = results[0].reference
 
-        # Even if we replace the stored data, Arweave is not content-addressed
-        # so the manager should NOT reject it (no hash to verify against).
+        # Arweave is not content-addressed in mock, so substitution is
+        # not caught at the manager level.  This is a known limitation.
         arweave._store[tx_id] = b"different-payload"
 
         source = RecoverySource(tier="arweave", reference=tx_id)
@@ -216,3 +225,52 @@ class TestContentAddressVerification:
         ]
         recovered = await mgr.recover(sources)
         assert recovered == SAMPLE_DATA
+
+    async def test_register_rejects_non_conforming_provider(self):
+        """A provider missing content_addressed must be rejected at register()."""
+
+        class BadProvider:
+            """Implements archive/retrieve/verify but NOT content_addressed."""
+
+            @property
+            def tier_name(self) -> str:
+                return "bad"
+
+            async def archive(self, soul_data, soul_id, **kwargs):
+                return {}
+
+            async def retrieve(self, reference, **kwargs):
+                return b""
+
+            async def verify(self, reference):
+                return True
+
+        mgr = EternalStorageManager()
+        with pytest.raises(TypeError, match="does not conform"):
+            mgr.register(BadProvider())  # type: ignore[arg-type]
+
+    async def test_tamper_detection_logs_security_warning(self, caplog):
+        """Content-address mismatch must be logged as a security event."""
+        mgr = EternalStorageManager()
+        ipfs = MockIPFSProvider()
+        mgr.register(ipfs)
+
+        results = await mgr.archive(SAMPLE_DATA, SOUL_ID, tiers=["ipfs"])
+        cid = results[0].reference
+        ipfs._store[cid] = b"attacker-substituted-payload"
+
+        source = RecoverySource(tier="ipfs", reference=cid)
+        with (
+            caplog.at_level(logging.WARNING, logger="soul_protocol.runtime.eternal.manager"),
+            pytest.raises(RuntimeError, match="content-address mismatch"),
+        ):
+            await mgr.recover([source])
+
+        assert any("SECURITY" in r.message for r in caplog.records)
+
+    async def test_compute_reference_raises_for_non_ca_providers(self):
+        """Non-content-addressed providers must raise NotImplementedError."""
+        with pytest.raises(NotImplementedError):
+            MockArweaveProvider().compute_reference(b"data")
+        with pytest.raises(NotImplementedError):
+            MockBlockchainProvider().compute_reference(b"data")

@@ -64,7 +64,8 @@ class EternalStorageProvider(Protocol):
 
         Only meaningful when ``content_addressed`` is True.  The manager
         calls this after retrieval and compares the result to the stored
-        reference.  Non-content-addressed tiers should return ``""``.
+        reference.  Non-content-addressed tiers must raise
+        ``NotImplementedError``.
         """
         ...
 

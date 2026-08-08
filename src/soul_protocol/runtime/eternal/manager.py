@@ -2,12 +2,19 @@
 # Created: 2026-03-06 — Manages registration, archiving, recovery,
 #   and verification across multiple EternalStorageProvider backends.
 # Updated: 2026-03-29 — Added with_mocks() classmethod factory for convenience.
+# Updated: 2026-08-04 (#293) — Content-address verification on recover().
+# Updated: 2026-08-08 (#293 review) — Fail-closed: register() validates
+#   provider conformance, recover() uses provider.content_addressed directly
+#   (no getattr fail-open), and logs security warnings on tamper detection.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from .protocol import ArchiveResult, EternalStorageProvider, RecoverySource
+
+logger = logging.getLogger(__name__)
 
 
 class EternalStorageManager:
@@ -39,7 +46,18 @@ class EternalStorageManager:
         return dict(self._providers)
 
     def register(self, provider: EternalStorageProvider) -> None:
-        """Register a storage provider by its tier name."""
+        """Register a storage provider by its tier name.
+
+        Raises TypeError if the provider does not conform to the
+        ``EternalStorageProvider`` protocol (#293).
+        """
+        if not isinstance(provider, EternalStorageProvider):
+            raise TypeError(
+                f"Provider {type(provider).__name__} does not conform to "
+                f"EternalStorageProvider protocol (missing required members). "
+                f"Ensure it implements content_addressed, compute_reference, "
+                f"archive, retrieve, and verify."
+            )
         self._providers[provider.tier_name] = provider
 
     def unregister(self, tier_name: str) -> bool:
@@ -114,14 +132,21 @@ class EternalStorageManager:
 
                 # Content-address verification (#293): for tiers where the
                 # reference IS the content hash (e.g. IPFS CID), verify the
-                # retrieved bytes hash to the expected reference.
-                if getattr(provider, "content_addressed", False):
+                # retrieved bytes hash to the expected reference.  No
+                # getattr fail-open — provider.content_addressed is a
+                # required protocol member validated at register() time.
+                if provider.content_addressed:
                     expected = provider.compute_reference(data)
                     if expected != source.reference:
-                        errors.append(
+                        msg = (
                             f"{source.tier}: content-address mismatch "
                             f"(expected {source.reference}, got {expected})"
                         )
+                        logger.warning(
+                            "SECURITY: %s — possible substitution attack",
+                            msg,
+                        )
+                        errors.append(msg)
                         continue
 
                 return data

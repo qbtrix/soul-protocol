@@ -35,7 +35,7 @@ class LocalStorageProvider:
         return False
 
     def compute_reference(self, data: bytes) -> str:
-        return ""
+        raise NotImplementedError("Local storage is not content-addressed")
 
     def _ref_for(self, soul_data: bytes, soul_id: str) -> str:
         """Generate a deterministic reference from soul_id + content hash."""

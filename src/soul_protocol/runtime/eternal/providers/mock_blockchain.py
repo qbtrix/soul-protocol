@@ -37,7 +37,7 @@ class MockBlockchainProvider:
         return False
 
     def compute_reference(self, data: bytes) -> str:
-        return ""
+        raise NotImplementedError("Blockchain is not content-addressed")
 
     def _mint_token_id(self, soul_id: str) -> str:
         """Generate a mock token ID for a soul."""
