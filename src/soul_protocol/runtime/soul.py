@@ -1200,6 +1200,10 @@ class Soul:
         the spec: identity + personality summary + skill names are public,
         memories and relationships are not.
 
+        Entity-derived skills (auto-created from extracted names during
+        ``observe()``) and legacy skills with unknown provenance are
+        excluded from the ``skills`` list (#292).
+
         Use this — never ``model_dump()`` — when serialising a soul for any
         third party.
         """

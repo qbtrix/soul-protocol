@@ -9,7 +9,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from soul_protocol.runtime.skills import Skill
+from soul_protocol.runtime.skills import Skill, SkillSource
 from soul_protocol.runtime.types import (
     DNA,
     CoreMemory,
@@ -141,9 +141,9 @@ class A2AAgentCardBridge:
 
         soul = Soul(config)
 
-        # Map A2A skills to soul skills
+        # Map A2A skills to soul skills — these are intentional registrations
         for a2a_skill in card.skills:
-            sk = Skill(id=a2a_skill.id, name=a2a_skill.name)
+            sk = Skill(id=a2a_skill.id, name=a2a_skill.name, source=SkillSource.MANUAL)
             soul.skills.add(sk)
 
         return soul

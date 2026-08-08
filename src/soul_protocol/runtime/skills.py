@@ -13,6 +13,9 @@
 #   so entity-derived skills (auto-created from extracted names during observe())
 #   can be excluded from public_profile() and A2A agent cards.  Added
 #   SkillRegistry.public_skills() to centralize the filter.
+# Updated: 2026-08-08 (#292 review) — source defaults to None (fail-closed for
+#   legacy souls on disk).  add() upgrades source on id collision so a later
+#   explicit MANUAL registration overrides an earlier ENTITY squatter.
 
 from __future__ import annotations
 
@@ -48,7 +51,7 @@ class Skill(BaseModel):
     xp_to_next: int = 100  # XP needed for next level
     config: dict = Field(default_factory=dict)
     last_used: datetime = Field(default_factory=datetime.now)
-    source: SkillSource = SkillSource.MANUAL
+    source: SkillSource | None = None
 
     def add_xp(self, amount: int) -> bool:
         """Add XP. Returns True if leveled up."""
@@ -75,16 +78,32 @@ class SkillRegistry(BaseModel):
         return next((s for s in self.skills if s.id == skill_id), None)
 
     def add(self, skill: Skill) -> None:
-        if not self.get(skill.id):
+        """Add a skill, or upgrade source on id collision.
+
+        If a skill with the same id already exists and the new skill has an
+        explicitly higher-trust source (e.g. MANUAL over ENTITY), upgrade
+        the existing skill's source.  This prevents an ENTITY skill from
+        permanently squatting an id and silently hiding a later legitimate
+        registration (#292 review).
+        """
+        existing = self.get(skill.id)
+        if existing is None:
             self.skills.append(skill)
+        elif skill.source == SkillSource.MANUAL and existing.source != SkillSource.MANUAL:
+            existing.source = SkillSource.MANUAL
+            existing.name = skill.name  # adopt the explicit name
 
     def public_skills(self) -> list[Skill]:
         """Return skills safe for public exposure.
 
-        Excludes ``ENTITY``-sourced skills whose names may contain private
-        person or organisation names extracted from conversation (#292).
+        Only skills with an **explicit, trusted source** are included:
+        ``MANUAL`` and ``PROCEDURE``.  Skills with ``source=None`` (legacy
+        data without provenance) or ``ENTITY`` (auto-created from extracted
+        names) are excluded.  This is fail-closed: unknown provenance is
+        treated as potentially private (#292).
         """
-        return [s for s in self.skills if s.source != SkillSource.ENTITY]
+        _PUBLIC_SOURCES = {SkillSource.MANUAL, SkillSource.PROCEDURE}
+        return [s for s in self.skills if s.source in _PUBLIC_SOURCES]
 
     def grant_xp(self, skill_id: str, amount: int) -> bool:
         skill = self.get(skill_id)

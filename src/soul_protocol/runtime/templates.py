@@ -135,11 +135,11 @@ class SoulFactory:
 
         # Register skills from template
         if template.skills:
-            from soul_protocol.runtime.skills import Skill
+            from soul_protocol.runtime.skills import Skill, SkillSource
 
             for skill_name in template.skills:
                 skill_id = skill_name.lower().replace(" ", "_")
-                skill = Skill(id=skill_id, name=skill_name)
+                skill = Skill(id=skill_id, name=skill_name, source=SkillSource.MANUAL)
                 soul.skills.add(skill)
 
         logger.info(
@@ -177,7 +177,7 @@ class SoulFactory:
             List of newly birthed Soul instances.
         """
         # Lazy import to avoid circular dependency
-        from soul_protocol.runtime.skills import Skill
+        from soul_protocol.runtime.skills import Skill, SkillSource
         from soul_protocol.runtime.soul import Soul
 
         rng = random.Random(rng_seed)
@@ -226,7 +226,7 @@ class SoulFactory:
             # Register skills from template
             for skill_name in template.skills:
                 skill_id = skill_name.lower().replace(" ", "_")
-                skill = Skill(id=skill_id, name=skill_name)
+                skill = Skill(id=skill_id, name=skill_name, source=SkillSource.MANUAL)
                 soul.skills.add(skill)
 
             souls.append(soul)
