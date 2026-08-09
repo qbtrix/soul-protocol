@@ -9,7 +9,7 @@ import json
 import pytest
 
 from soul_protocol.runtime.bridges.a2a import A2AAgentCardBridge
-from soul_protocol.runtime.skills import Skill
+from soul_protocol.runtime.skills import Skill, SkillSource
 from soul_protocol.runtime.soul import Soul
 from soul_protocol.spec.a2a import A2AAgentCard, A2ASkill, SoulExtension
 
@@ -91,8 +91,8 @@ class TestSoulToAgentCard:
             archetype="The Tester",
             ocean={"openness": 0.9, "conscientiousness": 0.7, "neuroticism": 0.2},
         )
-        soul.skills.add(Skill(id="python", name="Python"))
-        soul.skills.add(Skill(id="testing", name="Testing", level=3, xp=50))
+        soul.skills.add(Skill(id="python", name="Python", source=SkillSource.MANUAL))
+        soul.skills.add(Skill(id="testing", name="Testing", level=3, xp=50, source=SkillSource.MANUAL))
         return soul
 
     @pytest.mark.asyncio
@@ -391,8 +391,8 @@ class TestRoundTrip:
     @pytest.mark.asyncio
     async def test_skills_preserved(self):
         original = await Soul.birth("SkillRound")
-        original.skills.add(Skill(id="alpha", name="Alpha"))
-        original.skills.add(Skill(id="beta", name="Beta"))
+        original.skills.add(Skill(id="alpha", name="Alpha", source=SkillSource.MANUAL))
+        original.skills.add(Skill(id="beta", name="Beta", source=SkillSource.MANUAL))
         card = A2AAgentCardBridge.soul_to_agent_card(original)
         restored = A2AAgentCardBridge.agent_card_to_soul(card)
         assert len(restored.skills.skills) == 2
@@ -450,7 +450,7 @@ class TestCLICommands:
             archetype="File Tester",
             ocean={"openness": 0.6, "neuroticism": 0.4},
         )
-        original.skills.add(Skill(id="file-io", name="File IO"))
+        original.skills.add(Skill(id="file-io", name="File IO", source=SkillSource.MANUAL))
 
         # Export to card JSON
         card = A2AAgentCardBridge.soul_to_agent_card(original)
