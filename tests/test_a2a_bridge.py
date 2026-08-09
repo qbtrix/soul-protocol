@@ -92,7 +92,9 @@ class TestSoulToAgentCard:
             ocean={"openness": 0.9, "conscientiousness": 0.7, "neuroticism": 0.2},
         )
         soul.skills.add(Skill(id="python", name="Python", source=SkillSource.MANUAL))
-        soul.skills.add(Skill(id="testing", name="Testing", level=3, xp=50, source=SkillSource.MANUAL))
+        soul.skills.add(
+            Skill(id="testing", name="Testing", level=3, xp=50, source=SkillSource.MANUAL)
+        )
         return soul
 
     @pytest.mark.asyncio
