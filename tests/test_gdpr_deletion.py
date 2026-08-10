@@ -683,3 +683,72 @@ class TestSocialDeletion:
         assert len(audit) >= 1
         tiers = audit[-1].get("tiers", {})
         assert "social" in tiers, f"Audit tiers should include social, got {tiers}"
+
+
+class TestSocialUpdateSupersede:
+    """Tests that update/supersede verbs work on social memory IDs (#291)."""
+
+    @pytest.mark.asyncio
+    async def test_update_social_memory(self, soul_with_social_memories):
+        """update() should work on a social memory within the reconsolidation window."""
+        soul = soul_with_social_memories
+        social_entries = soul._memory._social.entries()
+        assert len(social_entries) > 0
+
+        target = social_entries[0]
+        target_id = target.id
+
+        # Open the reconsolidation window by recalling
+        await soul.recall(target.content[:20])
+
+        # Force the window open for the target id
+        soul._reconsolidation_window[target_id] = datetime.now()
+
+        result = await soul.update(
+            target_id,
+            "Updated social context: Alice prefers Slack on weekends",
+            prediction_error=0.5,
+        )
+
+        assert result["found"] is True
+        assert result["action"] == "updated"
+        assert result["id"] == target_id
+
+    @pytest.mark.asyncio
+    async def test_supersede_social_memory(self, soul_with_social_memories):
+        """supersede() should work on a social memory ID."""
+        soul = soul_with_social_memories
+        social_entries = soul._memory._social.entries()
+        assert len(social_entries) > 0
+
+        target = social_entries[0]
+        old_id = target.id
+
+        result = await soul.supersede(
+            old_id=old_id,
+            new_content="Alice now prefers Slack for all communication",
+            prediction_error=0.9,
+        )
+
+        assert result["found"] is True
+        assert result["old_id"] == old_id
+        assert result["new_id"] != old_id
+
+        # The old entry should be marked as superseded
+        old_entry, _tier = await soul._memory._find_entry_by_id(old_id)
+        assert old_entry is not None
+        assert old_entry.superseded_by == result["new_id"]
+
+    @pytest.mark.asyncio
+    async def test_memory_lookup_sync_finds_social(self, soul_with_social_memories):
+        """_memory_lookup_sync should find social entries for provenance walking."""
+        soul = soul_with_social_memories
+        social_entries = soul._memory._social.entries()
+        assert len(social_entries) > 0
+
+        target = social_entries[0]
+        entry, tier = soul._memory_lookup_sync(target.id)
+
+        assert entry is not None, "Social entry should be found by _memory_lookup_sync"
+        assert tier == "social", f"Expected tier 'social', got '{tier}'"
+        assert entry.id == target.id

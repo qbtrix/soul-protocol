@@ -2321,6 +2321,9 @@ class Soul:
         procedural = self._memory._procedural._procedures.get(memory_id)
         if procedural is not None:
             return procedural, "procedural"
+        social = self._memory._social._entries.get(memory_id)
+        if social is not None:
+            return social, "social"
         return None, None
 
     @property
@@ -2766,7 +2769,22 @@ class Soul:
         """Forget an entity and all related memories.
 
         Removes the entity from the knowledge graph (node + edges)
-        and deletes any memories mentioning the entity across all tiers.
+        and deletes any memories mentioning the entity across all
+        built-in tiers (episodic, semantic, procedural, social).
+
+        .. note:: Coverage gaps (not yet addressed)
+
+           * **Custom layers** registered via ``_custom_layers`` are not
+             scanned — entries there may still reference the entity.
+           * **Archival store** (``ArchivalMemoryStore``) compressed
+             conversation archives are not searched.
+           * **BondRegistry** — if the entity is a bonded user, their
+             bond record (strength, interaction count, bonded_at) is
+             not removed and will persist to the ``.soul`` file.
+
+           Until these are addressed, ``forget_entity`` is not fully
+           GDPR-complete. Callers relying on it for right-to-erasure
+           should audit the gaps above.
 
         Args:
             entity: The entity name to forget.

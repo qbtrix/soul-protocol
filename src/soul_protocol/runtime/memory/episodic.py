@@ -215,6 +215,10 @@ class EpisodicStore:
             return True
         return False
 
+    def count(self) -> int:
+        """Return the number of stored episodic memories."""
+        return len(self._memories)
+
     def entries(self) -> list[MemoryEntry]:
         """Return all episodic memories, sorted by created_at descending."""
         return sorted(

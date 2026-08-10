@@ -2316,20 +2316,12 @@ class MemoryManager:
         return self._settings
 
     def count(self) -> int:
-        total = 0
-        for _name, store in self._all_stores():
-            # Each store has a different internal dict name; use the public
-            # count() / entries() / facts() where available, else len() the
-            # internal dict.
-            if _name == "episodic":
-                total += len(self._episodic._memories)
-            elif _name == "semantic":
-                total += len(self._semantic._facts)
-            elif _name == "procedural":
-                total += len(self._procedural._procedures)
-            elif _name == "social":
-                total += len(self._social._entries)
-        return total
+        """Total memory count across all built-in tiers.
+
+        Uses ``store.count()`` so that any new tier added to
+        ``_all_stores()`` is automatically included (#291 review).
+        """
+        return sum(store.count() for _name, store in self._all_stores())
 
     # ---- Public tier access (v0.5.0 #284) ----
     # These methods expose read-only access to individual memory tiers so

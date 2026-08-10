@@ -101,6 +101,10 @@ class SemanticStore:
         """Return a fact by ID, or None if absent."""
         return self._facts.get(memory_id)
 
+    def count(self) -> int:
+        """Return the number of stored semantic facts."""
+        return len(self._facts)
+
     def facts(self, include_superseded: bool = False) -> list[MemoryEntry]:
         """Return all semantic facts, sorted by importance descending.
 

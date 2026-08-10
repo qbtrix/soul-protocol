@@ -81,6 +81,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Cross-runtime test suite — PocketPaw, LangChain, CrewAI (#228, #271)** — integration tests that verify soul-protocol works correctly when embedded in PocketPaw, LangChain, and CrewAI runtimes.
 
+### Fixed
+
+- **Social tier included in deletion paths (#291)** — `forget()`, `forget_entity()`, `forget_before()`, `purge_by_id()`, `remove()`, and `count()` now include the social memory tier. Previously these functions iterated only episodic → semantic → procedural, silently skipping social memories added via `SocialStore` (#41). The return dict from bulk `forget()` and `forget_entity()` gains a `social` key (additive — existing `episodic` / `semantic` / `procedural` / `total` keys are unchanged). `soul status`, `soul forget`, `soul health` CLI commands and the `soul_forget` / `soul_health` MCP tools now report social counts. `_memory_lookup_sync` (provenance walker) and `supersede --type` also updated. A `_all_stores()` helper centralises tier iteration so future tiers are automatically included.
+
 ---
 
 ## [0.4.0] -- 2026-04-29

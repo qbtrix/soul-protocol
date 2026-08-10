@@ -1248,6 +1248,7 @@ async def soul_forget(
                 "episodic": len(result.get("episodic", [])),
                 "semantic": len(result.get("semantic", [])),
                 "procedural": len(result.get("procedural", [])),
+                "social": len(result.get("social", [])),
             },
         }
     )
@@ -1608,6 +1609,7 @@ async def soul_health(
                 "episodic": len(episodic),
                 "semantic": len(semantic),
                 "procedural": len(procedural),
+                "social": s.memory._social.count(),
                 "total": total,
             },
             "graph_nodes": len(graph_nodes),

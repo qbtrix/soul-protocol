@@ -589,6 +589,7 @@ def inspect(path, password):
         episodic_ct = len(mem.episodic_entries())
         semantic_ct = len(mem.semantic_facts())
         procedural_ct = len(mem.procedural_entries())
+        social_ct = len(mem.social_entries())
         total = soul.memory_count
 
         mem_table = Table(show_header=False, box=None, padding=(0, 2))
@@ -597,6 +598,7 @@ def inspect(path, password):
         mem_table.add_row("Episodic", str(episodic_ct))
         mem_table.add_row("Semantic", str(semantic_ct))
         mem_table.add_row("Procedural", str(procedural_ct))
+        mem_table.add_row("Social", str(social_ct))
         mem_table.add_row("", "")
         mem_table.add_row("[bold]Total[/bold]", f"[bold]{total}[/bold]")
 
@@ -2449,6 +2451,7 @@ def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confi
                         "episodic": [memory_id] if tier == "episodic" else [],
                         "semantic": [memory_id] if tier == "semantic" else [],
                         "procedural": [memory_id] if tier == "procedural" else [],
+                        "social": [memory_id] if tier == "social" else [],
                         "total": 1,
                         "found": True,
                         "tier": tier,
@@ -2457,6 +2460,7 @@ def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confi
                     "episodic": [],
                     "semantic": [],
                     "procedural": [],
+                    "social": [],
                     "total": 0,
                     "found": False,
                     "tier": None,
@@ -2472,6 +2476,7 @@ def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confi
                 "episodic": len(res.get("episodic", [])),
                 "semantic": len(res.get("semantic", [])),
                 "procedural": len(res.get("procedural", [])),
+                "social": len(res.get("social", [])),
             }
             if "edges_removed" in res:
                 counts["graph_edges"] = res["edges_removed"]
@@ -2562,7 +2567,7 @@ def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confi
     "--type",
     "-t",
     "memory_type",
-    type=click.Choice(["episodic", "semantic", "procedural"], case_sensitive=False),
+    type=click.Choice(["episodic", "semantic", "procedural", "social"], case_sensitive=False),
     default=None,
     help="Tier for the new memory (default: same tier as the old one).",
 )
