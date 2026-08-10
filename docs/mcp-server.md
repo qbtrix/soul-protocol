@@ -2,6 +2,10 @@
      (14 soul/memory + 5 context + 5 psychology + 3 trust chain + 5 memory primitives
      + 2 maintenance + 1 eval + 1 graph + 1 optimize + 1 core edit + 1 forget), 3 resources,
      2 prompts, auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
+     Updated: 2026-08-10 — (#290): Fixed soul_health return schema (removed non-existent
+     bond_issues/skill_issues keys), fixed soul_cleanup return schema (total_items vs
+     removed on different branches, no total_removed/backup_path), corrected cleanup
+     counting note.
      Updated: 2026-04-30 — v0.5.0 (#203): Added soul_prune_chain MCP tool for touch-time
      chain pruning. Dry-run by default; pass apply=true to mutate the chain. Tool count: 27 → 28.
      Updated: 2026-04-29 — v0.5.0 (#142): Added soul_optimize MCP tool for the autonomous
@@ -659,7 +663,7 @@ Run a health audit on the soul's memory, skills, bond, and graph. Returns per-ti
 |-----------|------|---------|-------------|
 | `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
 
-**Returns:** JSON object with `soul`, `tiers` (episodic/semantic/procedural/total counts), `graph_nodes`, `skills`, `eval_history`, `bond_strength`, `duplicates`, `low_importance`, `stale_evals`, `orphan_nodes`, `bond_issues`, `skill_issues`, `issues` (flattened list), `healthy` (boolean).
+**Returns:** JSON object with `soul`, `tiers` (episodic/semantic/procedural/total counts), `graph_nodes`, `skills`, `eval_history`, `bond_strength`, `duplicates`, `low_importance`, `stale_evals`, `orphan_nodes`, `issues` (flattened list combining bond and skill anomalies), `healthy` (boolean).
 
 ---
 
@@ -672,9 +676,9 @@ Run cleanup on the soul — deduplicate memories and remove stale evals. Dry-run
 | `dry_run` | `bool` | `true` | Preview what would be cleaned without changing anything |
 | `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
 
-**Returns:** JSON object with `soul`, `status` (`dry_run` / `cleaned` / `clean`), `actions` (list of `{action, tier, count}`), `total_removed`, `removed` (alias), and optional `backup_path`.
+**Returns:** JSON object with `soul`, `status` (`dry_run` / `cleaned` / `clean`), `actions` (list of `{action, tier, count}`). Dry-run returns `total_items`; cleaned returns `removed`.
 
-**Note:** "Cleaned N items" may report fewer than the dry-run preview because removal counting uses the actual return value from per-tier remove methods (some entries may have already been removed between plan and execute).
+**Note:** The cleaned-branch counter increments unconditionally (`removed += 1`) for each scheduled removal — it does not inspect the per-tier remove method's return value, so the count may overstate actual deletions if an entry was already removed between plan and execute.
 
 ---
 

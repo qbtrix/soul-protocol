@@ -1,4 +1,6 @@
 <!-- Covers: CLI installation, all 51 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-08-10 — (#290): Fixed recall -n short flag, corrected archive -t
+     syntax, verified unpack/delete/export signatures against Click definitions.
      Updated: 2026-04-29 — v0.5.0 (#142): Added `soul optimize` for the autonomous
        self-improvement loop. Reads an eval spec, proposes knob changes (OCEAN, persona,
        memory thresholds, bond strength), keeps changes that improve the score, reverts

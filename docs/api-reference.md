@@ -1,6 +1,8 @@
 <!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
      memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
+     Updated: 2026-08-10 — (#290): Documented grant_xp_for_procedure_use(),
+     curate_agent_procedures(), MemoryProvenance enum, Soul.remember() provenance kwarg.
      Updated: 2026-04-29 — v0.5.0 (#142): Added Optimize section documenting
        soul_protocol.optimize — optimize(), OptimizeRunner, the Knob protocol, the four
        built-in knobs (OceanTraitKnob, PersonaTextKnob, SignificanceThresholdKnob,
@@ -293,6 +295,25 @@ MemoryProvenance.AGENT   # "agent" — for autonomously-written procedures
 ```
 
 Distinguishes human-authored memories from those written by an autonomous agent (e.g. PocketPaw's self-improving skills loop). The curator (`curate_agent_procedures`) only ever consolidates `AGENT` entries — human-authored procedures are never touched.
+
+#### `soul.skills.grant_xp_for_procedure_use()`
+
+```python
+def grant_xp_for_procedure_use(
+    self,
+    skill_id: str,
+    amount: int = 10,
+) -> bool
+```
+
+Grant XP to the skill that tracks a learned procedure's usage (#290). Called by the self-improving skills loop whenever an agent-learned procedure is used. Auto-creates the skill (named after `skill_id`) on first use so callers never need to pre-register it.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `skill_id` | `str` | — | Stable id tying a procedure to its progression skill (e.g. `"proc:<memory_id>"`) |
+| `amount` | `int` | `10` | XP to grant per use |
+
+**Returns:** `True` if the grant crossed a level boundary — the graduation signal the loop uses to materialize a `SKILL.md`.
 
 #### `soul.recall()`
 

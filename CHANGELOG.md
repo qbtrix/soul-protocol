@@ -53,12 +53,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Decision vocabulary (spec layer)
 
-- **`decision.outcome_attached` journal action (#255, #256)** — extends the `trace_decision_chain` decision-action filter to include `decision.outcome_attached` so post-close outcome mutations surface in the trace alongside the chain proper. New `build_outcome_attached_event()` builder in `spec/decisions.py`.
-- **`decision.completed` + `build_policy_event` + `build_completion_event` for RFC 09 Slice 1a (#258)** — adds two new builders for the Decision Graph projection vocabulary. `build_policy_event` creates `policy.evaluated` chain-forming events (instinct gate evaluations). `build_completion_event` creates the `decision.completed` terminal event — the canonical chain closer with `landed` / `rejected` / `abandoned` status.
+- **`decision.outcome_attached` journal action (#255, #256)** — extends the `trace_decision_chain` decision-action filter to include `decision.outcome_attached` so post-close outcome mutations surface in the trace alongside the chain proper.
+- **`decision.completed` + `build_policy_event` + `build_completion_event` (#258)** — adds two new builders for the Decision Graph projection vocabulary. `build_policy_event` creates `policy.evaluated` chain-forming events (instinct gate evaluations). `build_completion_event` creates the `decision.completed` terminal event — the canonical chain closer with `landed` / `rejected` / `abandoned` status.
 
 ### Memory behavior
 
-- **Episodic remember/note stores content verbatim (#264)** — ⚠️ **User-visible behavior change.** Episodic memories from `Soul.remember()` and `Soul.note()` now store the user's original text as-is. Previously, the content could be lightly reformatted during storage. Existing memories are unaffected.
+- **Episodic remember/note stores content verbatim (#264)** — ⚠️ **User-visible behavior change.** Episodic memories from `Soul.remember()` and `Soul.note()` now store the user's original text as-is. Previously, episodic writes were wrapped in a `User: …\nAgent: …` envelope (the `Interaction`-shaped path), the caller's `importance` was discarded and hardcoded to 5, and `emotion`, `entities`, `visibility`, `scope`, and `user_id` were all dropped. Existing memories are unaffected.
 - **Agent-created procedural provenance + curator (#272)** — new `MemoryProvenance` enum (`HUMAN`, `AGENT`) on `MemoryEntry`. `Soul.remember()` and `Soul.note()` accept a `provenance=` kwarg (default `HUMAN`). New `Soul.curate_agent_procedures(similarity_threshold=0.6)` consolidates overlapping `AGENT`-authored procedural memories by marking the weaker of each near-duplicate pair as superseded — it never touches `HUMAN` procedures. Intended consumer: PocketPaw's self-improving skills loop, where a forked write-only reviewer learns procedures from session transcripts and stamps them as `AGENT`-authored.
 
 ### Testing
