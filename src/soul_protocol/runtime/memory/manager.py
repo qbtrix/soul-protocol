@@ -1333,7 +1333,7 @@ class MemoryManager:
         logger.debug("Recall query_len=%d returned %d results", len(query), len(results))
         return results
 
-    # ---- v0.6.0 (#291) — Centralized tier iteration helper ----
+    # ---- v0.5.0 (#291) — Centralized tier iteration helper ----
     # Every future memory tier must be added here *once* and all deletion /
     # mutation / count paths pick it up automatically. Adding a tier anywhere
     # else is a bug — the set of built-in stores is the single source of truth.

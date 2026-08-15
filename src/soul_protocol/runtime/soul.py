@@ -2,6 +2,8 @@
 # Updated: 2026-08-08 (#292) — Entity-derived skills now tagged with
 #   SkillSource.ENTITY so they are excluded from public_profile() and A2A cards.
 #   observe() entity extraction path passes source=SkillSource.ENTITY to Skill().
+# Updated: 2026-08-03 (#291) — forget(), forget_entity(), purge(), supersede(),
+#   update_in_place(), and bulk forget_bulk() now include the social memory tier.
 # Updated: 2026-07-18 (#284) — Added public convenience API for CLI/MCP:
 #   memory (property), eval_history (property), clear_eval_history(),
 #   reset_energy(), reset_bond().
@@ -2719,7 +2721,7 @@ class Soul:
                 entry.retrieval_weight = _FORGET_WEIGHT_TARGET
                 procedural_ids.append(entry.id)
                 self._reconsolidation_window.pop(entry.id, None)
-        # v0.6.0 (#291) — Include social tier in the bulk weight-decay path.
+        # v0.5.0 (#291) — Include social tier in the bulk weight-decay path.
         for entry in list(self._memory._social.entries()):
             if relevance_score(query, entry.content) > 0.0:
                 entry.retrieval_weight = _FORGET_WEIGHT_TARGET

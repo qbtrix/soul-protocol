@@ -3499,7 +3499,8 @@ def health_cmd(path):
         graph_nodes = mm.graph_entities()
         skills = soul.skills.skills
         evals = soul.eval_history
-        total = len(episodic) + len(semantic) + len(procedural)
+        social_count = mm._social.count()
+        total = len(episodic) + len(semantic) + len(procedural) + social_count
 
         # Detect duplicates
         compressor = MemoryCompressor()
@@ -3543,6 +3544,7 @@ def health_cmd(path):
             f"  Episodic:    {len(episodic):>5}",
             f"  Semantic:    {len(semantic):>5}",
             f"  Procedural:  {len(procedural):>5}",
+            f"  Social:      {social_count:>5}",
             f"  [bold]Total:       {total:>5}[/bold]",
             "",
             "[bold]Knowledge & Skills[/bold]",

@@ -1562,7 +1562,8 @@ async def soul_health(
     graph_nodes = mm.graph_entities()
     skills = s.skills.skills
     evals = s.eval_history
-    total = len(episodic) + len(semantic) + len(procedural)
+    social_count = s.memory._social.count()
+    total = len(episodic) + len(semantic) + len(procedural) + social_count
 
     # Detect duplicates
     compressor = MemoryCompressor()
@@ -1609,7 +1610,7 @@ async def soul_health(
                 "episodic": len(episodic),
                 "semantic": len(semantic),
                 "procedural": len(procedural),
-                "social": s.memory._social.count(),
+                "social": social_count,
                 "total": total,
             },
             "graph_nodes": len(graph_nodes),
