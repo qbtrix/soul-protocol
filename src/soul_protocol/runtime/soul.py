@@ -1,4 +1,7 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-08-08 (#292) — Entity-derived skills now tagged with
+#   SkillSource.ENTITY so they are excluded from public_profile() and A2A cards.
+#   observe() entity extraction path passes source=SkillSource.ENTITY to Skill().
 # Updated: 2026-07-18 (#284) — Added public convenience API for CLI/MCP:
 #   memory (property), eval_history (property), clear_eval_history(),
 #   reset_energy(), reset_bond().

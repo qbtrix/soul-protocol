@@ -1,4 +1,6 @@
 # runtime/templates.py — SoulFactory for creating souls from templates and batch spawning.
+# Updated: 2026-08-08 (#292) — Template skill seeding now passes
+#   source=SkillSource.MANUAL so template-defined skills are public by default.
 # Updated: feat/memory-visibility-templates — Full implementation of from_template()
 #   and batch_spawn(). from_template() creates one soul from a SoulTemplate with
 #   optional overrides. batch_spawn() creates N souls with controlled personality

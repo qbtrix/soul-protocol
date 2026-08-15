@@ -3,6 +3,9 @@
 #   OCEAN personality, and skills to/from the Agent Card format. Supports enriching
 #   existing Agent Cards with a SoulExtension block without clobbering other extensions.
 #   Uses deep copy in enrich_agent_card to avoid mutating the input dict.
+# Updated: 2026-08-08 (#292) — soul_to_agent_card() now uses
+#   SkillRegistry.public_skills() instead of iterating all skills, so
+#   entity-derived skills are excluded from the A2A card.
 
 from __future__ import annotations
 
