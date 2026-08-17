@@ -118,7 +118,8 @@ retrieval.query,
 scope.assigned, scope.revoked
 
 # Decisions
-agent.proposed, human.corrected, decision.graduated
+agent.proposed, human.corrected, decision.graduated,
+decision.completed, decision.outcome_attached
 
 # Credentials & Zero-Copy
 credential.acquired, credential.used, credential.expired,
