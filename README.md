@@ -207,6 +207,7 @@ pip install -e ".[dev]"
 soul init "Aria" --archetype "The Compassionate Creator"
 soul inspect .soul/
 soul status .soul/
+soul note .soul/ "User prefers concise PR summaries" --type semantic
 ```
 
 ### Python
@@ -381,8 +382,8 @@ The `EmbeddingProvider` interface is defined in `spec/`. Swap in OpenAI, Cohere,
 ## Eternal storage
 
 ```bash
-soul archive aria.soul --tiers local,ipfs
-soul recover aria.soul --source ipfs
+soul archive aria.soul -t ipfs -t arweave
+soul recover QmRef123... --tier ipfs --output recovered.soul
 soul eternal-status aria.soul
 ```
 

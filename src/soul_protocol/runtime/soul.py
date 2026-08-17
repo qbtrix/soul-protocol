@@ -1,4 +1,10 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-08-08 (#292) — Entity-derived skills now tagged with
+#   SkillSource.ENTITY so they are excluded from public_profile() and A2A cards.
+#   observe() entity extraction path passes source=SkillSource.ENTITY to Skill().
+# Updated: 2026-07-18 (#284) — Added public convenience API for CLI/MCP:
+#   memory (property), eval_history (property), clear_eval_history(),
+#   reset_energy(), reset_bond().
 # Updated: 2026-06-16 (feat/soul-skills-procedural) — remember() and note() now
 #   accept a ``provenance: MemoryProvenance`` kwarg (default HUMAN) so an
 #   autonomous loop (PocketPaw's self-improving skills reviewer) can stamp the
@@ -265,6 +271,10 @@ _RECONSOLIDATION_WINDOW_MAX: int = 1000
 _FORGET_WEIGHT_TARGET: float = 0.05
 _REINSTATE_WEIGHT: float = 1.0
 _RECALL_WEIGHT_FLOOR: float = 0.1
+# #247 — Default graded relevance floor for recall(). 0.0 keeps every
+# candidate the stores returned (historical behaviour); callers raise it to
+# drop weak query matches.
+_RECALL_RELEVANCE_FLOOR: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -1073,6 +1083,11 @@ class Soul:
                 raise SoulCorruptError("<bytes>", str(e)) from e
         else:
             path = Path(source)
+            # Crash recovery: if the path vanished mid-swap but .bak
+            # exists, promote it before we check existence (#282).
+            from .storage.file import _recover_backup
+
+            _recover_backup(path)
             if not path.exists():
                 raise SoulFileNotFoundError(str(path))
             try:
@@ -1193,6 +1208,10 @@ class Soul:
         the spec: identity + personality summary + skill names are public,
         memories and relationships are not.
 
+        Entity-derived skills (auto-created from extracted names during
+        ``observe()``) and legacy skills with unknown provenance are
+        excluded from the ``skills`` list (#292).
+
         Use this — never ``model_dump()`` — when serialising a soul for any
         third party.
         """
@@ -1204,7 +1223,7 @@ class Soul:
             "agreeableness": float(getattr(ocean, "agreeableness", 0.5)),
             "neuroticism": float(getattr(ocean, "neuroticism", 0.5)),
         }
-        skill_names = sorted(s.name for s in self._skills.skills)
+        skill_names = sorted(s.name for s in self._skills.public_skills())
         return {
             "did": self._identity.did,
             "name": self._identity.name,
@@ -1672,6 +1691,7 @@ class Soul:
         token_budget: int | None = None,
         min_weight: float = _RECALL_WEIGHT_FLOOR,
         include_superseded: bool = False,
+        relevance_floor: float = _RECALL_RELEVANCE_FLOOR,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories with visibility + scope filtering.
 
@@ -1718,6 +1738,13 @@ class Soul:
         is a :class:`RecallResults` (a ``list`` subclass) carrying an
         optional ``next_page_token`` attribute alongside the entries.
         Existing callers that just iterate over the list keep working.
+
+        ``relevance_floor`` (#247): graded cutoff on query relevance
+        (0.0-1.0). A candidate whose token-overlap score is below the floor
+        is dropped during ranking. Default 0.0 leaves recall unchanged; a
+        positive floor drops weak matches that clear the store gate only
+        barely. Each returned entry carries its activation score on the
+        ``recall_score`` field.
 
         Populates ``self.last_retrieval`` with a :class:`RetrievalTrace`
         receipt every call, regardless of whether results were found. The
@@ -1781,6 +1808,7 @@ class Soul:
             layer=layer,
             domain=domain,
             min_weight=min_weight,
+            relevance_floor=relevance_floor,
         )
         # v0.5.0 (#192) — When include_superseded is True, top up the result
         # set with superseded entries that the underlying store filtered out.
@@ -2108,9 +2136,9 @@ class Soul:
             if skill:
                 skill.add_xp(xp_amount)
             else:
-                from .skills import Skill
+                from .skills import Skill, SkillSource
 
-                new_skill = Skill(id=entity_name, name=entity["name"])
+                new_skill = Skill(id=entity_name, name=entity["name"], source=SkillSource.ENTITY)
                 new_skill.add_xp(xp_amount)
                 self._skills.add(new_skill)
 
@@ -2994,6 +3022,38 @@ class Soul:
         """Access the soul's evaluator."""
         return self._evaluator
 
+    # ---- Public convenience API (v0.5.0 #284) ----
+    # These methods wrap private-attribute mutations that CLI and MCP
+    # previously performed inline, so internal renames no longer break them.
+
+    @property
+    def memory(self):
+        """Access the soul's MemoryManager."""
+        return self._memory
+
+    @property
+    def eval_history(self) -> list:
+        """Return a copy of the evaluator's history list."""
+        return list(self._evaluator._history)
+
+    def clear_eval_history(self) -> int:
+        """Clear all evaluation history entries.
+
+        Returns the number of entries cleared.
+        """
+        count = len(self._evaluator._history)
+        self._evaluator._history.clear()
+        return count
+
+    def reset_energy(self) -> None:
+        """Reset energy and social battery to full."""
+        self._state.current.energy = 100.0
+        self._state.current.social_battery = 100.0
+
+    def reset_bond(self, strength: float = 50.0) -> None:
+        """Reset bond strength to the given value (default 50.0)."""
+        self._identity.bond.bond_strength = strength
+
     async def evaluate(self, interaction: Interaction, domain: str | None = None) -> RubricResult:
         """Evaluate an interaction against a rubric and feed results into learning.
 
@@ -3029,9 +3089,9 @@ class Soul:
             if skill:
                 skill.add_xp(xp_amount)
             else:
-                from .skills import Skill
+                from .skills import Skill, SkillSource
 
-                new_skill = Skill(id=skill_id, name=domain)
+                new_skill = Skill(id=skill_id, name=domain, source=SkillSource.LEARNING)
                 new_skill.add_xp(xp_amount)
                 self._skills.add(new_skill)
 
@@ -3285,6 +3345,7 @@ class Soul:
                 devices). See docs/trust-chain.md for the threat model.
         """
         from .exceptions import SoulExportError
+        from .storage.file import write_bytes_atomic
 
         try:
             memory_data = self._memory.to_dict()
@@ -3297,7 +3358,7 @@ class Soul:
                 trust_chain_data=trust_chain_data,
                 key_files=key_files,
             )
-            Path(path).write_bytes(data)
+            write_bytes_atomic(Path(path), data, keep_backup=False)
             logger.info(
                 "Soul exported: name=%s, path=%s, size=%d bytes",
                 self.name,

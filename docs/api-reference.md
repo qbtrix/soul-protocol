@@ -1,6 +1,8 @@
 <!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
      memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
+     Updated: 2026-08-10 — (#290): Documented grant_xp_for_procedure_use(),
+     curate_agent_procedures(), MemoryProvenance enum, Soul.remember() provenance kwarg.
      Updated: 2026-04-29 — v0.5.0 (#142): Added Optimize section documenting
        soul_protocol.optimize — optimize(), OptimizeRunner, the Knob protocol, the four
        built-in knobs (OceanTraitKnob, PersonaTextKnob, SignificanceThresholdKnob,
@@ -16,6 +18,9 @@
        soul_protocol.eval module — EvalSpec, EvalCase, EvalResult, CaseResult, the five
        scoring kinds (keyword/regex/semantic/judge/structural), and run_eval /
        run_eval_against_soul / run_eval_file entry points.
+     Updated: 2026-05-21 (paw-workspace#47): Added the Case modes table to the
+       Evaluation section — documents the new `prompt` mode (scores a verbatim
+       prompt or skill output, soul skipped) and the `reference` input field.
      Updated: 2026-04-27 — Documented user-driven memory update primitives: Soul.forget_one
        (audited single-id delete), Soul.supersede (write new memory + link old.superseded_by),
        Soul.supersede_audit property. Rewrote stale soul.forget() entry to match the real
@@ -197,6 +202,29 @@ Parse a SOUL.md-formatted string into a Soul. Does not accept an engine or searc
 | `general_events` | `list[GeneralEvent]` | Conway hierarchy general events accumulated from experience. |
 | `pending_mutations` | `list[Mutation]` | Unapproved evolution proposals. |
 | `evolution_history` | `list[Mutation]` | All resolved mutations (approved and rejected). |
+| `memory` | `MemoryManager` | Read-only access to the underlying memory manager for querying tiers. |
+| `eval_history` | `list[str]` | A log of evaluation runs applied to this soul. |
+
+
+#### MemoryManager Public API
+
+The `soul.memory` property exposes read-only access to individual memory tiers, so that interface layers don't need to reach into private stores:
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `episodic_entries()` | `list[MemoryEntry]` | All episodic memory entries. |
+| `semantic_facts(*, include_superseded=False)` | `list[MemoryEntry]` | All semantic facts. |
+| `procedural_entries()` | `list[MemoryEntry]` | All procedural memory entries. |
+| `social_entries()` | `list[MemoryEntry]` | All social memory entries. |
+| `custom_layer_entries()` | `list[MemoryEntry]` | All entries from custom (user-defined) layers. |
+| `graph_entities()` | `list[dict]` | All entities from the knowledge graph. |
+| `graph_remove_entity(name)` | `None` | Remove a single entity from the knowledge graph. |
+| `clear_graph()` | `None` | Clear all entities, edges, and provenance from the knowledge graph. |
+| `rebuild_graph()` | `dict` | Clear and rebuild the knowledge graph from episodic + semantic memories. Returns dict with `old_count` and `new_count`. |
+| `remove_episodic(memory_id)` | `bool` | Remove an episodic memory by ID. |
+| `remove_semantic(memory_id)` | `bool` | Remove a semantic fact by ID. |
+| `remove_procedural(memory_id)` | `bool` | Remove a procedural memory by ID. |
+
 
 ### Memory Operations
 
@@ -211,6 +239,7 @@ async def remember(
     importance: int = 5,
     emotion: str | None = None,
     entities: list[str] | None = None,
+    provenance: MemoryProvenance = MemoryProvenance.HUMAN,
 ) -> str
 ```
 
@@ -225,6 +254,7 @@ Store a new memory. Returns the generated memory ID.
 | `entities` | `list[str] \| None` | `None` | Referenced entities |
 | `domain` | `str` | `"default"` | Sub-namespace inside the layer (#41), e.g. `"finance"` or `"legal"` |
 | `user_id` | `str \| None` | `None` | Multi-user attribution (#46) |
+| `provenance` | `MemoryProvenance` | `HUMAN` | Who authored the memory: `HUMAN` (default) or `AGENT` (#272). Agent-authored procedures can be curated via `curate_agent_procedures()`. |
 
 **Returns:** `str` -- memory ID
 
@@ -236,6 +266,54 @@ mid = await soul.remember(
     "Q3 revenue up 12 percent", domain="finance", importance=8
 )
 ```
+
+#### `soul.curate_agent_procedures()`
+
+```python
+async def curate_agent_procedures(
+    self,
+    *,
+    similarity_threshold: float = 0.6,
+) -> dict
+```
+
+Consolidate `AGENT`-authored procedural memories (#272). Idle/scheduled pass for the self-improving skills loop: finds overlapping procedures stamped with `provenance=AGENT` and marks the weaker of each near-duplicate pair as superseded. **Never touches `HUMAN`-authored procedures** and never hard-deletes — superseded entries stay in the store and simply stop surfacing in recall.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `similarity_threshold` | `float` | `0.6` | Overlap floor for two agent procedures to be treated as near-duplicates |
+
+**Returns:** `{"considered": int, "consolidated": int, "superseded_ids": list[str]}`
+
+#### `MemoryProvenance` enum
+
+```python
+from soul_protocol.spec.memory import MemoryProvenance
+
+MemoryProvenance.HUMAN   # "human" — default for all user-written memories
+MemoryProvenance.AGENT   # "agent" — for autonomously-written procedures
+```
+
+Distinguishes human-authored memories from those written by an autonomous agent (e.g. PocketPaw's self-improving skills loop). The curator (`curate_agent_procedures`) only ever consolidates `AGENT` entries — human-authored procedures are never touched.
+
+#### `soul.skills.grant_xp_for_procedure_use()`
+
+```python
+def grant_xp_for_procedure_use(
+    self,
+    skill_id: str,
+    amount: int = 10,
+) -> bool
+```
+
+Grant XP to the skill that tracks a learned procedure's usage (#290). Called by the self-improving skills loop whenever an agent-learned procedure is used. Auto-creates the skill (named after `skill_id`) on first use so callers never need to pre-register it.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `skill_id` | `str` | — | Stable id tying a procedure to its progression skill (e.g. `"proc:<memory_id>"`) |
+| `amount` | `int` | `10` | XP to grant per use |
+
+**Returns:** `True` if the grant crossed a level boundary — the graduation signal the loop uses to materialize a `SKILL.md`.
 
 #### `soul.recall()`
 
@@ -253,10 +331,11 @@ async def recall(
     graph_walk: dict | None = None,
     page_token: str | None = None,
     token_budget: int | None = None,
+    relevance_floor: float = 0.0,
 ) -> list[MemoryEntry]
 ```
 
-Search memories ranked by ACT-R activation (recency, frequency, relevance). Relevance scoring uses the configured `SearchStrategy`.
+Search memories ranked by ACT-R activation (recency, frequency, relevance). Relevance scoring uses the configured `SearchStrategy`. Each returned entry carries its activation score on `MemoryEntry.recall_score` — the value the engine ranked on. `recall_score` is runtime-only and never written to the `.soul` file.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -270,6 +349,7 @@ Search memories ranked by ACT-R activation (recency, frequency, relevance). Rele
 | `graph_walk` | `dict \| None` | `None` | (#108) Filter results to memories linked to entities reachable from `graph_walk["start"]` within `graph_walk["depth"]` (default 2) hops. Optional `graph_walk["edge_types"]` whitelists relation predicates. |
 | `page_token` | `str \| None` | `None` | (#108) Resume a previous graph_walk recall. Pass the `next_page_token` attribute of a previous `RecallResults`. |
 | `token_budget` | `int \| None` | `None` | (#108) Cap cumulative content size of returned memories. Once exceeded, overflow entries fall back to their L0 abstract (F1 progressive disclosure). |
+| `relevance_floor` | `float` | `0.0` | (#247) Graded cutoff on query relevance (0.0-1.0). A candidate whose token-overlap score is below the floor is dropped during ranking. Default `0.0` keeps every candidate the stores returned; a positive floor drops weak matches. Checked against raw token overlap, so recency or emotion cannot lift an off-topic memory past it. The check is inclusive (`relevance >= floor`), so `1.0` still keeps a perfect match; values below `0.0` are treated as `0.0`. **Graph-augmented candidates are exempt** — they matched a related graph entity term, not the original query, so the floor would otherwise drop them all. |
 
 **Returns:** `list[MemoryEntry]` for plain calls. When `graph_walk`, `page_token`, or `token_budget` is supplied, returns `RecallResults` (a `list` subclass) carrying `next_page_token`, `total_estimate`, and `truncated_for_budget` attributes.
 
@@ -284,6 +364,11 @@ alice_memories = await soul.recall("preferences", user_id="alice", limit=5)
 finance_only = await soul.recall("revenue", domain="finance")
 all_semantic = await soul.recall("python", layer="semantic")
 combo = await soul.recall("revenue", layer="semantic", domain="finance")
+
+# Graded relevance floor (#247) — drop weak query matches
+focused = await soul.recall("python deployment docker", relevance_floor=0.3)
+for mem in focused:
+    print(mem.recall_score, mem.content)
 
 # Graph-walk recall (#108)
 results = await soul.recall(
@@ -807,6 +892,30 @@ def to_system_prompt(self) -> str
 Generate a complete LLM system prompt from DNA, core memory, state, and self-model insights. Not async.
 
 **Returns:** `str`
+
+#### `soul.reset_energy()`
+
+```python
+def reset_energy(self) -> None
+```
+
+Reset the soul's `energy` and `social_battery` back to 100. Useful for testing or when manually transitioning states.
+
+#### `soul.reset_bond()`
+
+```python
+def reset_bond(self) -> None
+```
+
+Reset the soul's core bond strength (towards the primary user) back to 50. Useful for resetting relationships in tests.
+
+#### `soul.clear_eval_history()`
+
+```python
+def clear_eval_history(self) -> int
+```
+
+Clear the log of previous evaluation runs (`soul.eval_history`) and return the number of runs removed.
 
 ### Evolution
 
@@ -1703,6 +1812,18 @@ from soul_protocol.eval import (
 - `run_eval(spec, *, engine=None, case_filter=None) -> EvalResult` — births a soul from `spec.seed`, applies state / memories / bonds, runs cases. When `engine` is None, judge-scoring cases skip cleanly.
 - `run_eval_file(path, *, engine=None, case_filter=None) -> EvalResult` — convenience wrapper that loads then runs.
 - `run_eval_against_soul(spec, soul, *, engine=None, case_filter=None) -> EvalResult` — run cases against an existing `Soul` without re-birthing. Used by the `soul_eval` MCP tool. The `seed` block is ignored — the soul's live state is the seed.
+
+### Case modes
+
+`CaseInputs.mode` selects how the runner produces the text the scorer sees:
+
+| Mode | What runs | Output scored |
+|------|-----------|---------------|
+| `respond` (default) | Soul produces a reply via `context_for` + the engine | The reply |
+| `recall` | `Soul.recall(query=message, ...)` | The recalled memories, rendered as text |
+| `prompt` | Nothing — the soul is skipped, `seed` is ignored | `inputs.message`, verbatim |
+
+`prompt` mode scores a standalone prompt or skill output. Set `inputs.reference` (prompt-mode only) to the pre-transform text and a `judge` case compares the candidate against it. See [eval-format.md](eval-format.md#prompt-mode-scoring-prompts-and-skills).
 
 ### Result models
 

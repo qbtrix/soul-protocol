@@ -1,4 +1,8 @@
 # memory/semantic.py — SemanticStore for fact-based memories with confidence.
+# Updated: feat/recall-graded-floor (#247) — search() takes a relevance_floor
+#   and gates candidates via passes_relevance_floor() instead of a bare
+#   `score > 0.0`. Default floor 0.0 keeps the historical "any overlap"
+#   behaviour; a positive floor drops weak matches at the store level.
 # Updated: 2026-03-10 — Added search_and_delete() and delete_before() for
 #   GDPR-compliant targeted and time-based memory deletion.
 # Updated: runtime restructure — fixed absolute import paths to soul_protocol.runtime.
@@ -14,7 +18,11 @@ import logging
 import uuid
 from datetime import datetime
 
-from soul_protocol.runtime.memory.search import relevance_score
+from soul_protocol.runtime.memory.search import (
+    DEFAULT_RELEVANCE_FLOOR,
+    passes_relevance_floor,
+    relevance_score,
+)
 from soul_protocol.runtime.types import MemoryEntry, MemoryType
 
 logger = logging.getLogger(__name__)
@@ -57,10 +65,15 @@ class SemanticStore:
         query: str,
         limit: int = 10,
         min_importance: int = 0,
+        relevance_floor: float = DEFAULT_RELEVANCE_FLOOR,
     ) -> list[MemoryEntry]:
         """Search facts by token-overlap relevance with optional importance filter.
 
-        Only entries with a relevance score > 0.0 are returned.
+        Only entries whose relevance score clears ``relevance_floor`` are
+        returned. The default floor of 0.0 keeps the historical behaviour:
+        any positive overlap earns a slot. A positive floor turns the gate
+        graded — a weak match below the floor is dropped.
+
         Results are sorted by relevance (descending), then importance
         (descending), then created_at (most recent first).
         """
@@ -71,7 +84,7 @@ class SemanticStore:
             if fact.importance < min_importance:
                 continue
             score = relevance_score(query, fact.content)
-            if score > 0.0:
+            if passes_relevance_floor(score, relevance_floor):
                 scored.append((score, fact))
 
         scored.sort(key=lambda t: (-t[0], -t[1].importance, -t[1].created_at.timestamp()))

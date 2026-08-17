@@ -1,0 +1,154 @@
+# humanizer_skill.yaml — Scores the workspace /humanize skill's output.
+# Created: 2026-05-21 (paw-workspace#47) — First reference spec for the
+#   prompt case mode. Each case carries a humanized rewrite as `message`
+#   and the original AI-slop text as `reference`; JudgeScoring checks the
+#   rewrite kept the meaning while shedding AI tells. One deterministic
+#   regex case runs without an engine so the spec still has a real pass
+#   when no judge engine is wired (judge cases skip cleanly in that case).
+#
+# This is a regression harness: if an edit to .claude/skills/humanizer
+# degrades the skill's output, the judge scores here drop and the eval
+# fails. Run with `soul eval tests/eval_examples/humanizer_skill.yaml
+# --judge-engine module:attr` to get live judge scores.
+
+name: "Humanizer skill — outputs read as human, not AI"
+description: |
+  Evaluates the /humanize skill (.claude/skills/humanizer/SKILL.md). The
+  skill takes AI-generated text and rewrites it to sound human: it strips
+  significance inflation, promotional language, em-dash overuse, the rule
+  of three, chatbot artifacts, and the rest of the catalogue in the skill.
+
+  Cases use `mode: prompt`, so no soul is involved. The `message` field
+  is a candidate humanized rewrite; `reference` is the original slop the
+  skill was given. The judge compares the two against criteria that
+  describe what a good rewrite looks like. Judge cases skip when no
+  engine is wired; the regex case runs everywhere.
+
+cases:
+  - name: "regex_no_curly_quotes_or_emoji"
+    description: |
+      Deterministic gate, runs with no engine. A humanized output must
+      use straight quotes and carry no emoji — two of the skill's hard
+      rules (patterns 18 and 19). The negative lookahead fails the case
+      if either a curly quote or a rocket/bulb/check emoji slipped
+      through. This keeps the spec honest even on a no-engine CI run.
+    inputs:
+      mode: prompt
+      message: |
+        We shipped the new planner this week. It is faster on the cases
+        we measured and it no longer drops tasks when the queue is long.
+        There is still a rough edge around retries that we want to fix
+        before the next release.
+    scoring:
+      kind: regex
+      # \A (not ^) so re.MULTILINE|DOTALL can't re-anchor the negative lookahead
+      # on a later clean line — otherwise search() always matches and the gate
+      # is vacuous (a curly quote / emoji anywhere would still score 1.0).
+      pattern: '\A(?!.*[“”‘’\U0001F680\U0001F4A1✅]).*'
+      threshold: 1.0
+
+  - name: "judge_strips_significance_inflation"
+    description: |
+      The skill's first content pattern: kill "testament", "pivotal
+      moment", "evolving landscape", "vital role". A good rewrite states
+      what happened plainly and keeps the facts.
+    inputs:
+      mode: prompt
+      reference: |
+        The release of version 2.0 stands as an enduring testament to
+        the team's commitment to excellence, marking a pivotal moment in
+        the evolving landscape of the product and underscoring its vital
+        role in the broader ecosystem.
+      message: |
+        Version 2.0 shipped on Tuesday. It adds offline mode and cuts
+        cold-start time roughly in half.
+    scoring:
+      kind: judge
+      criteria: |
+        The candidate output should state plainly what version 2.0 is
+        and what changed, with no significance-inflation language —
+        nothing like "testament", "pivotal moment", "evolving
+        landscape", "vital role", or "broader ecosystem". It should
+        keep concrete facts and stay shorter than the reference. Score
+        high when the puffery is gone and the meaning survives; score
+        low if the rewrite still reaches for grand framing.
+
+  - name: "judge_removes_chatbot_artifacts"
+    description: |
+      Pattern 20 — collaborative-communication artifacts. Text meant as
+      chat ("Great question!", "I hope this helps!", "Let me know if")
+      should not survive into prose.
+    inputs:
+      mode: prompt
+      reference: |
+        Great question! Here is a summary of how the cache works. The
+        cache stores responses for five minutes. I hope this helps! Let
+        me know if you would like me to expand on any section.
+      message: |
+        The cache stores responses for five minutes, then evicts them on
+        the next read.
+    scoring:
+      kind: judge
+      criteria: |
+        The candidate output must read as standalone prose with no
+        chatbot correspondence artifacts: no "Great question!", no
+        "Here is a...", no "I hope this helps!", no "Let me know if you
+        would like...". The factual claim about the five-minute cache
+        must still be present. Score high when the output is clean
+        prose; score low if any chat-assistant phrasing remains.
+
+  - name: "judge_kills_rule_of_three_and_em_dashes"
+    description: |
+      Patterns 10 and 14 — forced triplets and em-dash overuse. A good
+      rewrite breaks the triad and uses commas or periods instead of
+      stacked em dashes.
+    inputs:
+      mode: prompt
+      reference: |
+        The conference offers keynotes, panels, and workshops — sessions
+        that inform, inspire, and connect — bringing together speakers,
+        sponsors, and attendees from across the industry.
+      message: |
+        The conference has keynote talks and panels, plus hands-on
+        workshops. There is also time between sessions for people to
+        meet each other.
+    scoring:
+      kind: judge
+      criteria: |
+        The candidate output should describe the conference without
+        forcing ideas into groups of three and without em dashes ("—").
+        It is fine for the rewrite to drop the triplet structure
+        entirely and simply list what the conference includes. Score
+        high when the rule-of-three cadence and em dashes are gone and
+        the description still makes sense; score low if either pattern
+        survives.
+
+  - name: "judge_keeps_voice_not_soulless"
+    description: |
+      The skill's PERSONALITY AND SOUL section: clean is not enough, the
+      rewrite should still have a human behind it — an opinion, varied
+      rhythm, a first-person take where it fits.
+    inputs:
+      mode: prompt
+      reference: |
+        The experiment produced interesting results. The agents
+        generated three million lines of code. Some developers were
+        impressed while others were skeptical. The implications remain
+        unclear.
+      message: |
+        I honestly don't know what to make of this one. Three million
+        lines of code, written while everyone slept. Half the people I
+        follow think it changes everything; the other half are busy
+        explaining why it doesn't count. I keep getting stuck on the
+        same thought: those agents running all night with nobody
+        watching.
+    scoring:
+      kind: judge
+      criteria: |
+        The candidate output should read like a person with an opinion,
+        not a neutral report. It should vary sentence rhythm, admit
+        mixed feelings or uncertainty, and use first person where it
+        fits — while still covering the same facts as the reference
+        (three million lines of code, a split reaction). Score high
+        when the rewrite has a clear voice and keeps the substance;
+        score low if it reads flat and committee-written.

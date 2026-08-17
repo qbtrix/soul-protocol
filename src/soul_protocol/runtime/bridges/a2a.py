@@ -3,13 +3,16 @@
 #   OCEAN personality, and skills to/from the Agent Card format. Supports enriching
 #   existing Agent Cards with a SoulExtension block without clobbering other extensions.
 #   Uses deep copy in enrich_agent_card to avoid mutating the input dict.
+# Updated: 2026-08-08 (#292) — soul_to_agent_card() now uses
+#   SkillRegistry.public_skills() instead of iterating all skills, so
+#   entity-derived skills are excluded from the A2A card.
 
 from __future__ import annotations
 
 import copy
 from typing import Any
 
-from soul_protocol.runtime.skills import Skill
+from soul_protocol.runtime.skills import Skill, SkillSource
 from soul_protocol.runtime.types import (
     DNA,
     CoreMemory,
@@ -46,9 +49,9 @@ class A2AAgentCardBridge:
             "neuroticism": personality.neuroticism,
         }
 
-        # Map soul skills to A2A skills
+        # Map soul skills to A2A skills — exclude entity-derived skills (#292)
         a2a_skills: list[dict] = []
-        for sk in soul.skills.skills:
+        for sk in soul.skills.public_skills():
             a2a_skills.append(
                 A2ASkill(
                     id=sk.id,
@@ -141,9 +144,9 @@ class A2AAgentCardBridge:
 
         soul = Soul(config)
 
-        # Map A2A skills to soul skills
+        # Map A2A skills to soul skills — these are intentional registrations
         for a2a_skill in card.skills:
-            sk = Skill(id=a2a_skill.id, name=a2a_skill.name)
+            sk = Skill(id=a2a_skill.id, name=a2a_skill.name, source=SkillSource.MANUAL)
             soul.skills.add(sk)
 
         return soul

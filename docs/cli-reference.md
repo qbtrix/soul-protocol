@@ -1,4 +1,6 @@
 <!-- Covers: CLI installation, all 51 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-08-10 — (#290): Fixed recall -n short flag, corrected archive -t
+     syntax, verified unpack/delete/export signatures against Click definitions.
      Updated: 2026-04-29 — v0.5.0 (#142): Added `soul optimize` for the autonomous
        self-improvement loop. Reads an eval spec, proposes knob changes (OCEAN, persona,
        memory thresholds, bond strength), keeps changes that improve the score, reverts
@@ -18,6 +20,9 @@
        Runs cases against a soul seeded with explicit state (memories, OCEAN, bonds, mood,
        energy). Supports keyword / regex / semantic / judge / structural scoring. --json,
        --filter, --judge-engine, --verbose options. Exits 1 on any failure. Count: 47 → 48.
+     Updated: 2026-05-21 (paw-workspace#47): `soul eval` also scores prompts and skill
+       outputs — a `mode: prompt` case skips the soul and scores the case text verbatim.
+       No new command or flag; the `humanizer_skill.yaml` reference spec evaluates /humanize.
      Updated: 2026-04-29 — v0.4.0 (#42): Added `soul verify` and `soul audit` for trust-chain
        integrity checks and signed-action timelines. Both support --json. `soul verify` exits
        1 on a tampered chain. Count: 45 → 47.
@@ -244,11 +249,24 @@ soul inspect ./souls/sage.yaml
 |----------|----------|-------------|
 | `PATH` | Yes | Path to a `.soul`, `.yaml`, `.json`, or `.md` file. |
 
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--password / -p` | Decrypt an encrypted `.soul` file (prompts interactively for password). |
+
 **Output:** A formatted table showing:
 
 - **Identity:** DID, archetype, born date, age in days, lifecycle stage
 - **State:** Mood, energy (%), focus, social battery (%)
 - **Personality (OCEAN):** Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism (each 0.00-1.00)
+
+**Example with encrypted soul:**
+
+```bash
+soul inspect encrypted.soul --password
+# Prompts: Decryption password: ****
+```
 
 ---
 
@@ -303,7 +321,7 @@ soul export aria.soul -o aria.soul --include-keys
 |--------|-------|-------------|
 | `--output PATH` | `-o` | Output file path. **Required.** |
 | `--format FORMAT` | `-f` | Target format: `soul` (zip archive), `json`, `yaml`, `md` (markdown). Defaults to `soul`. |
-| `--include-keys` | | Include private signing key in exported `.soul` file. **Only use when migrating between your own devices.** Without this flag, only the public key is exported (verify-only). |
+| `--password / -p` | Encrypt the `.soul` archive with AES-256-GCM using a scrypt-derived key. All files except `manifest.json` are encrypted (`.enc` extension). Only applies to `soul` format. |
 
 **Format details:**
 
@@ -338,6 +356,29 @@ soul migrate SOUL.md --output aria.soul
 
 ---
 
+### `soul unpack`
+
+Unpack a `.soul` file into a browsable directory. Creates a folder with readable YAML/JSON files you can browse in VS Code, diff with git, and edit directly.
+
+```bash
+soul unpack guardian.soul              # → .soul/soul/
+soul unpack guardian.soul -d guardian/  # → guardian/
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SOURCE` | Yes | Path to a `.soul` file. |
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--dir PATH` | `-d` | Target directory (default: `.soul/<name>/`). |
+
+---
+
 ### `soul retire`
 
 Retire a soul gracefully. By default, saves all memories before transitioning the soul to a `RETIRED` lifecycle state. Prompts for confirmation.
@@ -360,6 +401,29 @@ soul retire aria.soul --preserve-memories
 | `--preserve-memories` | Save memories before retiring. On by default. |
 
 **Behavior:** The CLI prompts "Are you sure you want to retire {name}?" before proceeding. On confirmation, it persists the soul (if `--preserve-memories` is active), sets the lifecycle to `RETIRED`, clears working memory, and resets state.
+
+---
+
+### `soul delete`
+
+Delete a `.soul` file from disk. Refuses for souls with `role="root"` (use `soul org destroy` instead). Prompts for confirmation unless `--yes` is supplied.
+
+```bash
+soul delete aria.soul
+soul delete aria.soul --yes
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to the `.soul` file to delete. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--yes` | Skip confirmation prompt. |
 
 ---
 
@@ -535,9 +599,9 @@ soul export-a2a aria.soul -o card.json --url https://aria.example.com
 
 ---
 
-### `soul remember`
+### `soul remember` (deprecated)
 
-Store a memory directly in a soul. Use this when you already know what tier the memory belongs in and don't need the cognitive pipeline to decide for you (see `soul observe` for the pipeline-driven alternative).
+Deprecated alias for direct memory writes. Prefer `soul note <path> "<fact>"`, which routes through dedup-aware reconciliation.
 
 ```bash
 # Semantic by default — facts the soul should know
@@ -586,6 +650,8 @@ soul remember aria.soul "NDA expires in March" --domain legal --importance 7
 Core memory (persona and human knowledge) is not writable through `remember`. Use `soul edit-core` instead.
 
 **Output:** A confirmation panel showing the stored text, tier, domain, importance, emotion, and memory ID. The soul is saved automatically.
+
+**Deprecation:** `soul remember` emits a deprecation warning and points to `soul note`. Scheduled for removal in v0.7.0. Use `soul note --no-dedup` when you explicitly want legacy raw-append behavior.
 
 ---
 
@@ -692,6 +758,9 @@ soul recall aria.soul --recent 10 --user alice
 soul recall aria.soul "revenue" --layer semantic --domain finance
 soul recall aria.soul "alice" --layer social
 soul recall aria.soul --recent 5 --domain legal
+
+# Graded relevance floor (#247) — drop weak query matches
+soul recall aria.soul "python deployment docker" --min-relevance 0.3
 ```
 
 **Arguments:**
@@ -705,7 +774,7 @@ soul recall aria.soul --recent 5 --domain legal
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--limit, -l INT` | `10` | Maximum results to return. |
+| `--limit, -n INT` | `10` | Maximum results to return. |
 | `--min-importance INT` | `0` | Filter out memories below this importance score. |
 | `--recent, -r INT` | | Show N most recent memories instead of searching. |
 | `--full` | off | Return untruncated content (for LLM consumption). |
@@ -713,8 +782,9 @@ soul recall aria.soul --recent 5 --domain legal
 | `--user TEXT` | | Filter results to memories attributed to this `user_id` (#46). Legacy entries with no `user_id` are also returned. |
 | `--layer TEXT` | | Filter to one layer (`episodic`, `semantic`, `procedural`, `social`, or any custom layer name) (#41). |
 | `--domain, -d TEXT` | | Filter to one domain sub-namespace, e.g. `finance` (#41). |
+| `--min-relevance FLOAT` | `0.0` | Graded relevance floor (0.0-1.0). Drops weak query matches whose token overlap is below this fraction. Default `0.0` keeps every match (#247). |
 
-**Output:** A table of ranked memories with type, content, importance, emotion, and timestamp. Use `--full` or `--json` when an agent or script needs machine-readable output. The JSON payload includes `user_id`, `layer`, and `domain` fields per entry.
+**Output:** A table of ranked memories with type, content, importance, emotion, and timestamp. Use `--full` or `--json` when an agent or script needs machine-readable output. The JSON payload includes `user_id`, `layer`, `domain`, and `score` fields per entry. The `score` is the entry's activation score for the query (`null` for `--recent` output, which has no query to score against).
 
 ---
 
@@ -1642,7 +1712,7 @@ Archive a `.soul` file to eternal storage tiers (IPFS, Arweave, Blockchain). Use
 
 ```bash
 soul archive my-soul.soul
-soul archive .soul/ --tiers ipfs arweave
+soul archive .soul/ -t ipfs -t arweave
 ```
 
 **Arguments:**
@@ -1780,7 +1850,9 @@ Payloads are stored as hashes only — the table shows *what changed when*, not 
 
 ### `soul eval`
 
-Run YAML-driven soul-aware evals against a freshly seeded soul. The eval framework lets you pin the soul's state (memories, OCEAN, bonds, mood, energy) before each test runs, so you can measure memory-driven behaviour rather than just stateless input-output. See [eval-format.md](eval-format.md) for the full schema.
+Run YAML-driven soul-aware evals against a freshly seeded soul. The eval framework lets you pin the soul's state (memories, OCEAN, bonds, mood, energy) before each test runs, so you can measure memory-driven behaviour rather than just stateless input-output.
+
+It also scores plain prompts and skill outputs. A case with `mode: prompt` skips the soul and scores the case text verbatim — point it at a workspace prompt or a skill's output (for example `/humanize`) to catch regressions when that prompt or skill changes. See [eval-format.md](eval-format.md) for the full schema, including the `prompt` mode and the `humanizer_skill.yaml` reference spec.
 
 ```bash
 soul eval <path>
@@ -1813,6 +1885,10 @@ soul eval tests/eval_examples/                                  # all .yaml in d
 soul eval tests/eval_examples/ --filter "creative"
 soul eval my_eval.yaml --json | jq '.specs[].cases'
 soul eval my_eval.yaml --judge-engine my_module:make_engine
+
+# Score the /humanize skill (prompt-mode spec). The judge cases need an
+# engine; without one they SKIP and only the deterministic checks run.
+soul eval tests/eval_examples/humanizer_skill.yaml --judge-engine my_module:make_engine
 ```
 
 **Output:** one Rich table per spec (Case, Status, Score, Time, optional Details), plus a summary footer with totals. `--json` returns `{specs: [...], duration_ms, pass_count, fail_count, skip_count, error_count}`.
