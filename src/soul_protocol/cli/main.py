@@ -732,14 +732,13 @@ def status(path):
     help="Include private signing key in exported .soul file. "
     "Only use when migrating between your own devices.",
 )
-def export_cmd(source, output, fmt, include_keys):
-    """Export a Soul to a different format."""
+@click.option(
     "--password",
     "-p",
     is_flag=True,
     help="Encrypt the .soul file with AES-256-GCM (prompts interactively for password).",
 )
-def export_cmd(source, output, fmt, password):
+def export_cmd(source, output, fmt, include_keys, password):
     """Export a Soul to a different format.
 
     When --password is provided, the exported .soul archive is encrypted
@@ -774,7 +773,7 @@ def export_cmd(source, output, fmt, password):
         out = output or f"{_safe_name(soul.name)}.{fmt}"
 
         if fmt == "soul":
-            await soul.export(out, include_keys=True, password=password_val)
+            await soul.export(out, include_keys=include_keys, password=password_val)
         elif fmt == "json":
             Path(out).write_text(soul.serialize().model_dump_json(indent=2))
         elif fmt == "yaml":
