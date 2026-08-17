@@ -18,6 +18,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Model Consolidation:** The dual `MemoryEntry` models in `runtime/types.py` and `spec/memory.py` have been consolidated into a single canonical source of truth in the spec layer. The runtime layer re-exports them for backward compatibility.
 - **Spec Documentation:** `SOUL-FORMAT-SPEC.md` section 6.4 updated to match the v0.4.0/v0.5.0 model additions (layer, domain, ingested_at, superseded, scope, user_id, etc.).
 
+### Eternal storage content-address verification (#293)
+
+- **Breaking:** `EternalStorageProvider` protocol now requires two new members: `content_addressed: bool` property (whether the tier uses content-addressing) and `compute_reference(data: bytes) -> str` method (recompute the canonical reference from raw bytes). Third-party providers written against the previous RFC-005 contract will fail `register()` until they add both members. Non-content-addressed tiers should return `False` and raise `NotImplementedError` from `compute_reference()`. See amended RFC-005.
+- **Security fix:** `EternalStorageManager.recover()` now verifies retrieved bytes against the content-addressed reference for tiers where `content_addressed is True`. A compromised gateway returning substituted data for a valid CID is detected and rejected. `register()` validates provider conformance at registration time (fail-closed).
+- **CLI fix:** `soul recover` now exits with code 1 when recovery fails (e.g. content-address mismatch). Previously it printed an error but exited 0, allowing `soul recover ... && deploy` to proceed after a detected substitution attack.
+
+
 ### Deprecated
 
 - **`soul remember` CLI alias** - deprecated in favor of `soul note`. Still supported in v0.5.x, and now explicitly scheduled for removal in v0.7.0.

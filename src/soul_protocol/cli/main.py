@@ -1137,6 +1137,7 @@ def recover(reference, tier, output):
             )
         except RuntimeError as exc:
             console.print(f"[red]Recovery failed:[/red] {exc}")
+            raise click.exceptions.ClickException(str(exc))
 
     asyncio.run(_recover())
 
