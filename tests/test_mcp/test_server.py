@@ -1,4 +1,4 @@
-﻿# tests.test_mcp.test_server ΓÇö MCP server integration tests
+# tests.test_mcp.test_server ΓÇö MCP server integration tests
 # Updated: 2026-03-27 ΓÇö Added tests for 4 new tools: soul_forget, soul_edit_core,
 #   soul_health, soul_cleanup (v0.2.8).
 # Updated: feat/mcp-sampling-engine ΓÇö soul_reflect now returns "reflected" (not "skipped")

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from soul_protocol.runtime.health import CleanupAction, audit_health, execute_cleanup, plan_cleanup
 from soul_protocol.runtime.skills import Skill
