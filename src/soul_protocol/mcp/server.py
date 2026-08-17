@@ -1551,80 +1551,11 @@ async def soul_health(
         soul: Target soul name (uses active soul if omitted)
     """
 
-    from ..runtime.memory.compression import MemoryCompressor
+    from ..runtime.health import audit_health
 
     s = await _resolve_soul(soul)
-    mm = s.memory
-
-    episodic = mm.episodic_entries()
-    semantic = mm.semantic_facts()
-    procedural = mm.procedural_entries()
-    graph_nodes = mm.graph_entities()
-    skills = s.skills.skills
-    evals = s.eval_history
-    social_count = s.memory._social.count()
-    total = len(episodic) + len(semantic) + len(procedural) + social_count
-
-    # Detect duplicates
-    compressor = MemoryCompressor()
-    all_mems = episodic + semantic + procedural
-    deduped = compressor.deduplicate(all_mems, similarity_threshold=0.8)
-    dup_count = len(all_mems) - len(deduped)
-
-    # Low-importance
-    low_imp = [m for m in all_mems if m.importance <= 2]
-
-    # Stale eval procedurals
-    stale_proc = [p for p in procedural if p.content.startswith("Scored ")]
-
-    # Orphan graph nodes
-    all_content = " ".join(m.content for m in all_mems)
-    orphan_nodes = [n for n in graph_nodes if n.lower() not in all_content.lower() and len(n) > 2]
-
-    # Bond sanity
-    bond = s.bond
-    bond_issues = []
-    if bond.bond_strength > 100:
-        bond_issues.append(f"Bond strength {bond.bond_strength:.0f} exceeds 100")
-    if bond.bond_strength < 0:
-        bond_issues.append(f"Bond strength {bond.bond_strength:.0f} is negative")
-
-    # Skill sanity
-    skill_issues = []
-    for sk in skills:
-        if sk.xp < 0:
-            skill_issues.append(f"Skill {sk.id} has negative XP ({sk.xp})")
-        if sk.level < 1 or sk.level > 10:
-            skill_issues.append(f"Skill {sk.id} has invalid level ({sk.level})")
-
-    issues = bond_issues + skill_issues
-    if dup_count > 0:
-        issues.append(f"{dup_count} duplicate memories (>80% overlap)")
-    if len(orphan_nodes) > 10:
-        issues.append(f"{len(orphan_nodes)} orphan graph nodes")
-
-    return json.dumps(
-        {
-            "soul": s.name,
-            "tiers": {
-                "episodic": len(episodic),
-                "semantic": len(semantic),
-                "procedural": len(procedural),
-                "social": social_count,
-                "total": total,
-            },
-            "graph_nodes": len(graph_nodes),
-            "skills": len(skills),
-            "eval_history": len(evals),
-            "bond_strength": round(bond.bond_strength, 2),
-            "duplicates": dup_count,
-            "low_importance": len(low_imp),
-            "stale_evals": len(stale_proc),
-            "orphan_nodes": len(orphan_nodes),
-            "issues": issues,
-            "healthy": len(issues) == 0,
-        }
-    )
+    report = await audit_health(s)
+    return json.dumps(report.to_dict())
 
 
 @mcp.tool
@@ -1643,77 +1574,24 @@ async def soul_cleanup(
         soul: Target soul name (uses active soul if omitted)
     """
 
-    from ..runtime.memory.compression import MemoryCompressor
+    from ..runtime.health import plan_cleanup, execute_cleanup, CleanupResult
 
     s = await _resolve_soul(soul)
-    mm = s.memory
-    actions: list[tuple[str, str, set]] = []
+    actions = await plan_cleanup(s, orphan_nodes=False)
 
-    # 1. Deduplicate
-    compressor = MemoryCompressor()
-    for tier_name, get_entries in [
-        ("episodic", mm.episodic_entries),
-        ("semantic", mm.semantic_facts),
-        ("procedural", mm.procedural_entries),
-    ]:
-        entries = get_entries()
-        if not entries:
-            continue
-        deduped = compressor.deduplicate(entries, similarity_threshold=0.8)
-        removed_ids = {m.id for m in entries} - {m.id for m in deduped}
-        if removed_ids:
-            actions.append(("dedup", tier_name, removed_ids))
-
-    # 2. Stale evaluation procedurals
-    procedural = mm.procedural_entries()
-    stale = [p for p in procedural if p.content.startswith("Scored ") and p.importance <= 5]
-    if stale:
-        actions.append(("stale_evals", "procedural", {p.id for p in stale}))
-
-    # Build summary
-    summary: list[dict[str, Any]] = []
-    total_items = 0
-    for action_type, target, items in actions:
-        total_items += len(items)
-        summary.append(
-            {
-                "action": action_type,
-                "tier": target,
-                "count": len(items),
-            }
-        )
+    result = CleanupResult(soul_name=s.name, status="dry_run" if actions else "clean")
+    result.actions = actions
 
     if dry_run or not actions:
-        return json.dumps(
-            {
-                "status": "dry_run" if actions else "clean",
-                "soul": s.name,
-                "total_items": total_items,
-                "actions": summary,
-            }
-        )
+        return json.dumps(result.to_dict())
 
     # Execute cleanup
-    removed = 0
-    for action_type, target, items in actions:
-        for mid in items:
-            if target == "episodic":
-                await mm.remove_episodic(mid)
-            elif target == "semantic":
-                await mm.remove_semantic(mid)
-            elif target == "procedural":
-                await mm.remove_procedural(mid)
-            removed += 1
+    removed = await execute_cleanup(s, actions)
+    result.status = "cleaned"
+    result.total_removed = removed
 
     _registry.mark_modified(soul)
-    return json.dumps(
-        {
-            "status": "cleaned",
-            "soul": s.name,
-            "removed": removed,
-            "actions": summary,
-        }
-    )
+    return json.dumps(result.to_dict())
 
 
 # --- Context Tools (LCM — Lossless Context Management) ---

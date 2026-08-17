@@ -1,11 +1,11 @@
-# tests.test_mcp.test_server — MCP server integration tests
-# Updated: 2026-03-27 — Added tests for 4 new tools: soul_forget, soul_edit_core,
+﻿# tests.test_mcp.test_server ΓÇö MCP server integration tests
+# Updated: 2026-03-27 ΓÇö Added tests for 4 new tools: soul_forget, soul_edit_core,
 #   soul_health, soul_cleanup (v0.2.8).
-# Updated: feat/mcp-sampling-engine — soul_reflect now returns "reflected" (not "skipped")
+# Updated: feat/mcp-sampling-engine ΓÇö soul_reflect now returns "reflected" (not "skipped")
 #   because MCPSamplingEngine is lazily wired, which activates HeuristicEngine fallback.
 #   Updated test_soul_reflect to accept both outcomes.
-# Updated: 2026-03-18 — Auto-reload + background file watcher tests.
-# Updated: 2026-03-13 — Multi-soul support: SoulRegistry, SOUL_DIR, soul_list, soul_switch.
+# Updated: 2026-03-18 ΓÇö Auto-reload + background file watcher tests.
+# Updated: 2026-03-13 ΓÇö Multi-soul support: SoulRegistry, SOUL_DIR, soul_list, soul_switch.
 # Tests 12 tools, 3 resources, 2 prompts using FastMCP in-memory Client.
 
 from __future__ import annotations
@@ -19,13 +19,14 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip(
-    "fastmcp", reason="fastmcp required for MCP server tests — pip install soul-protocol[mcp]"
+    "fastmcp", reason="fastmcp required for MCP server tests ΓÇö pip install soul-protocol[mcp]"
 )
 
 from fastmcp import Client  # noqa: E402
 
 import soul_protocol.mcp.server as server_module  # noqa: E402
 from soul_protocol.mcp.server import mcp  # noqa: E402
+from soul_protocol.runtime.soul import Soul  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -213,7 +214,7 @@ async def test_soul_reflect():
         data = json.loads(result.data)
         # With MCPSamplingEngine wired (falls back to HeuristicEngine), reflect() can
         # return either "reflected" (heuristic ran) or "skipped" (no episodes yet).
-        # Both are valid outcomes — we just check the response is well-formed.
+        # Both are valid outcomes ΓÇö we just check the response is well-formed.
         assert data["status"] in ("reflected", "skipped")
         assert "soul" in data
 
@@ -423,7 +424,7 @@ async def test_multi_soul_autosave(tmp_path):
                 "soul_remember",
                 {"content": "Modified alpha memory", "soul": "Alpha"},
             )
-        # Client exited — auto-save ran
+        # Client exited ΓÇö auto-save ran
 
         # Verify Alpha's memory persisted
         reloaded = await Soul.awaken(str(dir_a))
@@ -608,7 +609,7 @@ async def test_lifespan_loads_soul_from_path(tmp_path):
 
 
 async def test_lifespan_handles_bad_path(tmp_path):
-    """Bad SOUL_PATH degrades gracefully — server starts without soul."""
+    """Bad SOUL_PATH degrades gracefully ΓÇö server starts without soul."""
     with (
         _env_context("SOUL_PATH", str(tmp_path / "nonexistent.soul")),
         _env_context("SOUL_DIR", None),
@@ -870,7 +871,7 @@ async def test_soul_forget_confirmed():
     """soul_forget with confirm=true forgets (weight-decay) memories.
 
     v0.5.0 (#192): semantic shift from delete to weight-decay. The
-    matched entries stay on disk but stop surfacing in recall — the
+    matched entries stay on disk but stop surfacing in recall ΓÇö the
     status reflects that.
     """
     async with Client(mcp) as client:
@@ -983,14 +984,36 @@ async def test_soul_cleanup_dry_run():
         data = json.loads(result.data)
         assert data["status"] in ("dry_run", "clean")
         assert "total_items" in data
+        assert "removed" in data
+        assert "total_removed" in data
         assert "actions" in data
+
+
+async def test_soul_cleanup_orphan_nodes_are_opt_in():
+    """MCP cleanup should not prune orphan graph nodes unless explicitly requested."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        soul = server_module._registry.active_soul
+        assert soul is not None
+        soul._memory._graph.add_entity("DetachedGraphNode", "concept")
+
+        result = await client.call_tool("soul_cleanup", {"dry_run": True})
+        data = json.loads(result.data)
+        assert all(a["action"] != "orphan_nodes" for a in data["actions"])
+
+        result = await client.call_tool(
+            "soul_cleanup",
+            {"dry_run": True, "orphan_nodes": True},
+        )
+        data = json.loads(result.data)
+        assert any(a["action"] == "orphan_nodes" for a in data["actions"])
 
 
 async def test_soul_cleanup_execute():
     """soul_cleanup with dry_run=false actually cleans up."""
     async with Client(mcp) as client:
         await _birth(client)
-        # Store a memory — even if there's nothing to clean, it should not error
+        # Store a memory ΓÇö even if there's nothing to clean, it should not error
         await client.call_tool(
             "soul_remember",
             {"content": "Memory for cleanup test", "importance": 5},
@@ -1002,6 +1025,27 @@ async def test_soul_cleanup_execute():
         data = json.loads(result.data)
         assert data["status"] in ("cleaned", "clean")
         assert "soul" in data
+        assert "removed" in data
+        assert "total_removed" in data
+
+
+async def test_soul_cleanup_execute_writes_backup_when_source_file_exists(tmp_path):
+    """Non-dry-run MCP cleanup mirrors the CLI safety backup for .soul files."""
+    soul = await Soul.birth("BackupBot", archetype="Test Archetype", values=["curiosity"])
+    await soul.remember("User likes Python programming very much", importance=6)
+    await soul.remember("User likes Python programming very much", importance=6)
+    soul_path = tmp_path / "backup-bot.soul"
+    await soul.export(soul_path)
+
+    with _env_context("SOUL_PATH", str(soul_path)):
+        async with Client(mcp) as client:
+            result = await client.call_tool("soul_cleanup", {"dry_run": False})
+            data = json.loads(result.data)
+
+    assert data["status"] == "cleaned"
+    assert data["removed"] == data["total_removed"] == 1
+    assert data["backup"] == str(soul_path.with_suffix(".soul.bak"))
+    assert soul_path.with_suffix(".soul.bak").exists()
 
 
 # --- v0.5.0 (#192) Memory primitive MCP tools ---

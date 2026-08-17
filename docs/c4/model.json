@@ -1,9 +1,10 @@
-{
-  "version": "1.0",
+﻿{
+  "version": "1.1",
   "scope": "soul-protocol",
-  "generated_at": "2026-06-21T12:30:00Z",
-  "source_path": "/Users/prakash-1/Documents/paw-workspace/soul-protocol",
+  "generated_at": "2026-07-21T05:15:00Z",
+  "source_path": "src/soul_protocol",
   "authored": true,
+  "note": "Updated for #288 ΓÇö hand-authored C4 refresh adding missing subsystems (engine, spec, eval, optimize, cognitive, context, dream, eternal, health).",
   "model": {
     "people": [],
     "systems": [
@@ -38,7 +39,7 @@
               {
                 "id": "dedup",
                 "name": "Dedup",
-                "description": "reconcile_fact() uses Jaccard + containment-coefficient token overlap to classify incoming memories as SKIP (>0.85, near-duplicate), MERGE (0.6–0.85, update existing), or CREATE (<0.6, genuinely new). src/soul_protocol/runtime/memory/dedup.py",
+                "description": "reconcile_fact() uses Jaccard + containment-coefficient token overlap to classify incoming memories as SKIP (>0.85, near-duplicate), MERGE (0.6ΓÇô0.85, update existing), or CREATE (<0.6, genuinely new). src/soul_protocol/runtime/memory/dedup.py",
                 "technology": "Python",
                 "kb_article": ""
               },
@@ -52,7 +53,7 @@
               {
                 "id": "personality",
                 "name": "Personality",
-                "description": "OCEAN Big Five personality model (openness/conscientiousness/extraversion/agreeableness/neuroticism, each 0–1), CommunicationStyle, and Biorhythms. Modulates memory recall and response tone. src/soul_protocol/runtime/types.py",
+                "description": "OCEAN Big Five personality model (openness/conscientiousness/extraversion/agreeableness/neuroticism, each 0ΓÇô1), CommunicationStyle, and Biorhythms. Modulates memory recall and response tone. src/soul_protocol/runtime/types.py",
                 "technology": "Python, Pydantic",
                 "kb_article": ""
               },
@@ -78,9 +79,72 @@
                 "kb_article": ""
               },
               {
+                "id": "engine",
+                "name": "Engine",
+                "description": "SQLite WAL-based journal engine for durable, transactional memory and context storage. Provides the persistence backend for memory tiers and context management. src/soul_protocol/engine/",
+                "technology": "Python, SQLite",
+                "kb_article": ""
+              },
+              {
+                "id": "spec",
+                "name": "Spec",
+                "description": "Protocol specification layer defining the portable, minimal soul types and layer types (journal, decisions, optional). The spec is engine-independent ΓÇö no opinions on runtime. src/soul_protocol/spec/",
+                "technology": "Python, Pydantic",
+                "kb_article": ""
+              },
+              {
+                "id": "eval",
+                "name": "Eval",
+                "description": "Soul-aware evaluation framework. Measures 7 psychology-informed dimensions (Memory Recall, Emotional Intelligence, Personality Expression, Bond/Relationship, Self-Model, Identity Continuity, Portability). Runs without an LLM for $0 cost. src/soul_protocol/eval/",
+                "technology": "Python",
+                "kb_article": ""
+              },
+              {
+                "id": "optimize",
+                "name": "Optimize",
+                "description": "Soul optimize / autoresearch subsystem. Automated soul tuning and research capabilities. Registered as `soul optimize` CLI command group. src/soul_protocol/optimize/",
+                "technology": "Python",
+                "kb_article": ""
+              },
+              {
+                "id": "cognitive",
+                "name": "Cognitive",
+                "description": "Higher-order cognitive pipeline: attention gating, psychology pipeline, sentiment analysis, and entity extraction. Filters mundane interactions and routes significant ones for deeper processing. src/soul_protocol/runtime/cognitive/",
+                "technology": "Python",
+                "kb_article": ""
+              },
+              {
+                "id": "context",
+                "name": "Context (LCM)",
+                "description": "Lossless Context Management ΓÇö immutable message store with automatic compaction. Manages conversation context windows with token budgets, ingestion, and rehydration. src/soul_protocol/runtime/context/",
+                "technology": "Python",
+                "kb_article": ""
+              },
+              {
+                "id": "dream",
+                "name": "Dream",
+                "description": "Dream engine for offline memory consolidation. Processes accumulated memories during idle periods, strengthening important connections and pruning noise. src/soul_protocol/runtime/dream.py",
+                "technology": "Python",
+                "kb_article": ""
+              },
+              {
+                "id": "eternal",
+                "name": "Eternal Storage",
+                "description": "Eternal storage provider for long-term, immutable soul archival. RFC-005 defines the protocol for external storage backends. src/soul_protocol/runtime/eternal/",
+                "technology": "Python",
+                "kb_article": ""
+              },
+              {
+                "id": "health",
+                "name": "Health",
+                "description": "Shared health-audit and cleanup logic. Single source of truth for soul health checks (memory tiers, duplicates, orphan nodes, bond/skill sanity) and cleanup operations (dedup, stale eval removal, orphan pruning). Used by both CLI and MCP. src/soul_protocol/runtime/health.py",
+                "technology": "Python",
+                "kb_article": ""
+              },
+              {
                 "id": "cli",
                 "name": "CLI",
-                "description": "Click CLI with 50+ commands: birth, init, observe, remember, recall, note, dream, feel, inject, evolve, bond, verify, audit, graph, and more. Entry point for human operators and shell scripts. src/soul_protocol/cli/main.py",
+                "description": "Click CLI with 50+ commands organized into main.py and subcommand modules (org, journal, diff, eval_cmd, optimize). Entry point for human operators and shell scripts. src/soul_protocol/cli/",
                 "technology": "Python, Click, Rich",
                 "kb_article": ""
               },
@@ -118,8 +182,18 @@
       {"source": "runtime", "target": "personality", "description": "applies OCEAN traits to recall and response tone", "technology": "", "style": "sync"},
       {"source": "runtime", "target": "evolution", "description": "proposes and applies trait mutations", "technology": "", "style": "sync"},
       {"source": "runtime", "target": "export-format", "description": "packs and unpacks .soul archives", "technology": "", "style": "sync"},
+      {"source": "runtime", "target": "cognitive", "description": "runs attention gating and psychology pipeline on observations", "technology": "", "style": "sync"},
+      {"source": "runtime", "target": "context", "description": "manages conversation context via LCM", "technology": "", "style": "sync"},
+      {"source": "runtime", "target": "dream", "description": "triggers offline memory consolidation", "technology": "", "style": "async"},
+      {"source": "runtime", "target": "eternal", "description": "archives immutable soul snapshots", "technology": "", "style": "async"},
+      {"source": "runtime", "target": "health", "description": "runs health audits and cleanup operations", "technology": "", "style": "sync"},
+      {"source": "cli", "target": "engine", "description": "runs journal-backed org commands through the SQLite WAL engine", "technology": "SQLite", "style": "sync"},
+      {"source": "context", "target": "spec", "description": "stores protocol-shaped context models for lossless context management", "technology": "Pydantic", "style": "sync"},
       {"source": "cli", "target": "runtime", "description": "drives all soul operations via Click commands", "technology": "", "style": "sync"},
+      {"source": "cli", "target": "health", "description": "delegates health/cleanup logic to shared module", "technology": "", "style": "sync"},
       {"source": "mcp-server", "target": "runtime", "description": "exposes soul operations as MCP tools", "technology": "MCP/stdio", "style": "sync"},
+      {"source": "mcp-server", "target": "health", "description": "delegates health/cleanup logic to shared module", "technology": "", "style": "sync"},
+      {"source": "eval", "target": "runtime", "description": "evaluates soul against 7 psychology dimensions", "technology": "", "style": "sync"},
       {"source": "pocketpaw", "target": "mcp-server", "description": "loads/saves companion memory via MCP tools", "technology": "MCP", "style": "sync"},
       {"source": "claude-code", "target": "mcp-server", "description": "reads and writes session memories via MCP tools", "technology": "MCP", "style": "sync"}
     ]
