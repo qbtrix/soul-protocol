@@ -1561,6 +1561,7 @@ async def soul_health(
 @mcp.tool
 async def soul_cleanup(
     dry_run: bool = True,
+    orphan_nodes: bool = False,
     soul: str | None = None,
 ) -> str:
     """Run cleanup on the soul — deduplicate memories and remove stale evals.
@@ -1571,13 +1572,14 @@ async def soul_cleanup(
 
     Args:
         dry_run: If true, report what would be cleaned without changing anything
+        orphan_nodes: If true, also prune orphan graph nodes (default false)
         soul: Target soul name (uses active soul if omitted)
     """
 
-    from ..runtime.health import plan_cleanup, execute_cleanup, CleanupResult
+    from ..runtime.health import CleanupResult, execute_cleanup, plan_cleanup
 
     s = await _resolve_soul(soul)
-    actions = await plan_cleanup(s, orphan_nodes=False)
+    actions = await plan_cleanup(s, orphan_nodes=orphan_nodes)
 
     result = CleanupResult(soul_name=s.name, status="dry_run" if actions else "clean")
     result.actions = actions
@@ -1585,10 +1587,25 @@ async def soul_cleanup(
     if dry_run or not actions:
         return json.dumps(result.to_dict())
 
+    # Back up before destructive writes (mirrors CLI safety backup)
+    backup_path = None
+    soul_path = getattr(s, "_source_path", None) or os.environ.get("SOUL_PATH")
+    if soul_path:
+        from pathlib import Path
+
+        from ..runtime.backup import backup_soul_file
+
+        p = Path(soul_path)
+        if p.exists():
+            bak = backup_soul_file(str(p))
+            if bak is not None:
+                backup_path = str(bak)
+
     # Execute cleanup
     removed = await execute_cleanup(s, actions)
     result.status = "cleaned"
     result.total_removed = removed
+    result.backup_path = backup_path
 
     _registry.mark_modified(soul)
     return json.dumps(result.to_dict())

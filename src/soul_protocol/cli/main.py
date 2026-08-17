@@ -3585,7 +3585,7 @@ def cleanup_cmd(
     """
 
     async def _cleanup():
-        from soul_protocol.runtime.health import plan_cleanup, execute_cleanup
+        from soul_protocol.runtime.health import execute_cleanup, plan_cleanup
 
         soul = await _awaken_or_fail(path)
         actions = await plan_cleanup(
