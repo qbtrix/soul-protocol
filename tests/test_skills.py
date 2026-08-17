@@ -72,7 +72,6 @@ class TestSkillXP:
         assert skill.xp == 999  # XP still accumulates
 
     def test_add_xp_updates_last_used(self):
-
         skill = Skill(id="coding", name="Coding")
         before = skill.last_used
         skill.add_xp(10)

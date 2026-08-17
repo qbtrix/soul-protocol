@@ -1,4 +1,7 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+# Updated: 2026-08-08 (#292) — Entity-derived skills now tagged with
+#   SkillSource.ENTITY so they are excluded from public_profile() and A2A cards.
+#   observe() entity extraction path passes source=SkillSource.ENTITY to Skill().
 # Updated: 2026-07-18 (#284) — Added public convenience API for CLI/MCP:
 #   memory (property), eval_history (property), clear_eval_history(),
 #   reset_energy(), reset_bond().
@@ -1205,6 +1208,10 @@ class Soul:
         the spec: identity + personality summary + skill names are public,
         memories and relationships are not.
 
+        Entity-derived skills (auto-created from extracted names during
+        ``observe()``) and legacy skills with unknown provenance are
+        excluded from the ``skills`` list (#292).
+
         Use this — never ``model_dump()`` — when serialising a soul for any
         third party.
         """
@@ -1216,7 +1223,7 @@ class Soul:
             "agreeableness": float(getattr(ocean, "agreeableness", 0.5)),
             "neuroticism": float(getattr(ocean, "neuroticism", 0.5)),
         }
-        skill_names = sorted(s.name for s in self._skills.skills)
+        skill_names = sorted(s.name for s in self._skills.public_skills())
         return {
             "did": self._identity.did,
             "name": self._identity.name,
@@ -2129,9 +2136,9 @@ class Soul:
             if skill:
                 skill.add_xp(xp_amount)
             else:
-                from .skills import Skill
+                from .skills import Skill, SkillSource
 
-                new_skill = Skill(id=entity_name, name=entity["name"])
+                new_skill = Skill(id=entity_name, name=entity["name"], source=SkillSource.ENTITY)
                 new_skill.add_xp(xp_amount)
                 self._skills.add(new_skill)
 
@@ -3082,9 +3089,9 @@ class Soul:
             if skill:
                 skill.add_xp(xp_amount)
             else:
-                from .skills import Skill
+                from .skills import Skill, SkillSource
 
-                new_skill = Skill(id=skill_id, name=domain)
+                new_skill = Skill(id=skill_id, name=domain, source=SkillSource.LEARNING)
                 new_skill.add_xp(xp_amount)
                 self._skills.add(new_skill)
 
