@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Architecture debt — extract health, rename list (#288)
+
+- **Refactor:** Extracted duplicated health-audit and cleanup logic from `cli/main.py` and `mcp/server.py` into a new shared module `runtime/health.py`. Both entry points now delegate to `audit_health()`, `plan_cleanup()`, and `execute_cleanup()`.
+- **Behaviour change:** `soul cleanup --apply` now reports the count of **actual removals** rather than planned attempts. If an entry is deleted between the dry-run plan and execution, "Cleaned N items" may be lower than the preview count. The dry-run preview is unchanged.
+- **Refactor:** Renamed the Python function `list()` to `list_cmd()` in `cli/main.py` to stop shadowing the builtin. The CLI command name (`soul list`) is unchanged.
+- **MCP:** `soul_cleanup` now accepts an `orphan_nodes` parameter (default `false`) and creates a `.soul.bak` backup before destructive writes, matching CLI behaviour.
+
+
 ### Skill visibility fix (#292)
 
 - **Breaking (silent behaviour change):** `public_profile()` and A2A agent cards now only advertise skills with `source` set to `MANUAL` or `PROCEDURE`. Entity-derived skills (extracted during `observe()`) are excluded. Previously, `observe()` auto-created a `Skill` from every extracted entity name with no type filter, leaking internal names (e.g. `Skill("Alice")`, `Skill("Acme Corp")`) into public-facing surfaces.

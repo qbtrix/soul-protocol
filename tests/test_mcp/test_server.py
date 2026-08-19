@@ -1,11 +1,11 @@
-# tests.test_mcp.test_server ΓÇö MCP server integration tests
-# Updated: 2026-03-27 ΓÇö Added tests for 4 new tools: soul_forget, soul_edit_core,
+# tests.test_mcp.test_server — MCP server integration tests
+# Updated: 2026-03-27 — Added tests for 4 new tools: soul_forget, soul_edit_core,
 #   soul_health, soul_cleanup (v0.2.8).
-# Updated: feat/mcp-sampling-engine ΓÇö soul_reflect now returns "reflected" (not "skipped")
+# Updated: feat/mcp-sampling-engine — soul_reflect now returns "reflected" (not "skipped")
 #   because MCPSamplingEngine is lazily wired, which activates HeuristicEngine fallback.
 #   Updated test_soul_reflect to accept both outcomes.
-# Updated: 2026-03-18 ΓÇö Auto-reload + background file watcher tests.
-# Updated: 2026-03-13 ΓÇö Multi-soul support: SoulRegistry, SOUL_DIR, soul_list, soul_switch.
+# Updated: 2026-03-18 — Auto-reload + background file watcher tests.
+# Updated: 2026-03-13 — Multi-soul support: SoulRegistry, SOUL_DIR, soul_list, soul_switch.
 # Tests 12 tools, 3 resources, 2 prompts using FastMCP in-memory Client.
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip(
-    "fastmcp", reason="fastmcp required for MCP server tests ΓÇö pip install soul-protocol[mcp]"
+    "fastmcp", reason="fastmcp required for MCP server tests — pip install soul-protocol[mcp]"
 )
 
 from fastmcp import Client  # noqa: E402
@@ -214,7 +214,7 @@ async def test_soul_reflect():
         data = json.loads(result.data)
         # With MCPSamplingEngine wired (falls back to HeuristicEngine), reflect() can
         # return either "reflected" (heuristic ran) or "skipped" (no episodes yet).
-        # Both are valid outcomes ΓÇö we just check the response is well-formed.
+        # Both are valid outcomes — we just check the response is well-formed.
         assert data["status"] in ("reflected", "skipped")
         assert "soul" in data
 
@@ -424,7 +424,7 @@ async def test_multi_soul_autosave(tmp_path):
                 "soul_remember",
                 {"content": "Modified alpha memory", "soul": "Alpha"},
             )
-        # Client exited ΓÇö auto-save ran
+        # Client exited — auto-save ran
 
         # Verify Alpha's memory persisted
         reloaded = await Soul.awaken(str(dir_a))
@@ -609,7 +609,7 @@ async def test_lifespan_loads_soul_from_path(tmp_path):
 
 
 async def test_lifespan_handles_bad_path(tmp_path):
-    """Bad SOUL_PATH degrades gracefully ΓÇö server starts without soul."""
+    """Bad SOUL_PATH degrades gracefully — server starts without soul."""
     with (
         _env_context("SOUL_PATH", str(tmp_path / "nonexistent.soul")),
         _env_context("SOUL_DIR", None),
@@ -871,7 +871,7 @@ async def test_soul_forget_confirmed():
     """soul_forget with confirm=true forgets (weight-decay) memories.
 
     v0.5.0 (#192): semantic shift from delete to weight-decay. The
-    matched entries stay on disk but stop surfacing in recall ΓÇö the
+    matched entries stay on disk but stop surfacing in recall — the
     status reflects that.
     """
     async with Client(mcp) as client:
@@ -1013,7 +1013,7 @@ async def test_soul_cleanup_execute():
     """soul_cleanup with dry_run=false actually cleans up."""
     async with Client(mcp) as client:
         await _birth(client)
-        # Store a memory ΓÇö even if there's nothing to clean, it should not error
+        # Store a memory — even if there's nothing to clean, it should not error
         await client.call_tool(
             "soul_remember",
             {"content": "Memory for cleanup test", "importance": 5},

@@ -1,10 +1,10 @@
-﻿{
+{
   "version": "1.1",
   "scope": "soul-protocol",
   "generated_at": "2026-07-21T05:15:00Z",
   "source_path": "src/soul_protocol",
   "authored": true,
-  "note": "Updated for #288 ΓÇö hand-authored C4 refresh adding missing subsystems (engine, spec, eval, optimize, cognitive, context, dream, eternal, health).",
+  "note": "Updated for #288 — hand-authored C4 refresh adding missing subsystems (engine, spec, eval, optimize, cognitive, context, dream, eternal, health).",
   "model": {
     "people": [],
     "systems": [
@@ -88,7 +88,7 @@
               {
                 "id": "spec",
                 "name": "Spec",
-                "description": "Protocol specification layer defining the portable, minimal soul types and layer types (journal, decisions, optional). The spec is engine-independent ΓÇö no opinions on runtime. src/soul_protocol/spec/",
+                "description": "Protocol specification layer defining the portable, minimal soul types and layer types (journal, decisions, optional). The spec is engine-independent — no opinions on runtime. src/soul_protocol/spec/",
                 "technology": "Python, Pydantic",
                 "kb_article": ""
               },
@@ -116,7 +116,7 @@
               {
                 "id": "context",
                 "name": "Context (LCM)",
-                "description": "Lossless Context Management ΓÇö immutable message store with automatic compaction. Manages conversation context windows with token budgets, ingestion, and rehydration. src/soul_protocol/runtime/context/",
+                "description": "Lossless Context Management — immutable message store with automatic compaction. Manages conversation context windows with token budgets, ingestion, and rehydration. src/soul_protocol/runtime/context/",
                 "technology": "Python",
                 "kb_article": ""
               },
