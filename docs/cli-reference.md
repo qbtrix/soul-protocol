@@ -305,8 +305,8 @@ soul export aria.soul --output aria.yaml --format yaml
 # Export to human-readable Markdown (DNA only)
 soul export aria.soul --output aria.md --format md
 
-# Export with AES-256-GCM encryption (prompts interactively for password)
-soul export aria.soul -o encrypted.soul --password
+# Include private signing key (for device migration only)
+soul export aria.soul -o aria.soul --include-keys
 ```
 
 **Arguments:**
@@ -327,7 +327,7 @@ soul export aria.soul -o encrypted.soul --password
 
 | Format | Contents | Use case |
 |--------|----------|----------|
-| `soul` | Zip archive with `soul.json`, `dna.md`, `state.json`, `memory/*.json`, `manifest.json` | Portable transfer between machines |
+| `soul` | Zip archive with `soul.json`, `dna.md`, `state.json`, `memory/*.json`, `manifest.json` | Portable transfer between machines. Pass `--include-keys` to carry signing power. |
 | `json` | Full `SoulConfig` as indented JSON | API integration, programmatic access |
 | `yaml` | Full `SoulConfig` as YAML | Human-editable configuration |
 | `md` | DNA markdown (identity + personality + communication + biorhythms) | Documentation, sharing personality specs |

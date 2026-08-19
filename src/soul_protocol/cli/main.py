@@ -726,12 +726,19 @@ def status(path):
     help="Export format",
 )
 @click.option(
+    "--include-keys",
+    is_flag=True,
+    default=False,
+    help="Include private signing key in exported .soul file. "
+    "Only use when migrating between your own devices.",
+)
+@click.option(
     "--password",
     "-p",
     is_flag=True,
     help="Encrypt the .soul file with AES-256-GCM (prompts interactively for password).",
 )
-def export_cmd(source, output, fmt, password):
+def export_cmd(source, output, fmt, include_keys, password):
     """Export a Soul to a different format.
 
     When --password is provided, the exported .soul archive is encrypted
@@ -766,7 +773,7 @@ def export_cmd(source, output, fmt, password):
         out = output or f"{_safe_name(soul.name)}.{fmt}"
 
         if fmt == "soul":
-            await soul.export(out, include_keys=True, password=password_val)
+            await soul.export(out, include_keys=include_keys, password=password_val)
         elif fmt == "json":
             Path(out).write_text(soul.serialize().model_dump_json(indent=2))
         elif fmt == "yaml":
@@ -779,6 +786,10 @@ def export_cmd(source, output, fmt, password):
             Path(out).write_text(dna_to_markdown(soul.identity, soul.dna))
 
         console.print(f"[green]Exported[/green] {soul.name} to {out} ({fmt})")
+        if fmt == "soul" and not include_keys:
+            console.print(
+                "[dim]Private key not included; pass --include-keys to migrate signing power.[/dim]"
+            )
         if password_val and fmt == "soul":
             console.print("[dim]File is encrypted with AES-256-GCM.[/dim]")
 
