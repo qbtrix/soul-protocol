@@ -39,7 +39,7 @@
               {
                 "id": "dedup",
                 "name": "Dedup",
-                "description": "reconcile_fact() uses Jaccard + containment-coefficient token overlap to classify incoming memories as SKIP (>0.85, near-duplicate), MERGE (0.6ΓÇô0.85, update existing), or CREATE (<0.6, genuinely new). src/soul_protocol/runtime/memory/dedup.py",
+                "description": "reconcile_fact() uses Jaccard + containment-coefficient token overlap to classify incoming memories as SKIP (>0.85, near-duplicate), MERGE (0.6–0.85, update existing), or CREATE (<0.6, genuinely new). src/soul_protocol/runtime/memory/dedup.py",
                 "technology": "Python",
                 "kb_article": ""
               },
@@ -53,7 +53,7 @@
               {
                 "id": "personality",
                 "name": "Personality",
-                "description": "OCEAN Big Five personality model (openness/conscientiousness/extraversion/agreeableness/neuroticism, each 0ΓÇô1), CommunicationStyle, and Biorhythms. Modulates memory recall and response tone. src/soul_protocol/runtime/types.py",
+                "description": "OCEAN Big Five personality model (openness/conscientiousness/extraversion/agreeableness/neuroticism, each 0–1), CommunicationStyle, and Biorhythms. Modulates memory recall and response tone. src/soul_protocol/runtime/types.py",
                 "technology": "Python, Pydantic",
                 "kb_article": ""
               },
