@@ -538,3 +538,15 @@ async def test_bond_and_skills_accessible():
     assert soul.bond.bond_strength == 50.0
     assert soul.skills is not None
     assert len(soul.skills.skills) == 0
+
+
+async def test_birth_unknown_kwargs_logs_warning(caplog):
+    """Soul.birth() with a typoed kwarg should log a warning, not crash."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="soul_protocol.runtime.soul"):
+        soul = await Soul.birth("WarnBot", souldirr="bad_path", bogus=42)
+
+    assert soul.name == "WarnBot"
+    assert any("Ignoring unsupported" in msg for msg in caplog.messages)
+    assert any("bogus" in msg and "souldirr" in msg for msg in caplog.messages)

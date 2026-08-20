@@ -128,21 +128,3 @@ async def test_non_contradiction_not_flagged(tmp_path):
 
     results = await detector.detect_heuristic("User moved to Amsterdam", existing)
     assert len(results) == 0, "Unrelated facts incorrectly flagged as contradiction"
-
-
-# --- #289: Soul.birth() unknown kwargs warning ----------------------------------
-
-
-@pytest.mark.asyncio
-async def test_birth_unknown_kwargs_logs_warning(caplog):
-    """Soul.birth() with a typoed kwarg should log a warning, not crash."""
-    import logging
-
-    from soul_protocol import Soul
-
-    with caplog.at_level(logging.WARNING, logger="soul_protocol.runtime.soul"):
-        soul = await Soul.birth("WarnBot", souldirr="bad_path", bogus=42)
-
-    assert soul.name == "WarnBot"
-    assert any("Ignoring unsupported" in msg for msg in caplog.messages)
-    assert any("bogus" in msg and "souldirr" in msg for msg in caplog.messages)
