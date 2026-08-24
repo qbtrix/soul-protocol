@@ -126,6 +126,9 @@
 #   Recall now uses ACT-R activation scoring via updated RecallEngine.
 # Updated: Removed PII from debug logs — recall logs query length instead of
 #   raw query text, fact conflict resolution logs word count instead of content.
+# Updated: 2026-08-02 (#291) — Fixed forget / forget_entity / forget_before /
+#   purge_by_id / _find_entry_by_id / remove / count to include the social
+#   memory tier. Added _all_stores() helper so tier iteration is centralized.
 
 from __future__ import annotations
 
@@ -1330,13 +1333,28 @@ class MemoryManager:
         logger.debug("Recall query_len=%d returned %d results", len(query), len(results))
         return results
 
+    # ---- v0.5.0 (#291) — Centralized tier iteration helper ----
+    # Every future memory tier must be added here *once* and all deletion /
+    # mutation / count paths pick it up automatically. Adding a tier anywhere
+    # else is a bug — the set of built-in stores is the single source of truth.
+    def _all_stores(self) -> list[tuple[str, object]]:
+        """Return every built-in memory store as ``(tier_name, store)`` pairs.
+
+        The order matches the canonical tier order used by ``to_dict()``,
+        ``known_layers()``, and ``clear()``: episodic → semantic → procedural
+        → social.
+        """
+        return [
+            ("episodic", self._episodic),
+            ("semantic", self._semantic),
+            ("procedural", self._procedural),
+            ("social", self._social),
+        ]
+
     async def remove(self, memory_id: str) -> bool:
-        if await self._episodic.remove(memory_id):
-            return True
-        if await self._semantic.remove(memory_id):
-            return True
-        if await self._procedural.remove(memory_id):
-            return True
+        for _name, store in self._all_stores():
+            if await store.remove(memory_id):
+                return True
         return False
 
     # ---- Archival memory (F2) ----
@@ -1520,14 +1538,20 @@ class MemoryManager:
               - episodic: list of deleted episodic memory IDs
               - semantic: list of deleted semantic fact IDs
               - procedural: list of deleted procedural memory IDs
+              - social: list of deleted social memory IDs
               - total: total count of deleted memories
         """
         # Search and delete from each tier
-        episodic_ids = await self._episodic.search_and_delete(query)
-        semantic_ids = await self._semantic.search_and_delete(query)
-        procedural_ids = await self._procedural.search_and_delete(query)
+        result: dict[str, list[str] | int] = {}
+        total = 0
+        tier_counts: dict[str, int] = {}
+        for name, store in self._all_stores():
+            ids = await store.search_and_delete(query)
+            result[name] = ids
+            total += len(ids)
+            tier_counts[name] = len(ids)
 
-        total = len(episodic_ids) + len(semantic_ids) + len(procedural_ids)
+        result["total"] = total
 
         # Record audit entry (no deleted content stored)
         if total > 0:
@@ -1536,20 +1560,11 @@ class MemoryManager:
                     "deleted_at": datetime.now(UTC).isoformat(),
                     "count": total,
                     "reason": f"forget(query='{query}')",
-                    "tiers": {
-                        "episodic": len(episodic_ids),
-                        "semantic": len(semantic_ids),
-                        "procedural": len(procedural_ids),
-                    },
+                    "tiers": tier_counts,
                 }
             )
 
-        return {
-            "episodic": episodic_ids,
-            "semantic": semantic_ids,
-            "procedural": procedural_ids,
-            "total": total,
-        }
+        return result
 
     async def forget_entity(self, entity: str) -> dict:
         """Remove an entity from the knowledge graph and related memories.
@@ -1567,17 +1582,23 @@ class MemoryManager:
               - episodic: list of deleted episodic memory IDs
               - semantic: list of deleted semantic fact IDs
               - procedural: list of deleted procedural memory IDs
+              - social: list of deleted social memory IDs
               - total: total count of deleted memories + edges
         """
         # Remove from knowledge graph
         edges_removed = self._graph.remove_entity(entity)
 
         # Remove related memories from all tiers
-        episodic_ids = await self._episodic.search_and_delete(entity)
-        semantic_ids = await self._semantic.search_and_delete(entity)
-        procedural_ids = await self._procedural.search_and_delete(entity)
+        result: dict[str, list[str] | int] = {"edges_removed": edges_removed}
+        total = edges_removed
+        tier_counts: dict[str, int] = {"graph_edges": edges_removed}
+        for name, store in self._all_stores():
+            ids = await store.search_and_delete(entity)
+            result[name] = ids
+            total += len(ids)
+            tier_counts[name] = len(ids)
 
-        total = edges_removed + len(episodic_ids) + len(semantic_ids) + len(procedural_ids)
+        result["total"] = total
 
         # Record audit entry
         if total > 0:
@@ -1586,22 +1607,11 @@ class MemoryManager:
                     "deleted_at": datetime.now(UTC).isoformat(),
                     "count": total,
                     "reason": f"forget_entity(entity='{entity}')",
-                    "tiers": {
-                        "graph_edges": edges_removed,
-                        "episodic": len(episodic_ids),
-                        "semantic": len(semantic_ids),
-                        "procedural": len(procedural_ids),
-                    },
+                    "tiers": tier_counts,
                 }
             )
 
-        return {
-            "edges_removed": edges_removed,
-            "episodic": episodic_ids,
-            "semantic": semantic_ids,
-            "procedural": procedural_ids,
-            "total": total,
-        }
+        return result
 
     async def forget_before(self, timestamp: datetime) -> dict:
         """Bulk delete memories older than a given timestamp.
@@ -1618,13 +1628,19 @@ class MemoryManager:
               - episodic: list of deleted episodic memory IDs
               - semantic: list of deleted semantic fact IDs
               - procedural: list of deleted procedural memory IDs
+              - social: list of deleted social memory IDs
               - total: total count of deleted memories
         """
-        episodic_ids = await self._episodic.delete_before(timestamp)
-        semantic_ids = await self._semantic.delete_before(timestamp)
-        procedural_ids = await self._procedural.delete_before(timestamp)
+        result: dict[str, list[str] | int] = {}
+        total = 0
+        tier_counts: dict[str, int] = {}
+        for name, store in self._all_stores():
+            ids = await store.delete_before(timestamp)
+            result[name] = ids
+            total += len(ids)
+            tier_counts[name] = len(ids)
 
-        total = len(episodic_ids) + len(semantic_ids) + len(procedural_ids)
+        result["total"] = total
 
         # Record audit entry
         if total > 0:
@@ -1633,35 +1649,21 @@ class MemoryManager:
                     "deleted_at": datetime.now(UTC).isoformat(),
                     "count": total,
                     "reason": f"forget_before(timestamp='{timestamp.isoformat()}')",
-                    "tiers": {
-                        "episodic": len(episodic_ids),
-                        "semantic": len(semantic_ids),
-                        "procedural": len(procedural_ids),
-                    },
+                    "tiers": tier_counts,
                 }
             )
 
-        return {
-            "episodic": episodic_ids,
-            "semantic": semantic_ids,
-            "procedural": procedural_ids,
-            "total": total,
-        }
+        return result
 
     async def _find_entry_by_id(self, memory_id: str) -> tuple[MemoryEntry | None, str | None]:
-        """Look up a memory entry by ID across episodic, semantic, procedural.
+        """Look up a memory entry by ID across all built-in memory tiers.
 
         Returns a (entry, tier_name) pair or (None, None) if absent.
         """
-        entry = await self._episodic.get(memory_id)
-        if entry is not None:
-            return entry, "episodic"
-        entry = await self._semantic.get(memory_id)
-        if entry is not None:
-            return entry, "semantic"
-        entry = await self._procedural.get(memory_id)
-        if entry is not None:
-            return entry, "procedural"
+        for name, store in self._all_stores():
+            entry = await store.get(memory_id)
+            if entry is not None:
+                return entry, name
         return None, None
 
     async def forget_by_id(self, memory_id: str) -> dict:
@@ -1670,8 +1672,8 @@ class MemoryManager:
         Returns a dict in the same shape as ``forget()`` so callers can use a
         single display path:
 
-          - ``episodic`` / ``semantic`` / ``procedural`` — list of deleted IDs
-            (length 0 or 1).
+          - ``episodic`` / ``semantic`` / ``procedural`` / ``social`` — list of
+            deleted IDs (length 0 or 1).
           - ``total`` — 0 if not found, 1 if deleted.
           - ``found`` — bool.
           - ``tier`` — name of the tier the entry lived in, or None.
@@ -1684,6 +1686,7 @@ class MemoryManager:
             "episodic": [],
             "semantic": [],
             "procedural": [],
+            "social": [],
             "total": 0,
             "found": entry is not None,
             "tier": tier,
@@ -1692,13 +1695,7 @@ class MemoryManager:
             return result
 
         # Delete from the tier we found it in.
-        deleted = False
-        if tier == "episodic":
-            deleted = await self._episodic.remove(memory_id)
-        elif tier == "semantic":
-            deleted = await self._semantic.remove(memory_id)
-        elif tier == "procedural":
-            deleted = await self._procedural.remove(memory_id)
+        deleted = await self._delete_in_layer(tier, memory_id)
 
         if not deleted:
             # Should not happen — the find succeeded above.  Return found=False
@@ -1902,13 +1899,7 @@ class MemoryManager:
                 "prior_payload_hash": None,
             }
         prior_hash = hashlib.sha256(entry.content.encode("utf-8")).hexdigest()
-        deleted = False
-        if tier == "episodic":
-            deleted = await self._episodic.remove(memory_id)
-        elif tier == "semantic":
-            deleted = await self._semantic.remove(memory_id)
-        elif tier == "procedural":
-            deleted = await self._procedural.remove(memory_id)
+        deleted = await self._delete_in_layer(tier, memory_id)
         if not deleted:
             return {
                 "found": False,
@@ -2325,11 +2316,12 @@ class MemoryManager:
         return self._settings
 
     def count(self) -> int:
-        return (
-            len(self._episodic._memories)
-            + len(self._semantic._facts)
-            + len(self._procedural._procedures)
-        )
+        """Total memory count across all built-in tiers.
+
+        Uses ``store.count()`` so that any new tier added to
+        ``_all_stores()`` is automatically included (#291 review).
+        """
+        return sum(store.count() for _name, store in self._all_stores())
 
     # ---- Public tier access (v0.5.0 #284) ----
     # These methods expose read-only access to individual memory tiers so
@@ -2526,9 +2518,10 @@ class MemoryManager:
             manager._archival._archives.append(archive)
 
         logger.debug(
-            "MemoryManager restored: episodic=%d, semantic=%d, procedural=%d",
+            "MemoryManager restored: episodic=%d, semantic=%d, procedural=%d, social=%d",
             len(manager._episodic._memories),
             len(manager._semantic._facts),
             len(manager._procedural._procedures),
+            len(manager._social._entries),
         )
         return manager

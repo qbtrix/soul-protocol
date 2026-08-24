@@ -1000,7 +1000,7 @@ soul forget .soul/ --id bf0ee3453983 --apply              # surgical single-id
 
 Exactly one of `QUERY`, `--id`, `--entity`, or `--before` is required. Without `--apply` you get a count + per-tier breakdown without changes. With `--apply`, the runtime confirms (unless `--confirm`), writes a `.soul.bak`, deletes, saves, and reports.
 
-**Output:** A preview line (or post-action line) of the form `would forget N memories from <name>` (or `Forgot N memories ...`), followed by per-tier counts. Per-tier display reads from the result dict's `episodic` / `semantic` / `procedural` lists; if you script the runtime API directly the same shape is returned.
+**Output:** A preview line (or post-action line) of the form `would forget N memories from <name>` (or `Forgot N memories ...`), followed by per-tier counts. Per-tier display reads from the result dict's `episodic` / `semantic` / `procedural` / `social` lists; if you script the runtime API directly the same shape is returned.
 
 ---
 
@@ -1031,7 +1031,7 @@ soul supersede aria.soul "User now prefers light mode" \
 | `--reason TEXT` | Why the old memory is wrong or out-of-date (recorded in the supersede audit). |
 | `--importance / -i INT` | Importance score for the new memory (1-10, default: 5). |
 | `--emotion / -e TEXT` | Emotion tag for the new memory. |
-| `--type / -t {episodic,semantic,procedural}` | Tier for the new memory. Defaults to the old entry's tier. |
+| `--type / -t {episodic,semantic,procedural,social}` | Tier for the new memory. Defaults to the old entry's tier. |
 
 **Output:** A panel showing the old ID, new ID, tier, reason, and the new content. Saves the soul automatically. Exits non-zero if `--old-id` does not resolve.
 
@@ -1655,7 +1655,7 @@ soul health .soul/
 ```
 
 Shows a panel with:
-- Memory tier counts (episodic, semantic, procedural)
+- Memory tier counts (episodic, semantic, procedural, social)
 - Knowledge graph nodes, skills, evaluation history count
 - Bond strength and interaction count
 - Issues: duplicates (>80% overlap), orphan graph nodes, skill/bond integrity
