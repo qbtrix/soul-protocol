@@ -550,6 +550,8 @@ async def test_birth_unknown_kwargs_logs_warning(caplog):
     assert soul.name == "WarnBot"
     assert any("Ignoring unsupported" in msg for msg in caplog.messages)
     assert any("bogus" in msg and "souldirr" in msg for msg in caplog.messages)
+
+
 async def test_memory_count_includes_social():
     """memory_count must include social entries (#291).
 
