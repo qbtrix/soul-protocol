@@ -550,3 +550,21 @@ async def test_birth_unknown_kwargs_logs_warning(caplog):
     assert soul.name == "WarnBot"
     assert any("Ignoring unsupported" in msg for msg in caplog.messages)
     assert any("bogus" in msg and "souldirr" in msg for msg in caplog.messages)
+async def test_memory_count_includes_social():
+    """memory_count must include social entries (#291).
+
+    This pins the exact regression the social-deletion PR fixes: before #291,
+    social entries were stored but not counted by memory_count.
+    """
+    from soul_protocol.spec.memory import MemoryEntry
+
+    soul = await Soul.birth("Aria", archetype="Test")
+    before = soul.memory_count
+
+    # Add a social memory directly
+    entry = MemoryEntry(content="Alice is a close friend", type=MemoryType.SOCIAL, layer="social")
+    await soul._memory._social.add(entry)
+
+    assert soul.memory_count == before + 1, (
+        f"memory_count should include social entries: before={before}, after={soul.memory_count}"
+    )

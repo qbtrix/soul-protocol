@@ -116,6 +116,10 @@ class ProceduralStore:
             del self._procedures[mid]
         return to_delete
 
+    def count(self) -> int:
+        """Return the number of stored procedural memories."""
+        return len(self._procedures)
+
     def entries(self) -> list[MemoryEntry]:
         """Return all procedural memories, sorted by importance desc then recency desc."""
         return sorted(

@@ -495,7 +495,7 @@ async def forget(self, query_or_id: str, *, user_id: str | None = None) -> dict
 
 **Dispatch:**
 - If `query_or_id` resolves to a known memory id, this is the single-id verb. Returns `{found, id, action: "forgotten", weight, tier}` and appends a `memory.forget` chain entry with `{id, tier, weight_after}`.
-- Otherwise it is the bulk query path (back-compat for pre-0.5.0 `Soul.forget(query)`). Every match has its retrieval_weight dropped to 0.05. Returns the legacy shape `{episodic, semantic, procedural, total}`.
+- Otherwise it is the bulk query path (back-compat for pre-0.5.0 `Soul.forget(query)`). Every match has its retrieval_weight dropped to 0.05. Returns the legacy shape `{episodic, semantic, procedural, social, total}`.
 
 The action name on the chain is unchanged from 0.4.0 (`memory.forget`); only the payload shape grows. `user_id` is recorded on the chain entry when provided.
 
@@ -533,7 +533,7 @@ Audited single-id deletion. Records a deletion audit entry when the entry exists
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `episodic` / `semantic` / `procedural` | `list[str]` | The deleted ID (length 0 or 1) by tier. |
+| `episodic` / `semantic` / `procedural` / `social` | `list[str]` | The deleted ID (length 0 or 1) by tier. |
 | `total` | `int` | 0 if not found, 1 if deleted. |
 | `found` | `bool` | Whether `memory_id` resolved. |
 | `tier` | `str \| None` | Tier the entry lived in, or `None`. |
