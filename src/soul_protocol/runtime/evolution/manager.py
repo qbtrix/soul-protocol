@@ -1,4 +1,7 @@
 # evolution/manager.py — EvolutionManager for proposing, approving, and applying DNA mutations.
+# Updated: 2026-07-29 (#289) — _get_nested_attr and _set_nested_attr now raise
+#   ValueError on invalid trait paths. _set_nested_attr coercion extracted to
+#   _coerce_nested_value. propose() validates the new value before recording.
 # Updated: Fixed pending mutations not persisting — moved from in-memory list to
 #   EvolutionConfig.pending so mutations survive save/reload cycles.
 # Updated: Wired check_triggers() to accept optional evaluation_triggers from
@@ -22,12 +25,36 @@ def _get_nested_attr(obj: object, path: str) -> str:
     """Resolve a dot-separated attribute path and return its string value."""
     parts = path.split(".")
     current = obj
-    for part in parts:
-        if isinstance(current, dict):
-            current = current[part]
-        else:
-            current = getattr(current, part)
+    try:
+        for part in parts:
+            if isinstance(current, dict):
+                current = current[part]
+            else:
+                current = getattr(current, part)
+    except (AttributeError, KeyError) as exc:
+        raise ValueError(f"Invalid trait path '{path}'.") from exc
     return str(current)
+
+
+def _coerce_nested_value(existing: object, value: str, path: str) -> object:
+    """Coerce a mutation value to the type currently stored at ``path``."""
+    try:
+        if isinstance(existing, bool):
+            if value.lower() in {"true", "1", "yes", "on"}:
+                return True
+            if value.lower() in {"false", "0", "no", "off"}:
+                return False
+            raise ValueError
+        if isinstance(existing, float):
+            return float(value)
+        if isinstance(existing, int):
+            return int(value)
+    except (TypeError, ValueError) as exc:
+        expected = type(existing).__name__
+        raise ValueError(
+            f"Invalid value for trait '{path}': cannot coerce {value!r} to {expected}."
+        ) from exc
+    return value
 
 
 def _set_nested_attr(obj: object, path: str, value: str) -> None:
@@ -38,24 +65,26 @@ def _set_nested_attr(obj: object, path: str, value: str) -> None:
     """
     parts = path.split(".")
     current = obj
-    for part in parts[:-1]:
-        if isinstance(current, dict):
-            current = current[part]
-        else:
-            current = getattr(current, part)
+    try:
+        for part in parts[:-1]:
+            if isinstance(current, dict):
+                current = current[part]
+            else:
+                current = getattr(current, part)
+    except (AttributeError, KeyError) as exc:
+        raise ValueError(f"Invalid trait path '{path}'.") from exc
 
     final_key = parts[-1]
-    existing = getattr(current, final_key) if hasattr(current, final_key) else None
-
-    # Coerce to the original type when possible
-    if isinstance(existing, float):
-        coerced: object = float(value)
-    elif isinstance(existing, int):
-        coerced = int(value)
-    else:
-        coerced = value
-
-    setattr(current, final_key, coerced)
+    if isinstance(current, dict):
+        if final_key not in current:
+            raise ValueError(f"Invalid trait path '{path}'.")
+        existing = current[final_key]
+        current[final_key] = _coerce_nested_value(existing, value, path)
+        return
+    if not hasattr(current, final_key):
+        raise ValueError(f"Invalid trait path '{path}'.")
+    existing = getattr(current, final_key)
+    setattr(current, final_key, _coerce_nested_value(existing, value, path))
 
 
 class EvolutionManager:
@@ -110,6 +139,11 @@ class EvolutionManager:
             raise ValueError(f"Trait '{trait}' falls under immutable category '{top_level_trait}'.")
 
         old_value = _get_nested_attr(dna, trait)
+        # Validate the proposed value before it can enter pending/history.
+        # This keeps approve() from recording an approved mutation that apply()
+        # cannot actually materialize.
+        shadow_dna = DNA.model_validate(dna.model_dump())
+        _set_nested_attr(shadow_dna, trait, new_value)
 
         mutation = Mutation(
             id=uuid.uuid4().hex[:12],

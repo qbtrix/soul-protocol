@@ -133,13 +133,15 @@ Create a new soul with a unique DID. Sets lifecycle to `ACTIVE` and initializes 
 | `bonded_to` | `str \| None` | `None` | Entity this soul is bonded to |
 | `engine` | `CognitiveEngine \| None` | `None` | LLM backend |
 | `search_strategy` | `SearchStrategy \| None` | `None` | Custom retrieval scoring |
-| `**kwargs` | | | Reserved for future use |
+| `**kwargs` | | | Reserved for future use; ignored with a warning |
 
 **Returns:** `Soul`
 
 ```python
 soul = await Soul.birth("Kavi", archetype="wise companion", values=["curiosity", "honesty"])
 ```
+
+Unknown keyword arguments are ignored with a warning for forward compatibility.
 
 #### `Soul.awaken()`
 

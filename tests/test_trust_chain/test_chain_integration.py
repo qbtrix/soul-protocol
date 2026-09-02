@@ -109,9 +109,9 @@ async def test_approve_evolution_appends_entry():
     pre_count = soul.trust_chain.length
     approved = await soul.approve_evolution(mutation.id)
 
-    if approved:
-        actions_after = [e.action for e in soul.trust_chain.entries[pre_count:]]
-        assert "evolution.applied" in actions_after
+    assert approved is True
+    actions_after = [e.action for e in soul.trust_chain.entries[pre_count:]]
+    assert "evolution.applied" in actions_after
 
 
 @pytest.mark.asyncio

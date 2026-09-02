@@ -12,6 +12,9 @@
 # Updated: 2026-08-08 (#292) — Entity-derived skills now tagged with
 #   SkillSource.ENTITY so they are excluded from public_profile() and A2A cards.
 #   observe() entity extraction path passes source=SkillSource.ENTITY to Skill().
+# Updated: 2026-07-29 (#289) — Soul.birth() now warns on unknown **kwargs so
+#   typoed config keys are visible. evolution/manager._set_nested_attr() raises
+#   ValueError on invalid trait paths instead of silently creating new attrs.
 # Updated: 2026-08-03 (#291) — forget(), forget_entity(), purge(), supersede(),
 #   update_in_place(), and bulk forget_bulk() now include the social memory tier.
 # Updated: 2026-07-18 (#284) — Added public convenience API for CLI/MCP:
@@ -873,8 +876,14 @@ class Soul:
                 Falls back silently to heuristic if dspy is not available.
             dspy_model: DSPy-compatible LM model string (default: claude-haiku-4-5).
             dspy_optimized_path: Path to pre-optimized DSPy module weights.
-            **kwargs: Additional arguments (reserved for future use).
+            **kwargs: Additional arguments reserved for future use. Ignored with
+                a warning so typoed configuration arguments are visible without
+                breaking forward compatibility.
         """
+        if kwargs:
+            unexpected = ", ".join(sorted(kwargs))
+            logger.warning("Ignoring unsupported Soul.birth() keyword argument(s): %s", unexpected)
+
         identity = Identity(
             did=generate_did(name),
             name=name,
