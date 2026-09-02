@@ -898,8 +898,8 @@ def delete_cmd(path, yes):
     console.print(f"[yellow]Deleted[/yellow] {path}")
 
 
-@cli.command()
-def list():
+@cli.command("list")
+def list_cmd():
     """List all saved souls."""
 
     async def _list():
@@ -3488,99 +3488,57 @@ def health_cmd(path):
     """Audit a soul's health — memory tiers, duplicates, skills, graph, bond."""
 
     async def _health():
-        from soul_protocol.runtime.memory.compression import MemoryCompressor
+        from soul_protocol.runtime.health import audit_health
 
         soul = await _awaken_or_fail(path)
-        mm = soul.memory
-
-        episodic = mm.episodic_entries()
-        semantic = mm.semantic_facts()
-        procedural = mm.procedural_entries()
-        graph_nodes = mm.graph_entities()
-        skills = soul.skills.skills
-        evals = soul.eval_history
-        social = mm.social_entries()
-        social_count = len(social)
-        total = len(episodic) + len(semantic) + len(procedural) + social_count
-
-        # Detect duplicates
-        compressor = MemoryCompressor()
-        all_mems = episodic + semantic + procedural + social
-        deduped = compressor.deduplicate(all_mems, similarity_threshold=0.8)
-        dup_count = len(all_mems) - len(deduped)
-
-        # Detect low-importance memories
-        low_imp = [m for m in all_mems if m.importance <= 2]
-
-        # Detect stale procedural (evaluation scores)
-        stale_proc = [p for p in procedural if p.content.startswith("Scored ")]
-
-        # Orphan graph nodes (nodes not referenced in any memory)
-        all_content = " ".join(m.content for m in all_mems)
-        orphan_nodes = [
-            n for n in graph_nodes if n.lower() not in all_content.lower() and len(n) > 2
-        ]
-
-        # Bond sanity
-        bond = soul.bond
-        bond_issues = []
-        if bond.bond_strength > 100:
-            bond_issues.append(f"Bond strength {bond.bond_strength:.0f} exceeds 100")
-        if bond.bond_strength < 0:
-            bond_issues.append(f"Bond strength {bond.bond_strength:.0f} is negative")
-
-        # Skill sanity
-        skill_issues = []
-        for s in skills:
-            if s.xp < 0:
-                skill_issues.append(f"Skill {s.id} has negative XP ({s.xp})")
-            if s.level < 1 or s.level > 10:
-                skill_issues.append(f"Skill {s.id} has invalid level ({s.level})")
+        report = await audit_health(soul)
 
         # Build report
         lines = [
-            f"[bold]{soul.name}[/bold] — Soul Health Report",
+            f"[bold]{report.soul_name}[/bold] — Soul Health Report",
             "",
             "[bold]Memory Tiers[/bold]",
-            f"  Episodic:    {len(episodic):>5}",
-            f"  Semantic:    {len(semantic):>5}",
-            f"  Procedural:  {len(procedural):>5}",
-            f"  Social:      {social_count:>5}",
-            f"  [bold]Total:       {total:>5}[/bold]",
+            f"  Episodic:    {report.episodic_count:>5}",
+            f"  Semantic:    {report.semantic_count:>5}",
+            f"  Procedural:  {report.procedural_count:>5}",
+            f"  Social:      {report.social_count:>5}",
+            f"  [bold]Total:       {report.total_memories:>5}[/bold]",
             "",
             "[bold]Knowledge & Skills[/bold]",
-            f"  Graph nodes: {len(graph_nodes):>5}",
-            f"  Skills:      {len(skills):>5}",
-            f"  Eval history:{len(evals):>5}",
+            f"  Graph nodes: {report.graph_node_count:>5}",
+            f"  Skills:      {report.skill_count:>5}",
+            f"  Eval history:{report.eval_history_count:>5}",
             "",
             "[bold]Bond[/bold]",
-            f"  Strength:    {bond.bond_strength:>5.1f}",
-            f"  Interactions:{bond.interaction_count:>5}",
+            f"  Strength:    {report.bond_strength:>5.1f}",
+            f"  Interactions:{report.bond_interactions:>5}",
             "",
             "[bold]Issues Found[/bold]",
         ]
 
         issues_found = 0
-        if dup_count > 0:
-            lines.append(f"  [yellow]⚠ {dup_count} duplicate memories (>80% overlap)[/]")
-            issues_found += 1
-        if low_imp:
-            lines.append(f"  [dim]ℹ {len(low_imp)} low-importance memories (≤2)[/]")
-        if stale_proc:
-            lines.append(f"  [dim]ℹ {len(stale_proc)} evaluation procedural entries[/]")
-        if orphan_nodes and len(orphan_nodes) > 10:
+        if report.duplicate_count > 0:
             lines.append(
-                f"  [yellow]⚠ {len(orphan_nodes)} orphan graph nodes (not in any memory)[/]"
+                f"  [yellow]⚠ {report.duplicate_count} duplicate memories (>80% overlap)[/]"
             )
             issues_found += 1
-        for issue in bond_issues:
+        if report.low_importance_count:
+            lines.append(f"  [dim]ℹ {report.low_importance_count} low-importance memories (≤2)[/]")
+        if report.stale_eval_count:
+            lines.append(f"  [dim]ℹ {report.stale_eval_count} evaluation procedural entries[/]")
+        if report.orphan_node_count > 10:
+            lines.append(
+                f"  [yellow]⚠ {report.orphan_node_count} orphan graph nodes (not in any memory)[/]"
+            )
+            issues_found += 1
+        for issue in report.bond_issues:
             lines.append(f"  [red]✗ {issue}[/]")
             issues_found += 1
-        for issue in skill_issues:
+        for issue in report.skill_issues:
             lines.append(f"  [red]✗ {issue}[/]")
             issues_found += 1
 
-        if issues_found == 0 and not low_imp and not stale_proc:
+        if issues_found == 0 and not report.low_importance_count and not report.stale_eval_count:
             lines.append("  [green]✓ No issues found — soul is healthy[/]")
         elif issues_found == 0:
             lines.append("  [green]✓ No critical issues[/]")
@@ -3627,54 +3585,16 @@ def cleanup_cmd(
     """
 
     async def _cleanup():
-        from soul_protocol.runtime.memory.compression import MemoryCompressor
+        from soul_protocol.runtime.health import execute_cleanup, plan_cleanup
 
         soul = await _awaken_or_fail(path)
-        mm = soul.memory
-        actions = []
-
-        # 1. Deduplicate
-        if dedup:
-            compressor = MemoryCompressor()
-            for tier_name, get_entries in [
-                ("episodic", mm.episodic_entries),
-                ("semantic", mm.semantic_facts),
-                ("procedural", mm.procedural_entries),
-            ]:
-                entries = get_entries()
-                if not entries:
-                    continue
-                deduped = compressor.deduplicate(entries, similarity_threshold=0.8)
-                removed_ids = {m.id for m in entries} - {m.id for m in deduped}
-                if removed_ids:
-                    actions.append(("dedup", tier_name, removed_ids))
-
-        # 2. Stale evaluation procedurals
-        if stale_evals:
-            procedural = mm.procedural_entries()
-            stale = [p for p in procedural if p.content.startswith("Scored ") and p.importance <= 5]
-            if stale:
-                actions.append(("stale_evals", "procedural", {p.id for p in stale}))
-
-        # 3. Orphan graph nodes
-        if orphan_nodes:
-            all_mems = mm.episodic_entries() + mm.semantic_facts() + mm.procedural_entries()
-            all_content = " ".join(m.content for m in all_mems).lower()
-            nodes = mm.graph_entities()
-            orphans = [n for n in nodes if n.lower() not in all_content and len(n) > 2]
-            if orphans:
-                actions.append(("orphan_nodes", "graph", orphans))
-
-        # 4. Low importance
-        if low_importance > 0:
-            for tier_name, get_entries in [
-                ("episodic", mm.episodic_entries),
-                ("semantic", mm.semantic_facts),
-            ]:
-                entries = get_entries()
-                low = [m for m in entries if m.importance <= low_importance]
-                if low:
-                    actions.append(("low_importance", tier_name, {m.id for m in low}))
+        actions = await plan_cleanup(
+            soul,
+            dedup=dedup,
+            stale_evals=stale_evals,
+            orphan_nodes=orphan_nodes,
+            low_importance=low_importance,
+        )
 
         if not actions:
             console.print("[green]✓ Nothing to clean up — soul is tidy[/]")
@@ -3682,20 +3602,22 @@ def cleanup_cmd(
 
         # Show plan
         total_removals = 0
-        for action_type, target, items in actions:
-            count = len(items)
+        for action in actions:
+            count = action.count
             total_removals += count
-            if action_type == "dedup":
-                console.print(f"  [yellow]Remove {count} duplicates from {target}[/]")
-            elif action_type == "stale_evals":
+            if action.action_type == "dedup":
+                console.print(f"  [yellow]Remove {count} duplicates from {action.tier}[/]")
+            elif action.action_type == "stale_evals":
                 console.print(f"  [yellow]Remove {count} stale evaluation entries[/]")
-            elif action_type == "orphan_nodes":
+            elif action.action_type == "orphan_nodes":
                 console.print(f"  [yellow]Remove {count} orphan graph nodes[/]")
                 if count <= 10:
-                    for n in items:
+                    for n in action.item_ids:
                         console.print(f"    - {n}")
-            elif action_type == "low_importance":
-                console.print(f"  [yellow]Remove {count} low-importance memories from {target}[/]")
+            elif action.action_type == "low_importance":
+                console.print(
+                    f"  [yellow]Remove {count} low-importance memories from {action.tier}[/]"
+                )
 
         console.print(f"\n  [bold]Total: {total_removals} items to remove[/]")
 
@@ -3712,28 +3634,15 @@ def cleanup_cmd(
                 console.print("[dim]Cancelled.[/]")
                 return
 
-        # Execute
-        removed = 0
-        for action_type, target, items in actions:
-            if action_type == "orphan_nodes":
-                for node in items:
-                    mm.graph_remove_entity(node)
-                    removed += 1
-            elif action_type in ("dedup", "stale_evals", "low_importance"):
-                for mid in items:
-                    if target == "episodic":
-                        await mm.remove_episodic(mid)
-                    elif target == "semantic":
-                        await mm.remove_semantic(mid)
-                    elif target == "procedural":
-                        await mm.remove_procedural(mid)
-                    removed += 1
-
         # Back up before the destructive save so an accidental cleanup
         # is recoverable via `cp <path>.bak <path>`.
         from soul_protocol.runtime.backup import backup_soul_file
 
         bak = backup_soul_file(path)
+
+        # Execute
+        removed = await execute_cleanup(soul, actions)
+
         await soul.export(path, include_keys=True)
         msg = f"\n[green]✓ Cleaned {removed} items. Soul saved.[/]"
         if bak is not None:

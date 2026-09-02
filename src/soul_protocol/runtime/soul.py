@@ -1,4 +1,14 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+#
+# TODO(#288): This file is ~3,300 lines / 89 methods.  Concurrent feature
+#   branches conflict here constantly.  Recommended split:
+#     1. soul_memory.py  — observe, remember, note, recall, forget, curate_*
+#     2. soul_export.py  — export, _pack_soul_archive, serialize, from_dict
+#     3. soul_evolve.py  — evolve, propose_evolution, approve_mutation
+#     4. soul_dream.py   — dream, _consolidate_memories
+#     5. soul.py          — birth, awaken, to_system_prompt, feel, save/load
+#   Each mixin would be a separate file; Soul inherits from all of them.
+#   Do this as a dedicated multi-PR effort — not as a drive-by.
 # Updated: 2026-08-08 (#292) — Entity-derived skills now tagged with
 #   SkillSource.ENTITY so they are excluded from public_profile() and A2A cards.
 #   observe() entity extraction path passes source=SkillSource.ENTITY to Skill().
