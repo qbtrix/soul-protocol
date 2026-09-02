@@ -334,6 +334,57 @@ soul export aria.soul -o aria.soul --include-keys
 
 ---
 
+### `soul did show`
+
+Display the DID (Decentralized Identifier) and identity info of a soul. Shows name, DID, public key, algorithm, private key status, key rotation history, and trust chain length.
+
+```bash
+# Show DID identity for a .soul file
+soul did show aria.soul
+
+# Show DID identity for an unpacked soul directory
+soul did show .soul/
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SOURCE` | Yes | Source soul file (`.soul`) or unpacked directory. |
+
+---
+
+### `soul did verify`
+
+Verify the trust chain and DID integrity of a soul. Checks that:
+- The DID format is valid (`did:soul:...`)
+- A public key is present
+- All trust chain entries have valid Ed25519 signatures and the hash chain is intact
+
+Exits with code 1 if any check fails.
+
+```bash
+# Verify a soul's DID and trust chain
+soul did verify aria.soul
+
+# Verify with detailed chain table
+soul did verify aria.soul --verbose
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `SOURCE` | Yes | Source soul file (`.soul`) or unpacked directory. |
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--verbose` | `-v` | Show a detailed table of trust chain entries with sequence numbers, actions, timestamps, and signatures. |
+
+---
+
 ### `soul migrate`
 
 Migrate from a SOUL.md markdown file to the structured `.soul` archive format. Useful for converting legacy soul definitions.
