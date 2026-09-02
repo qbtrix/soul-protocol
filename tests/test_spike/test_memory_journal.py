@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC
 from pathlib import Path
 
 import pytest
@@ -376,3 +377,25 @@ def test_realworld_search_latency_under_budget(
         store.search(topic, limit=5)
     elapsed = time.monotonic() - start
     assert elapsed < 1.0, f"search on 500 memories took {elapsed:.2f}s"
+
+
+def test_created_at_round_trip(store: JournalBackedMemoryStore):
+    """#305: entries reconstructed from the journal must keep their original
+    created_at, not silently fall back to now()."""
+    from datetime import datetime
+
+    past = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+    entry = MemoryEntry(
+        content="I remember this from 2025",
+        layer="episodic",
+        created_at=past,
+    )
+    store.store("episodic", entry)
+
+    recalled = store.recall("episodic", limit=1)
+    assert len(recalled) == 1
+    assert recalled[0].created_at == past, (
+        f"created_at was not preserved: expected {past}, got {recalled[0].created_at}"
+    )
+    # Also check through the backward-compat property
+    assert recalled[0].timestamp == past
