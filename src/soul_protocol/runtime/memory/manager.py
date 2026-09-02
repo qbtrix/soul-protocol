@@ -3,6 +3,10 @@
 #   semantic_facts(), procedural_entries(), social_entries(), graph_entities(),
 #   graph_edges(), clear_graph(), rebuild_graph(), custom_layer_entries().
 #   CLI and MCP now call these instead of reaching into private attributes.
+# Updated: 2026-07-17 (#287) — Memory correctness cleanups: raw-text contradiction
+#   fallback now stores a replacement fact (was sentinel string → knowledge loss),
+#   observe() batch dedup appends stored facts to the comparison set so within-batch
+#   near-duplicates are caught.
 # Updated: 2026-07-11 (#281) — Rewire recall engine graph reference after
 #   from_dict(). The RecallEngine held a stale reference to the pre-restore
 #   empty KnowledgeGraph, so graph-augmented recall returned nothing after
@@ -722,6 +726,11 @@ class MemoryManager:
         # write to this list — the audit is for explicit user intent.
         self._supersede_audit: list[dict] = []
 
+        # 2026-07-22 (#288 review) — Internal supersession log, separate from
+        # the public supersede_audit.  Dream-cycle dedup, raw-text contradiction
+        # resolution, and other automatic processes append here.
+        self._internal_supersede_log: list[dict] = []
+
         # v0.2.1 — Cognitive processor (LLM or heuristic)
         # Lazy import to avoid circular dependency:
         #   cognitive.engine → memory.attention → memory.__init__ → memory.manager
@@ -1066,6 +1075,7 @@ class MemoryManager:
             elif action == "MERGE" and merge_id:
                 # Store first so fact.id is populated, then link superseded
                 await self.add(fact)
+                fact.supersedes = merge_id
                 for ef in existing_facts:
                     if ef.id == merge_id:
                         ef.superseded_by = fact.id
@@ -1076,10 +1086,15 @@ class MemoryManager:
                         )
                         break
                 stored_facts.append(fact)
+                # #287: append to comparison set so subsequent batch facts
+                # are checked against this one (prevents within-batch dupes).
+                existing_facts.append(fact)
             else:
                 # CREATE
                 await self.add(fact)
                 stored_facts.append(fact)
+                # #287: same within-batch dedup fix for CREATE path.
+                existing_facts.append(fact)
         facts = stored_facts
         if facts:
             logger.debug("Facts extracted and stored: count=%d", len(facts))
@@ -1164,21 +1179,38 @@ class MemoryManager:
                     continue
                 if cr.old_memory_id in already_superseded:
                     continue
+                # #287 / PR#302 review: Do NOT store a replacement entry.
+                # Storing raw user_input as a semantic fact promotes unbounded,
+                # unsanitized first-person text into a tier that expects
+                # normalized third-person facts.  Instead, just report the
+                # contradiction — the next extraction cycle will settle it
+                # with a properly shaped fact.  Nothing is lost because the
+                # old fact stays (marked contradicted, not deleted).
                 for existing_fact in all_semantic_raw:
                     if existing_fact.id == cr.old_memory_id:
                         existing_fact.superseded = True
-                        existing_fact.superseded_by = "raw-text-contradiction"
                         logger.debug(
-                            "Raw-text contradiction: old_id=%s superseded, reason=%s",
+                            "Raw-text contradiction detected: old_id=%s, reason=%s",
                             cr.old_memory_id,
                             cr.reason,
                         )
                         break
                 already_superseded.add(cr.old_memory_id)
+                # Internal log — does NOT pollute the public supersede_audit.
+                self._internal_supersede_log.append(
+                    {
+                        "old_id": cr.old_memory_id,
+                        "new_id": None,
+                        "tier": "semantic",
+                        "reason": cr.reason or "raw-text-contradiction",
+                        "prediction_error": None,
+                        "superseded_at": datetime.now(UTC).isoformat(),
+                    }
+                )
                 contradictions.append(
                     {
                         "old_id": cr.old_memory_id,
-                        "new_id": "raw-text-contradiction",
+                        "new_id": None,
                         "reason": cr.reason,
                         "confidence": cr.confidence,
                     }

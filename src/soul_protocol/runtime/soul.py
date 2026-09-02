@@ -7,6 +7,9 @@
 # Updated: 2026-07-18 (#284) — Added public convenience API for CLI/MCP:
 #   memory (property), eval_history (property), clear_eval_history(),
 #   reset_energy(), reset_bond().
+# Updated: 2026-07-17 (#287) — note() MERGE now sets the new entry's
+#   ``supersedes`` back-edge and appends a supersede-audit record so
+#   provenance walks via _walk_supersedes_chain() work correctly.
 # Updated: 2026-06-16 (feat/soul-skills-procedural) — remember() and note() now
 #   accept a ``provenance: MemoryProvenance`` kwarg (default HUMAN) so an
 #   autonomous loop (PocketPaw's self-improving skills reviewer) can stamp the
@@ -201,7 +204,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -1530,8 +1533,10 @@ class Soul:
         # Resolve detect_contradictions default per tier.
         if detect_contradictions is None:
             detect_contradictions = type == MemoryType.SEMANTIC
-        # TODO: wire ContradictionDetector — see issue #231 follow-up.
-        _ = detect_contradictions  # currently unused; reserved for follow-up.
+        # TODO(#239): Wire ContradictionDetector into note() — detect
+        # contradictions, set supersede pointers, and return contradicted_id.
+        # Currently deferred; the observe() path already handles contradictions
+        # via the per-interaction loop in _resolve_contradictions().
 
         # Episodic and dedup-off: blunt write via remember().
         if type == MemoryType.EPISODIC or not dedup:
@@ -1620,11 +1625,34 @@ class Soul:
             )
             similarity = None
             if target_id is not None:
+                # #287: Set supersedes back-edge on the new entry so
+                # _walk_supersedes_chain() can trace provenance.
+                new_entry, _ = self._memory_lookup_sync(new_id)
+                if new_entry is not None:
+                    new_entry.supersedes = target_id
+                # #287 / PR#302: Set superseded flag on old entry.
                 for e in existing:
                     if e.id == target_id:
                         e.superseded_by = new_id
+                        if hasattr(e, "superseded"):
+                            try:
+                                e.superseded = True
+                            except Exception:  # pragma: no cover
+                                pass
                         similarity = _jaccard_similarity(content, e.content)
                         break
+                # Record audit trail via public list (note-merge is user-driven).
+                tier_name = type.value if hasattr(type, "value") else str(type)
+                self._memory._supersede_audit.append(
+                    {
+                        "superseded_at": datetime.now(UTC).isoformat(),
+                        "old_id": target_id,
+                        "new_id": new_id,
+                        "tier": tier_name,
+                        "reason": "note-merge",
+                        "prediction_error": None,
+                    }
+                )
             return {
                 "action": "MERGE",
                 "id": new_id,
