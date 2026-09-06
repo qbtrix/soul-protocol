@@ -172,6 +172,13 @@
 #   Previously, _dspy_processor was stored on Soul but never used during observe.
 # Updated: 2026-03-10 — Added forget(), forget_entity(), forget_before() for
 #   GDPR-compliant memory deletion. Renamed old forget(memory_id) to forget_by_id().
+# Updated: 2026-09-07 (terrarium) — Added fork() for reproduction with lineage.
+#   A fork is a NEW soul descended from this one (parent_did / generation),
+#   distinct from reincarnate() which is the SAME soul living again. OCEAN
+#   traits drift on inheritance; the drift default is the first real consumer
+#   of EvolutionConfig.mutation_rate. public_profile() now carries lineage.
+#   reincarnate() carries parent_did / generation through unchanged so the two
+#   axes stay independent — a rebirth does not orphan a forked soul.
 # Updated: feat/soul-encryption — Re-raise SoulDecryptionError without wrapping
 #   alongside SoulEncryptedError in awaken() exception handling.
 # Updated: feat/soul-encryption — Added password parameter to awaken() and export()
@@ -213,7 +220,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+import random
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -248,6 +256,7 @@ from .types import (
     BondTarget,
     CommunicationStyle,
     CoreMemory,
+    EvolutionConfig,
     GeneralEvent,
     Identity,
     Interaction,
@@ -290,6 +299,64 @@ _RECALL_WEIGHT_FLOOR: float = 0.1
 # candidate the stores returned (historical behaviour); callers raise it to
 # drop weak query matches.
 _RECALL_RELEVANCE_FLOOR: float = 0.0
+
+
+# ---------------------------------------------------------------------------
+# Reproduction (terrarium) — see Soul.fork()
+# ---------------------------------------------------------------------------
+# The five OCEAN traits, in DNA order. Their dot-paths under DNA are
+# "personality.<trait>", so EvolutionConfig.immutable_traits gates them via
+# the "personality" category — exactly the rule EvolutionManager.propose()
+# applies to in-life mutations.
+OCEAN_TRAITS: tuple[str, ...] = (
+    "openness",
+    "conscientiousness",
+    "extraversion",
+    "agreeableness",
+    "neuroticism",
+)
+# Memory tiers a child may inherit. Episodic is absent on purpose: a child
+# never wakes up with its parent's episodes.
+FORKABLE_TIERS: tuple[str, ...] = ("core", "semantic", "procedural", "social")
+
+
+def frozen_ocean_traits(immutable_traits: Sequence[str]) -> list[str]:
+    """Return the OCEAN traits that ``immutable_traits`` forbids drifting.
+
+    Note the default ``EvolutionConfig.immutable_traits`` contains
+    ``"personality"``, so a default-configured soul freezes **all five**
+    traits and :meth:`Soul.fork` produces an OCEAN clone. Drop
+    ``"personality"`` from the parent's ``immutable_traits`` to let children
+    diverge.
+    """
+    return [
+        trait
+        for trait in OCEAN_TRAITS
+        if "personality" in immutable_traits or f"personality.{trait}" in immutable_traits
+    ]
+
+
+def _drift_ocean(
+    parent: Personality,
+    width: float,
+    immutable_traits: Sequence[str],
+) -> Personality:
+    """Copy ``parent`` with each mutable OCEAN trait nudged and clamped.
+
+    Each trait gets its own uniform delta in ``[-width, +width]``; the result
+    is clamped to the schema's 0..1 range. Traits frozen by
+    ``immutable_traits`` are copied through untouched.
+    """
+    child = parent.model_copy(deep=True)
+    if width == 0:
+        return child
+    frozen = set(frozen_ocean_traits(immutable_traits))
+    for trait in OCEAN_TRAITS:
+        if trait in frozen:
+            continue
+        drifted = getattr(parent, trait) + random.uniform(-width, width)
+        setattr(child, trait, min(1.0, max(0.0, drifted)))
+    return child
 
 
 # ---------------------------------------------------------------------------
@@ -844,6 +911,9 @@ class Soul:
         dspy_optimized_path: str | None = None,
         # F4 — Eternal storage
         eternal: EternalStorageManager | None = None,
+        # Evolution — settable at birth so a caller can decide up front what may
+        # change over a life, and what a child may inherit differently.
+        evolution: EvolutionConfig | dict[str, Any] | None = None,
         **kwargs,
     ) -> Soul:
         """Birth a new Soul.
@@ -876,6 +946,11 @@ class Soul:
                 Falls back silently to heuristic if dspy is not available.
             dspy_model: DSPy-compatible LM model string (default: claude-haiku-4-5).
             dspy_optimized_path: Path to pre-optimized DSPy module weights.
+            evolution: Evolution settings, as an EvolutionConfig or a dict, e.g.
+                ``{"immutable_traits": ["core_values"]}``. The default freezes the
+                whole "personality" category, which makes :meth:`fork` return an
+                OCEAN clone — pass immutable_traits without "personality" when
+                the soul's children should be able to diverge.
             **kwargs: Additional arguments reserved for future use. Ignored with
                 a warning so typoed configuration arguments are visible without
                 breaking forward compatibility.
@@ -919,9 +994,21 @@ class Soul:
             biorhythms=dna_bio,
         )
 
+        # Evolution config. Left at defaults this freezes the whole "personality"
+        # category, which means fork() produces an OCEAN clone — see fork()'s note.
+        # A caller that wants children to diverge passes immutable_traits without
+        # "personality" here, rather than reaching into soul internals afterwards.
+        if evolution is None:
+            evolution_config = EvolutionConfig()
+        elif isinstance(evolution, EvolutionConfig):
+            evolution_config = evolution
+        else:
+            evolution_config = EvolutionConfig(**evolution)
+
         config = SoulConfig(
             identity=identity,
             dna=dna,
+            evolution=evolution_config,
             lifecycle=LifecycleState.ACTIVE,
         )
 
@@ -1021,7 +1108,7 @@ class Soul:
         new_name = name or old_soul.name
         old_identity = old_soul.identity
 
-        # Build lineage
+        # Build rebirth history
         previous_lives = list(old_identity.previous_lives)
         previous_lives.append(old_soul.did)
 
@@ -1036,6 +1123,12 @@ class Soul:
             bond=old_identity.bond.model_copy(),
             incarnation=old_identity.incarnation + 1,
             previous_lives=previous_lives,
+            # Fork lineage carries through rebirth untouched: rebirth is a new
+            # life for the SAME soul, so it is still its parent's child and
+            # still at the same depth in the family tree. Only the rebirth
+            # axis advances here.
+            parent_did=old_identity.parent_did,
+            generation=old_identity.generation,
         )
 
         config = SoulConfig(
@@ -1064,6 +1157,139 @@ class Soul:
             identity.incarnation,
             old_soul.did,
             identity.did,
+        )
+        return soul
+
+    async def fork(
+        self,
+        child_name: str,
+        *,
+        drift: float | None = None,
+        inherit: Sequence[str] = ("core", "procedural"),
+        charter: str | None = None,
+    ) -> Soul:
+        """Fork a child soul from this one — reproduction with lineage.
+
+        A fork is a **new soul descended from this one**, not this soul living
+        again. It gets a fresh DID, ``parent_did`` pointing at this soul, and
+        ``generation = parent.generation + 1``. Contrast
+        :meth:`reincarnate`, which is the same soul in a new life and tracks
+        ``incarnation`` / ``previous_lives`` instead.
+
+        What crosses the gap:
+
+        - **DNA** is deep-copied, then the five OCEAN traits each drift by an
+          independent uniform delta in ``[-drift, +drift]``, clamped to 0..1.
+        - **Archetype and core values** are inherited verbatim.
+        - **Memory** is inherited per ``inherit``. Episodic memory is *always*
+          empty on the child — a child does not remember its parent's life,
+          even when the caller asks for it. ``semantic`` and ``social`` are
+          inherited only when named explicitly; ``core`` and ``procedural``
+          are the default, because how-tos passing down is how culture spreads.
+        - **Nothing else.** No bonds, no role, no origin story, no prime
+          directive, no trust chain, no mutation history, no self-model, no
+          knowledge graph — those belong to the parent's life, and a
+          ``role="root"`` child would inherit the undeletable-governance-soul
+          guard by accident. A child's own origin is its ``charter``.
+
+        Args:
+            child_name: Name for the child soul.
+            drift: Half-width of the per-trait OCEAN mutation. Defaults to the
+                parent's ``EvolutionConfig.mutation_rate``. ``0`` reproduces
+                the parent's OCEAN exactly.
+            inherit: Memory tiers to carry forward. Valid names are ``core``,
+                ``semantic``, ``procedural``, ``social``. ``episodic`` is
+                accepted and ignored (see above); anything else raises.
+            charter: Optional charter written *by this soul for the child*.
+                Stored in the child's core memory, attributed to the parent.
+
+        Returns:
+            A fully valid child Soul, ready to ``save_local()`` / ``export()``.
+
+        Raises:
+            ValueError: If ``drift`` is negative or ``inherit`` names an
+                unknown tier.
+        """
+        parent_evolution = self._evolution.config
+
+        # First real consumer of EvolutionConfig.mutation_rate. The field has
+        # been carried in the config since the evolution system shipped and
+        # nothing has ever read it — reproduction is what it was waiting for.
+        drift_width = parent_evolution.mutation_rate if drift is None else drift
+        if drift_width < 0:
+            raise ValueError(f"drift must be >= 0, got {drift_width}.")
+
+        requested = [str(tier).strip().lower() for tier in inherit]
+        unknown = [t for t in requested if t not in FORKABLE_TIERS and t != "episodic"]
+        if unknown:
+            raise ValueError(
+                f"Unknown memory tier(s) for fork: {', '.join(sorted(unknown))}. "
+                f"Valid tiers: {', '.join(FORKABLE_TIERS)}."
+            )
+        if "episodic" in requested:
+            logger.warning(
+                "fork(): episodic memory is never inherited — dropping it from inherit=%s",
+                requested,
+            )
+        tiers = {t for t in requested if t in FORKABLE_TIERS}
+
+        child_dna = self._dna.model_copy(deep=True)
+        child_dna.personality = _drift_ocean(
+            self._dna.personality,
+            drift_width,
+            parent_evolution.immutable_traits,
+        )
+
+        # role deliberately not inherited: a "root" org soul's child would
+        # otherwise be undeletable. Bonds are not inherited either — a bond is
+        # the parent's relationship, not the child's.
+        identity = Identity(
+            did=generate_did(child_name),
+            name=child_name,
+            archetype=self._identity.archetype,
+            core_values=list(self._identity.core_values),
+            parent_did=self._identity.did,
+            generation=self._identity.generation + 1,
+        )
+
+        config = SoulConfig(
+            identity=identity,
+            dna=child_dna,
+            # Inherit the evolution *rules*, not the parent's mutation log.
+            evolution=parent_evolution.model_copy(deep=True, update={"history": [], "pending": []}),
+            lifecycle=LifecycleState.ACTIVE,
+        )
+
+        soul = type(self)(config)
+
+        parent_memory = self._memory.to_dict()
+        inherited: dict[str, Any] = {}
+        if "core" in tiers:
+            inherited["core"] = parent_memory.get("core", {})
+        for tier in ("semantic", "procedural", "social"):
+            if tier in tiers:
+                inherited[tier] = parent_memory.get(tier, [])
+        if inherited:
+            soul._memory = MemoryManager.from_dict(
+                inherited,
+                config.memory,
+                core_values=config.identity.core_values,
+                personality=config.dna.personality,
+            )
+
+        core = soul.get_core_memory()
+        persona = core.persona or f"I am {child_name}."
+        if charter:
+            persona = f"{persona}\n\nCharter (written by {self.name}, {self.did}):\n{charter}"
+        soul._memory.set_core(persona=persona, human=core.human)
+
+        logger.info(
+            "Soul forked: child=%s, generation=%d, parent_did=%s, child_did=%s, drift=%.4f",
+            child_name,
+            identity.generation,
+            identity.parent_did,
+            identity.did,
+            drift_width,
         )
         return soul
 
@@ -1255,6 +1481,12 @@ class Soul:
             "values": list(self._identity.core_values),
             "ocean": ocean_summary,
             "skills": skill_names,
+            # Lineage is public: a parent DID is how any caller walks the
+            # ancestry chain (fork -> fork -> fork). Deliberately unlike
+            # ``previous_lives``, which stays private — that is this soul's own
+            # rebirth history, not a link anyone else needs to follow.
+            "parent_did": self._identity.parent_did,
+            "generation": self._identity.generation,
         }
 
     @classmethod

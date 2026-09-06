@@ -7,6 +7,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Reproduction — soul forking with lineage
+
+- **`Soul.fork(child_name, *, drift, inherit, charter)`** — a soul can now produce a child soul. The child gets a fresh DID, `identity.parent_did` pointing at the parent, and `identity.generation = parent.generation + 1`. Its DNA is deep-copied and the five OCEAN traits each drift by an independent uniform delta in `[-drift, +drift]`, clamped to the schema's 0..1. Archetype, core values and the evolution *rules* carry over; the parent's mutation log does not.
+- **`Identity.parent_did` and `Identity.generation`** — new fields, both defaulted, so souls written before this release load unchanged. Lineage (parent → child) is a separate axis from reincarnation (`incarnation` / `previous_lives`, the same soul living again); a soul can carry both.
+- **Memory inheritance is opt-in per tier** — `inherit` defaults to `("core", "procedural")`, because how-tos passing down is how culture spreads. `semantic` and `social` pass only when named. **Episodic memory is always empty on the child**, even when the caller asks for it: a child does not remember its parent's life. Bonds, `role`, the trust chain, the self-model and the knowledge graph stay with the parent. `role` in particular is deliberately dropped so a `root` governance soul cannot accidentally hand its undeletable status to a child.
+- **`EvolutionConfig.mutation_rate` finally has a reader.** The field has been serialized in every soul since the evolution system shipped and nothing consumed it; it is now the default drift width for `fork()`.
+- **Known consequence:** `EvolutionConfig.immutable_traits` defaults to `["personality", "core_values"]`, and `fork()` honours it, so a default-configured parent produces an **OCEAN clone** no matter what `drift` is set to. `soul fork` prints a warning and reports the frozen traits in `--json`; `soul_protocol.runtime.soul.frozen_ocean_traits()` exposes the same check. Drop `"personality"` from the parent's `immutable_traits` to let children diverge.
+- **`Soul.reincarnate()` now carries lineage through rebirth.** It previously built the new `Identity` without `parent_did` / `generation`, so reborn souls came back orphaned at generation 1. Rebirth is a new life for the *same* soul — it is still its parent's child at the same depth in the family tree — so only the rebirth axis advances. Souls reincarnated before this release keep whatever their file already says; nothing is rewritten on load.
+- **New CLI: `soul fork <parent> --child <name>`** with `--drift`, `--inherit`, `--charter`, `--output/-o` and `--json`.
+- **Lineage read path:** `Soul.public_profile()` now carries `parent_did` and `generation` (unlike `previous_lives`, which stays private — a parent DID is a link others walk). `soul inspect` and `soul status` show `Parent` / `Generation` lines for forked souls only, so output for unforked souls is unchanged.
+
 ### Architecture debt — extract health, rename list (#288)
 
 - **Refactor:** Extracted duplicated health-audit and cleanup logic from `cli/main.py` and `mcp/server.py` into a new shared module `runtime/health.py`. Both entry points now delegate to `audit_health()`, `plan_cleanup()`, and `execute_cleanup()`.

@@ -1,4 +1,8 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-09-07 (terrarium) — New `soul fork <parent> --child <name>`
+#   command (reproduction with lineage): --drift, --inherit, --charter,
+#   --output, --json. `soul inspect` and `soul status` now show Parent /
+#   Generation for forked souls.
 # Updated: 2026-08-04 (#294) — Wires `--password` flag into `soul export`,
 #   `soul inspect`, and `soul unpack` for AES-256-GCM encryption at rest.
 #   Password is prompt-only (is_flag=True) so it never leaks into shell history.
@@ -542,6 +546,11 @@ def inspect(path, password):
         ]
         if soul.identity.core_values:
             identity_lines.append(f"Values     {', '.join(soul.identity.core_values)}")
+        # Lineage — only shown for forked souls, so unforked output is unchanged.
+        if soul.identity.parent_did:
+            identity_lines.append(f"Parent     [dim]{soul.identity.parent_did}[/dim]")
+        if soul.identity.generation > 1:
+            identity_lines.append(f"Generation {soul.identity.generation}")
 
         identity_panel = Panel(
             "\n".join(identity_lines),
@@ -682,6 +691,13 @@ def status(path):
             f"  Focus           {soul.state.focus}",
             f"  Memories        {soul.memory_count}",
         ]
+
+        # Lineage — only for forked souls, so unforked output is unchanged.
+        if soul.identity.parent_did:
+            lines.append(
+                f"  Lineage         gen {soul.identity.generation}, "
+                f"child of [dim]{soul.identity.parent_did}[/dim]"
+            )
 
         # Multi-user bond display when more than one user has a bond.
         bonded_users = soul.bonded_users
@@ -3135,6 +3151,123 @@ def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_
             raise SystemExit(1)
 
     asyncio.run(_evolve())
+
+
+@cli.command("fork")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--child", "child_name", required=True, help="Name for the child soul")
+@click.option(
+    "--drift",
+    type=float,
+    default=None,
+    help="OCEAN mutation half-width per trait (default: parent's evolution.mutation_rate)",
+)
+@click.option(
+    "--inherit",
+    default="core,procedural",
+    show_default=True,
+    help="Comma-separated memory tiers to inherit: core, semantic, procedural, social. "
+    "Episodic is never inherited.",
+)
+@click.option("--charter", type=str, default=None, help="Charter written by the parent")
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    default=None,
+    help="Output path (default: ./<child>.soul). An existing directory is saved into.",
+)
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON")
+def fork_cmd(path, child_name, drift, inherit, charter, output, as_json):
+    """Fork a child Soul from a parent — reproduction with lineage.
+
+    The child gets a new DID, ``parent_did`` pointing at the parent, and
+    ``generation = parent + 1``. Its OCEAN traits drift from the parent's by
+    an independent random delta per trait. Episodic memory always starts
+    empty — a child does not remember its parent's life.
+
+    \b
+    Examples:
+      soul fork aria.soul --child Vale
+      soul fork aria.soul --child Vale --drift 0.08 --inherit core,procedural
+      soul fork .soul/ --child Vale --charter "Keep the well open" --json
+    """
+    if drift is not None and drift < 0:
+        raise click.BadParameter("--drift must be >= 0", param_hint="--drift")
+
+    tiers = [t.strip() for t in inherit.split(",") if t.strip()]
+
+    async def _fork():
+        from soul_protocol.runtime.soul import frozen_ocean_traits
+
+        parent = await _awaken_or_fail(path)
+        try:
+            child = await parent.fork(
+                child_name,
+                drift=drift,
+                inherit=tiers,
+                charter=charter,
+            )
+        except ValueError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise SystemExit(1) from exc
+
+        immutable = parent.serialize().evolution.immutable_traits
+        frozen = frozen_ocean_traits(immutable)
+        effective_drift = parent.serialize().evolution.mutation_rate if drift is None else drift
+
+        out = output or f"./{_safe_name(child.name)}.soul"
+        if Path(out).is_dir():
+            await child.save_local(out)
+        else:
+            await child.export(out, include_keys=True)
+
+        p = child.dna.personality
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "child": child.name,
+                        "did": child.did,
+                        "parent_did": child.identity.parent_did,
+                        "generation": child.identity.generation,
+                        "drift": effective_drift,
+                        "inherited": sorted(t for t in tiers if t != "episodic"),
+                        "frozen_traits": frozen,
+                        "ocean": {
+                            "openness": p.openness,
+                            "conscientiousness": p.conscientiousness,
+                            "extraversion": p.extraversion,
+                            "agreeableness": p.agreeableness,
+                            "neuroticism": p.neuroticism,
+                        },
+                        "output": str(out),
+                    },
+                    indent=2,
+                )
+            )
+            return
+
+        console.print(
+            f"[green]Forked[/green] [bold]{child.name}[/bold] ({child.did})\n"
+            f"  Parent      {child.identity.parent_did}\n"
+            f"  Generation  {child.identity.generation}\n"
+            f"  Drift       {effective_drift}\n"
+            f"  Inherited   {', '.join(sorted(t for t in tiers if t != 'episodic')) or 'nothing'}"
+        )
+        console.print(
+            f"[dim]OCEAN: O={p.openness:.2f} C={p.conscientiousness:.2f} "
+            f"E={p.extraversion:.2f} A={p.agreeableness:.2f} N={p.neuroticism:.2f}[/dim]"
+        )
+        if frozen:
+            console.print(
+                f"[yellow]No OCEAN drift:[/yellow] {', '.join(frozen)} frozen by "
+                f"evolution.immutable_traits ({', '.join(immutable)}). "
+                "Drop 'personality' from the parent's immutable_traits to let children diverge."
+            )
+        console.print(f"[dim]Saved to {out}[/dim]")
+
+    asyncio.run(_fork())
 
 
 @cli.command("evaluate")
