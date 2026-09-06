@@ -130,6 +130,23 @@
       },
       "title": "Previous Lives",
       "type": "array"
+    },
+    "parent_did": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Did"
+    },
+    "generation": {
+      "default": 1,
+      "title": "Generation",
+      "type": "integer"
     }
   },
   "required": [

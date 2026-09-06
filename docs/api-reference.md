@@ -173,6 +173,46 @@ soul = await Soul.awaken("./kavi.soul")
 soul = await Soul.awaken(Path("config.yaml"), engine=my_engine)
 ```
 
+#### `Soul.fork()`
+
+```python
+async def fork(
+    self,
+    child_name: str,
+    *,
+    drift: float | None = None,
+    inherit: Sequence[str] = ("core", "procedural"),
+    charter: str | None = None,
+) -> Soul
+```
+
+Fork a **child** soul from this one — reproduction with lineage. The child gets a fresh DID, `identity.parent_did` pointing at this soul, and `identity.generation = parent.generation + 1`.
+
+This is a different axis from `Soul.reincarnate()`. Reincarnation is the *same* soul living again (`incarnation` / `previous_lives`); a fork is a *new* soul descended from another. A soul can carry both.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `child_name` | `str` | required | Name for the child |
+| `drift` | `float \| None` | `None` | Half-width of the per-trait OCEAN mutation. Defaults to the parent's `EvolutionConfig.mutation_rate`. `0` copies OCEAN exactly. |
+| `inherit` | `Sequence[str]` | `("core", "procedural")` | Memory tiers to carry forward: `core`, `semantic`, `procedural`, `social` |
+| `charter` | `str \| None` | `None` | Charter written by the parent; stored in the child's core memory with parent attribution |
+
+**Returns:** `Soul` — ready to `save_local()` / `export()`.
+
+**Raises:** `ValueError` if `drift` is negative or `inherit` names an unknown tier.
+
+What crosses the gap: DNA (deep-copied, then each of the five OCEAN traits drifts by an independent uniform delta in `[-drift, +drift]`, clamped to 0..1), the archetype, the core values, the evolution *rules*, and the requested memory tiers.
+
+What does not: **episodic memory is always empty on the child**, even when `inherit` names it — a child does not remember its parent's life. Bonds, role, trust chain, mutation history, self-model and knowledge graph also stay with the parent.
+
+```python
+child = await parent.fork("Vale", drift=0.08, charter="Keep the well open.")
+assert child.identity.parent_did == parent.did
+assert child.identity.generation == parent.identity.generation + 1
+```
+
+> **Drift is gated by `immutable_traits`.** The default `EvolutionConfig.immutable_traits` contains `"personality"`, which freezes all five OCEAN traits — a default-configured parent produces an OCEAN clone regardless of `drift`. Drop `"personality"` from the parent's `immutable_traits` to let children diverge. `soul_protocol.runtime.soul.frozen_ocean_traits(immutable_traits)` reports which traits are frozen.
+
 #### `Soul.from_markdown()`
 
 ```python
@@ -1036,6 +1076,12 @@ A soul's unique identity with cryptographic DID.
 | `origin_story` | `str` | `""` | Persona / origin text |
 | `prime_directive` | `str` | `""` | Top-level directive |
 | `core_values` | `list[str]` | `[]` | Values for significance scoring |
+| `incarnation` | `int` | `1` | Rebirth counter — bumped by `reincarnate()` |
+| `previous_lives` | `list[str]` | `[]` | DIDs of this soul's earlier incarnations |
+| `parent_did` | `str \| None` | `None` | DID of the soul this one was forked from |
+| `generation` | `int` | `1` | Depth in the fork lineage — bumped by `fork()` |
+
+Lineage (`parent_did` / `generation`) and rebirth (`incarnation` / `previous_lives`) are separate axes: the first tracks a new soul descended from another, the second tracks the same soul living again.
 
 ### DNA / Personality
 

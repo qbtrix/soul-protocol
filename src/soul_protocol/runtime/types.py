@@ -1,4 +1,8 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-09-07 (terrarium) — Identity gains lineage: ``parent_did`` and
+#   ``generation``, written by Soul.fork(). Lineage (parent -> child) is a
+#   different axis from reincarnation (same soul, new life) — see the comment
+#   on the fields. Both default so pre-lineage souls load unchanged.
 # Updated: 2026-07-18 (#285) — MemoryEntry consolidated into spec/memory.py.
 #   runtime/types.py re-exports it for backward compatibility. Removed
 #   duplicate MemoryVisibility, MemoryCategory, MemoryProvenance definitions.
@@ -137,6 +141,14 @@ class Identity(BaseModel):
     bond: Bond = Field(default_factory=Bond)
     incarnation: int = 1
     previous_lives: list[str] = Field(default_factory=list)
+    # Lineage (parent -> child), written by Soul.fork(). This is a DIFFERENT
+    # axis from reincarnation: ``incarnation`` / ``previous_lives`` track the
+    # SAME soul living again, while ``parent_did`` / ``generation`` track a
+    # NEW soul descended from another. A soul can have both — a 3rd-generation
+    # child on its 2nd incarnation. Never conflate them.
+    # Both default so souls written before lineage existed load unchanged.
+    parent_did: str | None = None
+    generation: int = 1
 
     def model_post_init(self, __context: Any) -> None:
         """Auto-migrate bonded_to to bonds if bonds is empty."""
