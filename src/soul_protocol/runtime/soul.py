@@ -177,6 +177,8 @@
 #   distinct from reincarnate() which is the SAME soul living again. OCEAN
 #   traits drift on inheritance; the drift default is the first real consumer
 #   of EvolutionConfig.mutation_rate. public_profile() now carries lineage.
+#   reincarnate() carries parent_did / generation through unchanged so the two
+#   axes stay independent — a rebirth does not orphan a forked soul.
 # Updated: feat/soul-encryption — Re-raise SoulDecryptionError without wrapping
 #   alongside SoulEncryptedError in awaken() exception handling.
 # Updated: feat/soul-encryption — Added password parameter to awaken() and export()
@@ -1085,7 +1087,7 @@ class Soul:
         new_name = name or old_soul.name
         old_identity = old_soul.identity
 
-        # Build lineage
+        # Build rebirth history
         previous_lives = list(old_identity.previous_lives)
         previous_lives.append(old_soul.did)
 
@@ -1100,6 +1102,12 @@ class Soul:
             bond=old_identity.bond.model_copy(),
             incarnation=old_identity.incarnation + 1,
             previous_lives=previous_lives,
+            # Fork lineage carries through rebirth untouched: rebirth is a new
+            # life for the SAME soul, so it is still its parent's child and
+            # still at the same depth in the family tree. Only the rebirth
+            # axis advances here.
+            parent_did=old_identity.parent_did,
+            generation=old_identity.generation,
         )
 
         config = SoulConfig(
@@ -1157,10 +1165,11 @@ class Soul:
           even when the caller asks for it. ``semantic`` and ``social`` are
           inherited only when named explicitly; ``core`` and ``procedural``
           are the default, because how-tos passing down is how culture spreads.
-        - **Nothing else.** No bonds, no role, no trust chain, no mutation
-          history, no self-model, no knowledge graph — those belong to the
-          parent's life, and a ``role="root"`` child would inherit the
-          undeletable-governance-soul guard by accident.
+        - **Nothing else.** No bonds, no role, no origin story, no prime
+          directive, no trust chain, no mutation history, no self-model, no
+          knowledge graph — those belong to the parent's life, and a
+          ``role="root"`` child would inherit the undeletable-governance-soul
+          guard by accident. A child's own origin is its ``charter``.
 
         Args:
             child_name: Name for the child soul.

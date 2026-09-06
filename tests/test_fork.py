@@ -70,6 +70,20 @@ async def test_fork_is_not_reincarnation():
     assert reborn.identity.generation == 1
 
 
+async def test_a_child_can_be_reborn_without_losing_its_lineage():
+    """Both axes advance independently — a gen-2 soul on its 2nd incarnation."""
+    parent = await Soul.birth("Aria")
+    child = await parent.fork("Vale")
+    reborn = await Soul.reincarnate(child)
+
+    # Rebirth axis moved.
+    assert reborn.identity.incarnation == 2
+    assert child.did in reborn.identity.previous_lives
+    # Lineage axis did not — it is still Aria's child, still generation 2.
+    assert reborn.identity.parent_did == parent.did
+    assert reborn.identity.generation == 2
+
+
 async def test_fork_inherits_archetype_and_values():
     parent = await Soul.birth("Aria", archetype="The Founder", values=["water", "truth"])
     child = await parent.fork("Vale")
