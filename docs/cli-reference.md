@@ -1250,6 +1250,43 @@ soul evolve .soul/ --reject abc123
 
 ---
 
+### `soul fork`
+
+Fork a child Soul from a parent — reproduction with lineage. The child gets a new DID, `parent_did` pointing at the parent, and `generation = parent + 1`. Its OCEAN traits drift from the parent's by an independent random delta per trait.
+
+```bash
+soul fork aria.soul --child Vale
+soul fork aria.soul --child Vale --drift 0.08 --inherit core,procedural
+soul fork .soul/ --child Vale --charter "Keep the well open" --json
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | Yes | Path to the parent soul file or `.soul/` directory. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--child TEXT` | **Required.** Name for the child soul. |
+| `--drift FLOAT` | OCEAN mutation half-width per trait. Defaults to the parent's `evolution.mutation_rate`. `0` copies OCEAN exactly. |
+| `--inherit TEXT` | Comma-separated memory tiers to inherit: `core`, `semantic`, `procedural`, `social`. Default `core,procedural`. |
+| `--charter TEXT` | Charter written by the parent; stored in the child's core memory with parent attribution. |
+| `--output, -o PATH` | Output path (default `./<child>.soul`). An existing directory is saved into. |
+| `--json` | Emit machine-readable JSON instead of the rich panel. |
+
+Episodic memory is **never** inherited — a child does not remember its parent's life, even when `--inherit` names `episodic`. Bonds, role, trust chain and mutation history stay with the parent too.
+
+`--json` emits `child`, `did`, `parent_did`, `generation`, `drift`, `inherited`, `frozen_traits`, `ocean` and `output`.
+
+> **Drift is gated by `immutable_traits`.** The default evolution config marks `personality` immutable, which freezes all five OCEAN traits — so a default parent forks an OCEAN clone whatever `--drift` says. The command prints a warning (and lists them in `frozen_traits`) when that happens. Drop `personality` from the parent's `evolution.immutable_traits` to let children diverge.
+
+Lineage shows up in `soul inspect` and `soul status` as `Parent` / `Generation` lines, and in `Soul.public_profile()` as `parent_did` / `generation`.
+
+---
+
 ### `soul evaluate`
 
 Evaluate an interaction against a rubric. Scores the interaction, stores learning as procedural memory, and adjusts skill XP based on the score.
