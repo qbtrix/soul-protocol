@@ -256,6 +256,7 @@ from .types import (
     BondTarget,
     CommunicationStyle,
     CoreMemory,
+    EvolutionConfig,
     GeneralEvent,
     Identity,
     Interaction,
@@ -910,6 +911,9 @@ class Soul:
         dspy_optimized_path: str | None = None,
         # F4 — Eternal storage
         eternal: EternalStorageManager | None = None,
+        # Evolution — settable at birth so a caller can decide up front what may
+        # change over a life, and what a child may inherit differently.
+        evolution: EvolutionConfig | dict[str, Any] | None = None,
         **kwargs,
     ) -> Soul:
         """Birth a new Soul.
@@ -942,6 +946,11 @@ class Soul:
                 Falls back silently to heuristic if dspy is not available.
             dspy_model: DSPy-compatible LM model string (default: claude-haiku-4-5).
             dspy_optimized_path: Path to pre-optimized DSPy module weights.
+            evolution: Evolution settings, as an EvolutionConfig or a dict, e.g.
+                ``{"immutable_traits": ["core_values"]}``. The default freezes the
+                whole "personality" category, which makes :meth:`fork` return an
+                OCEAN clone — pass immutable_traits without "personality" when
+                the soul's children should be able to diverge.
             **kwargs: Additional arguments reserved for future use. Ignored with
                 a warning so typoed configuration arguments are visible without
                 breaking forward compatibility.
@@ -985,9 +994,21 @@ class Soul:
             biorhythms=dna_bio,
         )
 
+        # Evolution config. Left at defaults this freezes the whole "personality"
+        # category, which means fork() produces an OCEAN clone — see fork()'s note.
+        # A caller that wants children to diverge passes immutable_traits without
+        # "personality" here, rather than reaching into soul internals afterwards.
+        if evolution is None:
+            evolution_config = EvolutionConfig()
+        elif isinstance(evolution, EvolutionConfig):
+            evolution_config = evolution
+        else:
+            evolution_config = EvolutionConfig(**evolution)
+
         config = SoulConfig(
             identity=identity,
             dna=dna,
+            evolution=evolution_config,
             lifecycle=LifecycleState.ACTIVE,
         )
 

@@ -12,7 +12,7 @@ from click.testing import CliRunner
 
 from soul_protocol.cli.main import cli
 from soul_protocol.runtime.soul import OCEAN_TRAITS, Soul
-from soul_protocol.runtime.types import MemoryType, SoulConfig
+from soul_protocol.runtime.types import EvolutionConfig, MemoryType, SoulConfig
 
 
 async def _drifting_parent(name: str = "Root", **kwargs) -> Soul:
@@ -370,3 +370,47 @@ def test_fork_cli_rejects_unknown_tier(tmp_path):
 
     assert result.exit_code == 1
     assert "Unknown memory tier" in result.output
+
+
+# ---------------------------------------------------------------------------
+# birth(evolution=...) — the supported way to let children diverge.
+# Without it a caller has to reach into Soul internals, and the default config
+# freezes the whole "personality" category, so fork() returns an OCEAN clone.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_birth_defaults_freeze_ocean_so_a_fork_is_a_clone():
+    parent = await Soul.birth(name="DefaultParent", ocean={"openness": 0.6})
+    assert parent._evolution.config.immutable_traits == ["personality", "core_values"]
+
+    child = await parent.fork("DefaultChild", drift=0.5)
+
+    assert child._dna.personality.openness == parent._dna.personality.openness
+
+
+@pytest.mark.asyncio
+async def test_birth_accepts_an_evolution_dict_and_children_then_diverge():
+    parent = await Soul.birth(
+        name="OpenParent",
+        ocean={"openness": 0.6},
+        evolution={"immutable_traits": ["core_values"], "mutation_rate": 0.08},
+    )
+    assert parent._evolution.config.immutable_traits == ["core_values"]
+    assert parent._evolution.config.mutation_rate == 0.08
+
+    child = await parent.fork("OpenChild")
+
+    # drift defaults to mutation_rate, so the child sits within 0.08 of 0.6.
+    assert child._dna.personality.openness != parent._dna.personality.openness
+    assert abs(child._dna.personality.openness - 0.6) <= 0.08
+
+
+@pytest.mark.asyncio
+async def test_birth_accepts_an_evolution_config_object():
+    cfg = EvolutionConfig(immutable_traits=["core_values"], mutation_rate=0.2)
+
+    parent = await Soul.birth(name="ObjParent", evolution=cfg)
+
+    assert parent._evolution.config.immutable_traits == ["core_values"]
+    assert parent._evolution.config.mutation_rate == 0.2
