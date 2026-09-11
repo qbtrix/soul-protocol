@@ -192,8 +192,9 @@ or any error), or anything else satisfying the Protocol. `claude_cli_generate`
 is the reference's zero-key backend.
 
 Cost instrumentation composes at the same seam, not inside the engines:
-`CostMeter(generate, model=...)` meters tokens, latency, and $ against
-`PRICING` (with `summary()`, `cost_per_player_hour()`, and `project(model)`
+`CostMeter(generate, model=..., pricing=...)` meters tokens, latency, and $
+against a caller-supplied `{model: (in_rate, out_rate)}` table; the profile
+ships no vendor rates (with `summary()`, `cost_per_player_hour()`, and `project(model)`
 re-pricing), and `ReplayCache(generate, path=...)` makes a recorded session
 replayable byte-identically at zero model cost. They stack:
 `LLMDialogueEngine(CostMeter(ReplayCache(generate, path), model=...))`.
