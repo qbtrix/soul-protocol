@@ -1,5 +1,5 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
-# Updated: 2026-09-07 (terrarium) — Identity gains lineage: ``parent_did`` and
+# Updated: 2026-09-07 (lineage) — Identity gains lineage: ``parent_did`` and
 #   ``generation``, written by Soul.fork(). Lineage (parent -> child) is a
 #   different axis from reincarnation (same soul, new life) — see the comment
 #   on the fields. Both default so pre-lineage souls load unchanged.

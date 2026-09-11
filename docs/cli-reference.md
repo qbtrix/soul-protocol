@@ -1274,6 +1274,7 @@ soul fork .soul/ --child Vale --charter "Keep the well open" --json
 | `--drift FLOAT` | OCEAN mutation half-width per trait. Defaults to the parent's `evolution.mutation_rate`. `0` copies OCEAN exactly. |
 | `--inherit TEXT` | Comma-separated memory tiers to inherit: `core`, `semantic`, `procedural`, `social`. Default `core,procedural`. |
 | `--charter TEXT` | Charter written by the parent; stored in the child's core memory with parent attribution. |
+| `--seed INT` | Seed the OCEAN drift. The same parent and seed always produce the same child traits (the DID is still fresh). |
 | `--output, -o PATH` | Output path (default `./<child>.soul`). An existing directory is saved into. |
 | `--json` | Emit machine-readable JSON instead of the rich panel. |
 

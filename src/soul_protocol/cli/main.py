@@ -1,5 +1,7 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
-# Updated: 2026-09-07 (terrarium) — New `soul fork <parent> --child <name>`
+# Updated: 2026-09-11 (lineage) — `soul fork --seed N` seeds the OCEAN drift
+#   so two runs from the same parent produce the same child traits.
+# Updated: 2026-09-07 (lineage) — New `soul fork <parent> --child <name>`
 #   command (reproduction with lineage): --drift, --inherit, --charter,
 #   --output, --json. `soul inspect` and `soul status` now show Parent /
 #   Generation for forked souls.
@@ -132,6 +134,7 @@ from __future__ import annotations
 import asyncio
 import builtins
 import json
+import random
 import sys
 import warnings
 import zipfile
@@ -3171,6 +3174,12 @@ def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_
 )
 @click.option("--charter", type=str, default=None, help="Charter written by the parent")
 @click.option(
+    "--seed",
+    type=int,
+    default=None,
+    help="Seed the OCEAN drift so the same parent + seed always yields the same child",
+)
+@click.option(
     "--output",
     "-o",
     type=click.Path(),
@@ -3178,7 +3187,7 @@ def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_
     help="Output path (default: ./<child>.soul). An existing directory is saved into.",
 )
 @click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON")
-def fork_cmd(path, child_name, drift, inherit, charter, output, as_json):
+def fork_cmd(path, child_name, drift, inherit, charter, seed, output, as_json):
     """Fork a child Soul from a parent — reproduction with lineage.
 
     The child gets a new DID, ``parent_did`` pointing at the parent, and
@@ -3207,6 +3216,7 @@ def fork_cmd(path, child_name, drift, inherit, charter, output, as_json):
                 drift=drift,
                 inherit=tiers,
                 charter=charter,
+                rng=None if seed is None else random.Random(seed),
             )
         except ValueError as exc:
             console.print(f"[red]Error:[/red] {exc}")

@@ -172,7 +172,9 @@
 #   Previously, _dspy_processor was stored on Soul but never used during observe.
 # Updated: 2026-03-10 — Added forget(), forget_entity(), forget_before() for
 #   GDPR-compliant memory deletion. Renamed old forget(memory_id) to forget_by_id().
-# Updated: 2026-09-07 (terrarium) — Added fork() for reproduction with lineage.
+# Updated: 2026-09-11 (lineage) — fork() accepts ``rng: random.Random`` so a
+#   caller can make OCEAN drift reproducible; default draws stay unseeded.
+# Updated: 2026-09-07 (lineage) — Added fork() for reproduction with lineage.
 #   A fork is a NEW soul descended from this one (parent_did / generation),
 #   distinct from reincarnate() which is the SAME soul living again. OCEAN
 #   traits drift on inheritance; the drift default is the first real consumer
@@ -302,7 +304,7 @@ _RECALL_RELEVANCE_FLOOR: float = 0.0
 
 
 # ---------------------------------------------------------------------------
-# Reproduction (terrarium) — see Soul.fork()
+# Reproduction (lineage) — see Soul.fork()
 # ---------------------------------------------------------------------------
 # The five OCEAN traits, in DNA order. Their dot-paths under DNA are
 # "personality.<trait>", so EvolutionConfig.immutable_traits gates them via
@@ -340,12 +342,15 @@ def _drift_ocean(
     parent: Personality,
     width: float,
     immutable_traits: Sequence[str],
+    rng: random.Random | None = None,
 ) -> Personality:
     """Copy ``parent`` with each mutable OCEAN trait nudged and clamped.
 
     Each trait gets its own uniform delta in ``[-width, +width]``; the result
     is clamped to the schema's 0..1 range. Traits frozen by
-    ``immutable_traits`` are copied through untouched.
+    ``immutable_traits`` are copied through untouched. ``rng`` (a seeded
+    ``random.Random``) makes the draws reproducible; ``None`` uses the module
+    generator.
     """
     child = parent.model_copy(deep=True)
     if width == 0:
@@ -354,7 +359,7 @@ def _drift_ocean(
     for trait in OCEAN_TRAITS:
         if trait in frozen:
             continue
-        drifted = getattr(parent, trait) + random.uniform(-width, width)
+        drifted = getattr(parent, trait) + (rng or random).uniform(-width, width)
         setattr(child, trait, min(1.0, max(0.0, drifted)))
     return child
 
@@ -1167,6 +1172,7 @@ class Soul:
         drift: float | None = None,
         inherit: Sequence[str] = ("core", "procedural"),
         charter: str | None = None,
+        rng: random.Random | None = None,
     ) -> Soul:
         """Fork a child soul from this one — reproduction with lineage.
 
@@ -1202,6 +1208,9 @@ class Soul:
                 accepted and ignored (see above); anything else raises.
             charter: Optional charter written *by this soul for the child*.
                 Stored in the child's core memory, attributed to the parent.
+            rng: Optional ``random.Random`` used for every OCEAN drift draw.
+                Pass a seeded instance to get a reproducible child; ``None``
+                (default) draws from the module-level generator.
 
         Returns:
             A fully valid child Soul, ready to ``save_local()`` / ``export()``.
@@ -1238,6 +1247,7 @@ class Soul:
             self._dna.personality,
             drift_width,
             parent_evolution.immutable_traits,
+            rng,
         )
 
         # role deliberately not inherited: a "root" org soul's child would

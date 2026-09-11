@@ -183,6 +183,7 @@ async def fork(
     drift: float | None = None,
     inherit: Sequence[str] = ("core", "procedural"),
     charter: str | None = None,
+    rng: random.Random | None = None,
 ) -> Soul
 ```
 
@@ -196,6 +197,7 @@ This is a different axis from `Soul.reincarnate()`. Reincarnation is the *same* 
 | `drift` | `float \| None` | `None` | Half-width of the per-trait OCEAN mutation. Defaults to the parent's `EvolutionConfig.mutation_rate`. `0` copies OCEAN exactly. |
 | `inherit` | `Sequence[str]` | `("core", "procedural")` | Memory tiers to carry forward: `core`, `semantic`, `procedural`, `social` |
 | `charter` | `str \| None` | `None` | Charter written by the parent; stored in the child's core memory with parent attribution |
+| `rng` | `random.Random \| None` | `None` | Generator used for every OCEAN drift draw. Pass a seeded `random.Random` for a reproducible child; the DID is still fresh each call. |
 
 **Returns:** `Soul` — ready to `save_local()` / `export()`.
 

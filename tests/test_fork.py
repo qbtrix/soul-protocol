@@ -1,11 +1,13 @@
 # test_fork.py — Tests for Soul.fork() reproduction with lineage
-# Created: 2026-09-07 (terrarium) — Lineage fields, OCEAN drift and clamping,
+# Updated: 2026-09-11 (lineage) — fork(rng=) reproducibility and `soul fork --seed`.
+# Created: 2026-09-07 (lineage) — Lineage fields, OCEAN drift and clamping,
 #   tier inheritance (episodic never), immutable-trait guard, backward compat
 #   for pre-lineage souls, and the `soul fork` CLI end to end.
 
 from __future__ import annotations
 
 import json
+import random
 
 import pytest
 from click.testing import CliRunner
@@ -357,6 +359,68 @@ def test_fork_cli_json_is_machine_readable(tmp_path):
     # Default config freezes personality, so the CLI must say so.
     assert payload["frozen_traits"] == list(OCEAN_TRAITS)
     assert set(payload["ocean"]) == set(OCEAN_TRAITS)
+
+
+def _ocean(soul: Soul) -> dict[str, float]:
+    p = soul.dna.personality
+    return {t: getattr(p, t) for t in OCEAN_TRAITS}
+
+
+async def test_same_seed_gives_identical_children():
+    parent = await _drifting_parent()
+    a = await parent.fork("A", drift=0.1, rng=random.Random(7))
+    b = await parent.fork("B", drift=0.1, rng=random.Random(7))
+    assert _ocean(a) == _ocean(b)
+    assert _ocean(a) != _ocean(parent)
+    assert a.did != b.did  # identity is never reproducible, only the drift
+
+
+async def test_different_seeds_give_different_children():
+    parent = await _drifting_parent()
+    a = await parent.fork("A", drift=0.1, rng=random.Random(7))
+    b = await parent.fork("B", drift=0.1, rng=random.Random(8))
+    assert _ocean(a) != _ocean(b)
+
+
+async def test_fork_without_rng_still_drifts():
+    parent = await _drifting_parent()
+    child = await parent.fork("Vale", drift=0.1)
+    assert _ocean(child) != _ocean(parent)
+
+
+def test_fork_cli_seed_is_reproducible(tmp_path):
+    import asyncio
+
+    parent_path = str(tmp_path / "aria.soul")
+
+    async def _make_parent():
+        soul = await Soul.birth(
+            "Aria", evolution={"immutable_traits": ["core_values"], "mutation_rate": 0.08}
+        )
+        await soul.export(parent_path, include_keys=True)
+
+    asyncio.run(_make_parent())
+
+    def _fork(seed: int, child: str) -> dict:
+        result = CliRunner().invoke(
+            cli,
+            [
+                "fork",
+                parent_path,
+                "--child",
+                child,
+                "--seed",
+                str(seed),
+                "-o",
+                str(tmp_path / f"{child}.soul"),
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        return json.loads(result.output)["ocean"]
+
+    assert _fork(7, "a") == _fork(7, "b")
+    assert _fork(7, "c") != _fork(8, "d")
 
 
 def test_fork_cli_rejects_unknown_tier(tmp_path):
