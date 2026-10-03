@@ -32,6 +32,9 @@ for persistent AI memory via MCP.
 2. Call `soul_state` to check current mood and energy
 
 **During work:**
+- Call `soul_sync` after each user/agent exchange — it auto-recalls relevant
+  memories and saves the turn in one call (`user_input`, `agent_output`,
+  optional `query`)
 - `soul_observe` after key decisions, completed tasks, or important conversations
 - `soul_remember` for facts that should persist across sessions
 

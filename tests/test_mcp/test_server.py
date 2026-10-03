@@ -752,6 +752,45 @@ async def test_auto_reload_on_external_change(tmp_path):
             assert any("external memory" in m["content"] for m in data["memories"])
 
 
+async def test_modified_soul_not_reloaded_by_watcher(tmp_path):
+    """A soul with unsaved in-memory changes is NOT discarded by auto-reload.
+
+    Regression: calling soul_remember (in-memory, unsaved) followed by an
+    external .soul overwrite must not cause the in-memory fact to vanish when
+    the next tool call triggers check_and_reload().
+    """
+    from soul_protocol import Soul
+
+    soul = await Soul.birth("DirtySoul", values=["testing"])
+    zip_path = tmp_path / "dirty.soul"
+    await soul.export(str(zip_path))
+
+    with _env_context("SOUL_PATH", str(zip_path)), _env_context("SOUL_DIR", None):
+        async with Client(mcp) as client:
+            # 1) Unsaved in-memory change (marks the soul as modified).
+            await client.call_tool(
+                "soul_remember",
+                {"content": "unsaved soya chaap fact", "importance": 6},
+            )
+
+            # 2) Externally overwrite the .soul file (simulating another process).
+            external_soul = await Soul.awaken(str(zip_path))
+            await external_soul.remember("external overwrite", importance=9)
+            await external_soul.export(str(zip_path))
+
+            # 3) Any tool call routes through check_and_reload().
+            await client.call_tool("soul_recall", {"query": "trigger reload", "limit": 5})
+
+            # 4) The unsaved in-memory fact must still be present.
+            result = await client.call_tool("soul_recall", {"query": "soya chaap", "limit": 5})
+            data = json.loads(result.data)
+            assert data["count"] != 0, (
+                "Unsaved in-memory change was discarded by auto-reload. "
+                f"Got {data['count']} results."
+            )
+            assert any("soya chaap" in m["content"] for m in data["memories"])
+
+
 async def test_background_watcher_reloads_on_change(tmp_path):
     """Background file watcher detects changes and reloads without any tool call."""
     from soul_protocol import Soul
@@ -1159,3 +1198,47 @@ async def test_soul_reinstate_tool():
         data = json.loads(result.data)
         assert data["status"] == "reinstated"
         assert data["weight"] == 1.0
+
+
+# --- soul_sync MCP tool ---
+
+
+async def test_soul_sync_observe_only():
+    """soul_sync captures a turn and observes without a recall query."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool(
+            "soul_sync",
+            {"user_input": "I love Python", "agent_output": "Python is great!"},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "observed"
+        assert data["soul"] == "TestBot"
+        assert data["recalled"] == 0
+        assert data["memories"] == []
+        assert "mood" in data
+        assert "energy" in data
+
+
+async def test_soul_sync_with_recall():
+    """soul_sync recalls relevant memories when a query is provided."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        await client.call_tool(
+            "soul_remember",
+            {"content": "The user's favorite language is Python", "importance": 8},
+        )
+        result = await client.call_tool(
+            "soul_sync",
+            {
+                "user_input": "What's my favorite language?",
+                "agent_output": "You like Python.",
+                "query": "favorite language",
+            },
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "observed"
+        assert data["recalled"] >= 1
+        assert isinstance(data["memories"], list)
+        assert len(data["memories"]) == data["recalled"]
+        assert any("language" in m["content"].lower() for m in data["memories"])

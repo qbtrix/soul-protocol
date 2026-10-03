@@ -433,7 +433,7 @@ pip install soul-protocol[mcp]
 SOUL_PATH=aria.soul soul-mcp
 ```
 
-24 tools and 3 resources for Claude Code, Cursor, or any MCP-compatible client. See [integrations](docs/integrations.md).
+31 tools (26 soul + 5 context), 3 resources, and 2 prompts for Claude Code, Cursor, or any MCP-compatible client — including `soul_sync`, a one-call auto-recall + auto-observe convenience tool. See [integrations](docs/integrations.md).
 
 ---
 

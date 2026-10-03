@@ -22,6 +22,8 @@
 #   the active soul (no birth, no seed) so agents can self-evaluate their
 #   current state. Accepts yaml_path or yaml_string. Returns the EvalResult
 #   as JSON.
+# Updated: 2026-05 — Added soul_sync: one-call auto-recall + auto-observe so agents
+#   capture a turn and fetch relevant memories in a single round-trip.
 # Updated: 2026-04-29 (#42) — Trust chain tools: ``soul_verify`` returns chain
 #   integrity status; ``soul_audit`` returns the human-readable timeline of
 #   signed actions, with optional action_prefix and limit. JSON-only output —
@@ -69,6 +71,7 @@ from fastmcp import Context, FastMCP  # optional dep: pip install soul-protocol[
 from ..runtime.cognitive.adapters.mcp_sampling import MCPSamplingEngine
 from ..runtime.context import LCMContext
 from ..runtime.exceptions import SoulProtocolError
+from ..runtime.middleware import AutoObserveMiddleware
 from ..runtime.soul import Soul
 from ..runtime.types import Interaction, MemoryType, Mood
 
@@ -188,6 +191,12 @@ class SoulRegistry:
         if not lock:
             return
         async with lock:
+            if key in self._modified:
+                # The soul has unsaved in-memory changes (e.g. a recent
+                # soul_remember / soul_observe). Reloading from disk here
+                # would silently discard those changes, so skip until they
+                # are persisted by soul_save / shutdown auto-save.
+                return
             current_mtime = self._get_mtime(path)
             if current_mtime <= self._mtimes.get(key, 0.0):
                 return  # already up-to-date (or reloaded by another caller)
@@ -706,6 +715,56 @@ async def soul_recall(
 
 
 @mcp.tool
+async def soul_sync(
+    user_input: str,
+    agent_output: str = "",
+    query: str | None = None,
+    limit: int = 5,
+    channel: str = "mcp",
+    soul: str | None = None,
+    user_id: str | None = None,
+    layer: str | None = None,
+    domain: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Capture a conversation turn and optionally recall memories in one call.
+
+    Combines auto-recall + auto-observe so agents only need a single call per
+    exchange instead of remembering `soul_recall` then `soul_observe` separately.
+    When `query` is provided, relevant memories are recalled and returned first;
+    the turn is then observed through the full psychology pipeline regardless.
+
+    Args:
+        user_input: What the user said (required).
+        agent_output: What the agent responded (optional; omit for user-only turns).
+        query: Optional recall query. When set, relevant memories are returned
+            alongside the observation result. Omit to observe without recall.
+        limit: Maximum recall results to return (default 5).
+        channel: Source channel identifier.
+        soul: Target soul name (uses active soul if omitted).
+        user_id: Attribute the turn to a specific user (multi-user souls, #46).
+        layer: Restrict recall to a single memory layer (#41). Optional.
+        domain: Restrict recall to a single domain sub-namespace (#41). Optional.
+    """
+    if ctx is not None:
+        _get_or_create_engine(ctx)
+    s = await _resolve_soul(soul)
+    result = await AutoObserveMiddleware(s).turn(
+        user_input,
+        agent_output,
+        query=query,
+        limit=limit,
+        user_id=user_id,
+        layer=layer,
+        domain=domain,
+        channel=channel,
+    )
+    _registry.mark_modified(soul)
+    result["status"] = "observed"
+    return json.dumps(result)
+
+
+@mcp.tool
 async def soul_reflect(
     soul: str | None = None,
     ctx: Context | None = None,
@@ -882,6 +941,7 @@ async def soul_save(
             _registry._paths[key] = save_path
         if key:
             _registry._mtimes[key] = _registry._get_mtime(save_path)
+            _registry._modified.discard(key)
     else:
         await s.save()
         save_path = str(Path.home() / ".soul" / s.did)
