@@ -7,6 +7,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Game profile ships mechanisms; demo defaults move to `examples/game`
+
+Breaking for `soul_protocol.profiles.game` callers:
+
+- **`GrudgeKernel.birth(name, archetype, ...)`** — `name` and `archetype` are required. `persona` defaults to `"I am <name>, <archetype>."` instead of Bjorn's text; `GrudgeKernel.awaken(..., persona=None)` likewise.
+- **`DialogueEngine.speak()` takes `npc_name`.** `TemplatedDialogueEngine` lines are NPC-name-aware and trade-neutral (as `speak_reputation` already was), and `LLMDialogueEngine.build_prompt()` is built from `persona` + `npc_name` rather than a hardcoded butcher. Custom engines must accept the new keyword.
+- **`PRICING` is empty.** `CostMeter(generate, model, pricing=None)` reads a caller-supplied `{model: (in_rate, out_rate)}` table, or the module-level `PRICING` dict if you populate it at startup. An unconfigured meter raises `unknown model`.
+- **`DEFAULT_ZONE` is `"start"`** and `GameWorld(..., start_zone=DEFAULT_ZONE)` lets you pick the label.
+
+Bjorn the Butcher (name, archetype, persona, scripted lines as `ButcherDialogueEngine`, `birth_bjorn()`), the `"tavern"` zone and the sample vendor rate table now live in `examples/game/`; `examples/npc_soul_grudge` and `examples/butcher_remembers` import from there.
+
 ### Architecture debt — extract health, rename list (#288)
 
 - **Refactor:** Extracted duplicated health-audit and cleanup logic from `cli/main.py` and `mcp/server.py` into a new shared module `runtime/health.py`. Both entry points now delegate to `audit_health()`, `plan_cleanup()`, and `execute_cleanup()`.

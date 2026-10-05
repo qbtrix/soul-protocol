@@ -76,7 +76,6 @@ from soul_protocol.profiles.game import (
     KNOWN,
     NONE,
     NOTORIOUS,
-    PRICING,
     SLIGHTED,
     UNKNOWN,
     CostMeter,
@@ -94,10 +93,22 @@ ASTRID = "did:soul:player:astrid"
 # Starting bond strength for a brand-new per-player bond (Soul default).
 START_BOND = 50.0
 
+# $ per 1M tokens; the profile ships no rates, so the tests carry their own.
+PRICING = {
+    "deepseek-v3.2": (0.14, 0.28),
+    "gemini-flash-lite": (0.10, 0.40),
+    "claude-cli": (0.0, 0.0),
+}
+
+
+async def _bjorn(**kw) -> GrudgeKernel:
+    """The test NPC. name/archetype are required by the profile."""
+    return await GrudgeKernel.birth(name="Bjorn", archetype="The Butcher", **kw)
+
 
 async def _wronged_kernel() -> GrudgeKernel:
     """Bjorn after Ragnar greets, trades, betrays, and steals."""
-    kernel = await GrudgeKernel.birth()
+    kernel = await _bjorn()
     await kernel.record(RAGNAR, "Good morning, butcher!", kind="neutral")
     await kernel.record(RAGNAR, "Two shanks please.", kind="neutral")
     await kernel.record(RAGNAR, "I framed you to the guards.", kind="betrayal")
@@ -175,7 +186,7 @@ async def test_grudge_is_player_specific(tmp_path: Path) -> None:
     assert len(await kernel.grievances(ASTRID)) == 0
 
     warm = await kernel.react(ASTRID, player_name="Astrid")
-    assert "Welcome to my stall" in warm
+    assert "Welcome" in warm
     assert "gall to show your face" not in warm
 
     # Ragnar is GRUDGING at the same time — two players, two relationships.
@@ -191,7 +202,7 @@ async def test_grudge_is_player_specific(tmp_path: Path) -> None:
 
 async def test_neutral_only_never_grudges() -> None:
     """Neutral interactions never plant a grudge and never weaken the bond."""
-    kernel = await GrudgeKernel.birth()
+    kernel = await _bjorn()
     await kernel.record(ASTRID, "Morning!", kind="neutral")
     await kernel.record(ASTRID, "Nice weather.", kind="neutral")
     await kernel.record(ASTRID, "A pound of beef, please.", kind="neutral")
@@ -205,12 +216,12 @@ async def test_neutral_only_never_grudges() -> None:
 async def test_single_insult_is_only_slighted() -> None:
     """One low-severity wrong yields SLIGHTED, not full GRUDGING — the levels
     are graded, not binary."""
-    kernel = await GrudgeKernel.birth()
+    kernel = await _bjorn()
     await kernel.record(RAGNAR, "Your apron is filthy, old man.", kind="insult")
 
     assert await kernel.grudge_level(RAGNAR) == SLIGHTED
     reaction = await kernel.react(RAGNAR, player_name="Ragnar")
-    assert "smile thins" in reaction
+    assert "expression hardens" in reaction
 
 
 class SpyGenerate:
@@ -243,7 +254,7 @@ async def test_llm_dialogue_seam_feeds_grievances_to_model() -> None:
     No live LLM, no subprocess, no network.
     """
     spy = SpyGenerate(canned="You again. I have not forgotten what you did.")
-    kernel = await GrudgeKernel.birth(dialogue_engine=LLMDialogueEngine(spy))
+    kernel = await _bjorn(dialogue_engine=LLMDialogueEngine(spy))
 
     # Same arc as the other tests: greet, trade, betray, steal -> GRUDGING.
     await kernel.record(RAGNAR, "Good morning, butcher!", kind="neutral")
@@ -258,7 +269,7 @@ async def test_llm_dialogue_seam_feeds_grievances_to_model() -> None:
     # (a) The spoken line is the MODEL's output, not the templated string —
     #     proving react() genuinely delegates to the LLM engine.
     assert reaction == "You again. I have not forgotten what you did."
-    assert "cleaver thuds" not in reaction  # not the templated GRUDGING branch
+    assert "goes very still" not in reaction  # not the templated GRUDGING branch
 
     # (b) Exactly one prompt was built, and it carries the real context.
     assert len(spy.prompts) == 1
@@ -289,7 +300,7 @@ async def test_llm_engine_falls_back_to_template_on_failure() -> None:
         return "   "
 
     for bad in (boom, empty):
-        kernel = await GrudgeKernel.birth(dialogue_engine=LLMDialogueEngine(bad))
+        kernel = await _bjorn(dialogue_engine=LLMDialogueEngine(bad))
         await kernel.record(RAGNAR, "I framed you to the guards.", kind="betrayal")
         await kernel.record(RAGNAR, "*steals sausages*", kind="theft")
         assert await kernel.grudge_level(RAGNAR) == GRUDGING
@@ -318,7 +329,7 @@ async def _innkeeper(**kw) -> GrudgeKernel:
 async def test_deed_recorded_on_player_soul() -> None:
     """The OTHER direction of the ledger: recording a slight with a player_soul
     also writes the matching deed onto the PLAYER's own soul (their reputation)."""
-    bjorn = await GrudgeKernel.birth()
+    bjorn = await _bjorn()
     ragnar = await PlayerSoul.birth(name="Ragnar")
 
     await bjorn.record(RAGNAR, "I framed you to the guards.", kind="betrayal", player_soul=ragnar)
@@ -335,7 +346,7 @@ async def test_deed_recorded_on_player_soul() -> None:
 async def test_reputation_survives_roundtrip_and_fresh_npc_reacts(tmp_path: Path) -> None:
     """THE KILLER TEST for player.soul: reputation survives a .soul export ->
     awaken, and a FRESH NPC who has never met the player reacts to it."""
-    bjorn = await GrudgeKernel.birth()
+    bjorn = await _bjorn()
     ragnar = await PlayerSoul.birth(name="Ragnar")
     await bjorn.record(RAGNAR, "I framed you to the guards.", kind="betrayal", player_soul=ragnar)
     await bjorn.record(RAGNAR, "*steals sausages*", kind="theft", player_soul=ragnar)
@@ -410,8 +421,8 @@ async def test_cost_meter_counts_and_prices() -> None:
     spy recorded, and total_cost equals the PRICING computation to the dollar.
     """
     spy = SpyGenerate(canned="You'll get nothing from me but silence.")
-    meter = CostMeter(spy, model="deepseek-v3.2")
-    kernel = await GrudgeKernel.birth(dialogue_engine=LLMDialogueEngine(meter))
+    meter = CostMeter(spy, model="deepseek-v3.2", pricing=PRICING)
+    kernel = await _bjorn(dialogue_engine=LLMDialogueEngine(meter))
 
     await kernel.record(RAGNAR, "I framed you to the guards.", kind="betrayal")
     await kernel.record(RAGNAR, "*steals sausages*", kind="theft")
@@ -493,7 +504,7 @@ async def test_replay_roundtrip_is_deterministic_and_free(tmp_path: Path) -> Non
 
     # SESSION 1 — the "live" run; the cache records every miss to the jsonl.
     cache1 = ReplayCache(deterministic_llm, path=cache_path)
-    kernel1 = await GrudgeKernel.birth(dialogue_engine=LLMDialogueEngine(cache1))
+    kernel1 = await _bjorn(dialogue_engine=LLMDialogueEngine(cache1))
     lines1 = await _arc(kernel1)
     assert cache1.misses == 2 and cache1.hits == 0
     assert all(line.startswith("canned-") for line in lines1)  # model lines, not template
@@ -511,8 +522,8 @@ async def test_replay_roundtrip_is_deterministic_and_free(tmp_path: Path) -> Non
         raise RuntimeError("generate must not be called during replay")
 
     cache2 = ReplayCache.load(explode, path=cache_path)
-    meter2 = CostMeter(cache2, model="deepseek-v3.2")
-    kernel2 = await GrudgeKernel.birth(dialogue_engine=LLMDialogueEngine(meter2))
+    meter2 = CostMeter(cache2, model="deepseek-v3.2", pricing=PRICING)
+    kernel2 = await _bjorn(dialogue_engine=LLMDialogueEngine(meter2))
     lines2 = await _arc(kernel2)
 
     assert lines2 == lines1  # deterministic: byte-identical spoken lines
@@ -528,7 +539,7 @@ async def test_meter_composes_with_cache(tmp_path: Path) -> None:
     """CostMeter(ReplayCache(...)): hits are free, only misses are metered."""
     spy = SpyGenerate(canned="State your business.")
     cache = ReplayCache(spy, path=tmp_path / "compose.jsonl")
-    meter = CostMeter(cache, model="gemini-flash-lite")
+    meter = CostMeter(cache, model="gemini-flash-lite", pricing=PRICING)
 
     p1, p2 = "Who goes there?", "Open up, butcher."
     await meter(p1)  # miss -> metered

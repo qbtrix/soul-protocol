@@ -1,5 +1,11 @@
 # dialogue.py — Pluggable DialogueEngine seam for the npc.soul grudge kernel.
 #
+# Updated: 2026-09-11 (fix/game-profile-demo-defaults) — speak() takes
+#   npc_name. The templated lines are now NPC-name-aware and trade-neutral
+#   (like speak_reputation already was) and the LLM prompt is built from the
+#   persona instead of a hardcoded character. Bjorn's scripted lines moved to
+#   examples/game as ButcherDialogueEngine.
+#
 # Created: 2026-07-01 (experiment/npc-soul-grudge-kernel) — Extracts the NPC's
 #   spoken reaction behind a Protocol so it can be swapped from the deterministic
 #   template (free, offline, the DEFAULT that keeps the existing tests green) to
@@ -71,6 +77,7 @@ class DialogueEngine(Protocol):
     async def speak(
         self,
         *,
+        npc_name: str,
         persona: str,
         ocean: dict[str, float],
         grudge_level: str,
@@ -102,24 +109,25 @@ class DialogueEngine(Protocol):
         The NPC has never met this player, so this is hearsay, not a personal
         grudge: it reacts to ``notoriety`` (UNKNOWN / KNOWN / NOTORIOUS) and, when
         the record is dirty, cites ``reputation_deeds`` (worst-first descriptions
-        read off the player's ``player.soul``). ``npc_name`` lets any NPC — not
-        just Bjorn — voice it.
+        read off the player's ``player.soul``). ``npc_name`` lets any NPC voice
+        it.
         """
         ...
 
 
 class TemplatedDialogueEngine:
-    """The ORIGINAL deterministic reaction, extracted into an engine.
+    """Deterministic, NPC-name-aware, trade-neutral reaction. The default engine.
 
-    This is the default so the existing behavior — and the existing 5 tests —
-    stay exactly as they were, at zero cost. The three branches (NONE /
-    SLIGHTED / GRUDGING) and the "name the wrong" phrasing are lifted verbatim
-    from the pre-seam GrudgeKernel.
+    Three branches (NONE / SLIGHTED / GRUDGING); the GRUDGING line names the
+    remembered wrongs. No LLM, no network, no cost. Subclass and override
+    :meth:`speak` to give one character its own scripted voice (see
+    ``examples/game``).
     """
 
     async def speak(
         self,
         *,
+        npc_name: str,
         persona: str,
         ocean: dict[str, float],
         grudge_level: str,
@@ -130,14 +138,11 @@ class TemplatedDialogueEngine:
         who = player_name or "stranger"
 
         if grudge_level == NONE:
-            return (
-                f"Bjorn wipes his hands and smiles. 'Welcome to my stall, {who}! "
-                "Finest cuts in town.'"
-            )
+            return f"{npc_name} looks up and nods. 'Welcome, {who}. What can I do for you?'"
 
         if grudge_level == SLIGHTED:
             return (
-                f"Bjorn's smile thins. He keeps one eye on {who}. "
+                f"{npc_name}'s expression hardens. One eye stays on {who}. "
                 "'...You again. State your business and be quick about it.'"
             )
 
@@ -145,9 +150,9 @@ class TemplatedDialogueEngine:
         # already worst-first and pre-phrased ("how you betrayed me", ...).
         cited = ", ".join(grievances[:3]) if grievances else "what you did"
         return (
-            f"Bjorn's cleaver thuds into the block. 'You have the gall to show "
-            f"your face here, {who}? I remember {cited}. You'll get nothing from "
-            "me but the door.'"
+            f"{npc_name} goes very still. 'You have the gall to show your face "
+            f"here, {who}? I remember {cited}. You'll get nothing from me but "
+            "the door.'"
         )
 
     async def speak_reputation(
@@ -207,6 +212,7 @@ class LLMDialogueEngine:
     async def speak(
         self,
         *,
+        npc_name: str,
         persona: str,
         ocean: dict[str, float],
         grudge_level: str,
@@ -215,6 +221,7 @@ class LLMDialogueEngine:
         player_name: str | None = None,
     ) -> str:
         prompt = self.build_prompt(
+            npc_name=npc_name,
             persona=persona,
             ocean=ocean,
             grudge_level=grudge_level,
@@ -228,6 +235,7 @@ class LLMDialogueEngine:
             # Never crash the demo/game on a model or transport failure — the
             # deterministic template is always available.
             return await self._fallback.speak(
+                npc_name=npc_name,
                 persona=persona,
                 ocean=ocean,
                 grudge_level=grudge_level,
@@ -239,6 +247,7 @@ class LLMDialogueEngine:
         line = (line or "").strip()
         if not line:
             return await self._fallback.speak(
+                npc_name=npc_name,
                 persona=persona,
                 ocean=ocean,
                 grudge_level=grudge_level,
@@ -305,6 +314,7 @@ class LLMDialogueEngine:
     @staticmethod
     def build_prompt(
         *,
+        npc_name: str,
         persona: str,
         ocean: dict[str, float],
         grudge_level: str,
@@ -328,16 +338,17 @@ class LLMDialogueEngine:
         who = player_name or "this person"
 
         return (
-            "You are Bjorn, a proud, gruff medieval butcher. You keep an honest "
-            "stall and a long memory.\n"
+            f"{persona}\n"
+            f"Your name is {npc_name}.\n"
             f"Your OCEAN personality: {ocean_desc}.\n"
             f"{history}\n"
             f"Your current feeling toward {who}: {feeling}.\n"
             f"They just said: '{player_line}'.\n"
-            f"Respond IN CHARACTER as Bjorn in 1-2 sentences. If you hold a "
+            f"Respond IN CHARACTER as {npc_name} in 1-2 sentences. If you hold a "
             "grudge, be cold or hostile and reference specifically what they did. "
-            "If they are a stranger, be gruff but fair. Output ONLY Bjorn's "
-            "spoken words, no narration, no quotation marks, no stage directions."
+            f"If they are a stranger, stay in character but be fair. Output ONLY "
+            f"{npc_name}'s spoken words, no narration, no quotation marks, no "
+            "stage directions."
         )
 
     @staticmethod

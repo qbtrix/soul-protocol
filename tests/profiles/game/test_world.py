@@ -181,7 +181,7 @@ async def test_cost_tick_only_when_meter_attached() -> None:
     async def generate(prompt: str) -> str:  # never called (templated engine)
         return "a line"
 
-    world.attach_meter(CostMeter(generate, model="claude-cli"))
+    world.attach_meter(CostMeter(generate, model="claude-cli", pricing={"claude-cli": (0.0, 0.0)}))
     await world.beat(ragnar.did, "Ragnar", "Fine day for a trade.", kind="neutral")
     ticks = [e for e in world.events() if e["type"] == "cost_tick"]
     assert len(ticks) == 1

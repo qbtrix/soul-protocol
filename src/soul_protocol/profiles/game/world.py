@@ -1,4 +1,8 @@
 # world.py — GameWorld: composition root + the engine-neutral session event
+#
+# Updated: 2026-09-11 (fix/game-profile-demo-defaults) — GameWorld takes
+#   start_zone (default DEFAULT_ZONE = "start"); the "tavern" label moved to
+#   examples/game.
 #   stream (state-stream v0) of the Game Profile.
 #
 # Created: 2026-07-02 (experiment/npc-soul-grudge-kernel) — Composes the whole
@@ -21,7 +25,7 @@
 #       director_phase (only on a phase transition) -> cost_tick (only when
 #       a CostMeter is attached via attach_meter()).
 #     * Zone model v0: zones = {soul-name: zone-string}, everyone starts in
-#       DEFAULT_ZONE ("tavern"); move() re-homes a soul and emits a "move"
+#       start_zone (DEFAULT_ZONE); move() re-homes a soul and emits a "move"
 #       event. Zones are labels, not geometry — the renderer owns layout.
 #     * snapshot() is SYNC (grudge levels are cached per (npc, player) as
 #       beats compute them; bonds read live off the kernels) — the HUD's
@@ -53,9 +57,9 @@ from .director import DirectorEngine
 from .grudge import NONE, SEVERITY, GrudgeKernel
 from .player import PlayerSoul
 
-# Every soul starts here until move() re-homes it. A zone is a plain string
-# label — geometry belongs to the renderer, not the world.
-DEFAULT_ZONE = "tavern"
+# Every soul starts in ``start_zone`` until move() re-homes it. A zone is a
+# plain string label — geometry belongs to the renderer, not the world.
+DEFAULT_ZONE = "start"
 
 
 class GameWorld:
@@ -66,6 +70,7 @@ class GameWorld:
     :class:`DirectorEngine` that consumes the ChallengeDial. Pass
     ``session_path`` to mirror every event to a jsonl file (truncated fresh at
     construction, one JSON object per line, append-only afterwards).
+    ``start_zone`` is the label every soul begins in (default ``"start"``).
     """
 
     def __init__(
@@ -75,6 +80,7 @@ class GameWorld:
         director: DirectorEngine | None = None,
         dials: Dials | None = None,
         session_path: str | Path | None = None,
+        start_zone: str = DEFAULT_ZONE,
     ) -> None:
         if not npcs:
             raise ValueError("GameWorld needs at least one NPC (GrudgeKernel)")
@@ -84,10 +90,10 @@ class GameWorld:
         self.dials = built
         self.director = director if director is not None else built.director
 
-        # Zone model v0: soul-name -> zone label; everyone starts in the tavern.
-        self.zones: dict[str, str] = {kernel.npc_name: DEFAULT_ZONE for kernel in self.npcs}
+        # Zone model v0: soul-name -> zone label; everyone starts in start_zone.
+        self.zones: dict[str, str] = {kernel.npc_name: start_zone for kernel in self.npcs}
         for player in self.players:
-            self.zones[player.name] = DEFAULT_ZONE
+            self.zones[player.name] = start_zone
 
         self.session_path = Path(session_path) if session_path is not None else None
         if self.session_path is not None:
