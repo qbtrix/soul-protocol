@@ -139,24 +139,21 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from soul_protocol.runtime.memory.archival import ArchivalMemoryStore, ConversationArchive
-from soul_protocol.runtime.memory.attention import (
-    is_significant,
-    overall_significance,
-)
 from soul_protocol.runtime.memory.contradiction import ContradictionDetector
 from soul_protocol.runtime.memory.core import CoreMemoryManager
-from soul_protocol.runtime.memory.dedup import _jaccard_similarity, reconcile_fact
+from soul_protocol.runtime.memory.dedup import _jaccard_similarity
 from soul_protocol.runtime.memory.episodic import EpisodicStore
 from soul_protocol.runtime.memory.graph import KnowledgeGraph
 from soul_protocol.runtime.memory.procedural import ProceduralStore
 from soul_protocol.runtime.memory.recall import RecallEngine
-from soul_protocol.runtime.memory.search import relevance_score, tokenize
+from soul_protocol.runtime.memory.search import relevance_score
 from soul_protocol.runtime.memory.self_model import SelfModelManager
 from soul_protocol.runtime.memory.semantic import SemanticStore
 from soul_protocol.runtime.memory.social import SocialStore
 from soul_protocol.runtime.types import (
     CoreMemory,
     GeneralEvent,
+    InstinctState,
     Interaction,
     MemoryEntry,
     MemoryProvenance,
@@ -168,7 +165,13 @@ from soul_protocol.runtime.types import (
 
 if TYPE_CHECKING:
     from soul_protocol.runtime.cognitive.engine import CognitiveEngine
+    from soul_protocol.runtime.decide.chain import DeciderChain
+    from soul_protocol.runtime.decide.protocol import Decider
+    from soul_protocol.runtime.decide.types import Decision
     from soul_protocol.runtime.memory.strategy import SearchStrategy
+
+# MemoryEntry.metadata key holding Soul Instinct decision markers.
+INSTINCT_METADATA_KEY: str = "instinct"
 
 logger = logging.getLogger(__name__)
 
@@ -685,6 +688,10 @@ class MemoryManager:
         self._search_strategy = search_strategy
         self._dspy_processor = dspy_processor
         self._personality = personality
+        # Soul Instinct — model-backed deciders consulted before the original
+        # cognitive path. Empty by default: decisions are unchanged.
+        self._deciders: list[Decider] = []
+        self._instinct = InstinctState()
 
         self._core_manager = CoreMemoryManager(core)
         self._episodic = EpisodicStore(max_entries=settings.episodic_max_entries)
@@ -770,6 +777,192 @@ class MemoryManager:
         from soul_protocol.runtime.memory.contradiction import ContradictionDetector
 
         self._contradiction_detector = ContradictionDetector(engine=engine)
+
+    # ---- Soul Instinct (decision layer) ----
+
+    def set_instinct(self, deciders: list[Decider], state: InstinctState) -> None:
+        """Attach model-backed deciders and the soul's persisted instinct state.
+
+        ``state`` is shared by reference with the owning Soul so calibration
+        learned during reviews is saved with the soul.
+        """
+        self._deciders = list(deciders)
+        self._instinct = state
+
+    @property
+    def deciders(self) -> list[Decider]:
+        """Model-backed deciders consulted before the original cognitive path."""
+        return list(self._deciders)
+
+    def _decision_chains(self) -> tuple[DeciderChain, DeciderChain]:
+        """Build the (pipeline, raw-text) decision chains for one observe() call.
+
+        The pipeline chain falls back to the original cognitive path (LLM engine,
+        DSPy gate or heuristics). The raw-text chain falls back to the pure
+        heuristics that step 4d has always used. Built per call so they always
+        reflect the current engine, deciders and settings.
+        """
+        # Lazy imports: decide → cognitive.engine → memory → manager (cycle).
+        from soul_protocol.runtime.decide.chain import DeciderChain
+        from soul_protocol.runtime.decide.cognitive import CognitiveDecider
+        from soul_protocol.runtime.decide.heuristic import HeuristicDecider
+        from soul_protocol.runtime.decide.personality import modulated_thresholds
+        from soul_protocol.runtime.memory.attention import DEFAULT_SIGNIFICANCE_THRESHOLD
+
+        settings = self._instinct.settings
+        min_confidence = settings.min_confidence
+        significance_threshold = DEFAULT_SIGNIFICANCE_THRESHOLD
+        if settings.personality_modulation and self._personality is not None:
+            min_confidence, significance_threshold = modulated_thresholds(
+                self._personality, min_confidence, significance_threshold
+            )
+
+        calibration = self._instinct.calibration
+        pipeline = DeciderChain(
+            self._deciders,
+            min_confidence=min_confidence,
+            calibration=calibration,
+            fallback=CognitiveDecider(
+                self._cognitive,
+                self._contradiction_detector,
+                dspy_processor=self._dspy_processor,
+                significance_threshold=significance_threshold,
+            ),
+        )
+        raw = DeciderChain(
+            self._deciders,
+            min_confidence=min_confidence,
+            calibration=calibration,
+            fallback=HeuristicDecider(significance_threshold=significance_threshold),
+        )
+        return pipeline, raw
+
+    async def decide(self, kind: str, text: str, core_values: list[str] | None = None) -> Decision:
+        """Ask the soul's decision chain one question about ``text`` (read-only).
+
+        Contradiction and dedup are judged against the soul's live semantic
+        facts; significance uses its recent episodic memories as context.
+        Nothing is stored or superseded.
+        """
+        from soul_protocol.runtime.decide.types import DecisionKind
+
+        decision_kind = DecisionKind(kind)
+        chain, _ = self._decision_chains()
+        if decision_kind == DecisionKind.SENTIMENT:
+            return await chain.sentiment(text)
+        if decision_kind == DecisionKind.SIGNIFICANCE:
+            return await chain.significance(
+                Interaction.from_pair(text, ""),
+                core_values if core_values is not None else self._core_values,
+                self._episodic.recent_contents(n=10),
+            )
+        facts = self._semantic.facts(include_superseded=False)
+        if decision_kind == DecisionKind.CONTRADICTION:
+            return await chain.contradictions(text, facts, self._instinct.settings.user_aliases)
+        return await chain.dedup(text, facts)
+
+    @staticmethod
+    def _significance_marker(decision: Decision) -> dict | None:
+        """Instinct marker for an episodic memory, or None if no model was consulted."""
+        unsure = decision.most_confident_unsure()
+        if unsure is not None and unsure.value is not None:
+            return {
+                "kind": "significance",
+                "uncertain": True,
+                "source": unsure.source,
+                "confidence": unsure.confidence,
+                "model_verdict": bool(unsure.value.get("significant")),
+                "applied": decision.value.significant,
+            }
+        if decision.confidence is not None:
+            return {
+                "kind": "significance",
+                "uncertain": False,
+                "source": decision.source,
+                "confidence": decision.confidence,
+                "model_verdict": decision.value.significant,
+                "applied": decision.value.significant,
+            }
+        return None
+
+    @staticmethod
+    def _contradiction_markers(
+        decision: Decision, new_id: str, new_content: str
+    ) -> dict[str, dict]:
+        """Instinct markers keyed by old memory id for one contradiction decision."""
+        applied = {f.old_memory_id for f in decision.value.findings}
+        base = {"kind": "contradiction", "new_id": new_id, "new_content": new_content}
+        unsure = decision.most_confident_unsure()
+        if unsure is not None and unsure.value is not None:
+            model_flagged = {f["old_memory_id"] for f in unsure.value.get("findings", [])}
+            return {
+                old_id: {
+                    **base,
+                    "uncertain": True,
+                    "source": unsure.source,
+                    "confidence": unsure.confidence,
+                    "model_verdict": old_id in model_flagged,
+                    "applied": old_id in applied,
+                }
+                for old_id in model_flagged | applied
+            }
+        if decision.confidence is not None:
+            return {
+                old_id: {
+                    **base,
+                    "uncertain": False,
+                    "source": decision.source,
+                    "confidence": decision.confidence,
+                    "model_verdict": True,
+                    "applied": True,
+                }
+                for old_id in applied
+            }
+        return {}
+
+    def _stamp_instinct(self, entry: MemoryEntry, marker: dict) -> None:
+        """Record an instinct marker on a memory (uncertain markers lower confidence)."""
+        entry.metadata = {**entry.metadata, INSTINCT_METADATA_KEY: marker}
+        confidence = marker.get("confidence")
+        if marker.get("uncertain") and confidence is not None:
+            entry.confidence = min(entry.confidence, max(0.0, min(1.0, confidence)))
+
+    def _stamp_episodic_instinct(self, episodic_id: str, marker: dict | None) -> None:
+        if marker is None:
+            return
+        entry = next((e for e in self._episodic.entries() if e.id == episodic_id), None)
+        if entry is not None:
+            self._stamp_instinct(entry, marker)
+
+    def _stamp_contradiction_markers(
+        self, decision: Decision, new_id: str, new_content: str, facts: list[MemoryEntry]
+    ) -> None:
+        markers = self._contradiction_markers(decision, new_id, new_content)
+        if not markers:
+            return
+        by_id = {f.id: f for f in facts}
+        for old_id, marker in markers.items():
+            entry = by_id.get(old_id)
+            if entry is not None:
+                self._stamp_instinct(entry, marker)
+
+    def instinct_entries(self, *, uncertain_only: bool = True) -> list[MemoryEntry]:
+        """Episodic and semantic memories carrying a Soul Instinct marker.
+
+        Args:
+            uncertain_only: When True (default) only memories whose decision was
+                made while a model decider was unsure, and not yet reviewed.
+        """
+        entries = self._episodic.entries() + self._semantic.facts(include_superseded=True)
+        result = []
+        for entry in entries:
+            marker = entry.metadata.get(INSTINCT_METADATA_KEY)
+            if not isinstance(marker, dict):
+                continue
+            if uncertain_only and not marker.get("uncertain"):
+                continue
+            result.append(entry)
+        return result
 
     # ---- v0.4.0 (#41) Layer dispatch helpers ----
 
@@ -987,9 +1180,13 @@ class MemoryManager:
         )
 
         values = core_values or self._core_values
+        # Soul Instinct: every decision below goes through a DeciderChain. With
+        # no deciders attached the chain's fallback is the original cognitive
+        # path, so results are identical to the pre-instinct pipeline.
+        decider, raw_decider = self._decision_chains()
 
         # --- 1. Detect sentiment ---
-        somatic = await self._cognitive.detect_sentiment(interaction.user_input)
+        somatic = (await decider.sentiment(interaction.user_input)).value
         logger.debug(
             "Sentiment detected: valence=%.3f, arousal=%.3f, label=%s",
             somatic.valence,
@@ -998,20 +1195,20 @@ class MemoryManager:
         )
 
         # --- 2. Compute significance ---
-        # Use DSPy significance gate if available (LLM-powered, optimizable),
-        # otherwise fall back to heuristic via CognitiveProcessor.
+        # Model deciders first (if confident); otherwise the fallback uses the
+        # DSPy significance gate if available, else CognitiveProcessor.
         recent = self._episodic.recent_contents(n=10)
-        if self._dspy_processor is not None:
-            sig_score = await self._dspy_processor.assess_significance(  # type: ignore[union-attr]
-                interaction, values, recent
-            )
-        else:
-            sig_score = await self._cognitive.assess_significance(interaction, values, recent)
-        combined_text = f"{interaction.user_input} {interaction.agent_output}"
-        token_count = len(tokenize(combined_text))
-        sig_value = overall_significance(sig_score, token_count=token_count)
-        significant = is_significant(sig_score, token_count=token_count)
-        logger.debug("Significance assessed: score=%.3f, significant=%s", sig_value, significant)
+        sig_decision = await decider.significance(interaction, values, recent)
+        sig_score = sig_decision.value.score
+        sig_value = sig_decision.value.overall
+        significant = sig_decision.value.significant
+        sig_marker = self._significance_marker(sig_decision)
+        logger.debug(
+            "Significance assessed: score=%.3f, significant=%s, source=%s",
+            sig_value,
+            significant,
+            sig_decision.source,
+        )
 
         # --- 3. Conditional episodic storage ---
         episodic_id: str | None = None
@@ -1035,6 +1232,7 @@ class MemoryManager:
                 # v0.4.0 (#41) — stamp domain on the new episodic entry.
                 if domain != "default":
                     self._episodic.update_entry(episodic_id, domain=domain)
+                self._stamp_episodic_instinct(episodic_id, sig_marker)
             logger.debug("Episodic memory stored: id=%s", episodic_id)
 
         # --- 4. Extract and store semantic facts ---
@@ -1059,7 +1257,8 @@ class MemoryManager:
         stored_facts: list[MemoryEntry] = []
         existing_facts = self._semantic.facts()
         for fact in facts:
-            action, merge_id = reconcile_fact(fact.content, existing_facts)
+            dedup_verdict = (await decider.dedup(fact.content, existing_facts)).value
+            action, merge_id = dedup_verdict.action, dedup_verdict.target_id
             if action == "SKIP":
                 logger.debug("Dedup SKIP: fact too similar to existing id=%s", merge_id)
                 continue
@@ -1105,6 +1304,7 @@ class MemoryManager:
                 # v0.4.0 (#41) — stamp domain on promoted episodic too.
                 if domain != "default":
                     self._episodic.update_entry(episodic_id, domain=domain)
+                self._stamp_episodic_instinct(episodic_id, sig_marker)
             logger.debug(
                 "Promoted to episodic (facts found): id=%s, sig=%.3f",
                 episodic_id,
@@ -1120,29 +1320,31 @@ class MemoryManager:
         if detect_contradictions and stored_facts:
             all_semantic = self._semantic.facts(include_superseded=False)
             for fact in stored_facts:
-                cresults = await self._contradiction_detector.detect(fact.content, all_semantic)
-                for cr in cresults:
-                    if cr.is_contradiction and cr.old_memory_id:
-                        # Mark old memory as superseded
-                        for existing_fact in all_semantic:
-                            if existing_fact.id == cr.old_memory_id:
-                                existing_fact.superseded = True
-                                existing_fact.superseded_by = fact.id
-                                logger.debug(
-                                    "Contradiction: old_id=%s superseded by new_id=%s reason=%s",
-                                    cr.old_memory_id,
-                                    fact.id,
-                                    cr.reason,
-                                )
-                                break
-                        contradictions.append(
-                            {
-                                "old_id": cr.old_memory_id,
-                                "new_id": fact.id,
-                                "reason": cr.reason,
-                                "confidence": cr.confidence,
-                            }
-                        )
+                cdecision = await decider.contradictions(
+                    fact.content, all_semantic, self._instinct.settings.user_aliases
+                )
+                for cr in cdecision.value.findings:
+                    # Mark old memory as superseded
+                    for existing_fact in all_semantic:
+                        if existing_fact.id == cr.old_memory_id:
+                            existing_fact.superseded = True
+                            existing_fact.superseded_by = fact.id
+                            logger.debug(
+                                "Contradiction: old_id=%s superseded by new_id=%s reason=%s",
+                                cr.old_memory_id,
+                                fact.id,
+                                cr.reason,
+                            )
+                            break
+                    contradictions.append(
+                        {
+                            "old_id": cr.old_memory_id,
+                            "new_id": fact.id,
+                            "reason": cr.reason,
+                            "confidence": cr.confidence,
+                        }
+                    )
+                self._stamp_contradiction_markers(cdecision, fact.id, fact.content, all_semantic)
 
         # --- 4d. Raw-text contradiction scan (verb-fact fallback) ---
         # When the heuristic extractor misses a fact update (e.g. "I moved to
@@ -1156,11 +1358,17 @@ class MemoryManager:
             all_semantic_raw = self._semantic.facts(include_superseded=False)
             # IDs already superseded in 4c — avoid double-reporting.
             already_superseded = {c["old_id"] for c in contradictions}
-            raw_cresults = await self._contradiction_detector.detect_heuristic(
-                raw_text, all_semantic_raw
+            raw_decision = await raw_decider.contradictions(
+                raw_text, all_semantic_raw, self._instinct.settings.user_aliases
             )
-            for cr in raw_cresults:
-                if not cr.is_contradiction or not cr.old_memory_id:
+            self._stamp_contradiction_markers(
+                raw_decision,
+                "raw-text-contradiction",
+                raw_text,
+                [f for f in all_semantic_raw if f.id not in already_superseded],
+            )
+            for cr in raw_decision.value.findings:
+                if not cr.old_memory_id:
                     continue
                 if cr.old_memory_id in already_superseded:
                     continue
@@ -1224,7 +1432,7 @@ class MemoryManager:
             await self._cognitive.update_self_model(interaction, facts, self._self_model)
             logger.debug("Self-model updated")
 
-        return {
+        result = {
             "somatic": somatic,
             "significance": sig_value,
             "is_significant": significant,
@@ -1233,6 +1441,13 @@ class MemoryManager:
             "entities": entities,
             "contradictions": contradictions,
         }
+        if self._deciders:
+            result["instinct"] = {
+                "significance_source": sig_decision.source,
+                "significance_confidence": sig_decision.confidence,
+                "uncertain": len(self.instinct_entries()),
+            }
+        return result
 
     async def recall(
         self,
