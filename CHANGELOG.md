@@ -7,6 +7,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Soul Instinct — pluggable, confidence-aware decision layer
+
+- **New package `runtime/decide/`.** The four memory-pipeline decisions (significance, sentiment, contradiction, dedup) now have typed request/verdict models and a `Decider` protocol. `DeciderChain` asks model-backed deciders first and only uses an answer whose (calibrated) confidence meets `min_confidence`; deciders that abstain, raise, or are unsure fall through to the soul's original path. Every consulted decider is recorded on `Decision.attempts`.
+- **No behaviour change by default.** `MemoryManager.observe()` routes all four decisions through the chain, but its fallback (`CognitiveDecider`) is exactly the previous path (LLM engine → DSPy gate → heuristics), so souls without deciders make identical decisions.
+- **Built-in deciders:** `HeuristicDecider` (rules), `NLIContradictionDecider` (local, offline NLI cross-encoder via the existing `embeddings-st` extra, with an embedding relatedness gate, two-direction scoring, and first-person + `user_aliases` name normalization so unrelated facts are not flagged — 13/13 on a small live check, opt-in via `SOUL_LIVE_MODELS=1`), `EngineDecider` (any `CognitiveEngine`, strict JSON with confidence), and `JevDecider` (TypeSafe AI's Jev via Pydantic AI; optional, hosted).
+- **Uncertain memories:** when a decider was consulted but unsure, the affected memory gets a `metadata["instinct"]` marker and a lowered `confidence`. `Soul.uncertain_memories()` lists them.
+- **Review + learning:** `Soul.review_instincts()` re-checks uncertain decisions with a reviewer (default: the soul's LLM), restoring wrongly superseded memories and applying missed contradictions. Each outcome updates a per-soul `InstinctCalibration` that adjusts future decider confidence. `Soul.dream()` runs the review automatically when an LLM is available (`review_instincts=` / `instinct.settings.review_during_dream` to control). `DreamReport` gains `instinct_reviewed` / `instinct_corrected`.
+- **Persistence:** `SoulConfig.instinct` (settings + calibration) is saved in the `.soul` file; older files load with defaults. Deciders are runtime-only.
+- **Personality (opt-in):** with `instinct.settings.personality_modulation`, openness lowers the significance bar and conscientiousness raises `min_confidence` (±0.1; default personality changes nothing).
+- **API:** `Soul.birth/awaken/birth_from_config(deciders=...)`, `Soul.use_deciders()`, `Soul.decide(kind, text)` (read-only), `Soul.instinct`, `Soul.review_instincts()`.
+- **MCP:** new `soul_decide` and `soul_instinct_review` tools (41 tools total).
+- **CLI:** new `soul instinct [PATH] [-m MESSAGE]` — read-only, interactive comparison of the old rules vs Soul Instinct on a soul; auto-finds the soul in the current folder.
+- **Docs:** new [docs/soul-instinct.md](docs/soul-instinct.md).
+
 ### Architecture debt — extract health, rename list (#288)
 
 - **Refactor:** Extracted duplicated health-audit and cleanup logic from `cli/main.py` and `mcp/server.py` into a new shared module `runtime/health.py`. Both entry points now delegate to `audit_health()`, `plan_cleanup()`, and `execute_cleanup()`.

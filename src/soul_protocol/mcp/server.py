@@ -1,5 +1,8 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 36 tools (31 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# 41 tools (36 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: feat/soul-instinct — Added soul_decide (read-only typed decision from the
+#   soul's decision layer) and soul_instinct_review (re-check uncertain decisions
+#   with the host LLM and update per-decider calibration).
 # Updated: 2026-07-18 (#284) — Replaced ~12 private attribute accesses with
 #   public MemoryManager API (episodic_entries(), semantic_facts(), etc.).
 #   MCP tools no longer reach into _m._episodic or _m._graph internals.
@@ -776,6 +779,62 @@ async def soul_dream(
         return str(obj)
 
     return json.dumps(dataclasses.asdict(report), default=_ser)
+
+
+@mcp.tool
+async def soul_decide(
+    kind: str,
+    text: str,
+    soul: str | None = None,
+) -> str:
+    """Ask the soul's instinct a quick typed question about a statement (read-only).
+
+    Uses the soul's decision layer (attached model deciders first, then its
+    LLM/heuristic path) and its memories as context. Nothing is stored.
+
+    Args:
+        kind: One of "sentiment" (what mood?), "significance" (worth remembering?),
+            "contradiction" (does it conflict with what the soul knows?),
+            "dedup" (is it new, a duplicate, or an update of a known fact?)
+        text: The statement to judge
+        soul: Target soul name (uses active soul if omitted)
+    """
+    from ..runtime.decide.types import DecisionKind
+
+    valid = [k.value for k in DecisionKind]
+    if kind not in valid:
+        return json.dumps({"status": "error", "error": f"kind must be one of {valid}"})
+    s = await _resolve_soul(soul)
+    decision = await s.decide(kind, text)
+    return json.dumps({"status": "ok", "soul": s.name, **decision.model_dump(mode="json")})
+
+
+@mcp.tool
+async def soul_instinct_review(
+    soul: str | None = None,
+    include_confident: bool = False,
+    ctx: Context | None = None,
+) -> str:
+    """Re-check uncertain instinct decisions with the host LLM and learn from them.
+
+    Memories wrongly marked as outdated are restored, missed contradictions are
+    applied, and each outcome updates the soul's per-decider calibration.
+    Uses MCP sampling when running inside Claude Code / Claude Desktop.
+
+    Args:
+        soul: Target soul name (uses active soul if omitted)
+        include_confident: Also review decisions the deciders were confident about
+    """
+    if ctx is not None:
+        _get_or_create_engine(ctx)
+    s = await _resolve_soul(soul)
+    pending = len(s.uncertain_memories())
+    report = await s.review_instincts(include_confident=include_confident)
+    if report.reviewed:
+        _registry.mark_modified(soul)
+    return json.dumps(
+        {"status": "ok", "soul": s.name, "pending_before": pending, **report.model_dump()}
+    )
 
 
 @mcp.tool
