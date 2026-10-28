@@ -1,4 +1,9 @@
 # grudge.py — The "npc.soul grudge kernel" of the game profile, on top of the
+#
+# Updated: 2026-09-11 (fix/game-profile-demo-defaults) — birth() requires
+#   name and archetype; persona defaults to "I am <name>, <archetype>.". The
+#   Bjorn defaults moved to examples/game. react() passes npc_name into the
+#   dialogue seam so the templated lines can name any NPC.
 #   unchanged Soul Protocol core.
 #
 # Created: 2026-07-01 (experiment/npc-soul-grudge-kernel) — A thin, deterministic,
@@ -127,13 +132,6 @@ class GrudgeKernel:
     previously exported ``.soul`` — the whole point of the experiment).
     """
 
-    # Canonical persona text for the dialogue prompt. The `persona=` kwarg to
-    # Soul.birth() is not retained on the runtime Soul (dropped by Pydantic's
-    # extra="ignore"), so the kernel carries it explicitly for the LLM prompt.
-    DEFAULT_PERSONA = (
-        "I am Bjorn, a proud, gruff medieval butcher. I keep an honest stall and a long memory."
-    )
-
     def __init__(
         self,
         soul: Soul,
@@ -141,7 +139,10 @@ class GrudgeKernel:
         persona: str | None = None,
     ) -> None:
         self.soul = soul
-        self.persona = persona or self.DEFAULT_PERSONA
+        # The `persona=` kwarg to Soul.birth() is not retained on the runtime
+        # Soul (dropped by Pydantic's extra="ignore"), so the kernel carries it
+        # explicitly for the LLM prompt.
+        self.persona = persona or f"I am {soul.name}, {soul.archetype}."
         # Default to the deterministic templated engine (free, offline, keeps
         # the existing tests green). Imported lazily to avoid a circular import:
         # dialogue.py imports the grudge-level constants and Grievance from here.
@@ -168,9 +169,9 @@ class GrudgeKernel:
     @classmethod
     async def birth(
         cls,
-        name: str = "Bjorn",
-        archetype: str = "The Butcher",
-        persona: str = DEFAULT_PERSONA,
+        name: str,
+        archetype: str,
+        persona: str | None = None,
         dialogue_engine=None,
     ) -> GrudgeKernel:
         """Birth a fresh NPC soul. Deterministic: no engine (HeuristicEngine),
@@ -179,7 +180,7 @@ class GrudgeKernel:
         Pass ``dialogue_engine`` to swap how the NPC's spoken line is produced
         (default: templated). The grudge machinery is identical either way.
         ``persona`` is carried on the kernel for the LLM prompt (Soul.birth does
-        not retain it).
+        not retain it); it defaults to ``"I am <name>, <archetype>."``.
         """
         soul = await Soul.birth(
             name=name,
@@ -202,7 +203,7 @@ class GrudgeKernel:
         cls,
         path: str,
         dialogue_engine=None,
-        persona: str = DEFAULT_PERSONA,
+        persona: str | None = None,
     ) -> GrudgeKernel:
         """Awaken an NPC from an exported ``.soul`` file — grievances and
         per-player bonds come back with it. ``dialogue_engine`` optionally swaps
@@ -340,6 +341,7 @@ class GrudgeKernel:
         grievances = await self.grievances(player_did)
         level = self._level_from(grievances)
         return await self._dialogue.speak(
+            npc_name=self.npc_name,
             persona=self.persona,
             ocean=self._ocean_dict(),
             grudge_level=level,
@@ -364,7 +366,7 @@ class GrudgeKernel:
 
         The line comes through the SAME :class:`DialogueEngine` seam as
         :meth:`react`, but via ``speak_reputation`` — hearsay tone, NPC-name-aware
-        — so any npc.soul (an innkeeper, not just Bjorn) reads right, and a set
+        — so any npc.soul (an innkeeper, a butcher) reads right, and a set
         ``LLMDialogueEngine`` gets the real deeds in a reputation-specific prompt
         and can name them.
 
@@ -383,7 +385,7 @@ class GrudgeKernel:
         return line, notoriety
 
     def _ocean_dict(self) -> dict[str, float]:
-        """Bjorn's OCEAN traits as a plain dict for the dialogue prompt.
+        """The NPC's OCEAN traits as a plain dict for the dialogue prompt.
 
         Reads the real personality off the Soul (``soul.dna.personality``) so
         the LLM prompt reflects the actual trait vector (openness,
