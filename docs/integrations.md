@@ -45,6 +45,41 @@ Best for: projects that want persistent context without running a server, CI/CD 
 
 See the [CLI Reference](cli-reference.md#soul-inject) for full options.
 
+### Tier 1.6 -- Journal Shell Hooks (`soul journal`)
+
+For shell hooks (git, CI, IDE plugins) that want to record structured events, the `soul journal` subcommand wraps the org-level event journal as a CLI. No Python session required; one shell-out per event. The result is a queryable, append-only, hash-chained log keyed by action — distinct from the BM25 fuzzy memory `soul remember` writes to.
+
+```bash
+# One-time setup per workspace
+soul journal init ./.journal.db
+
+# Per-event hook
+soul journal append ./.journal.db \
+    --action session.commit.pushed \
+    --actor '{"kind":"agent","id":"did:soul:claude-code"}' \
+    --payload "{\"sha\":\"$SHA\",\"title\":\"$TITLE\"}" \
+    --scope session:abc123 --scope repo:my-repo
+```
+
+A typical `post-commit` hook in `.git/hooks/post-commit`:
+
+```bash
+#!/usr/bin/env bash
+set -e
+SHA=$(git rev-parse HEAD)
+TITLE=$(git log -1 --pretty=%s)
+soul journal append ./.journal.db \
+    --action session.commit.pushed \
+    --actor "{\"kind\":\"agent\",\"id\":\"did:soul:$USER\"}" \
+    --payload "{\"sha\":\"$SHA\",\"title\":\"$TITLE\"}" \
+    --scope "repo:$(basename "$PWD")" \
+    --scope "session:$(date +%Y-%m-%d)" >/dev/null
+```
+
+A next-session `soul journal query ./.journal.db --action-prefix session.` returns clean structured history. See [CLI Reference](cli-reference.md#journal-189) for the full command surface and stdin batching.
+
+Best for: replacing memory-heavy shell hooks (`soul remember` per commit) with structured events that decision-trace tooling and audit scripts can replay deterministically.
+
 ### Tier 2 -- MCP Server (Active)
 
 Run the Soul Protocol MCP server alongside your agent. The agent actively calls soul tools to recall memories, observe interactions, reflect on patterns, and evolve over time. Full bidirectional integration. Supports multiple souls via `SOUL_DIR`.

@@ -30,6 +30,26 @@
       "default": 500,
       "title": "Human Tokens",
       "type": "integer"
+    },
+    "consolidation_interval": {
+      "default": 20,
+      "title": "Consolidation Interval",
+      "type": "integer"
+    },
+    "skip_deep_processing_on_low_significance": {
+      "default": true,
+      "title": "Skip Deep Processing On Low Significance",
+      "type": "boolean"
+    },
+    "always_extract_entities": {
+      "default": true,
+      "title": "Always Extract Entities",
+      "type": "boolean"
+    },
+    "smart_recall_enabled": {
+      "default": false,
+      "title": "Smart Recall Enabled",
+      "type": "boolean"
     }
   },
   "title": "MemorySettings",

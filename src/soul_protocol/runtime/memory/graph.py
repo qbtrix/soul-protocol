@@ -1,4 +1,12 @@
 # memory/graph.py — KnowledgeGraph for entity relationships.
+# Updated: v0.5.0 (#108, #190) — Typed entity ontology + traversal upgrades.
+#   - Entities now store provenance (list of memory_ids) alongside type, so the
+#     graph layer can answer "which memories produced this entity" cheaply.
+#   - Edges gain a weight field (0-1 confidence from the LLM extractor) and
+#     pass through any metadata.source_memory_id as edge provenance.
+#   - New typed view helpers: list_nodes(), list_edges(), neighbors_typed(),
+#     find_path_typed() return GraphNode/GraphEdge dataclasses suitable for
+#     the new GraphView API. Existing list-of-dict methods stay for back-compat.
 # Updated: v0.4.0 — Added progressive_context() for multi-hop graph traversal.
 #   Returns entity relationships at configurable depth levels for recall augmentation.
 # Updated: fix/graph-progressive-context-conflict — Renamed duplicate progressive_context()
@@ -16,11 +24,21 @@ from __future__ import annotations
 from collections import deque
 from datetime import datetime
 
+from soul_protocol.runtime.memory.graph_types import GraphEdge, GraphNode
+
 
 class TemporalEdge:
     """A directed relationship with temporal validity."""
 
-    __slots__ = ("source", "target", "relation", "valid_from", "valid_to", "metadata")
+    __slots__ = (
+        "source",
+        "target",
+        "relation",
+        "valid_from",
+        "valid_to",
+        "metadata",
+        "weight",
+    )
 
     def __init__(
         self,
@@ -30,6 +48,7 @@ class TemporalEdge:
         valid_from: datetime | None = None,
         valid_to: datetime | None = None,
         metadata: dict | None = None,
+        weight: float | None = None,
     ) -> None:
         self.source = source
         self.target = target
@@ -37,6 +56,7 @@ class TemporalEdge:
         self.valid_from = valid_from or datetime.now()
         self.valid_to = valid_to
         self.metadata = metadata
+        self.weight = weight
 
     def is_active_at(self, dt: datetime) -> bool:
         if self.valid_from > dt:
@@ -62,6 +82,8 @@ class TemporalEdge:
             d["valid_to"] = self.valid_to.isoformat()
         if self.metadata is not None:
             d["metadata"] = self.metadata
+        if self.weight is not None:
+            d["weight"] = self.weight
         return d
 
     @classmethod
@@ -79,18 +101,60 @@ class TemporalEdge:
             valid_from=valid_from,
             valid_to=valid_to,
             metadata=data.get("metadata"),
+            weight=data.get("weight"),
         )
 
 
 class KnowledgeGraph:
-    """Simple dict-based knowledge graph for entity relationships."""
+    """Simple dict-based knowledge graph for entity relationships.
+
+    v0.5.0 (#190) tracks **provenance** — the list of memory IDs that
+    produced each entity — alongside the entity type. ``_entities`` keeps
+    storing ``name -> type`` for back-compat; ``_provenance`` is a parallel
+    dict ``name -> list[memory_id]`` so old serializations still load
+    cleanly. New entities and edges accept an optional ``source_memory_id``
+    keyword that gets folded into the provenance lists.
+    """
 
     def __init__(self) -> None:
         self._entities: dict[str, str] = {}
         self._edges: list[TemporalEdge] = []
+        # v0.5.0 (#190) — entity provenance: name -> list of memory_ids that
+        # contributed this entity. Stored separately so legacy graph files
+        # (which don't carry provenance) round-trip via from_dict() without
+        # blowing up on a missing field.
+        self._provenance: dict[str, list[str]] = {}
 
-    def add_entity(self, name: str, entity_type: str = "unknown") -> None:
-        self._entities[name] = entity_type
+    def add_entity(
+        self,
+        name: str,
+        entity_type: str = "unknown",
+        *,
+        source_memory_id: str | None = None,
+    ) -> None:
+        """Add (or update) an entity in the graph.
+
+        ``entity_type`` is a free-form string — the EntityType enum names
+        the well-known kinds (person, place, org, concept, tool, document,
+        event, relation) but any string is accepted.
+
+        ``source_memory_id`` (#190): when given, append the id to the
+        entity's provenance list. Idempotent — the same memory_id is only
+        recorded once per entity. Pass None for legacy callers (no
+        provenance tracking).
+        """
+        # When the entity already exists with a meaningful type, keep that
+        # type — re-adding with type="unknown" should never clobber a
+        # previously-typed entity. This makes it safe to call add_entity()
+        # purely to record provenance.
+        existing = self._entities.get(name)
+        if existing in (None, "", "unknown") or entity_type not in ("", "unknown"):
+            self._entities[name] = entity_type or "unknown"
+
+        if source_memory_id:
+            ids = self._provenance.setdefault(name, [])
+            if source_memory_id not in ids:
+                ids.append(source_memory_id)
 
     def add_relationship(
         self,
@@ -100,7 +164,16 @@ class KnowledgeGraph:
         valid_from: datetime | None = None,
         valid_to: datetime | None = None,
         metadata: dict | None = None,
+        weight: float | None = None,
     ) -> None:
+        """Add a directed edge from ``source`` to ``target``.
+
+        Idempotent: if an active edge with the same ``(source, target,
+        relation)`` triple already exists, the call is a no-op (so re-running
+        the extractor on the same memory doesn't create duplicates). Any
+        ``metadata.source_memory_id`` is folded into the existing edge's
+        provenance list when the metadata changes the source memory.
+        """
         if source not in self._entities:
             self._entities[source] = "unknown"
         if target not in self._entities:
@@ -112,6 +185,11 @@ class KnowledgeGraph:
                 and edge.relation == relation
                 and edge.is_currently_active()
             ):
+                # Idempotent re-extraction — fold provenance into the
+                # existing edge's metadata so a second visit records that
+                # memory too. Keeps weight at the existing value.
+                if metadata and "source_memory_id" in metadata:
+                    edge.metadata = _merge_edge_metadata(edge.metadata, metadata)
                 return
         self._edges.append(
             TemporalEdge(
@@ -121,6 +199,7 @@ class KnowledgeGraph:
                 valid_from=valid_from,
                 valid_to=valid_to,
                 metadata=metadata,
+                weight=weight,
             )
         )
 
@@ -420,6 +499,9 @@ class KnowledgeGraph:
     def remove_entity(self, entity: str) -> int:
         if entity in self._entities:
             del self._entities[entity]
+        # Drop the entity's provenance record too — keeping it would leak
+        # the source memory IDs of a forgotten entity.
+        self._provenance.pop(entity, None)
         original_len = len(self._edges)
         self._edges = [
             edge for edge in self._edges if edge.source != entity and edge.target != entity
@@ -427,10 +509,16 @@ class KnowledgeGraph:
         return original_len - len(self._edges)
 
     def to_dict(self) -> dict:
-        return {
+        out: dict = {
             "entities": dict(self._entities),
             "edges": [edge.to_dict() for edge in self._edges],
         }
+        # v0.5.0 (#190) — only emit the provenance map when at least one
+        # entity has a recorded source memory. Keeps the on-disk shape stable
+        # for graphs that were populated before provenance landed.
+        if self._provenance:
+            out["provenance"] = {k: list(v) for k, v in self._provenance.items()}
+        return out
 
     @classmethod
     def from_dict(cls, data: dict) -> KnowledgeGraph:
@@ -449,4 +537,232 @@ class KnowledgeGraph:
                 graph.add_relationship(
                     edge_data["source"], edge_data["target"], edge_data["relation"]
                 )
+        prov = data.get("provenance") or {}
+        for name, ids in prov.items():
+            if isinstance(ids, list):
+                graph._provenance[name] = [str(i) for i in ids]
         return graph
+
+    # ============ Typed views (v0.5.0 / #108, #190) ============
+
+    def list_nodes(
+        self,
+        *,
+        type: str | None = None,  # noqa: A002 - public param name
+        name_match: str | None = None,
+        limit: int | None = None,
+    ) -> list[GraphNode]:
+        """Return a typed list of nodes, optionally filtered.
+
+        ``type``: when set, only nodes whose entity_type matches are returned.
+        ``name_match``: case-insensitive substring filter on the node name.
+        ``limit``: clamp the result count.
+        """
+        out: list[GraphNode] = []
+        match_lc = name_match.lower() if name_match else None
+        for name, etype in self._entities.items():
+            if type is not None and etype != type:
+                continue
+            if match_lc is not None and match_lc not in name.lower():
+                continue
+            out.append(
+                GraphNode(
+                    id=name,
+                    type=etype or "unknown",
+                    name=name,
+                    provenance=list(self._provenance.get(name, [])),
+                )
+            )
+            if limit is not None and len(out) >= limit:
+                break
+        return out
+
+    def list_edges(
+        self,
+        *,
+        source: str | None = None,
+        target: str | None = None,
+        relation: str | None = None,
+    ) -> list[GraphEdge]:
+        """Return a typed list of currently-active edges."""
+        out: list[GraphEdge] = []
+        for edge in self._edges:
+            if not edge.is_currently_active():
+                continue
+            if source is not None and edge.source != source:
+                continue
+            if target is not None and edge.target != target:
+                continue
+            if relation is not None and edge.relation != relation:
+                continue
+            prov: list[str] = []
+            meta = edge.metadata or {}
+            if isinstance(meta, dict):
+                src_id = meta.get("source_memory_id")
+                if src_id:
+                    prov.append(str(src_id))
+                extra = meta.get("provenance")
+                if isinstance(extra, list):
+                    for pid in extra:
+                        s = str(pid)
+                        if s and s not in prov:
+                            prov.append(s)
+            out.append(
+                GraphEdge(
+                    source=edge.source,
+                    target=edge.target,
+                    relation=edge.relation,
+                    weight=edge.weight,
+                    provenance=prov,
+                    metadata=edge.metadata if edge.metadata else None,
+                )
+            )
+        return out
+
+    def neighbors_typed(
+        self,
+        node_id: str,
+        depth: int = 1,
+        types: list[str] | None = None,
+    ) -> list[GraphNode]:
+        """BFS neighbors as :class:`GraphNode` instances.
+
+        ``depth``: how many hops out from ``node_id`` to expand. ``depth=1``
+        returns direct neighbors; ``depth=0`` returns just ``node_id`` itself.
+
+        ``types``: optional whitelist — only nodes whose entity_type matches
+        appear in the result. The starting node is always included so the
+        caller can inspect the source even when its type doesn't match.
+        """
+        if node_id not in self._entities:
+            return []
+        visited: dict[str, int] = {node_id: 0}
+        queue: deque[tuple[str, int]] = deque([(node_id, 0)])
+        order: list[str] = [node_id]
+        while queue:
+            current, d = queue.popleft()
+            if d >= depth:
+                continue
+            for neighbor in self._active_neighbors(current):
+                if neighbor not in visited:
+                    visited[neighbor] = d + 1
+                    queue.append((neighbor, d + 1))
+                    order.append(neighbor)
+        type_filter: set[str] | None = set(types) if types else None
+        out: list[GraphNode] = []
+        for name in order:
+            etype = self._entities.get(name, "unknown")
+            if name != node_id and type_filter is not None and etype not in type_filter:
+                continue
+            out.append(
+                GraphNode(
+                    id=name,
+                    type=etype or "unknown",
+                    name=name,
+                    depth=visited[name],
+                    provenance=list(self._provenance.get(name, [])),
+                )
+            )
+        return out
+
+    def find_path_typed(
+        self,
+        source: str,
+        target: str,
+        max_depth: int = 4,
+    ) -> list[GraphEdge] | None:
+        """Shortest path BFS — returns the chain of edges from source to target.
+
+        Returns ``None`` when either endpoint is unknown or no path exists
+        within ``max_depth`` hops. Returns ``[]`` when ``source == target``
+        (zero-length path).
+
+        Edges are returned in traversal order; the path is reconstructed by
+        walking the parent pointers, so for an A->B->C path the result is
+        ``[A->B edge, B->C edge]``.
+        """
+        if source not in self._entities or target not in self._entities:
+            return None
+        if source == target:
+            return []
+        # parent[node] = (predecessor, edge_used)
+        parent: dict[str, tuple[str, GraphEdge]] = {}
+        visited: set[str] = {source}
+        queue: deque[tuple[str, int]] = deque([(source, 0)])
+        while queue:
+            current, depth = queue.popleft()
+            if depth >= max_depth:
+                continue
+            for edge in self._edges:
+                if not edge.is_currently_active():
+                    continue
+                if edge.source == current:
+                    nxt = edge.target
+                elif edge.target == current:
+                    nxt = edge.source
+                else:
+                    continue
+                if nxt in visited:
+                    continue
+                visited.add(nxt)
+                parent[nxt] = (
+                    current,
+                    GraphEdge(
+                        source=edge.source,
+                        target=edge.target,
+                        relation=edge.relation,
+                        weight=edge.weight,
+                        metadata=edge.metadata if edge.metadata else None,
+                    ),
+                )
+                if nxt == target:
+                    # Reconstruct path
+                    path: list[GraphEdge] = []
+                    cur = target
+                    while cur != source:
+                        prev, edge_used = parent[cur]
+                        path.append(edge_used)
+                        cur = prev
+                    path.reverse()
+                    return path
+                queue.append((nxt, depth + 1))
+        return None
+
+    def to_mermaid(self) -> str:
+        """Render the entire graph as a Mermaid ``graph LR`` block."""
+        nodes = self.list_nodes()
+        edges = self.list_edges()
+        from soul_protocol.runtime.memory.graph_types import _render_mermaid
+
+        return _render_mermaid(nodes, edges)
+
+
+def _merge_edge_metadata(existing: dict | None, incoming: dict) -> dict:
+    """Combine an edge's stored metadata with a new extraction's metadata.
+
+    Used by :meth:`KnowledgeGraph.add_relationship` when re-extraction hits
+    an existing edge: we want to retain the original ``source_memory_id``
+    while recording the new one in a ``provenance`` list. Other keys from
+    the incoming dict overwrite (e.g. updated ``confidence``).
+    """
+    out: dict = dict(existing) if isinstance(existing, dict) else {}
+    incoming_src = incoming.get("source_memory_id")
+    out_src = out.get("source_memory_id")
+    if incoming_src and out_src and incoming_src != out_src:
+        prov = out.get("provenance") or []
+        if not isinstance(prov, list):
+            prov = []
+        if out_src not in prov:
+            prov.append(out_src)
+        if incoming_src not in prov:
+            prov.append(incoming_src)
+        out["provenance"] = prov
+        # Keep first source as the canonical one for back-compat with
+        # callers that just read source_memory_id.
+    elif incoming_src and not out_src:
+        out["source_memory_id"] = incoming_src
+    for k, v in incoming.items():
+        if k in ("source_memory_id", "provenance"):
+            continue
+        out[k] = v
+    return out

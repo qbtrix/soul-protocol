@@ -73,7 +73,7 @@ def test_memory_entry_defaults():
     """MemoryEntry uses correct defaults for optional fields."""
     entry = MemoryEntry(type=MemoryType.SEMANTIC, content="User likes coffee")
 
-    assert entry.id == ""
+    assert len(entry.id) == 12
     assert entry.type == MemoryType.SEMANTIC
     assert entry.content == "User likes coffee"
     assert entry.importance == 5

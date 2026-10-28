@@ -167,7 +167,7 @@ And the `SoulContainer` class provides a high-level API:
 
 ```python
 soul = SoulContainer.create("Aria", traits={"role": "assistant"})
-soul.memory.store("episodic", MemoryEntry(content="Hello!"))
+soul.memory.store("episodic", MemoryEntry(content="Hello!", layer="episodic"))
 soul.save("aria.soul")
 
 soul = SoulContainer.open("aria.soul")

@@ -1,4 +1,6 @@
 # runtime/templates.py — SoulFactory for creating souls from templates and batch spawning.
+# Updated: 2026-08-08 (#292) — Template skill seeding now passes
+#   source=SkillSource.MANUAL so template-defined skills are public by default.
 # Updated: feat/memory-visibility-templates — Full implementation of from_template()
 #   and batch_spawn(). from_template() creates one soul from a SoulTemplate with
 #   optional overrides. batch_spawn() creates N souls with controlled personality
@@ -135,11 +137,11 @@ class SoulFactory:
 
         # Register skills from template
         if template.skills:
-            from soul_protocol.runtime.skills import Skill
+            from soul_protocol.runtime.skills import Skill, SkillSource
 
             for skill_name in template.skills:
                 skill_id = skill_name.lower().replace(" ", "_")
-                skill = Skill(id=skill_id, name=skill_name)
+                skill = Skill(id=skill_id, name=skill_name, source=SkillSource.MANUAL)
                 soul.skills.add(skill)
 
         logger.info(
@@ -177,7 +179,7 @@ class SoulFactory:
             List of newly birthed Soul instances.
         """
         # Lazy import to avoid circular dependency
-        from soul_protocol.runtime.skills import Skill
+        from soul_protocol.runtime.skills import Skill, SkillSource
         from soul_protocol.runtime.soul import Soul
 
         rng = random.Random(rng_seed)
@@ -226,7 +228,7 @@ class SoulFactory:
             # Register skills from template
             for skill_name in template.skills:
                 skill_id = skill_name.lower().replace(" ", "_")
-                skill = Skill(id=skill_id, name=skill_name)
+                skill = Skill(id=skill_id, name=skill_name, source=SkillSource.MANUAL)
                 soul.skills.add(skill)
 
             souls.append(soul)

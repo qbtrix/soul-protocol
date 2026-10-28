@@ -14,6 +14,7 @@ uv run pytest tests/ -v
 
 ## Checklist
 
+- [ ] **Base branch is `dev`, not `main`** (see [CONTRIBUTING.md](../CONTRIBUTING.md))
 - [ ] Tests pass locally (`uv run pytest tests/`)
 - [ ] Lint passes (`uv run ruff check . && uv run ruff format --check .`)
 - [ ] No secrets or credentials in the diff

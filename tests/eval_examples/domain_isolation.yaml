@@ -1,0 +1,75 @@
+# domain_isolation.yaml — Domain-scoped recall returns only that domain.
+# Created: 2026-04-29 (#160) — Domain isolation is the v0.4.0 (#41) feature
+#   that lets a single soul carry "finance" and "personal" memories without
+#   them showing up together. This eval pins that behaviour.
+
+name: "Domain isolation — recall scoped to one domain returns only that domain"
+description: |
+  Same soul, different memory domains. Recall against domain="finance"
+  must surface finance entries; recall against domain="personal" must
+  surface personal entries. No cross-domain bleed.
+
+seed:
+  soul:
+    name: "DomainSoul"
+    archetype: "Multi-Context Assistant"
+    ocean:
+      openness: 0.5
+      conscientiousness: 0.9
+      extraversion: 0.4
+      agreeableness: 0.6
+      neuroticism: 0.3
+  memories:
+    - content: "Q3 earnings exceeded forecast by 12 percent"
+      layer: semantic
+      domain: "finance"
+      importance: 8
+    - content: "Open a new revolving credit line by end of month"
+      layer: semantic
+      domain: "finance"
+      importance: 7
+    - content: "Birthday dinner with mom on Saturday at 7pm"
+      layer: semantic
+      domain: "personal"
+      importance: 7
+    - content: "Picked up a new sourdough starter from Lina"
+      layer: semantic
+      domain: "personal"
+      importance: 6
+
+cases:
+  - name: "finance_domain_returns_finance"
+    inputs:
+      message: "earnings"
+      domain: "finance"
+      mode: recall
+      recall_limit: 5
+    scoring:
+      kind: structural
+      expected:
+        recall_min_results: 1
+        recall_expected_substring: "Q3 earnings"
+
+  - name: "finance_domain_excludes_personal"
+    description: "Finance domain recall must not surface mom's birthday"
+    inputs:
+      message: "what's coming up"
+      domain: "finance"
+      mode: recall
+      recall_limit: 5
+    scoring:
+      kind: regex
+      pattern: "^(?!.*birthday).*$"
+      threshold: 1.0
+
+  - name: "personal_domain_returns_personal"
+    inputs:
+      message: "Birthday dinner Saturday"
+      domain: "personal"
+      mode: recall
+      recall_limit: 5
+    scoring:
+      kind: structural
+      expected:
+        recall_min_results: 1
+        recall_expected_substring: "Birthday dinner"

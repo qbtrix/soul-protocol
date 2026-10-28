@@ -106,6 +106,26 @@ async def test_export_and_awaken(tmp_path):
     assert restored.lifecycle == LifecycleState.ACTIVE
 
 
+async def test_export_overwrite_does_not_leave_backup(tmp_path):
+    """Export overwrites in place without leaving a .bak (#296 review).
+
+    Exports are meant to be shared — a .bak next to the archive would leak
+    the previous soul's full memory.  ``keep_backup=False`` is the default
+    for export.
+    """
+    soul = await Soul.birth("Aria")
+    soul_path = tmp_path / "aria.soul"
+    old_data = b"previous archive"
+    soul_path.write_bytes(old_data)
+
+    await soul.export(soul_path)
+
+    assert soul_path.read_bytes() != old_data
+    assert not (tmp_path / "aria.soul.bak").exists(), (
+        "Export should not leave a .bak — it leaks the previous soul's data"
+    )
+
+
 async def test_system_prompt():
     """to_system_prompt() returns a non-empty string containing the soul's name."""
     soul = await Soul.birth("Aria", archetype="The Compassionate Creator")
@@ -518,3 +538,35 @@ async def test_bond_and_skills_accessible():
     assert soul.bond.bond_strength == 50.0
     assert soul.skills is not None
     assert len(soul.skills.skills) == 0
+
+
+async def test_birth_unknown_kwargs_logs_warning(caplog):
+    """Soul.birth() with a typoed kwarg should log a warning, not crash."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="soul_protocol.runtime.soul"):
+        soul = await Soul.birth("WarnBot", souldirr="bad_path", bogus=42)
+
+    assert soul.name == "WarnBot"
+    assert any("Ignoring unsupported" in msg for msg in caplog.messages)
+    assert any("bogus" in msg and "souldirr" in msg for msg in caplog.messages)
+
+
+async def test_memory_count_includes_social():
+    """memory_count must include social entries (#291).
+
+    This pins the exact regression the social-deletion PR fixes: before #291,
+    social entries were stored but not counted by memory_count.
+    """
+    from soul_protocol.spec.memory import MemoryEntry
+
+    soul = await Soul.birth("Aria", archetype="Test")
+    before = soul.memory_count
+
+    # Add a social memory directly
+    entry = MemoryEntry(content="Alice is a close friend", type=MemoryType.SOCIAL, layer="social")
+    await soul._memory._social.add(entry)
+
+    assert soul.memory_count == before + 1, (
+        f"memory_count should include social entries: before={before}, after={soul.memory_count}"
+    )

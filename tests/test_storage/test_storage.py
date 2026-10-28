@@ -4,8 +4,12 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
 
+from soul_protocol.runtime.storage import file as storage_file
 from soul_protocol.runtime.storage.file import FileStorage
 from soul_protocol.runtime.storage.memory_store import InMemoryStorage
 from soul_protocol.runtime.types import Identity, SoulConfig
@@ -118,3 +122,316 @@ async def test_file_storage_list(config: SoulConfig, tmp_path):
     # Loading from non-existent returns None
     missing = await store.load("missing-soul")
     assert missing is None
+
+
+async def test_save_soul_full_restores_previous_directory_on_replace_failure(
+    config: SoulConfig,
+    tmp_path,
+    monkeypatch,
+):
+    """A failed final replacement leaves the previous full save readable."""
+    await storage_file.save_soul_full(config, {"core": {"persona": "old"}}, path=tmp_path)
+
+    soul_dir = tmp_path / "did_soul_aria-abc123"
+    sentinel = soul_dir / "sentinel.txt"
+    sentinel.write_text("old copy", encoding="utf-8")
+
+    real_replace = storage_file.os.replace
+
+    def fail_final_replace(src, dst):
+        if Path(dst) == soul_dir and Path(src).name == soul_dir.name:
+            raise OSError("simulated replace failure")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(storage_file.os, "replace", fail_final_replace)
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        await storage_file.save_soul_full(config, {"core": {"persona": "new"}}, path=tmp_path)
+
+    assert sentinel.read_text(encoding="utf-8") == "old copy"
+    assert soul_dir.exists()
+    assert not (tmp_path / "did_soul_aria-abc123.bak").exists()
+
+
+def test_save_soul_flat_partial_failure_preserves_existing_files(
+    config: SoulConfig,
+    tmp_path,
+    monkeypatch,
+):
+    """A per-file merge failure leaves existing files (including user files) intact."""
+    import asyncio
+
+    async def _test():
+        soul_dir = tmp_path / ".soul"
+        await storage_file.save_soul_flat(config, {"core": {"persona": "old"}}, soul_dir)
+
+        sentinel = soul_dir / "sentinel.txt"
+        sentinel.write_text("old copy", encoding="utf-8")
+
+        real_replace = storage_file.os.replace
+
+        def fail_on_soul_json(src, dst):
+            if Path(dst).name == "soul.json":
+                raise OSError("simulated replace failure")
+            return real_replace(src, dst)
+
+        monkeypatch.setattr(storage_file.os, "replace", fail_on_soul_json)
+
+        with pytest.raises(OSError, match="simulated replace failure"):
+            await storage_file.save_soul_flat(config, {"core": {"persona": "new"}}, soul_dir)
+
+        # User file untouched
+        assert sentinel.read_text(encoding="utf-8") == "old copy"
+        assert soul_dir.exists()
+
+    asyncio.run(_test())
+
+
+def test_save_soul_flat_preserves_user_files(
+    config: SoulConfig,
+    tmp_path,
+):
+    """save_soul_flat merges soul files without deleting unmanaged user files."""
+    import asyncio
+
+    async def _test():
+        soul_dir = tmp_path / ".soul"
+        await storage_file.save_soul_flat(config, {"core": {"persona": "v1"}}, soul_dir)
+
+        # User creates their own files alongside the soul
+        user_note = soul_dir / "NOTES.md"
+        user_note.write_text("my personal notes", encoding="utf-8")
+        git_dir = soul_dir / ".git"
+        git_dir.mkdir()
+        (git_dir / "config").write_text("[core]", encoding="utf-8")
+
+        # Save again — user files should survive
+        await storage_file.save_soul_flat(config, {"core": {"persona": "v2"}}, soul_dir)
+
+        assert user_note.exists()
+        assert user_note.read_text(encoding="utf-8") == "my personal notes"
+        assert (git_dir / "config").exists()
+        # Soul files updated
+        assert (soul_dir / "soul.json").exists()
+
+    asyncio.run(_test())
+
+
+def test_write_bytes_atomic_cleans_temp_on_write_failure(tmp_path, monkeypatch):
+    """If the write itself fails, no temp file is left behind."""
+    target = tmp_path / "test.soul"
+
+    def exploding_fdopen(fd, mode):
+        # Close the fd so it doesn't leak, then raise
+        storage_file.os.close(fd)
+        raise OSError("simulated disk full")
+
+    monkeypatch.setattr(storage_file.os, "fdopen", exploding_fdopen)
+
+    with pytest.raises(OSError, match="simulated disk full"):
+        storage_file.write_bytes_atomic(target, b"data")
+
+    # No temp files should remain
+    leftover = [p for p in tmp_path.iterdir() if ".tmp" in p.name]
+    assert leftover == [], f"Temp files left behind: {leftover}"
+    assert not target.exists()
+
+
+async def test_save_soul_full_first_time_creates_no_backup(
+    config: SoulConfig,
+    tmp_path,
+):
+    """First-time save (no pre-existing target) creates the directory with no .bak."""
+    await storage_file.save_soul_full(config, {"core": {"persona": "v1"}}, path=tmp_path)
+
+    soul_dir = tmp_path / "did_soul_aria-abc123"
+    assert soul_dir.exists()
+    assert (soul_dir / "soul.json").exists()
+
+    # No backup should exist on first save
+    bak_dir = tmp_path / "did_soul_aria-abc123.bak"
+    assert not bak_dir.exists()
+
+
+def test_write_bytes_atomic_overwrites_stale_backup(tmp_path):
+    """A stale .bak from a previous run is replaced on the next write."""
+    target = tmp_path / "test.dat"
+    bak = tmp_path / "test.dat.bak"
+
+    # Simulate a stale backup from a previous crash
+    bak.write_bytes(b"stale backup")
+    target.write_bytes(b"current")
+
+    storage_file.write_bytes_atomic(target, b"new data")
+
+    assert target.read_bytes() == b"new data"
+    # .bak should now contain the previous "current", not "stale backup"
+    assert bak.read_bytes() == b"current"
+
+
+def test_load_soul_full_recovers_from_bak(
+    config: SoulConfig,
+    tmp_path,
+):
+    """If the canonical path is missing but .bak exists, load auto-promotes it (#282)."""
+    import asyncio
+
+    async def _test():
+        # Simulate a normal save first
+        await storage_file.save_soul_full(config, {"core": {"persona": "v1"}}, path=tmp_path)
+
+        soul_dir = tmp_path / "did_soul_aria-abc123"
+        bak_dir = tmp_path / "did_soul_aria-abc123.bak"
+
+        # Simulate power loss mid-swap: canonical path vanished, .bak is the only copy
+        os.replace(soul_dir, bak_dir)
+        assert not soul_dir.exists()
+        assert bak_dir.exists()
+
+        # Load should auto-recover from .bak
+        loaded_config, memory_data = await storage_file.load_soul_full(soul_dir)
+        assert loaded_config is not None
+        assert loaded_config.identity.name == "Aria"
+        # After recovery, the canonical path should be back
+        assert soul_dir.exists()
+        assert not bak_dir.exists()
+
+    asyncio.run(_test())
+
+
+def test_replace_with_backup_does_not_delete_orphan_bak(tmp_path, monkeypatch):
+    """When target is absent and .bak exists, _replace_with_backup must NOT
+    delete the .bak before the swap — it may be the only surviving copy.
+
+    We monkeypatch os.replace to fail on the source→target step and then
+    verify that the orphan .bak is still intact.
+    """
+    target = tmp_path / "soul"
+    bak = tmp_path / "soul.bak"
+    source = tmp_path / "new_soul"
+
+    # Simulate orphan .bak from a previous interrupted swap
+    bak.mkdir()
+    (bak / "soul.json").write_text('{"good": true}', encoding="utf-8")
+
+    # source is the new data we're swapping in
+    source.mkdir()
+    (source / "soul.json").write_text('{"new": true}', encoding="utf-8")
+
+    real_replace = os.replace
+
+    def fail_on_source_to_target(src, dst):
+        """Fail when trying to place source into target position."""
+        if Path(dst) == target and Path(src) == source:
+            raise OSError("simulated crash during replace")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(storage_file.os, "replace", fail_on_source_to_target)
+
+    with pytest.raises(OSError, match="simulated crash"):
+        storage_file._replace_with_backup(source, target, keep_backup=False)
+
+    # The orphan .bak must still exist — it was the ONLY surviving copy
+    # and should NOT have been deleted before the swap completed.
+    assert bak.exists(), ".bak was deleted before the swap completed"
+    assert (bak / "soul.json").read_text(encoding="utf-8") == '{"good": true}'
+
+
+def test_recover_backup_race_safe(tmp_path, monkeypatch):
+    """If another process already promoted .bak, _recover_backup handles
+    the FileNotFoundError gracefully instead of crashing.
+
+    We monkeypatch os.replace to raise FileNotFoundError (simulating a
+    concurrent promoter) while the target already exists (the other
+    process completed recovery).
+    """
+    target = tmp_path / "mysoul"
+    bak = tmp_path / "mysoul.bak"
+
+    # Set up: .bak exists, target is absent — classic recovery scenario
+    bak.mkdir()
+    (bak / "soul.json").write_text('{"data": true}', encoding="utf-8")
+
+    def race_replace(src, dst):
+        """Simulate: another process already moved .bak → target."""
+        # Create the target (as if the other process recovered it)
+        Path(dst).mkdir(exist_ok=True)
+        (Path(dst) / "soul.json").write_text('{"data": true}', encoding="utf-8")
+        raise FileNotFoundError("simulated: .bak already moved by another process")
+
+    monkeypatch.setattr(storage_file.os, "replace", race_replace)
+
+    # Should return True (path now exists) instead of crashing
+    result = storage_file._recover_backup(target)
+    assert result is True
+    assert target.exists()
+
+
+def test_save_soul_flat_removes_stale_layout_json(
+    config: SoulConfig,
+    tmp_path,
+):
+    """Flat save removes stale managed files like _layout.json from previous nested saves."""
+    import asyncio
+
+    async def _test():
+        soul_dir = tmp_path / ".soul"
+        await storage_file.save_soul_flat(config, {"core": {"persona": "v1"}}, soul_dir)
+
+        # Simulate a stale _layout.json from a previous nested save
+        mem_dir = soul_dir / "memory"
+        mem_dir.mkdir(exist_ok=True)
+        layout = mem_dir / "_layout.json"
+        layout.write_text('{"layout": "nested", "version": 1}', encoding="utf-8")
+        # Also create a stale nested directory
+        nested = mem_dir / "episodic" / "default"
+        nested.mkdir(parents=True, exist_ok=True)
+        (nested / "entries.json").write_text("[]", encoding="utf-8")
+
+        # Save again with flat layout — stale files should be removed
+        await storage_file.save_soul_flat(config, {"core": {"persona": "v2"}}, soul_dir)
+
+        assert not layout.exists(), "_layout.json should be removed after flat save"
+        assert not (nested / "entries.json").exists(), "stale nested entries should be removed"
+
+    asyncio.run(_test())
+
+
+def test_save_soul_flat_preserves_private_key(
+    config: SoulConfig,
+    tmp_path,
+):
+    """Flat save with include_keys=False must NOT prune keys/private.key (#296 review)."""
+    import asyncio
+
+    from soul_protocol.runtime.crypto.keystore import PRIVATE_KEY_FILENAME
+
+    async def _test():
+        soul_dir = tmp_path / ".soul"
+        # First save — simulate a save that included keys
+        await storage_file.save_soul_flat(
+            config,
+            {"core": {"persona": "v1"}, "keys": {"keys/public.key": b"pk123"}},
+            soul_dir,
+        )
+
+        # Manually place the private key file using the REAL filename
+        # (keys/private.key, per PRIVATE_KEY_FILENAME in crypto/keystore.py)
+        priv_key = soul_dir / PRIVATE_KEY_FILENAME
+        priv_key.parent.mkdir(exist_ok=True)
+        priv_key.write_text("SECRET_KEY_DATA", encoding="utf-8")
+
+        # Second save — keys dict has NO private.key (include_keys=False scenario)
+        await storage_file.save_soul_flat(
+            config,
+            {"core": {"persona": "v2"}, "keys": {"keys/public.key": b"pk123"}},
+            soul_dir,
+        )
+
+        # private.key must NOT have been pruned
+        assert priv_key.exists(), (
+            f"{PRIVATE_KEY_FILENAME} was pruned by save with include_keys=False"
+        )
+        assert priv_key.read_text(encoding="utf-8") == "SECRET_KEY_DATA"
+
+    asyncio.run(_test())
