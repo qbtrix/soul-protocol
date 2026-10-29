@@ -2,6 +2,8 @@
 # Created: 2026-06-27 — Phase 1 of the trust/digital-id CLI feature.
 #   Adds `soul did show` and `soul did verify` subcommands for inspecting
 #   and verifying a soul's decentralized identity and trust chain.
+# Updated: 2026-10-29 — Awaken via _awaken_or_fail with a --password flag so
+#   encrypted souls get a friendly error, and drop the win32 symbol switch.
 
 from __future__ import annotations
 
@@ -18,15 +20,10 @@ from rich.table import Table
 
 console = Console()
 
-# Windows-safe symbols (cp1252 doesn't support Unicode checkmarks)
-if sys.platform == "win32":
-    _OK = "[green]OK[/green]"
-    _FAIL = "[red]FAIL[/red]"
-    _WARN = "[yellow]!![/yellow]"
-else:
-    _OK = "[green]\u2713[/green]"
-    _FAIL = "[red]\u2717[/red]"
-    _WARN = "[yellow]\u26a0[/yellow]"
+# cli/main.py reconfigures stdout to UTF-8 (#268), so these render on Windows too.
+_OK = "[green]\u2713[/green]"
+_FAIL = "[red]\u2717[/red]"
+_WARN = "[yellow]\u26a0[/yellow]"
 
 
 def _source_has_public_key(source: str) -> bool:
@@ -39,7 +36,9 @@ def _source_has_public_key(source: str) -> bool:
     if p.is_file() and p.suffix == ".soul":
         try:
             with zipfile.ZipFile(str(p)) as zf:
-                return "keys/public.key" in zf.namelist()
+                names = zf.namelist()
+                # Encrypted archives store every member with a .enc suffix.
+                return "keys/public.key" in names or "keys/public.key.enc" in names
         except (zipfile.BadZipFile, OSError):
             return False
     elif p.is_dir():
@@ -64,7 +63,13 @@ def did_group():
 
 @did_group.command("show")
 @click.argument("source", type=click.Path(exists=True))
-def did_show(source):
+@click.option(
+    "--password",
+    "-p",
+    is_flag=True,
+    help="Decrypt an encrypted .soul file (prompts interactively for password).",
+)
+def did_show(source, password):
     """Display the DID and identity info of a soul.
 
     Shows the soul's name, DID, public key, archetype, trust chain
@@ -76,10 +81,14 @@ def did_show(source):
       soul did show .soul/
     """
 
-    async def _show():
-        from soul_protocol.runtime.soul import Soul
+    password_val = None
+    if password:
+        password_val = click.prompt("Decryption password", hide_input=True)
 
-        soul = await Soul.awaken(source)
+    async def _show():
+        from soul_protocol.cli.main import _awaken_or_fail
+
+        soul = await _awaken_or_fail(source, password=password_val)
 
         # Gather identity info
         pub_bytes = soul._keystore.public_key_bytes
@@ -143,7 +152,13 @@ def did_show(source):
 @did_group.command("verify")
 @click.argument("source", type=click.Path(exists=True))
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed verification steps")
-def did_verify(source, verbose):
+@click.option(
+    "--password",
+    "-p",
+    is_flag=True,
+    help="Decrypt an encrypted .soul file (prompts interactively for password).",
+)
+def did_verify(source, verbose, password):
     """Verify the trust chain and DID integrity of a soul.
 
     Checks that all trust chain entries have valid Ed25519 signatures,
@@ -157,10 +172,14 @@ def did_verify(source, verbose):
       soul did verify .soul/ --verbose
     """
 
-    async def _verify():
-        from soul_protocol.runtime.soul import Soul
+    password_val = None
+    if password:
+        password_val = click.prompt("Decryption password", hide_input=True)
 
-        soul = await Soul.awaken(source)
+    async def _verify():
+        from soul_protocol.cli.main import _awaken_or_fail
+
+        soul = await _awaken_or_fail(source, password=password_val)
 
         # Basic info
         console.print(f"\n[dim]Verifying:[/dim] [bold]{soul.name}[/bold] ({soul.did})\n")

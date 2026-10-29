@@ -1,6 +1,7 @@
 # test_did_cli.py — Tests for the `soul did` CLI commands.
 # Created: 2026-06-27 — Phase 1 of the DID CLI feature.
 #   Tests for `soul did show` and `soul did verify` subcommands.
+# Updated: 2026-10-29 — Encrypted-soul coverage for the --password flag.
 
 from __future__ import annotations
 
@@ -139,6 +140,27 @@ def stripped_keys_soul_file(tmp_path):
     return asyncio.run(_create())
 
 
+@pytest.fixture
+def encrypted_soul_file(tmp_path):
+    """Create a password-encrypted .soul file with trust chain entries."""
+    from soul_protocol.runtime.types import Interaction
+
+    async def _create():
+        soul = await Soul.birth(name="Locked")
+        await soul.observe(
+            Interaction(
+                user_input="Hello there",
+                agent_output="Hi!",
+                channel="test",
+            )
+        )
+        path = tmp_path / "locked.soul"
+        await soul.export(str(path), include_keys=True, password="hunter2")
+        return str(path)
+
+    return asyncio.run(_create())
+
+
 # ============ soul did show ============
 
 
@@ -185,6 +207,22 @@ class TestDidShow:
         """show command fails gracefully with nonexistent file."""
         result = runner.invoke(cli, ["did", "show", "nonexistent.soul"])
         assert result.exit_code != 0
+
+    def test_show_encrypted_without_password(self, runner, encrypted_soul_file):
+        """show on an encrypted soul without --password gives a clean error, not a traceback."""
+        result = runner.invoke(cli, ["did", "show", encrypted_soul_file])
+        assert result.exit_code == 1
+        assert "encrypted" in result.output
+        assert "Traceback" not in result.output
+
+    def test_show_encrypted_with_password(self, runner, encrypted_soul_file):
+        """show decrypts with --password."""
+        result = runner.invoke(
+            cli, ["did", "show", encrypted_soul_file, "--password"], input="hunter2\n"
+        )
+        assert result.exit_code == 0
+        assert "Locked" in result.output
+        assert "did:soul:" in result.output
 
 
 # ============ soul did verify ============
@@ -246,6 +284,22 @@ class TestDidVerify:
         result = runner.invoke(cli, ["did", "verify", stripped_keys_soul_file])
         assert result.exit_code != 0
         assert "No public key in source" in result.output
+
+    def test_verify_encrypted_with_password(self, runner, encrypted_soul_file):
+        """verify passes on an encrypted soul, finding the .enc public key."""
+        result = runner.invoke(
+            cli, ["did", "verify", encrypted_soul_file, "--password"], input="hunter2\n"
+        )
+        assert result.exit_code == 0
+        assert "All checks passed" in result.output
+
+    def test_verify_encrypted_wrong_password(self, runner, encrypted_soul_file):
+        """verify exits 1 with a friendly message on the wrong password."""
+        result = runner.invoke(
+            cli, ["did", "verify", encrypted_soul_file, "--password"], input="wrong\n"
+        )
+        assert result.exit_code == 1
+        assert "Wrong password" in result.output
 
 
 # ============ soul did (group) ============

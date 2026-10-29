@@ -352,6 +352,12 @@ soul did show .soul/
 |----------|----------|-------------|
 | `SOURCE` | Yes | Source soul file (`.soul`) or unpacked directory. |
 
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--password` | `-p` | Decrypt an encrypted `.soul` file (prompts interactively for the password). |
+
 ---
 
 ### `soul did verify`
@@ -382,6 +388,7 @@ soul did verify aria.soul --verbose
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--verbose` | `-v` | Show a detailed table of trust chain entries with sequence numbers, actions, timestamps, and signatures. |
+| `--password` | `-p` | Decrypt an encrypted `.soul` file (prompts interactively for the password). |
 
 ---
 
