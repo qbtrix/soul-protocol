@@ -2315,6 +2315,11 @@ embeddings-openai = [
 embeddings-st = [
     { name = "sentence-transformers" },
 ]
+gateway = [
+    { name = "httpx" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
 graph = [
     { name = "networkx" },
 ]
@@ -2342,6 +2347,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.0" },
     { name = "cryptography", specifier = ">=41.0" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.0" },
+    { name = "httpx", marker = "extra == 'gateway'" },
     { name = "httpx", marker = "extra == 'ollama'", specifier = ">=0.27" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8" },
     { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.0" },
@@ -2358,8 +2364,10 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
     { name = "sentence-transformers", marker = "extra == 'embeddings-st'", specifier = ">=2.0.0" },
     { name = "soul-protocol", extras = ["mcp", "graph", "vector", "llm", "lcm", "embeddings-st", "embeddings-openai", "embeddings-ollama"], marker = "extra == 'all'" },
+    { name = "starlette", marker = "extra == 'gateway'" },
+    { name = "uvicorn", marker = "extra == 'gateway'" },
 ]
-provides-extras = ["engine", "mcp", "dspy", "graph", "vector", "anthropic", "openai", "ollama", "litellm", "llm", "lcm", "embeddings-st", "embeddings-openai", "embeddings-ollama", "dev", "all"]
+provides-extras = ["engine", "mcp", "gateway", "dspy", "graph", "vector", "anthropic", "openai", "ollama", "litellm", "llm", "lcm", "embeddings-st", "embeddings-openai", "embeddings-ollama", "dev", "all"]
 
 [[package]]
 name = "sse-starlette"
