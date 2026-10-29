@@ -1,4 +1,25 @@
 # soul.py — The main Soul class: birth, awaken, observe, dream, save, export
+#
+# TODO(#288): This file is ~3,300 lines / 89 methods.  Concurrent feature
+#   branches conflict here constantly.  Recommended split:
+#     1. soul_memory.py  — observe, remember, note, recall, forget, curate_*
+#     2. soul_export.py  — export, _pack_soul_archive, serialize, from_dict
+#     3. soul_evolve.py  — evolve, propose_evolution, approve_mutation
+#     4. soul_dream.py   — dream, _consolidate_memories
+#     5. soul.py          — birth, awaken, to_system_prompt, feel, save/load
+#   Each mixin would be a separate file; Soul inherits from all of them.
+#   Do this as a dedicated multi-PR effort — not as a drive-by.
+# Updated: 2026-08-08 (#292) — Entity-derived skills now tagged with
+#   SkillSource.ENTITY so they are excluded from public_profile() and A2A cards.
+#   observe() entity extraction path passes source=SkillSource.ENTITY to Skill().
+# Updated: 2026-07-29 (#289) — Soul.birth() now warns on unknown **kwargs so
+#   typoed config keys are visible. evolution/manager._set_nested_attr() raises
+#   ValueError on invalid trait paths instead of silently creating new attrs.
+# Updated: 2026-08-03 (#291) — forget(), forget_entity(), purge(), supersede(),
+#   update_in_place(), and bulk forget_bulk() now include the social memory tier.
+# Updated: 2026-07-18 (#284) — Added public convenience API for CLI/MCP:
+#   memory (property), eval_history (property), clear_eval_history(),
+#   reset_energy(), reset_bond().
 # Updated: 2026-06-16 (feat/soul-skills-procedural) — remember() and note() now
 #   accept a ``provenance: MemoryProvenance`` kwarg (default HUMAN) so an
 #   autonomous loop (PocketPaw's self-improving skills reviewer) can stamp the
@@ -265,6 +286,10 @@ _RECONSOLIDATION_WINDOW_MAX: int = 1000
 _FORGET_WEIGHT_TARGET: float = 0.05
 _REINSTATE_WEIGHT: float = 1.0
 _RECALL_WEIGHT_FLOOR: float = 0.1
+# #247 — Default graded relevance floor for recall(). 0.0 keeps every
+# candidate the stores returned (historical behaviour); callers raise it to
+# drop weak query matches.
+_RECALL_RELEVANCE_FLOOR: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -851,8 +876,14 @@ class Soul:
                 Falls back silently to heuristic if dspy is not available.
             dspy_model: DSPy-compatible LM model string (default: claude-haiku-4-5).
             dspy_optimized_path: Path to pre-optimized DSPy module weights.
-            **kwargs: Additional arguments (reserved for future use).
+            **kwargs: Additional arguments reserved for future use. Ignored with
+                a warning so typoed configuration arguments are visible without
+                breaking forward compatibility.
         """
+        if kwargs:
+            unexpected = ", ".join(sorted(kwargs))
+            logger.warning("Ignoring unsupported Soul.birth() keyword argument(s): %s", unexpected)
+
         identity = Identity(
             did=generate_did(name),
             name=name,
@@ -1073,6 +1104,11 @@ class Soul:
                 raise SoulCorruptError("<bytes>", str(e)) from e
         else:
             path = Path(source)
+            # Crash recovery: if the path vanished mid-swap but .bak
+            # exists, promote it before we check existence (#282).
+            from .storage.file import _recover_backup
+
+            _recover_backup(path)
             if not path.exists():
                 raise SoulFileNotFoundError(str(path))
             try:
@@ -1193,6 +1229,10 @@ class Soul:
         the spec: identity + personality summary + skill names are public,
         memories and relationships are not.
 
+        Entity-derived skills (auto-created from extracted names during
+        ``observe()``) and legacy skills with unknown provenance are
+        excluded from the ``skills`` list (#292).
+
         Use this — never ``model_dump()`` — when serialising a soul for any
         third party.
         """
@@ -1204,7 +1244,7 @@ class Soul:
             "agreeableness": float(getattr(ocean, "agreeableness", 0.5)),
             "neuroticism": float(getattr(ocean, "neuroticism", 0.5)),
         }
-        skill_names = sorted(s.name for s in self._skills.skills)
+        skill_names = sorted(s.name for s in self._skills.public_skills())
         return {
             "did": self._identity.did,
             "name": self._identity.name,
@@ -1672,6 +1712,7 @@ class Soul:
         token_budget: int | None = None,
         min_weight: float = _RECALL_WEIGHT_FLOOR,
         include_superseded: bool = False,
+        relevance_floor: float = _RECALL_RELEVANCE_FLOOR,
     ) -> list[MemoryEntry]:
         """Soul recalls relevant memories with visibility + scope filtering.
 
@@ -1718,6 +1759,13 @@ class Soul:
         is a :class:`RecallResults` (a ``list`` subclass) carrying an
         optional ``next_page_token`` attribute alongside the entries.
         Existing callers that just iterate over the list keep working.
+
+        ``relevance_floor`` (#247): graded cutoff on query relevance
+        (0.0-1.0). A candidate whose token-overlap score is below the floor
+        is dropped during ranking. Default 0.0 leaves recall unchanged; a
+        positive floor drops weak matches that clear the store gate only
+        barely. Each returned entry carries its activation score on the
+        ``recall_score`` field.
 
         Populates ``self.last_retrieval`` with a :class:`RetrievalTrace`
         receipt every call, regardless of whether results were found. The
@@ -1781,6 +1829,7 @@ class Soul:
             layer=layer,
             domain=domain,
             min_weight=min_weight,
+            relevance_floor=relevance_floor,
         )
         # v0.5.0 (#192) — When include_superseded is True, top up the result
         # set with superseded entries that the underlying store filtered out.
@@ -2108,9 +2157,9 @@ class Soul:
             if skill:
                 skill.add_xp(xp_amount)
             else:
-                from .skills import Skill
+                from .skills import Skill, SkillSource
 
-                new_skill = Skill(id=entity_name, name=entity["name"])
+                new_skill = Skill(id=entity_name, name=entity["name"], source=SkillSource.ENTITY)
                 new_skill.add_xp(xp_amount)
                 self._skills.add(new_skill)
 
@@ -2293,6 +2342,9 @@ class Soul:
         procedural = self._memory._procedural._procedures.get(memory_id)
         if procedural is not None:
             return procedural, "procedural"
+        social = self._memory._social._entries.get(memory_id)
+        if social is not None:
+            return social, "social"
         return None, None
 
     @property
@@ -2662,7 +2714,7 @@ class Soul:
     async def _forget_bulk(self, query: str, *, user_id: str | None = None) -> dict:
         """Bulk weight-decay path for the legacy ``forget(query)`` surface.
 
-        Iterates the three built-in tiers, sets ``retrieval_weight`` to
+        Iterates all built-in tiers, sets ``retrieval_weight`` to
         0.05 on every entry whose content matches the query (token-overlap
         relevance > 0). Returns the same dict shape as the pre-0.5.0
         ``MemoryManager.forget`` so existing callers keep working.
@@ -2672,6 +2724,7 @@ class Soul:
         episodic_ids: list[str] = []
         semantic_ids: list[str] = []
         procedural_ids: list[str] = []
+        social_ids: list[str] = []
         for entry in list(self._memory._episodic.entries()):
             if relevance_score(query, entry.content) > 0.0:
                 entry.retrieval_weight = _FORGET_WEIGHT_TARGET
@@ -2687,8 +2740,14 @@ class Soul:
                 entry.retrieval_weight = _FORGET_WEIGHT_TARGET
                 procedural_ids.append(entry.id)
                 self._reconsolidation_window.pop(entry.id, None)
+        # v0.5.0 (#291) — Include social tier in the bulk weight-decay path.
+        for entry in list(self._memory._social.entries()):
+            if relevance_score(query, entry.content) > 0.0:
+                entry.retrieval_weight = _FORGET_WEIGHT_TARGET
+                social_ids.append(entry.id)
+                self._reconsolidation_window.pop(entry.id, None)
 
-        total = len(episodic_ids) + len(semantic_ids) + len(procedural_ids)
+        total = len(episodic_ids) + len(semantic_ids) + len(procedural_ids) + len(social_ids)
         if total > 0:
             from datetime import UTC
 
@@ -2705,6 +2764,7 @@ class Soul:
                         "episodic": len(episodic_ids),
                         "semantic": len(semantic_ids),
                         "procedural": len(procedural_ids),
+                        "social": len(social_ids),
                     },
                 }
             )
@@ -2722,6 +2782,7 @@ class Soul:
             "episodic": episodic_ids,
             "semantic": semantic_ids,
             "procedural": procedural_ids,
+            "social": social_ids,
             "total": total,
         }
 
@@ -2729,7 +2790,22 @@ class Soul:
         """Forget an entity and all related memories.
 
         Removes the entity from the knowledge graph (node + edges)
-        and deletes any memories mentioning the entity across all tiers.
+        and deletes any memories mentioning the entity across all
+        built-in tiers (episodic, semantic, procedural, social).
+
+        .. note:: Coverage gaps (not yet addressed)
+
+           * **Custom layers** registered via ``_custom_layers`` are not
+             scanned — entries there may still reference the entity.
+           * **Archival store** (``ArchivalMemoryStore``) compressed
+             conversation archives are not searched.
+           * **BondRegistry** — if the entity is a bonded user, their
+             bond record (strength, interaction count, bonded_at) is
+             not removed and will persist to the ``.soul`` file.
+
+           Until these are addressed, ``forget_entity`` is not fully
+           GDPR-complete. Callers relying on it for right-to-erasure
+           should audit the gaps above.
 
         Args:
             entity: The entity name to forget.
@@ -2994,6 +3070,38 @@ class Soul:
         """Access the soul's evaluator."""
         return self._evaluator
 
+    # ---- Public convenience API (v0.5.0 #284) ----
+    # These methods wrap private-attribute mutations that CLI and MCP
+    # previously performed inline, so internal renames no longer break them.
+
+    @property
+    def memory(self):
+        """Access the soul's MemoryManager."""
+        return self._memory
+
+    @property
+    def eval_history(self) -> list:
+        """Return a copy of the evaluator's history list."""
+        return list(self._evaluator._history)
+
+    def clear_eval_history(self) -> int:
+        """Clear all evaluation history entries.
+
+        Returns the number of entries cleared.
+        """
+        count = len(self._evaluator._history)
+        self._evaluator._history.clear()
+        return count
+
+    def reset_energy(self) -> None:
+        """Reset energy and social battery to full."""
+        self._state.current.energy = 100.0
+        self._state.current.social_battery = 100.0
+
+    def reset_bond(self, strength: float = 50.0) -> None:
+        """Reset bond strength to the given value (default 50.0)."""
+        self._identity.bond.bond_strength = strength
+
     async def evaluate(self, interaction: Interaction, domain: str | None = None) -> RubricResult:
         """Evaluate an interaction against a rubric and feed results into learning.
 
@@ -3029,9 +3137,9 @@ class Soul:
             if skill:
                 skill.add_xp(xp_amount)
             else:
-                from .skills import Skill
+                from .skills import Skill, SkillSource
 
-                new_skill = Skill(id=skill_id, name=domain)
+                new_skill = Skill(id=skill_id, name=domain, source=SkillSource.LEARNING)
                 new_skill.add_xp(xp_amount)
                 self._skills.add(new_skill)
 
@@ -3285,6 +3393,7 @@ class Soul:
                 devices). See docs/trust-chain.md for the threat model.
         """
         from .exceptions import SoulExportError
+        from .storage.file import write_bytes_atomic
 
         try:
             memory_data = self._memory.to_dict()
@@ -3297,7 +3406,7 @@ class Soul:
                 trust_chain_data=trust_chain_data,
                 key_files=key_files,
             )
-            Path(path).write_bytes(data)
+            write_bytes_atomic(Path(path), data, keep_backup=False)
             logger.info(
                 "Soul exported: name=%s, path=%s, size=%d bytes",
                 self.name,

@@ -2,6 +2,8 @@
 # Created: 2026-04-29 — Covers EvalSpec parsing, scoring discriminator,
 #   error cases (invalid threshold, unknown scoring kind, missing required
 #   fields). Validates that all five scoring kinds round-trip cleanly.
+# Updated: 2026-05-21 (paw-workspace#47) — Added smoke coverage for the
+#   "prompt" case mode and the optional `reference` input field.
 
 from __future__ import annotations
 
@@ -184,6 +186,49 @@ def test_state_seed_mood_str_coerces() -> None:
 def test_state_seed_mood_invalid_raises() -> None:
     data = _minimal_dict({"kind": "keyword", "expected": ["x"]})
     data["seed"] = {"state": {"mood": "ecstatic"}}  # not a Mood value
+    with pytest.raises(SchemaValidationError):
+        parse_eval_spec(data)
+
+
+# ---------------------------------------------------------------------------
+# Prompt case mode (paw-workspace#47)
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_mode_parses() -> None:
+    """A case with mode=prompt validates and keeps the mode."""
+    data = _minimal_dict({"kind": "judge", "criteria": "is it humanized?"})
+    data["cases"][0]["inputs"] = {"message": "some prompt text", "mode": "prompt"}
+    spec = parse_eval_spec(data)
+    assert spec.cases[0].inputs.mode == "prompt"
+    assert spec.cases[0].inputs.reference is None
+
+
+def test_prompt_mode_reference_field_parses() -> None:
+    """The optional `reference` field round-trips on a prompt-mode case."""
+    data = _minimal_dict({"kind": "judge", "criteria": "did it improve the text?"})
+    data["cases"][0]["inputs"] = {
+        "message": "the humanized rewrite",
+        "mode": "prompt",
+        "reference": "the original AI-slop input",
+    }
+    spec = parse_eval_spec(data)
+    inputs = spec.cases[0].inputs
+    assert inputs.mode == "prompt"
+    assert inputs.reference == "the original AI-slop input"
+
+
+def test_default_mode_is_respond() -> None:
+    """Existing specs that omit `mode` still default to respond."""
+    spec = parse_eval_spec(_minimal_dict({"kind": "keyword", "expected": ["x"]}))
+    assert spec.cases[0].inputs.mode == "respond"
+    assert spec.cases[0].inputs.reference is None
+
+
+def test_unknown_mode_rejected() -> None:
+    """A bogus mode value is a validation error, not a silent pass."""
+    data = _minimal_dict({"kind": "keyword", "expected": ["x"]})
+    data["cases"][0]["inputs"] = {"message": "hi", "mode": "teleport"}
     with pytest.raises(SchemaValidationError):
         parse_eval_spec(data)
 

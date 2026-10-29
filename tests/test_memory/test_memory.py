@@ -422,3 +422,167 @@ class TestSignificanceShortCircuit:
         # assess_significance scored low
         mgr._cognitive.extract_entities.assert_called_once()
         mgr._cognitive.update_self_model.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for #284 — public tier access API
+# ---------------------------------------------------------------------------
+
+
+class TestPublicTierAccess:
+    """Verify MemoryManager public API methods match their private counterparts."""
+
+    def test_episodic_entries_returns_list(self, manager):
+        """episodic_entries() returns a list; add an entry directly to avoid significance filtering."""
+        import asyncio
+
+        async def _test():
+            await manager.add(
+                MemoryEntry(content="hello world", memory_type="episodic", type=MemoryType.EPISODIC)
+            )
+            entries = manager.episodic_entries()
+            assert isinstance(entries, list)
+            assert len(entries) >= 1
+
+        asyncio.run(_test())
+
+    async def test_semantic_facts_returns_list(self, manager):
+        await manager.observe(
+            Interaction(user_input="Paris is the capital of France", agent_output="Correct!")
+        )
+        facts = manager.semantic_facts()
+        assert isinstance(facts, list)
+
+    def test_procedural_entries_returns_list(self, manager):
+        entries = manager.procedural_entries()
+        assert isinstance(entries, list)
+        assert len(entries) == 0
+
+    def test_social_entries_returns_list(self, manager):
+        entries = manager.social_entries()
+        assert isinstance(entries, list)
+        assert len(entries) == 0
+
+    def test_graph_entities_returns_list(self, manager):
+        entities = manager.graph_entities()
+        assert isinstance(entities, list)
+
+    def test_clear_graph_clears_provenance(self, manager):
+        """clear_graph() must also clear _provenance — the #284 bug fix."""
+        manager._graph.add_entity("Alice", "person", source_memory_id="mem-1")
+        assert len(manager._graph._provenance) > 0
+        manager.clear_graph()
+        assert len(manager._graph._entities) == 0
+        assert len(manager._graph._edges) == 0
+        assert len(manager._graph._provenance) == 0
+
+    async def test_rebuild_graph_returns_counts(self, manager):
+        await manager.observe(
+            Interaction(
+                user_input="Alice met Bob at the Python conference",
+                agent_output="Sounds fun!",
+            )
+        )
+        result = await manager.rebuild_graph()
+        assert "old_count" in result
+        assert "new_count" in result
+        assert isinstance(result["old_count"], int)
+        assert isinstance(result["new_count"], int)
+
+    def test_custom_layer_entries_returns_list(self, manager):
+        entries = manager.custom_layer_entries()
+        assert isinstance(entries, list)
+
+
+class TestSoulPublicAPI:
+    """Verify Soul convenience methods for #284."""
+
+    async def test_memory_property(self):
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.birth("TestBot")
+        assert soul.memory is soul._memory
+
+    async def test_reset_energy(self):
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.birth("TestBot")
+        soul._state.current.energy = 10.0
+        soul._state.current.social_battery = 20.0
+        soul.reset_energy()
+        assert soul.state.energy == 100.0
+        assert soul.state.social_battery == 100.0
+
+    async def test_reset_bond(self):
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.birth("TestBot")
+        soul._identity.bond.bond_strength = 99.0
+        soul.reset_bond()
+        assert soul._identity.bond.bond_strength == 50.0
+
+    async def test_clear_eval_history(self):
+        from soul_protocol.runtime.soul import Soul
+
+        soul = await Soul.birth("TestBot")
+        # Seed some fake history
+        soul._evaluator._history.extend(["fake1", "fake2"])
+        count = soul.clear_eval_history()
+        assert count == 2
+        assert len(soul.eval_history) == 0
+
+
+def test_from_dict_rewires_recall_engine_graph(manager: MemoryManager):
+    """Regression test for Issue #281: graph-augmented recall works after from_dict.
+
+    The original bug: from_dict() rebuilt the KnowledgeGraph but the RecallEngine
+    kept a stale reference to the old, empty graph.  This test exercises the
+    actual symptom — recall returning no graph-augmented results after a
+    serialize/deserialize round-trip.
+    """
+    import asyncio
+
+    async def _test():
+        # 1. Seed graph entities + a relationship
+        manager._graph.add_entity("Alice", "person")
+        manager._graph.add_entity("Bob", "person")
+        manager._graph.add_relationship("Alice", "Bob", "friend_of")
+
+        # 2. Store a semantic memory mentioning "Bob"
+        bob_entry = MemoryEntry(
+            content="Bob helped me with the Python project yesterday",
+            type=MemoryType.SEMANTIC,
+            importance=8,
+        )
+        await manager.add(bob_entry)
+
+        # 3. Serialize → deserialize (simulates awaken / reincarnate)
+        state = manager.to_dict()
+        restored = MemoryManager.from_dict(state, MemorySettings())
+
+        # 4. Use the recall engine directly with use_graph=True to
+        #    verify graph augmentation works after restore.
+        #    Query "Alice" — graph should traverse Alice→Bob and
+        #    search for "Bob"-related memories.
+        results = await restored._recall_engine.recall(
+            "Alice",
+            use_graph=True,
+            limit=10,
+        )
+
+        # Without the fix, restored._recall_engine._graph pointed at
+        # the old empty graph, so graph augmentation found zero entities
+        # and this returned nothing.
+        assert len(results) > 0, (
+            "Graph-augmented recall returned no results after from_dict — "
+            "the recall engine is still pointing at the old, empty graph."
+        )
+
+        # At least one result should mention Bob (surfaced via graph edge)
+        bob_mentioned = any("Bob" in r.content for r in results)
+        assert bob_mentioned, (
+            f"Expected a Bob-related memory via graph traversal, "
+            f"got: {[r.content[:60] for r in results]}"
+        )
+
+    asyncio.run(_test())

@@ -6,6 +6,8 @@
 **Status:** Draft -- Open for feedback
 **Author:** Soul Protocol Community
 **Date:** 2026-03-08
+**Amended:** 2026-08-15 (#293) — Added `content_addressed` property and
+`compute_reference()` method to prevent substitution attacks on `recover()`.
 
 ## Summary
 
@@ -44,6 +46,23 @@ class EternalStorageProvider(Protocol):
     @property
     def tier_name(self) -> str:
         """Name of this storage tier (e.g., 'ipfs', 'arweave')."""
+        ...
+
+    @property
+    def content_addressed(self) -> bool:
+        """Whether this tier uses content-addressing (e.g. IPFS CID).
+
+        When True, recover() verifies retrieved bytes by calling
+        compute_reference() and comparing to the stored reference.
+        """
+        ...
+
+    def compute_reference(self, data: bytes) -> str:
+        """Compute the canonical reference for data.
+
+        Only meaningful when content_addressed is True.
+        Non-content-addressed tiers must raise NotImplementedError.
+        """
         ...
 
     async def archive(self, soul_data: bytes, soul_id: str,
@@ -137,7 +156,9 @@ All non-local tiers use content addressing: the reference is derived from the da
 itself. This provides:
 
 - **Integrity verification.** Re-hash the retrieved data and compare to the reference.
-  If they match, the data is unmodified.
+  If they match, the data is unmodified. The `content_addressed` property and
+  `compute_reference()` method (added in #293) enable `recover()` to perform this
+  check automatically, rejecting substituted data from compromised gateways.
 - **Deduplication.** Archiving the same soul state twice produces the same reference.
   No wasted storage.
 - **Location independence.** The reference doesn't depend on where the data is stored.
@@ -148,8 +169,8 @@ itself. This provides:
 The runtime supports archiving to multiple tiers simultaneously:
 
 ```bash
-soul archive aria.soul --tiers local,ipfs
-soul recover aria.soul --source ipfs
+soul archive aria.soul -t ipfs -t arweave
+soul recover QmRef123... --tier ipfs --output recovered.soul
 soul eternal-status aria.soul
 ```
 

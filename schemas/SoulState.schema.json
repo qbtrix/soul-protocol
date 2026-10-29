@@ -15,7 +15,7 @@
       "type": "string"
     }
   },
-  "description": "The soul's current emotional and energy state.",
+  "description": "The soul's current emotional and energy state.\n\n``focus`` is the effective level (one of FOCUS_LEVELS). When\n``focus_override`` is None, StateManager recomputes focus from\n``recent_interactions`` density on each interaction or status read.\nSetting ``focus_override`` to a level locks focus to that value\nuntil cleared (set focus_override back to None or call\n``manager.update(focus=\"auto\")``).",
   "properties": {
     "mood": {
       "$ref": "#/$defs/Mood",
@@ -32,6 +32,18 @@
       "default": "medium",
       "title": "Focus",
       "type": "string"
+    },
+    "focus_override": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Focus Override"
     },
     "social_battery": {
       "default": 100.0,
@@ -52,6 +64,14 @@
       ],
       "default": null,
       "title": "Last Interaction"
+    },
+    "recent_interactions": {
+      "items": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "title": "Recent Interactions",
+      "type": "array"
     }
   },
   "title": "SoulState",

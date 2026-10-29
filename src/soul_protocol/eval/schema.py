@@ -3,6 +3,13 @@
 #   union (keyword | regex | semantic | judge | structural). Evals are written
 #   in YAML; this module parses and validates them. The runner consumes the
 #   resulting Pydantic models and drives Soul.observe/recall/respond.
+# Updated: 2026-05-21 (paw-workspace#47) — Added a third case mode, "prompt".
+#   In prompt mode the case input is a verbatim prompt or skill output (not a
+#   soul recall/respond); the runner scores that text directly without
+#   touching the soul. Lets the eval framework score workspace prompts and
+#   skills (e.g. /humanize) alongside seeded-soul behaviour. The optional
+#   `reference` field carries the original input a skill transformed, so a
+#   judge case can compare a candidate output against where it started.
 #
 # Design note: we keep the schema deliberately small. Anything the soul
 # already exposes (Personality, Mood, MemoryType) is referenced directly so
@@ -248,7 +255,7 @@ Scoring = KeywordScoring | RegexScoring | SemanticScoring | JudgeScoring | Struc
 class CaseInputs(BaseModel):
     """Input for a single case.
 
-    Two modes:
+    Three modes:
 
     - ``mode="respond"`` (default) — runner builds a system prompt + context
       block from the soul, asks the engine for a reply to ``message``, and
@@ -256,12 +263,24 @@ class CaseInputs(BaseModel):
     - ``mode="recall"`` — runner calls ``Soul.recall(query=message, ...)``
       and hands the result list to the scorer (rendered as one entry per
       line for keyword/semantic/judge; full list for structural).
+    - ``mode="prompt"`` — the soul is left untouched. ``message`` is treated
+      as a verbatim prompt or skill output and handed straight to the
+      scorer. This is how the framework evaluates workspace prompts and
+      skills (e.g. ``/humanize``): the YAML carries the text under test and
+      a :class:`JudgeScoring` block describes the qualities a good output
+      should have. The ``seed`` block is ignored for prompt-mode cases.
+
+    ``reference`` — optional. In prompt mode it carries the *original* text
+    a skill was meant to transform (e.g. the AI-slop input before
+    ``/humanize`` ran). The judge scorer shows it as a "Reference input"
+    block so criteria can ask whether the candidate improved on it.
+    Ignored outside prompt mode.
 
     ``observe`` (default false) — when true, the runner additionally calls
     ``Soul.observe()`` after generating the response, so subsequent cases
     in the same spec see the updated state. Defaults to false because evals
     should be deterministic and memory mutations between cases make that
-    harder.
+    harder. ``observe`` has no effect in prompt mode (no soul interaction).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -269,11 +288,13 @@ class CaseInputs(BaseModel):
     message: str
     user_id: str | None = None
     domain: str | None = None
-    mode: Literal["respond", "recall"] = "respond"
+    mode: Literal["respond", "recall", "prompt"] = "respond"
     observe: bool = False
     # recall-mode specific knobs
     recall_limit: int = 5
     recall_layer: str | None = None
+    # prompt-mode specific knob — the original text a skill transformed
+    reference: str | None = None
 
 
 class EvalCase(BaseModel):

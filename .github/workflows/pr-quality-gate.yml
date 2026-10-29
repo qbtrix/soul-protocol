@@ -2,6 +2,9 @@
 # Added: 2026-03-05 — Quality gate + security scan for soul-protocol.
 # Updated: 2026-07-02 — Wrap label/comment writes so fork PRs (read-only
 #   token) report the verdict via the run summary instead of 403-crashing.
+# Updated: 2026-07-10 — security-scan: word-boundary the eval/exec patterns so
+#   they stop matching `retrieval(`, and guard its gh pr comment calls so a
+#   fork-PR 403 warns instead of failing the whole job under set -e.
 name: PR Quality Gate
 
 on:
@@ -236,8 +239,8 @@ jobs:
           REPORT=""
 
           PATTERNS=(
-            'eval\s*\('
-            'exec\s*\('
+            '\beval\s*\('
+            '\bexec\s*\('
             'os\.system\s*\('
             'subprocess\..*shell\s*=\s*True'
             '__import__\s*\('
@@ -278,7 +281,8 @@ jobs:
               --body "$COMMENT_BODY" \
               --edit-last 2>/dev/null || \
             gh pr comment ${{ github.event.pull_request.number }} \
-              --body "$COMMENT_BODY"
+              --body "$COMMENT_BODY" 2>/dev/null || \
+            echo "::warning::Could not post the security-scan comment (fork PRs get a read-only token); the flagged patterns are in this log."
 
             echo "::warning::Security patterns found. Review required."
           else
@@ -329,7 +333,8 @@ jobs:
 
           This PR diff appears to contain secrets or API keys. Please remove them immediately and rotate any exposed credentials.
 
-          If these are false positives (e.g., placeholder patterns in tests), a maintainer will verify."
+          If these are false positives (e.g., placeholder patterns in tests), a maintainer will verify." 2>/dev/null || \
+            echo "::warning::Could not post the secrets comment (fork PRs get a read-only token); see the ::error annotations above."
             exit 1
           fi
 

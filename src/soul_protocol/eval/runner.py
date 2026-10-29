@@ -4,6 +4,11 @@
 #   either drives the soul into producing a response (mode="respond") or
 #   calls Soul.recall() (mode="recall"), captures state snapshots, and
 #   delegates to the scoring module.
+# Updated: 2026-05-21 (paw-workspace#47) — Added the "prompt" case mode.
+#   Prompt-mode cases skip the soul entirely: the runner takes the case's
+#   `message` as verbatim text (a prompt or a skill output) and hands it to
+#   the scorer. This lets the framework score workspace prompts and skills
+#   such as /humanize, scored via the existing JudgeScoring kind.
 #
 # The "respond" path is the interesting one. soul-protocol does not own a
 # response generator — that's the consumer's job — so the runner builds the
@@ -213,7 +218,17 @@ async def _run_case(
     mood_before = soul.state.mood
     energy_before = soul.state.energy
 
-    if inputs.mode == "recall":
+    if inputs.mode == "prompt":
+        # Prompt mode — the soul is not involved at all. The case's
+        # ``message`` is the verbatim text under evaluation (a prompt, or a
+        # skill's output). Hand it straight to the scorer. The judge scorer
+        # picks up ``inputs.reference`` separately when present.
+        execution = CaseExecution(
+            output_text=inputs.message,
+            mood_before=mood_before,
+            energy_before=energy_before,
+        )
+    elif inputs.mode == "recall":
         layer = inputs.recall_layer
         mtypes: list[MemoryType] | None = None
         if layer:

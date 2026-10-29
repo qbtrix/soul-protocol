@@ -2277,7 +2277,7 @@ wheels = [
 
 [[package]]
 name = "soul-protocol"
-version = "0.4.0"
+version = "0.5.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

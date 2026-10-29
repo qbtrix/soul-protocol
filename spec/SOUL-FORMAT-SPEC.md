@@ -643,13 +643,19 @@ These fields are free-form strings. Implementations SHOULD use the suggested val
 
 ### 6.4 MemoryEntry
 
-A single memory record used in `episodic.json`, `semantic.json`, and `procedural.json`.
+A single memory record used in `episodic.json`, `semantic.json`, `procedural.json`, and `social.json`.
+
+> **Breaking change (v0.5+, #285):** `type` is no longer required — entries
+> must provide either a `type` or a non-empty `layer`. `id` defaults to a
+> random 12-char hex (was `""`).
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `id` | string | RECOMMENDED | `""` | Unique identifier for this memory. |
-| `type` | string | REQUIRED | — | One of: `"core"`, `"episodic"`, `"semantic"`, `"procedural"`. |
+| `id` | string | RECOMMENDED | random uuid hex | Unique identifier for this memory. |
+| `type` | string or null | CONDITIONAL | `null` | One of: `"core"`, `"episodic"`, `"semantic"`, `"procedural"`, `"social"`. Required if `layer` is empty. |
+| `layer` | string | CONDITIONAL | `""` | Free-form layer namespace. Required if `type` is null. Auto-filled from `type` when blank. |
 | `content` | string | REQUIRED | — | The memory content in natural language. |
+| `source` | string | OPTIONAL | `""` | Origin identifier (e.g. tool name, URL). |
 | `importance` | integer | REQUIRED | `5` | Importance score, range [1, 10]. |
 | `emotion` | string or null | OPTIONAL | `null` | Dominant emotion label (e.g., `"joy"`, `"frustration"`). |
 | `confidence` | float | REQUIRED | `1.0` | Confidence in this memory's accuracy, range [0.0, 1.0]. |
@@ -657,11 +663,26 @@ A single memory record used in `episodic.json`, `semantic.json`, and `procedural
 | `created_at` | string (ISO 8601) | REQUIRED | current time | When this memory was created. |
 | `last_accessed` | string (ISO 8601) or null | OPTIONAL | `null` | When this memory was last retrieved. |
 | `access_count` | integer | OPTIONAL | `0` | Total number of times this memory has been accessed. |
-| `somatic` | [SomaticMarker](#641-somaticmarker) or null | OPTIONAL | `null` | Emotional context (Damasio's somatic marker hypothesis). Added in format version 1.0.0. |
-| `access_timestamps` | array of strings (ISO 8601) | OPTIONAL | `[]` | Full access history for decay computation (ACT-R model). Added in format version 1.0.0. |
-| `significance` | float | OPTIONAL | `0.0` | Significance score from the LIDA gate, range [0.0, 1.0]. Added in format version 1.0.0. |
-| `general_event_id` | string or null | OPTIONAL | `null` | Link to a GeneralEvent in `general_events.json` (Conway hierarchy). Added in format version 1.0.0. |
-| `superseded_by` | string or null | OPTIONAL | `null` | ID of the memory that replaces this one (for fact conflict resolution). If non-null, this memory is historical. |
+| `somatic` | [SomaticMarker](#641-somaticmarker) or null | OPTIONAL | `null` | Emotional context (Damasio's somatic marker hypothesis). |
+| `access_timestamps` | array of strings (ISO 8601) | OPTIONAL | `[]` | Full access history for decay computation (ACT-R model). |
+| `significance` | float | OPTIONAL | `0.0` | Significance score from the LIDA gate, range [0.0, 1.0]. |
+| `general_event_id` | string or null | OPTIONAL | `null` | Link to a GeneralEvent in `general_events.json` (Conway hierarchy). |
+| `superseded_by` | string or null | OPTIONAL | `null` | ID of the memory that replaces this one (for fact conflict resolution). |
+| `superseded` | boolean | OPTIONAL | `false` | True when a newer memory contradicts this one. |
+| `supersedes` | string or null | OPTIONAL | `null` | Inverse back-edge of `superseded_by` for provenance walks. |
+| `category` | string or null | OPTIONAL | `null` | Extraction taxonomy label. |
+| `abstract` | string or null | OPTIONAL | `null` | L0: ~100 token semantic fingerprint. |
+| `overview` | string or null | OPTIONAL | `null` | L1: ~1K token structured summary. |
+| `salience` | float | OPTIONAL | `0.5` | Retrieval weight, range [0.0, 1.0]. |
+| `ingested_at` | string (ISO 8601) or null | OPTIONAL | `null` | Bi-temporal: when memory entered the pipeline. |
+| `visibility` | string | OPTIONAL | `"bonded"` | Visibility tier: `"public"`, `"bonded"`, `"private"`. |
+| `archived` | boolean | OPTIONAL | `false` | True when memory has been compressed into a ConversationArchive. |
+| `scope` | array of strings | OPTIONAL | `[]` | RBAC/ABAC scope tags for access control. |
+| `user_id` | string or null | OPTIONAL | `null` | Per-user attribution for multi-user souls. |
+| `domain` | string | OPTIONAL | `"default"` | Sub-namespace inside the layer (e.g. `"finance"`, `"legal"`). |
+| `retrieval_weight` | float | OPTIONAL | `1.0` | Gates whether recall surfaces the entry, range [0.0, 1.0]. |
+| `prediction_error` | float or null | OPTIONAL | `null` | PE score from supersede()/update(), range [0.0, 1.0]. |
+| `provenance` | string | OPTIONAL | `"human"` | Authorship tag: `"human"` or `"agent"`. |
 
 #### 6.4.1 SomaticMarker
 

@@ -1,5 +1,8 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
 # 36 tools (31 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-07-18 (#284) — Replaced ~12 private attribute accesses with
+#   public MemoryManager API (episodic_entries(), semantic_facts(), etc.).
+#   MCP tools no longer reach into _m._episodic or _m._graph internals.
 # Updated: 2026-05-02 (#192) — Brain-aligned memory update primitive tools.
 #   Adds soul_confirm, soul_update, soul_supersede, soul_purge, and
 #   soul_reinstate. Existing soul_forget shifts from hard delete to
@@ -1031,7 +1034,7 @@ async def soul_evaluate(
                 for cr in result.criterion_results
             ],
             "learning": result.learning,
-            "eval_history_size": len(s.evaluator._history),
+            "eval_history_size": len(s.eval_history),
         }
     )
 
@@ -1245,6 +1248,7 @@ async def soul_forget(
                 "episodic": len(result.get("episodic", [])),
                 "semantic": len(result.get("semantic", [])),
                 "procedural": len(result.get("procedural", [])),
+                "social": len(result.get("social", [])),
             },
         }
     )
@@ -1318,7 +1322,7 @@ async def soul_update(
     s = await _resolve_soul(soul)
     # Open the window via recall against the current content so the tool
     # is usable in a single call (matching the CLI behaviour).
-    existing, _ = await s._memory.find_by_id(memory_id)
+    existing, _ = await s.memory.find_by_id(memory_id)
     if existing is not None:
         await s.recall(existing.content[:100])
     try:
@@ -1437,7 +1441,7 @@ async def soul_purge(
     """
     s = await _resolve_soul(soul)
     if not apply:
-        entry, tier = await s._memory.find_by_id(memory_id)
+        entry, tier = await s.memory.find_by_id(memory_id)
         return json.dumps(
             {
                 "status": "preview" if entry is not None else "not_found",
@@ -1546,85 +1550,18 @@ async def soul_health(
     Args:
         soul: Target soul name (uses active soul if omitted)
     """
-    import builtins as _builtins
 
-    from ..runtime.memory.compression import MemoryCompressor
+    from ..runtime.health import audit_health
 
     s = await _resolve_soul(soul)
-    mm = s._memory
-
-    episodic = _builtins.list(mm._episodic.entries())
-    semantic = _builtins.list(mm._semantic.facts())
-    procedural = _builtins.list(mm._procedural.entries())
-    graph_nodes = mm._graph.entities()
-    skills = s.skills.skills
-    evals = s.evaluator._history
-    total = len(episodic) + len(semantic) + len(procedural)
-
-    # Detect duplicates
-    compressor = MemoryCompressor()
-    all_mems = episodic + semantic + procedural
-    deduped = compressor.deduplicate(all_mems, similarity_threshold=0.8)
-    dup_count = len(all_mems) - len(deduped)
-
-    # Low-importance
-    low_imp = [m for m in all_mems if m.importance <= 2]
-
-    # Stale eval procedurals
-    stale_proc = [p for p in procedural if p.content.startswith("Scored ")]
-
-    # Orphan graph nodes
-    all_content = " ".join(m.content for m in all_mems)
-    orphan_nodes = [n for n in graph_nodes if n.lower() not in all_content.lower() and len(n) > 2]
-
-    # Bond sanity
-    bond = s.bond
-    bond_issues = []
-    if bond.bond_strength > 100:
-        bond_issues.append(f"Bond strength {bond.bond_strength:.0f} exceeds 100")
-    if bond.bond_strength < 0:
-        bond_issues.append(f"Bond strength {bond.bond_strength:.0f} is negative")
-
-    # Skill sanity
-    skill_issues = []
-    for sk in skills:
-        if sk.xp < 0:
-            skill_issues.append(f"Skill {sk.id} has negative XP ({sk.xp})")
-        if sk.level < 1 or sk.level > 10:
-            skill_issues.append(f"Skill {sk.id} has invalid level ({sk.level})")
-
-    issues = bond_issues + skill_issues
-    if dup_count > 0:
-        issues.append(f"{dup_count} duplicate memories (>80% overlap)")
-    if len(orphan_nodes) > 10:
-        issues.append(f"{len(orphan_nodes)} orphan graph nodes")
-
-    return json.dumps(
-        {
-            "soul": s.name,
-            "tiers": {
-                "episodic": len(episodic),
-                "semantic": len(semantic),
-                "procedural": len(procedural),
-                "total": total,
-            },
-            "graph_nodes": len(graph_nodes),
-            "skills": len(skills),
-            "eval_history": len(evals),
-            "bond_strength": round(bond.bond_strength, 2),
-            "duplicates": dup_count,
-            "low_importance": len(low_imp),
-            "stale_evals": len(stale_proc),
-            "orphan_nodes": len(orphan_nodes),
-            "issues": issues,
-            "healthy": len(issues) == 0,
-        }
-    )
+    report = await audit_health(s)
+    return json.dumps(report.to_dict())
 
 
 @mcp.tool
 async def soul_cleanup(
     dry_run: bool = True,
+    orphan_nodes: bool = False,
     soul: str | None = None,
 ) -> str:
     """Run cleanup on the soul — deduplicate memories and remove stale evals.
@@ -1635,84 +1572,43 @@ async def soul_cleanup(
 
     Args:
         dry_run: If true, report what would be cleaned without changing anything
+        orphan_nodes: If true, also prune orphan graph nodes (default false)
         soul: Target soul name (uses active soul if omitted)
     """
-    import builtins as _builtins
 
-    from ..runtime.memory.compression import MemoryCompressor
+    from ..runtime.health import CleanupResult, execute_cleanup, plan_cleanup
 
     s = await _resolve_soul(soul)
-    mm = s._memory
-    actions: list[tuple[str, str, set]] = []
+    actions = await plan_cleanup(s, orphan_nodes=orphan_nodes)
 
-    # 1. Deduplicate
-    compressor = MemoryCompressor()
-    for tier_name, store in [
-        ("episodic", mm._episodic),
-        ("semantic", mm._semantic),
-        ("procedural", mm._procedural),
-    ]:
-        if tier_name == "semantic":
-            entries = _builtins.list(store.facts())
-        else:
-            entries = _builtins.list(store.entries())
-        if not entries:
-            continue
-        deduped = compressor.deduplicate(entries, similarity_threshold=0.8)
-        removed_ids = {m.id for m in entries} - {m.id for m in deduped}
-        if removed_ids:
-            actions.append(("dedup", tier_name, removed_ids))
-
-    # 2. Stale evaluation procedurals
-    procedural = _builtins.list(mm._procedural.entries())
-    stale = [p for p in procedural if p.content.startswith("Scored ") and p.importance <= 5]
-    if stale:
-        actions.append(("stale_evals", "procedural", {p.id for p in stale}))
-
-    # Build summary
-    summary: list[dict[str, Any]] = []
-    total_items = 0
-    for action_type, target, items in actions:
-        total_items += len(items)
-        summary.append(
-            {
-                "action": action_type,
-                "tier": target,
-                "count": len(items),
-            }
-        )
+    result = CleanupResult(soul_name=s.name, status="dry_run" if actions else "clean")
+    result.actions = actions
 
     if dry_run or not actions:
-        return json.dumps(
-            {
-                "status": "dry_run" if actions else "clean",
-                "soul": s.name,
-                "total_items": total_items,
-                "actions": summary,
-            }
-        )
+        return json.dumps(result.to_dict())
+
+    # Back up before destructive writes (mirrors CLI safety backup)
+    backup_path = None
+    soul_path = getattr(s, "_source_path", None) or os.environ.get("SOUL_PATH")
+    if soul_path:
+        from pathlib import Path
+
+        from ..runtime.backup import backup_soul_file
+
+        p = Path(soul_path)
+        if p.exists():
+            bak = backup_soul_file(str(p))
+            if bak is not None:
+                backup_path = str(bak)
 
     # Execute cleanup
-    removed = 0
-    for action_type, target, items in actions:
-        for mid in items:
-            if target == "episodic":
-                await mm._episodic.remove(mid)
-            elif target == "semantic":
-                await mm._semantic.remove(mid)
-            elif target == "procedural":
-                await mm._procedural.remove(mid)
-            removed += 1
+    removed = await execute_cleanup(s, actions)
+    result.status = "cleaned"
+    result.total_removed = removed
+    result.backup_path = backup_path
 
     _registry.mark_modified(soul)
-    return json.dumps(
-        {
-            "status": "cleaned",
-            "soul": s.name,
-            "removed": removed,
-            "actions": summary,
-        }
-    )
+    return json.dumps(result.to_dict())
 
 
 # --- Context Tools (LCM — Lossless Context Management) ---

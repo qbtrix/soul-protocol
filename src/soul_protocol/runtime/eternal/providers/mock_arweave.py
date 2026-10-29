@@ -29,6 +29,13 @@ class MockArweaveProvider:
     def tier_name(self) -> str:
         return "arweave"
 
+    @property
+    def content_addressed(self) -> bool:
+        return False
+
+    def compute_reference(self, data: bytes) -> str:
+        raise NotImplementedError("Arweave is not content-addressed")
+
     def _generate_tx_id(self, data: bytes) -> str:
         """Generate a mock Arweave transaction ID."""
         self._tx_counter += 1

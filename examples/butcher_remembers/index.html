@@ -1,0 +1,101 @@
+<!-- index.html — "The Butcher Remembers" 2D client shell.
+     Created: 2026-07-02 (experiment/npc-soul-grudge-kernel) — canvas tavern
+     (zones + soul circles + speech bubbles), right-panel grudge HUD, top-bar
+     director phase indicator, and the talk controls. No frameworks, no CDN,
+     no build step — served whole by server.py.
+     Updated: 2026-07-02 (BD-2, 90s demo) — bottom free-play bar (Speak as
+     Ragnar + Send, kind auto-classified server-side; export bjorn.soul /
+     import soul / export ragnar.player.soul; "Ask the innkeeper about me"
+     reputation gut-punch + notoriety chip) and the collapsible top-right
+     cost overlay (hidden on the templated engine). Still vanilla. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Butcher Remembers</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <h1>The Butcher <span>Remembers</span></h1>
+    <div id="phase-indicator" title="Pulse director phase">
+      <span class="phase" data-phase="BUILD_UP">BUILD_UP</span>
+      <span class="phase" data-phase="PEAK">PEAK</span>
+      <span class="phase" data-phase="FADE">FADE</span>
+      <span class="phase" data-phase="RELAX">RELAX</span>
+    </div>
+    <div id="cost">templated dialogue — $0</div>
+  </header>
+
+  <div id="cost-overlay" class="hidden">
+    <button type="button" id="cost-toggle">$ cost</button>
+    <div id="cost-body">
+      <div id="cost-lines">0 LLM lines</div>
+      <div id="cost-total">this session: $0.0000</div>
+      <div id="cost-deepseek">would cost on DeepSeek: $0.00000</div>
+      <div id="cost-hour">per player-hour: $0.0000</div>
+    </div>
+  </div>
+
+  <main>
+    <canvas id="tavern" width="640" height="460"></canvas>
+
+    <aside id="hud">
+      <h2>Grudge ledger</h2>
+      <div id="cards"></div>
+
+      <h2>Speak as Ragnar</h2>
+      <form id="controls">
+        <div class="row">
+          <label>to
+            <select id="npc">
+              <option value="Bjorn">Bjorn (butcher)</option>
+              <option value="Astrid">Astrid (innkeeper)</option>
+            </select>
+          </label>
+          <label>act
+            <select id="kind">
+              <option value="neutral">neutral</option>
+              <option value="insult">insult</option>
+              <option value="theft">theft</option>
+              <option value="betrayal">betrayal</option>
+            </select>
+          </label>
+        </div>
+        <input id="line" type="text" autocomplete="off"
+               placeholder="Say something to the butcher..." maxlength="200">
+        <div class="row">
+          <button type="submit" id="say">Say it</button>
+          <button type="button" id="reset">Reset world</button>
+        </div>
+        <div id="status"></div>
+      </form>
+    </aside>
+  </main>
+
+  <footer id="bottombar">
+    <form id="freeplay">
+      <input id="free-line" type="text" autocomplete="off"
+             placeholder="Speak as Ragnar…" maxlength="200">
+      <button type="submit" id="send">Send</button>
+    </form>
+    <div id="soul-actions">
+      <button type="button" id="export-npc" title="Download Bjorn as a portable .soul file">
+        &#11015; Export bjorn.soul</button>
+      <button type="button" id="import-btn" title="Awaken an exported .soul — the NPC remembers">
+        &#11014; Import soul</button>
+      <input type="file" id="soul-file" accept=".soul" hidden>
+      <button type="button" id="export-player" title="Download Ragnar's portable reputation">
+        &#11015; Export ragnar.player.soul</button>
+      <button type="button" id="ask-innkeeper"
+              title="Astrid has never been wronged by you — she reads your player.soul">
+        &#127976; Ask the innkeeper about me</button>
+      <span id="notoriety-chip" class="chip hidden"></span>
+      <span id="free-status"></span>
+    </div>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

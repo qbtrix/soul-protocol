@@ -30,6 +30,13 @@ class LocalStorageProvider:
     def tier_name(self) -> str:
         return "local"
 
+    @property
+    def content_addressed(self) -> bool:
+        return False
+
+    def compute_reference(self, data: bytes) -> str:
+        raise NotImplementedError("Local storage is not content-addressed")
+
     def _ref_for(self, soul_data: bytes, soul_id: str) -> str:
         """Generate a deterministic reference from soul_id + content hash."""
         content_hash = hashlib.sha256(soul_data).hexdigest()[:16]

@@ -9,14 +9,36 @@
 #   procedure each time that procedure is used, auto-creating the skill on
 #   first use. Returns True when the grant crosses a level boundary (the
 #   graduation signal PocketPaw's skills loop uses to materialize a SKILL.md).
+# Updated: 2026-08-03 (#292) — Added SkillSource enum and Skill.source field
+#   so entity-derived skills (auto-created from extracted names during observe())
+#   can be excluded from public_profile() and A2A agent cards.  Added
+#   SkillRegistry.public_skills() to centralize the filter.
+# Updated: 2026-08-08 (#292 review) — source defaults to None (fail-closed for
+#   legacy souls on disk).  add() upgrades source on id collision so a later
+#   explicit MANUAL registration overrides an earlier ENTITY squatter.
 
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 from soul_protocol.spec.learning import LearningEvent
+
+
+class SkillSource(StrEnum):
+    """How a skill was created — controls public-surface visibility.
+
+    ``ENTITY`` skills are auto-created from extracted entity names during
+    ``observe()`` and may contain private person/organisation names.  They
+    are excluded from ``public_profile()`` and A2A agent cards (#292).
+    """
+
+    MANUAL = "manual"  # explicitly registered by user/developer
+    ENTITY = "entity"  # auto-created from extracted entity names
+    PROCEDURE = "procedure"  # auto-created by grant_xp_for_procedure_use
+    LEARNING = "learning"  # auto-created by grant_xp_from_learning
 
 
 class Skill(BaseModel):
@@ -29,6 +51,7 @@ class Skill(BaseModel):
     xp_to_next: int = 100  # XP needed for next level
     config: dict = Field(default_factory=dict)
     last_used: datetime = Field(default_factory=datetime.now)
+    source: SkillSource | None = None
 
     def add_xp(self, amount: int) -> bool:
         """Add XP. Returns True if leveled up."""
@@ -55,8 +78,32 @@ class SkillRegistry(BaseModel):
         return next((s for s in self.skills if s.id == skill_id), None)
 
     def add(self, skill: Skill) -> None:
-        if not self.get(skill.id):
+        """Add a skill, or upgrade source on id collision.
+
+        If a skill with the same id already exists and the new skill has an
+        explicitly higher-trust source (e.g. MANUAL over ENTITY), upgrade
+        the existing skill's source.  This prevents an ENTITY skill from
+        permanently squatting an id and silently hiding a later legitimate
+        registration (#292 review).
+        """
+        existing = self.get(skill.id)
+        if existing is None:
             self.skills.append(skill)
+        elif skill.source == SkillSource.MANUAL and existing.source != SkillSource.MANUAL:
+            existing.source = SkillSource.MANUAL
+            existing.name = skill.name  # adopt the explicit name
+
+    def public_skills(self) -> list[Skill]:
+        """Return skills safe for public exposure.
+
+        Only skills with an **explicit, trusted source** are included:
+        ``MANUAL`` and ``PROCEDURE``.  Skills with ``source=None`` (legacy
+        data without provenance) or ``ENTITY`` (auto-created from extracted
+        names) are excluded.  This is fail-closed: unknown provenance is
+        treated as potentially private (#292).
+        """
+        _PUBLIC_SOURCES = {SkillSource.MANUAL, SkillSource.PROCEDURE}
+        return [s for s in self.skills if s.source in _PUBLIC_SOURCES]
 
     def grant_xp(self, skill_id: str, amount: int) -> bool:
         skill = self.get(skill_id)
@@ -100,7 +147,7 @@ class SkillRegistry(BaseModel):
         """
         skill = self.get(skill_id)
         if not skill:
-            skill = Skill(id=skill_id, name=skill_id)
+            skill = Skill(id=skill_id, name=skill_id, source=SkillSource.PROCEDURE)
             self.add(skill)
         return skill.add_xp(amount)
 
@@ -111,7 +158,7 @@ class SkillRegistry(BaseModel):
             skill_id = event.domain.lower().replace(" ", "_")
         skill = self.get(skill_id)
         if not skill:
-            skill = Skill(id=skill_id, name=event.domain)
+            skill = Skill(id=skill_id, name=event.domain, source=SkillSource.LEARNING)
             self.add(skill)
         score = event.evaluation_score if event.evaluation_score is not None else 0.5
         xp_amount = int(20 * (0.5 + score) * event.confidence)

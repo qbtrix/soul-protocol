@@ -1,0 +1,292 @@
+/* style.css — "The Butcher Remembers" dark-tavern look.
+   Created: 2026-07-02 (experiment/npc-soul-grudge-kernel) — layout (topbar /
+   canvas / HUD panel), grudge chips (NONE green, SLIGHTED amber, GRUDGING
+   red), phase indicator, and the talk controls. No external assets.
+   Updated: 2026-07-02 (BD-2, 90s demo) — bottom free-play bar (input + soul
+   export/import/reputation buttons + notoriety chip), and the collapsible
+   fixed top-right cost overlay (.hidden toggles both). */
+
+:root {
+  --bg: #14100c;
+  --panel: #1e1811;
+  --panel-edge: #3a2d1c;
+  --ink: #e8dcc5;
+  --muted: #9a8a70;
+  --amber: #d9a441;
+  --none: #4caf7d;
+  --slighted: #e0a53c;
+  --grudging: #d9534f;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Georgia, "Times New Roman", serif;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+#topbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--panel-edge);
+  background: linear-gradient(#1a140e, var(--bg));
+}
+
+#topbar h1 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 1px;
+  color: var(--amber);
+}
+
+#topbar h1 span { color: var(--ink); font-style: italic; }
+
+#phase-indicator { display: flex; gap: 6px; margin-left: auto; }
+
+.phase {
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 10px;
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.phase.active {
+  color: #14100c;
+  background: var(--amber);
+  border-color: var(--amber);
+  opacity: 1;
+  font-weight: bold;
+}
+
+#cost { font-size: 12px; color: var(--muted); font-family: "Courier New", monospace; }
+
+main {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  align-items: flex-start;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+#tavern {
+  background: #241c12;
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6) inset;
+}
+
+#hud {
+  width: 300px;
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+#hud h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--muted);
+  margin: 4px 0 10px;
+}
+
+.card {
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: #191309;
+  transition: box-shadow 0.4s;
+}
+
+.card.flash { box-shadow: 0 0 12px var(--grudging); }
+
+.card .head { display: flex; align-items: center; gap: 8px; }
+
+.card .name { font-weight: bold; font-size: 16px; }
+
+.chip {
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 10px;
+  color: #14100c;
+  margin-left: auto;
+}
+
+.chip.NONE { background: var(--none); }
+.chip.SLIGHTED { background: var(--slighted); }
+.chip.GRUDGING { background: var(--grudging); }
+
+.card .bond { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.card .bond b { color: var(--ink); }
+
+.card .grievance {
+  font-style: italic;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+  border-left: 2px solid var(--panel-edge);
+  padding-left: 8px;
+}
+
+#controls { display: flex; flex-direction: column; gap: 8px; }
+
+#controls .row { display: flex; gap: 8px; }
+
+#controls label {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+#controls select,
+#controls input {
+  background: #120d08;
+  color: var(--ink);
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  padding: 7px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  width: 100%;
+}
+
+#controls button {
+  flex: 1;
+  background: var(--amber);
+  color: #14100c;
+  font-weight: bold;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+#controls button:hover { filter: brightness(1.1); }
+
+#controls #reset { background: transparent; color: var(--muted); border: 1px solid var(--panel-edge); }
+
+#status { font-size: 12px; color: var(--grudging); min-height: 16px; }
+
+/* ---- bottom free-play bar (BD-2) ---------------------------------------- */
+
+#bottombar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--panel-edge);
+  background: var(--panel);
+}
+
+#freeplay { display: flex; gap: 8px; flex: 1 1 320px; }
+
+#freeplay input {
+  flex: 1;
+  background: #120d08;
+  color: var(--ink);
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+#freeplay button {
+  background: var(--amber);
+  color: #14100c;
+  font-weight: bold;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+#soul-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+#soul-actions button {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+#soul-actions button:hover { border-color: var(--amber); color: var(--amber); }
+
+#soul-actions #ask-innkeeper { border-color: var(--amber); color: var(--amber); }
+
+#free-status { font-size: 12px; color: var(--muted); font-family: "Courier New", monospace; }
+
+/* Notoriety chip — the player's portable reputation band. */
+.chip.UNKNOWN { background: var(--none); }
+.chip.KNOWN { background: var(--slighted); }
+.chip.NOTORIOUS { background: var(--grudging); }
+
+/* ---- cost overlay (BD-2) — fixed top-right, collapsible ------------------ */
+
+#cost-overlay {
+  position: fixed;
+  top: 52px;
+  right: 14px;
+  z-index: 10;
+  text-align: right;
+}
+
+#cost-overlay #cost-toggle {
+  background: var(--panel);
+  color: var(--amber);
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+}
+
+#cost-body {
+  margin-top: 6px;
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  color: var(--ink);
+  text-align: left;
+  min-width: 230px;
+}
+
+#cost-body div { margin: 2px 0; }
+
+#cost-deepseek { color: var(--amber); }
+
+.hidden { display: none !important; }

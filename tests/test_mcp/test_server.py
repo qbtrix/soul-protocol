@@ -26,6 +26,7 @@ from fastmcp import Client  # noqa: E402
 
 import soul_protocol.mcp.server as server_module  # noqa: E402
 from soul_protocol.mcp.server import mcp  # noqa: E402
+from soul_protocol.runtime.soul import Soul  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -983,7 +984,29 @@ async def test_soul_cleanup_dry_run():
         data = json.loads(result.data)
         assert data["status"] in ("dry_run", "clean")
         assert "total_items" in data
+        assert "removed" in data
+        assert "total_removed" in data
         assert "actions" in data
+
+
+async def test_soul_cleanup_orphan_nodes_are_opt_in():
+    """MCP cleanup should not prune orphan graph nodes unless explicitly requested."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        soul = server_module._registry.active_soul
+        assert soul is not None
+        soul._memory._graph.add_entity("DetachedGraphNode", "concept")
+
+        result = await client.call_tool("soul_cleanup", {"dry_run": True})
+        data = json.loads(result.data)
+        assert all(a["action"] != "orphan_nodes" for a in data["actions"])
+
+        result = await client.call_tool(
+            "soul_cleanup",
+            {"dry_run": True, "orphan_nodes": True},
+        )
+        data = json.loads(result.data)
+        assert any(a["action"] == "orphan_nodes" for a in data["actions"])
 
 
 async def test_soul_cleanup_execute():
@@ -1002,6 +1025,27 @@ async def test_soul_cleanup_execute():
         data = json.loads(result.data)
         assert data["status"] in ("cleaned", "clean")
         assert "soul" in data
+        assert "removed" in data
+        assert "total_removed" in data
+
+
+async def test_soul_cleanup_execute_writes_backup_when_source_file_exists(tmp_path):
+    """Non-dry-run MCP cleanup mirrors the CLI safety backup for .soul files."""
+    soul = await Soul.birth("BackupBot", archetype="Test Archetype", values=["curiosity"])
+    await soul.remember("User likes Python programming very much", importance=6)
+    await soul.remember("User likes Python programming very much", importance=6)
+    soul_path = tmp_path / "backup-bot.soul"
+    await soul.export(soul_path)
+
+    with _env_context("SOUL_PATH", str(soul_path)):
+        async with Client(mcp) as client:
+            result = await client.call_tool("soul_cleanup", {"dry_run": False})
+            data = json.loads(result.data)
+
+    assert data["status"] == "cleaned"
+    assert data["removed"] == data["total_removed"] == 1
+    assert data["backup"] == str(soul_path.with_suffix(".soul.bak"))
+    assert soul_path.with_suffix(".soul.bak").exists()
 
 
 # --- v0.5.0 (#192) Memory primitive MCP tools ---

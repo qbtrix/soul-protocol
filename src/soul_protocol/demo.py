@@ -349,6 +349,7 @@ soul = await Soul.birth(
     episodic_count = len(soul._memory._episodic._memories)
     semantic_count = len(soul._memory._semantic._facts)
     procedural_count = len(soul._memory._procedural._procedures)
+    social_count = soul._memory._social.count()
 
     stats_table = Table(title="Memory Stats", box=box.ROUNDED, border_style="magenta")
     stats_table.add_column("Tier", style="bold")
@@ -357,6 +358,7 @@ soul = await Soul.birth(
     stats_table.add_row("Episodic", str(episodic_count), "Significant experiences (LIDA gate)")
     stats_table.add_row("Semantic", str(semantic_count), "Extracted facts")
     stats_table.add_row("Procedural", str(procedural_count), "Learned procedures")
+    stats_table.add_row("Social", str(social_count), "Social interactions & relationships")
     stats_table.add_row("[bold]Total[/]", f"[bold]{soul.memory_count}[/]", "")
     console.print(stats_table)
     console.print()

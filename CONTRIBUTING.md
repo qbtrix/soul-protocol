@@ -11,6 +11,9 @@
 
 Soul Protocol is an open standard plus a Python reference runtime for portable AI agent identity and memory. This guide is for anyone sending a PR or filing an issue. If you're applying for the LFDT mentorship program, also read [docs/lfdt-mentorship.md](docs/lfdt-mentorship.md) — it covers the mentee scope.
 
+> [!IMPORTANT]
+> **All PRs target `dev`, not `main`.** Releases roll up from `dev` to `main` via a single release PR. If you open a PR against `main` we'll ask you to retarget. Branch off `dev` from the start: `git checkout -b feat/my-thing origin/dev`.
+
 ## Quick start
 
 The full setup walkthrough lives in [docs/getting-started.md](docs/getting-started.md). The short version:

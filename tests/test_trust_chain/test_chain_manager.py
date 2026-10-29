@@ -142,13 +142,20 @@ def test_payload_is_hashed_not_stored():
     """The chain stores only payload_hash; original payload is NOT recoverable."""
     p = Ed25519SignatureProvider.from_seed(b"M" * 32)
     mgr = TrustChainManager(did="did:soul:test", provider=p)
-    secret_payload = {"secret": "do-not-leak", "tokens": ["t1", "t2"]}
+    # Use long, unique sentinels. Short tokens like "t1" give false failures:
+    # they collide by chance with the base64 signature / hex payload_hash that
+    # to_dict() serializes, which vary per run (the signature covers the
+    # timestamp). "do-not-leak-token-1" cannot appear in base64 or hex output.
+    secret_payload = {
+        "secret": "do-not-leak",
+        "tokens": ["do-not-leak-token-1", "do-not-leak-token-2"],
+    }
     e = mgr.append("memory.write", secret_payload)
 
     serialized = mgr.to_dict()
     raw = str(serialized)
     assert "do-not-leak" not in raw
-    assert "t1" not in raw
+    assert "do-not-leak-token-1" not in raw
     assert e.payload_hash  # but the hash is there
 
 
