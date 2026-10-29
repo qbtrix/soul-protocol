@@ -85,3 +85,54 @@ def test_validation_errors(client):
     assert client.post("/recall", json={}).status_code == 400
     assert client.post("/observe", json={}).status_code == 400
     assert client.post("/turn", json={}).status_code == 400
+
+
+# ---- #318 review: CSRF-safe bodies and input validation ----
+
+
+@pytest.mark.parametrize(
+    "path", ["/remember", "/recall", "/observe", "/turn", "/v1/chat/completions"]
+)
+def test_post_rejects_non_json_content_type(client, path):
+    """A cross-site text/plain POST skips CORS preflight, so it must be refused."""
+    r = client.post(
+        path,
+        content='{"content": "injected", "query": "x", "user_input": "x"}',
+        headers={"Content-Type": "text/plain", "Origin": "https://evil.example"},
+    )
+    assert r.status_code == 415
+
+
+def test_text_plain_remember_does_not_store(client):
+    client.post(
+        "/remember",
+        content='{"content": "planted memory"}',
+        headers={"Content-Type": "text/plain"},
+    )
+    r = client.post("/recall", json={"query": "planted memory"})
+    assert r.json()["count"] == 0
+
+
+def test_remember_bad_importance_is_400(client):
+    r = client.post("/remember", json={"content": "x", "importance": "abc"})
+    assert r.status_code == 400
+    assert "importance" in r.json()["error"]
+
+
+def test_recall_bad_limit_is_400(client):
+    r = client.post("/recall", json={"query": "x", "limit": "abc"})
+    assert r.status_code == 400
+    assert "limit" in r.json()["error"]
+
+
+def test_recall_limit_is_capped(client):
+    for i in range(3):
+        client.post("/remember", json={"content": f"Python fact {i}"})
+    r = client.post("/recall", json={"query": "Python", "limit": 100000})
+    assert r.status_code == 200
+    assert r.json()["count"] <= 200
+
+
+def test_api_memories_bad_limit_is_400(client):
+    r = client.get("/api/memories", params={"limit": "abc"})
+    assert r.status_code == 400

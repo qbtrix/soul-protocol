@@ -4,6 +4,11 @@
 #   auto-recalls memories, injects them into the system prompt, forwards to an
 #   upstream LLM, and auto-observes the turn. Starlette + httpx keep it
 #   dependency-light (both already present as FastMCP transitive deps).
+# Updated: 2026-10-29 (#318 review) — POST bodies must be application/json
+#   (415 otherwise) so cross-site text/plain POSTs can't skip CORS preflight;
+#   non-integer importance/limit return 400 and /recall + /turn cap limit at
+#   200; dashboard reads soul.memory / soul.eval_history / serialize()
+#   instead of private _memory / _config.
 
 from __future__ import annotations
 
@@ -109,13 +114,53 @@ def _bond_label(strength: float) -> str:
     return "Stranger"
 
 
+class _BadRequest(Exception):
+    """Raised by request helpers; carries the error response to return."""
+
+    def __init__(self, message: str, status: int = 400) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status = status
+
+
 async def _body(request: Request) -> dict[str, Any]:
-    """Parse a JSON body, tolerating missing/invalid JSON as an empty dict."""
+    """Parse a JSON body, tolerating missing/invalid JSON as an empty dict.
+
+    Non-JSON content types are rejected with 415. A cross-site ``text/plain``
+    (or form) POST skips the CORS preflight, so requiring ``application/json``
+    forces a preflight that the gateway never approves.
+    """
+    content_type = request.headers.get("content-type", "")
+    if not content_type.lower().startswith("application/json"):
+        raise _BadRequest("Content-Type must be application/json", status=415)
     try:
         data = await request.json()
     except Exception:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _int_param(value: Any, name: str, default: int, lo: int, hi: int) -> int:
+    """Coerce ``value`` to an int clamped to ``[lo, hi]``; 400 on bad input."""
+    if value is None:
+        return default
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise _BadRequest(f"{name} must be an integer") from None
+    return max(lo, min(hi, number))
+
+
+def _handles_bad_request(handler):
+    """Turn a ``_BadRequest`` raised inside ``handler`` into a JSON error response."""
+
+    async def wrapper(request: Request) -> Response:
+        try:
+            return await handler(request)
+        except _BadRequest as exc:
+            return _json({"error": exc.message}, status=exc.status)
+
+    return wrapper
 
 
 def _json(data: Any, status: int = 200) -> JSONResponse:
@@ -272,8 +317,7 @@ def create_app(
                 {"error": f"invalid memory_type: {body.get('memory_type')}"},
                 status=400,
             )
-        importance = body.get("importance")
-        importance = max(1, min(10, int(importance) if importance is not None else 5))
+        importance = _int_param(body.get("importance"), "importance", 5, 1, 10)
         memory_id = await soul.remember(
             content,
             type=memory_type,
@@ -288,8 +332,7 @@ def create_app(
         query = body.get("query", "")
         if not query:
             return _json({"error": "query is required"}, status=400)
-        limit = body.get("limit")
-        limit = int(limit) if limit is not None else 5
+        limit = _int_param(body.get("limit"), "limit", 5, 1, 200)
         results = await soul.recall(
             query,
             limit=limit,
@@ -332,7 +375,7 @@ def create_app(
             user_input,
             body.get("agent_output", ""),
             query=body.get("query"),
-            limit=body.get("limit"),
+            limit=_int_param(body.get("limit"), "limit", 5, 1, 200),
             user_id=body.get("user_id"),
             layer=body.get("layer"),
             domain=body.get("domain"),
@@ -398,7 +441,7 @@ def create_app(
         """Return all active memories across the four built-in layers."""
         memories: list[Any] = []
         for layer_name in ("episodic", "semantic", "procedural", "social"):
-            memories.extend(soul._memory.layer(layer_name).entries())
+            memories.extend(soul.memory.layer(layer_name).entries())
         return memories
 
     async def dashboard(request: Request) -> HTMLResponse:
@@ -436,11 +479,7 @@ def create_app(
 
     async def api_memories(request: Request) -> JSONResponse:
         q = request.query_params.get("q", "").strip()
-        try:
-            limit = int(request.query_params.get("limit", "20"))
-        except ValueError:
-            limit = 20
-        limit = max(1, min(limit, 200))
+        limit = _int_param(request.query_params.get("limit"), "limit", 20, 1, 200)
         if q:
             results = await soul.recall(q, limit=limit)
         else:
@@ -454,7 +493,7 @@ def create_app(
 
     async def api_stats(request: Request) -> JSONResponse:
         counts = {
-            layer: soul._memory.layer(layer).count()
+            layer: soul.memory.layer(layer).count()
             for layer in ("episodic", "semantic", "procedural", "social")
         }
         counts["total"] = sum(counts.values())
@@ -530,7 +569,7 @@ def create_app(
         )
 
     async def api_evolution(request: Request) -> JSONResponse:
-        evo = soul._config.evolution
+        evo = soul.serialize().evolution
         return _json(
             {
                 "mode": evo.mode.value if hasattr(evo.mode, "value") else str(evo.mode),
@@ -548,24 +587,23 @@ def create_app(
                         "proposed_at": str(m.proposed_at) if m.proposed_at else None,
                         "approved": m.approved,
                     }
-                    for m in evo.pending
+                    for m in soul.pending_mutations
                 ],
             }
         )
 
     async def api_evaluations(request: Request) -> JSONResponse:
-        evals = soul._config.evaluation_history
         return _json(
             {
                 "soul": soul.name,
                 "evaluations": [
                     {
-                        "rubric_id": e.get("rubric_id", ""),
-                        "overall_score": e.get("overall_score", 0),
-                        "learning": e.get("learning", ""),
-                        "timestamp": e.get("timestamp", ""),
+                        "rubric_id": e.rubric_id,
+                        "overall_score": e.overall_score,
+                        "learning": e.learning,
+                        "timestamp": str(e.timestamp) if e.timestamp else "",
                     }
-                    for e in evals
+                    for e in soul.eval_history
                 ],
             }
         )
@@ -601,8 +639,8 @@ def create_app(
         return _json({"soul": soul.name, "self_images": images})
 
     async def api_metadata(request: Request) -> JSONResponse:
-        cfg = soul._config
-        mem_cfg = cfg.memory
+        cfg = soul.serialize()
+        mem_cfg = soul.memory.settings
         return _json(
             {
                 "version": cfg.version,
@@ -622,18 +660,18 @@ def create_app(
     routes = [
         Route("/health", health, methods=["GET"]),
         Route("/state", state, methods=["GET"]),
-        Route("/remember", remember, methods=["POST"]),
-        Route("/recall", recall, methods=["POST"]),
-        Route("/observe", observe, methods=["POST"]),
-        Route("/turn", turn, methods=["POST"]),
-        Route("/v1/chat/completions", chat_completions, methods=["POST"]),
+        Route("/remember", _handles_bad_request(remember), methods=["POST"]),
+        Route("/recall", _handles_bad_request(recall), methods=["POST"]),
+        Route("/observe", _handles_bad_request(observe), methods=["POST"]),
+        Route("/turn", _handles_bad_request(turn), methods=["POST"]),
+        Route("/v1/chat/completions", _handles_bad_request(chat_completions), methods=["POST"]),
         Route("/dashboard", dashboard, methods=["GET"]),
         Route("/privacy", privacy, methods=["GET"]),
         Route("/terms", terms, methods=["GET"]),
         Route("/favicon.svg", favicon, methods=["GET"]),
         Route("/favicon.ico", favicon, methods=["GET"]),
         Route("/api/personality", api_personality, methods=["GET"]),
-        Route("/api/memories", api_memories, methods=["GET"]),
+        Route("/api/memories", _handles_bad_request(api_memories), methods=["GET"]),
         Route("/api/stats", api_stats, methods=["GET"]),
         Route("/api/identity", api_identity, methods=["GET"]),
         Route("/api/communication", api_communication, methods=["GET"]),

@@ -60,6 +60,7 @@ engine = []
 mcp = [
     "fastmcp>=2.0",
 ]
+gateway = ["starlette", "httpx", "uvicorn"]
 dspy = []  # dspy depends on litellm which breaks uv sync — install dspy manually if needed
 graph = ["networkx>=3.0"]
 vector = ["numpy>=1.24"]
@@ -83,6 +84,7 @@ all = ["soul-protocol[mcp,graph,vector,llm,lcm,embeddings-st,embeddings-openai,e
 [project.scripts]
 soul = "soul_protocol.cli.main:cli"
 soul-mcp = "soul_protocol.mcp:run_server"
+soul-api = "soul_protocol.gateway:run"
 
 [project.urls]
 Homepage = "https://github.com/qbtrix/soul-protocol"
