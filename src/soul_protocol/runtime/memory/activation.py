@@ -1,4 +1,9 @@
 # memory/activation.py — ACT-R activation-based memory scoring.
+# Updated: feat/recall-graded-floor (#247) — Added ActivationBreakdown and
+#   activation_breakdown() so callers can read the spreading-activation
+#   (query relevance) term alongside the total. RecallEngine uses this to
+#   surface a per-result score and apply a graded relevance floor without
+#   scoring each entry twice. compute_activation() now delegates to it.
 # Updated: v0.3.4-fix — Salience now uses additive boost instead of multiplicative.
 #   Fixes bug where multiplying negative base by salience amplified the penalty.
 #   High salience always helps activation, never hurts it. Replaced getattr with
@@ -18,6 +23,7 @@ from __future__ import annotations
 
 import math
 import random
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -128,6 +134,106 @@ def emotional_boost(somatic: SomaticMarker | None) -> float:
     return min(1.0, arousal_component + valence_component)
 
 
+@dataclass(frozen=True)
+class ActivationBreakdown:
+    """Activation score split into its contributing terms.
+
+    ``total`` is the same number :func:`compute_activation` returns — the
+    value recall ranks on. ``spread`` is the spreading-activation term in
+    isolation: the 0.0-1.0 query-relevance score (BM25 via the search
+    strategy, or token overlap as the fallback). Recall surfaces ``total``
+    as the per-result score and applies the graded relevance floor to
+    ``relevance`` so the floor tracks query match quality, not recency or
+    emotion.
+
+    ``relevance`` is the raw token-overlap (Jaccard) score, kept separate
+    from ``spread`` because ``spread`` may be a BM25-normalised value when a
+    strategy is in use. The floor uses ``relevance`` so its threshold has a
+    stable, interpretable meaning (fraction of query tokens matched).
+    """
+
+    total: float
+    base: float
+    spread: float
+    relevance: float
+    emotional: float
+
+
+def activation_breakdown(
+    entry: MemoryEntry,
+    query: str,
+    now: datetime | None = None,
+    noise: bool = True,
+    strategy: SearchStrategy | None = None,
+    personality: Personality | None = None,
+) -> ActivationBreakdown:
+    """Compute total activation plus its component terms for an entry.
+
+    Same computation as :func:`compute_activation`, but returns the term
+    breakdown so callers can read the spreading-activation / relevance score
+    without scoring the entry a second time. See :func:`compute_activation`
+    for the formula and argument semantics.
+
+    Returns:
+        An :class:`ActivationBreakdown` carrying the total and its terms.
+    """
+    now = now or datetime.now()
+
+    # Base-level: if we have access history, use ACT-R decay
+    if entry.access_timestamps:
+        base = base_level_activation(entry.access_timestamps, now)
+    else:
+        # Fallback: use importance as a proxy for base activation
+        # Scale importance (1-10) to roughly match ACT-R range
+        base = (entry.importance - 5) * 0.2  # maps 1-10 to -0.8 to 1.0
+
+    # Spreading activation from query (uses pluggable strategy if provided)
+    spread = spreading_activation(query, entry.content, strategy=strategy)
+
+    # Raw token-overlap relevance — used by the graded recall floor. Kept
+    # separate from `spread` because `spread` is BM25-normalised when a
+    # strategy is active, whereas the floor needs a stable 0-1 fraction.
+    relevance = relevance_score(query, entry.content)
+
+    # Emotional boost
+    emo = emotional_boost(entry.somatic)
+
+    # Importance boost: memories that passed a high significance bar get recall priority
+    sig_boost = 0.3 * entry.significance if entry.significance else 0.0
+
+    # Salience boost (v0.3.4-fix): additive instead of multiplicative.
+    # Multiplicative salience amplified negative base (importance < 5), making
+    # high-salience memories score WORSE — the opposite of intent.
+    # Additive boost: high salience always helps, low salience is neutral.
+    # Range: salience 0.0 → -0.25, salience 0.5 → 0.0, salience 1.0 → +0.25
+    salience_boost = (entry.salience - 0.5) * 0.5
+
+    # Personality modulation (v0.3.3)
+    personality_boost = compute_personality_boost(entry, personality)
+
+    # Combine with weights
+    activation = (
+        (W_BASE * base)
+        + (W_SPREAD * spread)
+        + (W_EMOTION * emo)
+        + sig_boost
+        + salience_boost
+        + personality_boost
+    )
+
+    # Add stochastic noise for natural variability
+    if noise:
+        activation += random.gauss(0, NOISE_SCALE)
+
+    return ActivationBreakdown(
+        total=activation,
+        base=base,
+        spread=spread,
+        relevance=relevance,
+        emotional=emo,
+    )
+
+
 def compute_activation(
     entry: MemoryEntry,
     query: str,
@@ -160,47 +266,11 @@ def compute_activation(
     Returns:
         Total activation score (higher = more likely to be recalled).
     """
-    now = now or datetime.now()
-
-    # Base-level: if we have access history, use ACT-R decay
-    if entry.access_timestamps:
-        base = base_level_activation(entry.access_timestamps, now)
-    else:
-        # Fallback: use importance as a proxy for base activation
-        # Scale importance (1-10) to roughly match ACT-R range
-        base = (entry.importance - 5) * 0.2  # maps 1-10 to -0.8 to 1.0
-
-    # Spreading activation from query (uses pluggable strategy if provided)
-    spread = spreading_activation(query, entry.content, strategy=strategy)
-
-    # Emotional boost
-    emo = emotional_boost(entry.somatic)
-
-    # Importance boost: memories that passed a high significance bar get recall priority
-    sig_boost = 0.3 * entry.significance if entry.significance else 0.0
-
-    # Salience boost (v0.3.4-fix): additive instead of multiplicative.
-    # Multiplicative salience amplified negative base (importance < 5), making
-    # high-salience memories score WORSE — the opposite of intent.
-    # Additive boost: high salience always helps, low salience is neutral.
-    # Range: salience 0.0 → -0.25, salience 0.5 → 0.0, salience 1.0 → +0.25
-    salience_boost = (entry.salience - 0.5) * 0.5
-
-    # Personality modulation (v0.3.3)
-    personality_boost = compute_personality_boost(entry, personality)
-
-    # Combine with weights
-    activation = (
-        (W_BASE * base)
-        + (W_SPREAD * spread)
-        + (W_EMOTION * emo)
-        + sig_boost
-        + salience_boost
-        + personality_boost
-    )
-
-    # Add stochastic noise for natural variability
-    if noise:
-        activation += random.gauss(0, NOISE_SCALE)
-
-    return activation
+    return activation_breakdown(
+        entry,
+        query,
+        now=now,
+        noise=noise,
+        strategy=strategy,
+        personality=personality,
+    ).total

@@ -1,5 +1,7 @@
 # test_eternal/test_cli_eternal.py — CLI tests for eternal storage commands.
 # Created: 2026-03-06 — Tests archive, recover, and eternal-status commands.
+# Updated: 2026-07-17 (#286) — Added test_archive_unknown_tier; verifies
+#   clean error message and exit code 1 for unregistered tiers.
 
 from __future__ import annotations
 
@@ -53,11 +55,39 @@ def test_eternal_status_command(tmp_path):
 
 
 def test_recover_missing_reference(tmp_path):
-    """recover with a bad reference shows failure message."""
+    """recover with a bad reference exits non-zero (#293)."""
     runner = CliRunner()
     output_path = str(tmp_path / "recovered.soul")
 
     result = runner.invoke(cli, ["recover", "nonexistent-ref", "-t", "ipfs", "-o", output_path])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "failed" in result.output.lower() or "Recovery failed" in result.output
+
+
+def test_archive_unknown_tier(tmp_path):
+    """archive with an unknown tier prints a clean error, not a traceback."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "unknown-tier.soul")
+
+    runner.invoke(cli, ["birth", "TierBot", "-o", soul_path])
+    result = runner.invoke(cli, ["archive", soul_path, "-t", "local"])
+
+    assert result.exit_code == 1
+    assert "Archive failed" in result.output
+    assert "local" in result.output
+    # Must NOT contain a raw traceback
+    assert "Traceback" not in result.output
+
+
+def test_archive_two_tier_flags(tmp_path):
+    """archive with repeated -t flags archives to multiple tiers (#286 review)."""
+    runner = CliRunner()
+    soul_path = str(tmp_path / "multi-tier.soul")
+
+    runner.invoke(cli, ["birth", "MultiBot", "-o", soul_path])
+    result = runner.invoke(cli, ["archive", soul_path, "-t", "ipfs", "-t", "arweave"])
+
+    assert result.exit_code == 0
+    assert "ipfs" in result.output.lower()
+    assert "arweave" in result.output.lower()

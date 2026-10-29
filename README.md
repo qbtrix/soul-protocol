@@ -207,6 +207,7 @@ pip install -e ".[dev]"
 soul init "Aria" --archetype "The Compassionate Creator"
 soul inspect .soul/
 soul status .soul/
+soul note .soul/ "User prefers concise PR summaries" --type semantic
 ```
 
 ### Python
@@ -381,8 +382,8 @@ The `EmbeddingProvider` interface is defined in `spec/`. Swap in OpenAI, Cohere,
 ## Eternal storage
 
 ```bash
-soul archive aria.soul --tiers local,ipfs
-soul recover aria.soul --source ipfs
+soul archive aria.soul -t ipfs -t arweave
+soul recover QmRef123... --tier ipfs --output recovered.soul
 soul eternal-status aria.soul
 ```
 
@@ -493,6 +494,14 @@ cd soul-protocol
 pip install -e ".[dev]"
 pytest tests/   # 2297 tests
 ```
+
+---
+
+## Contributing & Mentorship
+
+PRs and issues are welcome. Setup, conventions, and scope are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Soul Protocol is part of the [LF Decentralized Trust mentorship program](docs/lfdt-mentorship.md) (voluntary track, opened May 2026). Mentee scope, suggested 12-week shape, and how to apply live in [docs/lfdt-mentorship.md](docs/lfdt-mentorship.md).
 
 ---
 

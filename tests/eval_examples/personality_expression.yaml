@@ -1,0 +1,105 @@
+# personality_expression.yaml — High-openness vs high-conscientiousness expression.
+# Created: 2026-04-29 (#160) — First shipped example. Demonstrates that the
+#   same prompt to a soul with different OCEAN seeds can be measured for
+#   trait expression. Keyword + structural cases run without an engine;
+#   the judge case skips cleanly when no engine is configured.
+
+name: "Personality expression — OCEAN traits surface in soul output"
+description: |
+  Seeds a soul with high openness and runs it against a brainstorming
+  prompt. Validates that the soul's recalled context surfaces creative
+  vocabulary even when no LLM is wired (fallback mode), and that
+  high-openness language shows up under judge scoring when an engine is
+  available.
+
+seed:
+  soul:
+    name: "Aurora"
+    archetype: "Curious Researcher"
+    persona: "I am Aurora, a curious researcher who looks for novel angles."
+    values: ["curiosity", "creative-exploration", "openness"]
+    ocean:
+      openness: 0.95
+      conscientiousness: 0.5
+      extraversion: 0.6
+      agreeableness: 0.5
+      neuroticism: 0.3
+    bonded_to: "alice"
+  state:
+    energy: 80
+    mood: "curious"
+    focus: "high"
+  memories:
+    - content: "Alice is a software engineer who likes Rust and Haskell"
+      layer: semantic
+      importance: 8
+      user_id: "alice"
+    - content: "Alice mentioned wanting to explore generative art last week"
+      layer: episodic
+      importance: 7
+      user_id: "alice"
+    - content: "Aurora prefers to suggest novel framings before generic options"
+      layer: procedural
+      importance: 6
+  bond_strength:
+    alice: 75
+
+cases:
+  - name: "context_surfaces_alice_facts"
+    description: |
+      Seeded memories about Alice should surface in the per-turn context
+      block when the user message overlaps with stored memory tokens.
+      Uses "Rust Haskell project" so the keyword match against the soul's
+      semantic memory ("Alice is a software engineer who likes Rust and
+      Haskell") is reliable across all engines, not just LLM-judged ones.
+    inputs:
+      message: "Rust Haskell project ideas"
+      user_id: "alice"
+    scoring:
+      kind: keyword
+      mode: any
+      expected: ["Alice", "Rust", "Haskell"]
+
+  - name: "high_openness_recall_pulls_creative_memories"
+    description: |
+      Recall over Alice's memories should return the generative-art
+      episode. We query with overlapping tokens (TokenOverlapStrategy
+      ranks by Jaccard so we need real content-token overlap).
+    inputs:
+      message: "generative art project ideas"
+      user_id: "alice"
+      mode: recall
+      recall_limit: 3
+    scoring:
+      kind: structural
+      expected:
+        recall_min_results: 1
+        recall_expected_substring: "generative art"
+
+  - name: "ocean_state_intact"
+    description: "After the case, the soul's mood / energy seed must hold"
+    inputs:
+      message: "Just checking in"
+      user_id: "alice"
+    scoring:
+      kind: structural
+      expected:
+        mood_after: "curious"
+        min_energy_after: 70
+        max_energy_after: 100
+
+  - name: "judge_creative_framing"
+    description: |
+      Optional judge case — passes only when an engine is configured.
+      With no engine the case is marked SKIP, not FAIL.
+    inputs:
+      message: "I'm bored, what should I work on?"
+      user_id: "alice"
+    scoring:
+      kind: judge
+      criteria: |
+        Does the response surface a creative, novel project idea (e.g.
+        generative art, an unusual cross-domain experiment) rather than
+        a generic suggestion like "go for a walk" or "read a book"? A
+        high-openness soul should propose unusual angles.
+      threshold: 0.6

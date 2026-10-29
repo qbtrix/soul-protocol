@@ -21,6 +21,13 @@
       "minimum": 0.0,
       "title": "Goal Relevance",
       "type": "number"
+    },
+    "content_richness": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Content Richness",
+      "type": "number"
     }
   },
   "title": "SignificanceScore",

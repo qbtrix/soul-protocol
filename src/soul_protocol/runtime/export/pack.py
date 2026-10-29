@@ -1,4 +1,6 @@
 # export/pack.py — Create .soul zip archives from a SoulConfig.
+# Updated: 2026-07-12 (#283) — Added "archives" to the pack tier list so
+#   consolidated conversation summaries survive export round-trips.
 # Updated: 2026-04-29 (#42) — Trust chain is written to ``trust_chain/chain.json``
 #   (canonical Pydantic-serialized form) plus ``trust_chain/entry_NNN.json`` for
 #   human inspection. Soul keys are persisted under ``keys/`` — public.key always,
@@ -117,6 +119,7 @@ async def pack_soul(
                 "graph",
                 "self_model",
                 "general_events",
+                "archives",  # v0.5.0 (#283) — consolidated memory summaries
             ]:
                 default = {} if tier_name in ("graph", "self_model") else []
                 tier_data = memory_data.get(tier_name, default)

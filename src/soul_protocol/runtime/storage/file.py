@@ -1,4 +1,10 @@
 # storage/file.py — FileStorage backend persisting souls to the local filesystem.
+# Updated: 2026-07-12 (#282) — Crash-safe saves via temp-dir + fsync + atomic
+#   replace. Added load-time .bak recovery: when the canonical path is missing
+#   but a sibling .bak exists, the loader auto-promotes it. save_soul_flat()
+#   merges files into the existing directory to preserve user files.
+# Updated: 2026-07-12 (#283) — Added "archives" to _FLAT_TIERS so flat
+#   directory saves include consolidated conversation summaries.
 # Updated: 2026-04-29 (#42) — Trust chain + keystore land alongside the soul.
 #   ``trust_chain/chain.json`` and per-entry ``trust_chain/entry_NNN.json`` are
 #   written when the chain has any entries. ``keys/public.key`` is always
@@ -19,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import tempfile
 import warnings
@@ -30,6 +37,157 @@ from soul_protocol.runtime.types import SoulConfig
 logger = logging.getLogger(__name__)
 
 DEFAULT_SOUL_DIR: Path = Path.home() / ".soul"
+
+
+def _backup_path(path: Path) -> Path:
+    """Return the sibling backup path used for crash recovery."""
+    return path.with_name(f"{path.name}.bak")
+
+
+def _remove_path(path: Path) -> None:
+    if not path.exists():
+        return
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def _fsync_directory(path: Path) -> None:
+    """Best-effort fsync for directory metadata.
+
+    Windows does not support opening directories with os.open(), so this
+    is a no-op on win32.  On POSIX systems it ensures the directory entry
+    changes (renames, new files) have been flushed to stable storage.
+    """
+    if os.name == "nt":
+        return
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fsync_tree(path: Path) -> None:
+    """Best-effort fsync of all files and directory metadata under ``path``."""
+    for child in path.rglob("*"):
+        if child.is_file():
+            try:
+                with child.open("rb") as f:
+                    os.fsync(f.fileno())
+            except OSError:
+                logger.debug("Could not fsync file during soul save: %s", child)
+    for child in sorted((p for p in path.rglob("*") if p.is_dir()), reverse=True):
+        _fsync_directory(child)
+    _fsync_directory(path)
+
+
+def _replace_with_backup(source: Path, target: Path, *, keep_backup: bool) -> None:
+    """Replace ``target`` with ``source`` while preserving the old target first.
+
+    Safety invariant: at every point during this function, at least one
+    complete copy of the data (target or .bak) exists on disk, so a
+    power loss at any step leaves a recoverable state.
+    """
+    backup = _backup_path(target)
+    target_was_backed_up = False
+
+    # Only remove a stale .bak when the target ALSO exists — if the
+    # target is missing the .bak may be the ONLY surviving copy from a
+    # previous interrupted swap.
+    if backup.exists() and target.exists():
+        _remove_path(backup)
+
+    if target.exists():
+        os.replace(target, backup)
+        target_was_backed_up = True
+        _fsync_directory(target.parent)
+
+    try:
+        os.replace(source, target)
+    except Exception:
+        if target_was_backed_up and not target.exists() and backup.exists():
+            os.replace(backup, target)
+        raise
+
+    _fsync_directory(target.parent)
+
+    if target_was_backed_up and not keep_backup:
+        _remove_path(backup)
+        _fsync_directory(target.parent)
+
+
+def _recover_backup(path: Path) -> bool:
+    """Promote a sibling ``.bak`` if the canonical path is missing.
+
+    Returns True if recovery was performed.  This closes the power-loss
+    gap in ``_replace_with_backup``: between the target→.bak rename and
+    the source→target rename, the canonical path doesn't exist.  If the
+    process dies in that window the .bak holds the only good copy.  This
+    function is called at load time to recover from that state.
+
+    Race-safe: if two loaders race, the second one will see
+    ``FileNotFoundError`` from ``os.replace`` because the first already
+    moved the backup.  We catch that and return True if the canonical
+    path now exists (meaning another process did the recovery for us).
+    """
+    if path.exists():
+        return False
+    backup = _backup_path(path)
+    if backup.exists():
+        try:
+            os.replace(backup, path)
+        except FileNotFoundError:
+            # Another process already promoted the backup.
+            if path.exists():
+                return True
+            return False
+        _fsync_directory(path.parent)
+        logger.info("Recovered soul from backup: %s -> %s", backup, path)
+        return True
+    return False
+
+
+def write_bytes_atomic(path: Path, data: bytes, *, keep_backup: bool = True) -> None:
+    """Write bytes via temp file + fsync + atomic replace.
+
+    For a single file, ``os.replace(temp, target)`` is atomic on its own:
+    the path always resolves to old or new, never missing.  If
+    ``keep_backup`` is True, we *copy* (not move) the previous version to
+    ``.bak`` **before** the replace so there is no absent-path window.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+
+        # Copy (not move) old file to .bak before the atomic replace so
+        # the canonical path is never absent.
+        if keep_backup and path.exists():
+            backup = _backup_path(path)
+            import shutil
+
+            shutil.copy2(path, backup)
+
+        os.replace(tmp_path, path)
+        _fsync_directory(path.parent)
+    except Exception:
+        _remove_path(tmp_path)
+        raise
 
 
 def _safe_soul_id(config: SoulConfig) -> str:
@@ -135,6 +293,13 @@ async def load_soul(path: Path) -> SoulConfig | None:
 
     ``path`` should point to a directory containing ``soul.json``.
     Returns ``None`` if the file does not exist.
+
+    .. note::
+
+        This function does **not** perform crash recovery.  If the soul
+        directory vanished mid-swap, the ``.bak`` sibling is not promoted.
+        Use ``load_soul_full()`` or ``Soul.awaken()`` for crash-safe
+        loading — they call ``_recover_backup()`` automatically.
     """
     soul_json = path / "soul.json"
     if not soul_json.exists():
@@ -159,6 +324,7 @@ _FLAT_TIERS: list[tuple[str, object]] = [
     ("graph", {}),
     ("self_model", {}),
     ("general_events", []),
+    ("archives", []),  # v0.5.0 (#283) — consolidated memory summaries
 ]
 
 _LAYER_TIERS = ("episodic", "semantic", "procedural", "social")
@@ -320,15 +486,14 @@ async def save_soul_full(
     base.mkdir(parents=True, exist_ok=True)
     soul_dir = base / soul_id
 
-    # Atomic write: build in temp dir, then move into place
-    with tempfile.TemporaryDirectory(dir=base) as tmp:
+    # Atomic-ish directory write: build a sibling temp dir, fsync it, then
+    # replace the live directory through a backup instead of deleting first.
+    with tempfile.TemporaryDirectory(prefix=f".{soul_id}.tmp-", dir=base) as tmp:
         tmp_dir = Path(tmp) / soul_id
         tmp_dir.mkdir()
         _write_soul_files(tmp_dir, config, memory_data)
-
-        if soul_dir.exists():
-            shutil.rmtree(soul_dir)
-        shutil.move(str(tmp_dir), str(soul_dir))
+        _fsync_tree(tmp_dir)
+        _replace_with_backup(tmp_dir, soul_dir, keep_backup=False)
 
     logger.debug("Soul saved (full): path=%s", soul_dir)
 
@@ -385,6 +550,9 @@ async def load_soul_full(path: Path) -> tuple[SoulConfig | None, dict]:
         A tuple of (SoulConfig or None, memory_data dict).
         If ``soul.json`` does not exist, returns (None, {}).
     """
+    # Crash recovery: if the directory vanished mid-swap, promote .bak.
+    _recover_backup(path)
+
     soul_json = path / "soul.json"
     if not soul_json.exists():
         return None, {}
@@ -454,7 +622,9 @@ async def save_soul_flat(
     """Save soul config + memory to a directory WITHOUT soul_id nesting.
 
     Used for .soul/ project folders where the directory IS the soul.
-    Atomic: writes to temp dir, then moves files into place.
+    Writes soul files to a temp directory and then merges them into the
+    existing ``path``, preserving any unmanaged files the user keeps
+    alongside their soul (notes, .git/, etc.).
 
     Args:
         config: The SoulConfig to persist.
@@ -464,18 +634,63 @@ async def save_soul_flat(
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
 
-    # Atomic write: build in temp dir, then move individual files into place
-    with tempfile.TemporaryDirectory(dir=path.parent) as tmp:
-        tmp_dir = Path(tmp) / path.name
-        tmp_dir.mkdir()
+    # Build all soul files in a temp sibling directory, fsync them, then
+    # merge per-file into the live directory.  This preserves unmanaged
+    # files the user may keep alongside the soul (notes, .git/, etc.)
+    # while still giving each individual file an atomic write.
+    with tempfile.TemporaryDirectory(prefix=f".{path.name}.tmp-", dir=path.parent) as tmp:
+        tmp_dir = Path(tmp)
         _write_soul_files(tmp_dir, config, memory_data)
+        _fsync_tree(tmp_dir)
 
-        # Move files into target (preserve existing dir structure)
-        for item in tmp_dir.iterdir():
-            dest = path / item.name
-            if dest.exists():
-                if dest.is_dir():
-                    shutil.rmtree(dest)
-                else:
-                    dest.unlink()
-            shutil.move(str(item), str(dest))
+        # Collect the set of relative paths we're about to write.
+        new_files: set[Path] = set()
+        for src_file in tmp_dir.rglob("*"):
+            if src_file.is_file():
+                new_files.add(src_file.relative_to(tmp_dir))
+
+        # Merge: walk the temp tree and atomically replace each file
+        # in the target directory.  Create subdirectories as needed.
+        for rel in new_files:
+            src_file = tmp_dir / rel
+            dst_file = path / rel
+            dst_file.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(src_file, dst_file)
+
+        # Clean up stale managed files that existed in the previous save
+        # but are absent from the new one (e.g. _layout.json after a
+        # layout change from nested to flat).  Only touch managed
+        # directories — never delete user files at the top level.
+        #
+        # Exception: the private signing key (keys/private.key, per
+        # PRIVATE_KEY_FILENAME in crypto/keystore.py) is excluded from
+        # pruning.  A save with include_keys=False omits it from the new
+        # file set, but deleting it would destroy the user's signing
+        # capability — that should require an explicit action.
+        from soul_protocol.runtime.crypto.keystore import PRIVATE_KEY_FILENAME
+
+        _prune_protected = {
+            Path(PRIVATE_KEY_FILENAME),  # keys/private.key
+        }
+        managed_dirs = ["memory", "trust_chain", "keys"]
+        for mdir_name in managed_dirs:
+            mdir = path / mdir_name
+            if not mdir.is_dir():
+                continue
+            for old_file in list(mdir.rglob("*")):
+                if not old_file.is_file():
+                    continue
+                rel = old_file.relative_to(path)
+                if rel not in new_files and rel not in _prune_protected:
+                    old_file.unlink()
+            # Remove empty subdirectories left behind
+            for old_dir in sorted(
+                (d for d in mdir.rglob("*") if d.is_dir()),
+                reverse=True,
+            ):
+                try:
+                    old_dir.rmdir()  # only removes empty dirs
+                except OSError:
+                    pass
+
+        _fsync_directory(path)

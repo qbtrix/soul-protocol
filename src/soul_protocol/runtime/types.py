@@ -1,4 +1,25 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: 2026-07-18 (#285) — MemoryEntry consolidated into spec/memory.py.
+#   runtime/types.py re-exports it for backward compatibility. Removed
+#   duplicate MemoryVisibility, MemoryCategory, MemoryProvenance definitions.
+# Updated: 2026-04-29 (#192) — Brain-aligned memory update primitives.
+#   MemoryEntry gains three additive fields used by the v0.5.0 verbs
+#   (confirm / update / supersede / forget / purge / reinstate):
+#     - retrieval_weight: float (0.0..1.0, default 1.0). Gates whether
+#       recall surfaces the entry. forget() drops it to 0.05 (below the
+#       default recall floor of 0.1). reinstate() restores it to 1.0.
+#     - supersedes: str | None (default None). Inverse back-edge of the
+#       existing ``superseded_by`` field. supersede() now sets both ends
+#       so callers can walk provenance in either direction.
+#     - prediction_error: float | None (default None). PE score recorded
+#       on the new entry when supersede()/update() write it. Unset for
+#       remember()/observe()-created entries — they have no caller-supplied
+#       PE score because no prior trace existed to predict against.
+#   Pre-0.5 souls round-trip cleanly: Pydantic v2 fills in the defaults at
+#   load time, so awaken() never has to mutate stored data.
+# Updated: 2026-04-29 (#203) — Biorhythms.trust_chain_max_entries: configurable
+#   cap for touch-time chain pruning. Default 0 = unbounded (preserves prior
+#   behaviour). Positive values trigger pruning when the chain reaches the cap.
 # Updated: 2026-04-29 (#41) — User-defined memory layers + domain isolation.
 #   MemoryType keeps the four built-in StrEnum members (CORE, EPISODIC,
 #   SEMANTIC, PROCEDURAL) plus SOCIAL for the new relationship layer; the
@@ -57,6 +78,25 @@ from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
+
+from soul_protocol.spec.memory import (
+    MemoryCategory as MemoryCategory,
+)
+from soul_protocol.spec.memory import (
+    MemoryEntry as MemoryEntry,
+)
+from soul_protocol.spec.memory import (
+    MemoryProvenance as MemoryProvenance,
+)
+from soul_protocol.spec.memory import (
+    MemoryType as MemoryType,
+)
+from soul_protocol.spec.memory import (
+    MemoryVisibility as MemoryVisibility,
+)
+from soul_protocol.spec.memory import (
+    SomaticMarker as SomaticMarker,
+)
 
 from .bond import Bond
 
@@ -198,6 +238,19 @@ class Biorhythms(BaseModel):
         description="Interactions in window at or above which focus rises to 'max'",
     )
 
+    # Trust chain pruning (#203) — touch-time stub
+    trust_chain_max_entries: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Maximum entries the trust chain may carry before touch-time pruning fires. "
+            "0 (default) disables pruning and preserves the unbounded-chain behaviour. "
+            "Positive values cause append() to compress the non-genesis history into a "
+            "single signed `chain.pruned` marker once the cap is reached. The full "
+            "archival design lives in v0.5.x."
+        ),
+    )
+
 
 class DNA(BaseModel):
     """The soul's complete personality blueprint."""
@@ -208,18 +261,6 @@ class DNA(BaseModel):
 
 
 # ============ Psychology — Somatic Markers (Damasio) ============
-
-
-class SomaticMarker(BaseModel):
-    """Emotional context tagged onto a memory (Damasio's Somatic Marker Hypothesis).
-
-    Emotions are not separate from cognition — they guide recall and decision-making.
-    """
-
-    valence: float = Field(default=0.0, ge=-1.0, le=1.0)  # negative to positive
-    arousal: float = Field(default=0.0, ge=0.0, le=1.0)  # calm to intense
-    label: str = "neutral"  # joy, frustration, curiosity, etc.
-
 
 # ============ Psychology — Significance (LIDA) ============
 
@@ -271,152 +312,6 @@ class SelfImage(BaseModel):
 # ============ Memory ============
 
 
-class MemoryVisibility(StrEnum):
-    """Visibility tier for memory entries in public channel contexts."""
-
-    PUBLIC = "public"
-    BONDED = "bonded"
-    PRIVATE = "private"
-
-
-class MemoryType(StrEnum):
-    """Built-in memory tiers. v0.4.0 (#41) treats these as ergonomic
-    constants for layer names — runtimes can use any string layer they
-    want via :class:`soul_protocol.runtime.memory.manager.LayerView`."""
-
-    CORE = "core"
-    EPISODIC = "episodic"
-    SEMANTIC = "semantic"
-    PROCEDURAL = "procedural"
-    SOCIAL = "social"  # v0.4.0 (#41) — relationship memory tier
-
-
-class MemoryCategory(StrEnum):
-    """Structured extraction taxonomy for memory classification.
-
-    User-facing categories (about the bonded entity):
-    - PROFILE: Static identity attributes (name, role, location)
-    - PREFERENCE: Choices and habits (one facet per memory)
-    - ENTITY: Named things with attributes (projects, people, tools)
-    - EVENT: Time-bound activities (always absolute timestamps)
-
-    Agent-facing categories (about what the soul learned):
-    - CASE: Problem + cause + solution + outcome
-    - PATTERN: Reusable processes across scenarios
-    - SKILL: Skill execution strategies and tool usage knowledge
-    """
-
-    # User-facing (feed the bond system / human profile)
-    PROFILE = "profile"
-    PREFERENCE = "preference"
-    ENTITY = "entity"
-    EVENT = "event"
-    # Agent-facing (feed the self-model)
-    CASE = "case"
-    PATTERN = "pattern"
-    SKILL = "skill"
-
-
-class MemoryEntry(BaseModel):
-    """A single memory with metadata.
-
-    v0.4.0 (#41) additions: ``layer`` is the canonical going-forward layer
-    name (free-form string). Defaults to the ``type`` value when not given,
-    so legacy callers using ``MemoryEntry(type=MemoryType.SEMANTIC)`` get
-    ``layer="semantic"`` for free. ``domain`` is a sub-namespace inside the
-    layer (``"finance"``, ``"legal"``, ``"default"``); defaults to
-    ``"default"`` so 0.3.x entries round-trip without migration.
-
-    v0.3.4 additions: category (extraction taxonomy), abstract (L0 ~100 tokens),
-    overview (L1 ~1K tokens) for progressive content loading, salience (retrieval
-    weight). All new fields default to None for backwards compatibility.
-
-    v0.2.0 additions: somatic markers (emotional context), access_timestamps
-    (full history for ACT-R decay), significance score, and general_event_id
-    (Conway hierarchy link). All new fields default to None/empty for
-    backwards compatibility with v0.1.0 data.
-    """
-
-    id: str = ""
-    type: MemoryType
-    content: str
-    importance: int = Field(default=5, ge=1, le=10)
-    emotion: str | None = None
-    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    entities: list[str] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.now)
-    last_accessed: datetime | None = None
-    access_count: int = 0
-    # v0.2.0 — Psychology-informed fields
-    somatic: SomaticMarker | None = None
-    access_timestamps: list[datetime] = Field(default_factory=list)
-    significance: float = 0.0
-    general_event_id: str | None = None
-    # v0.2.2 — Fact conflict resolution
-    superseded_by: str | None = None
-    # v0.3.4 — Extraction taxonomy and progressive content loading
-    category: MemoryCategory | None = None
-    abstract: str | None = None  # L0: ~100 token semantic fingerprint
-    overview: str | None = None  # L1: ~1K token structured summary
-    salience: float = Field(default=0.5, ge=0.0, le=1.0)  # Retrieval weight
-    # v0.4.0 — Bi-temporal ingestion timestamp
-    ingested_at: datetime | None = None  # When memory entered the pipeline
-    # v0.4.0 — Contradiction detection
-    superseded: bool = False  # True when a newer memory contradicts this one
-    visibility: MemoryVisibility = MemoryVisibility.BONDED
-    # F2 archival memory — marks episodic memories that have been archived
-    archived: bool = False  # True when memory has been compressed into a ConversationArchive
-    # F1 progressive disclosure — runtime-only marker, never persisted
-    is_summarized: bool = False  # Runtime marker: True when content replaced with abstract
-    # Move 5 PR-A — RBAC/ABAC scope tags. Empty list = no scope assigned
-    # (visible to any caller). Hierarchical glob: "org:sales:*" matches
-    # "org:sales:leads". Filtered at retrieval time before results reach
-    # the LLM.
-    scope: list[str] = Field(default_factory=list)
-    # v0.4.0 (#46) — Per-user attribution. None = legacy / orphan entry that
-    # belongs to the soul's default bond and is visible to any user_id query.
-    # When set, recall filters entries to those matching the requested
-    # user_id (plus None entries for back-compat).
-    user_id: str | None = None
-    # v0.4.0 (#41) — Free-form layer namespace. Empty string is coerced to
-    # ``type.value`` by ``_coerce_layer_domain`` so legacy callers keep
-    # working. When both ``layer`` and ``type`` round-trip on disk, ``layer``
-    # is the canonical field; ``type`` exists for back-compat.
-    layer: str = ""
-    # v0.4.0 (#41) — Domain sub-namespace inside the layer. Use to isolate
-    # context like "finance" vs "legal" inside the same layer of facts.
-    # Empty string is coerced to "default" by ``_coerce_layer_domain``.
-    domain: str = "default"
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_layer_domain(cls, data: Any) -> Any:
-        """Fill in ``layer``/``domain`` defaults from legacy fields.
-
-        - When ``layer`` is missing or blank, derive it from ``type``.
-        - When ``domain`` is missing or blank, set it to ``"default"``.
-
-        This runs at deserialize time, so 0.3.x souls (which carry only
-        ``type``) come back with a sensible layer + domain without a
-        separate migration pass.
-        """
-        if isinstance(data, dict):
-            layer_val = data.get("layer", "")
-            if not layer_val:
-                # Pull from type — accepts MemoryType enum or raw string.
-                tval = data.get("type")
-                if tval is None:
-                    pass
-                elif isinstance(tval, MemoryType):
-                    data["layer"] = tval.value
-                elif isinstance(tval, str):
-                    data["layer"] = tval
-            domain_val = data.get("domain", "")
-            if not domain_val:
-                data["domain"] = "default"
-        return data
-
-
 class CoreMemory(BaseModel):
     """Always-loaded memory — persona description + human profile."""
 
@@ -435,11 +330,19 @@ class MemorySettings(BaseModel):
     human_tokens: int = 500
     # F5 auto-consolidation — archive + reflect every N interactions
     consolidation_interval: int = 20
-    # When True, skip entity extraction (step 5) and self-model update (step 6)
-    # for interactions that are not significant after the full pipeline
-    # (including fact-based promotion in step 4b). Saves 2 LLM calls per
-    # low-value interaction.
+    # When True, skip the self-model update (step 6) for interactions that
+    # aren't significant after the full pipeline (including fact-based
+    # promotion in step 4b). Self-model gating is correct — chitchat doesn't
+    # add signal to the model.
     skip_deep_processing_on_low_significance: bool = True
+    # When True (default), run entity extraction (step 5) on every observed
+    # interaction regardless of significance. Trivial conversations still
+    # mention entities ("how's Alice?", "saw Project X update") and the
+    # graph should track them at reduced cost. Set False to restore pre-#220
+    # behaviour where significance-skipping also dropped entity extraction;
+    # in that mode the entity graph plateaus quickly under low-significance
+    # daily use. (#220)
+    always_extract_entities: bool = True
     # LLM-based reranking on recall. Off by default because it adds an LLM
     # call on every smart_recall invocation. Callers who need relevance
     # quality over latency can opt in by constructing MemorySettings with
@@ -685,7 +588,6 @@ class Interaction(BaseModel):
 
 
 # ============ Manifest (for .soul archives) ============
-
 
 # ============ Reflection (v0.2.1) ============
 

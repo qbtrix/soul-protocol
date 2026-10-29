@@ -6,6 +6,12 @@
 # Updated: 2026-04-29 (#41) — added DomainAccessError, raised by
 #   :class:`soul_protocol.runtime.middleware.DomainIsolationMiddleware` when
 #   the wrapped soul tries to write to a domain outside the allowed list.
+# Updated: 2026-04-29 (#192) — added ReconsolidationWindowClosedError and
+#   PredictionErrorOutOfBandError for the v0.5.0 brain-aligned memory update
+#   primitives (confirm/update/supersede). The window error fires when
+#   ``Soul.update()`` is called outside the 1-hour post-recall window;
+#   the band error fires when the supplied prediction_error doesn't match
+#   the verb's allowed band.
 
 from __future__ import annotations
 
@@ -104,4 +110,51 @@ class DomainAccessError(SoulProtocolError):
             f"Domain {requested!r} is not in the allowed list "
             f"({', '.join(repr(a) for a in self.allowed) or 'none'}). "
             "DomainIsolationMiddleware blocks writes to disallowed domains."
+        )
+
+
+class ReconsolidationWindowClosedError(SoulProtocolError):
+    """Raised by :meth:`Soul.update` when the reconsolidation window for
+    a memory has closed.
+
+    The window opens for a memory id whenever :meth:`Soul.recall` returns
+    that entry, and stays open for one hour by default (per RFC #192).
+    Outside the window the trace is "stable again" — in-place edits are
+    refused; the caller must promote the change to :meth:`Soul.supersede`.
+    """
+
+    def __init__(self, memory_id: str, opened_at: str | None = None) -> None:
+        self.memory_id = memory_id
+        self.opened_at = opened_at
+        hint = f" (last opened at {opened_at})" if opened_at else ""
+        super().__init__(
+            f"Reconsolidation window closed for memory {memory_id!r}{hint}. "
+            "Call Soul.recall(...) on this id to reopen the window, "
+            "or use Soul.supersede(...) to write a new orthogonal trace."
+        )
+
+
+class PredictionErrorOutOfBandError(SoulProtocolError):
+    """Raised when a memory-update verb is called with a prediction_error
+    score outside the verb's allowed band.
+
+    Bands (per RFC #192, §3):
+      - ``confirm``   → PE < 0.2
+      - ``update``    → 0.2 <= PE < 0.85
+      - ``supersede`` → PE >= 0.85
+
+    The verbs are intentionally band-strict: the right verb for a given PE
+    is also the right verb for what the caller is trying to do. A soft
+    warning would let drift accumulate; a hard error keeps the contract
+    tight.
+    """
+
+    def __init__(self, verb: str, prediction_error: float, allowed: str) -> None:
+        self.verb = verb
+        self.prediction_error = prediction_error
+        self.allowed = allowed
+        super().__init__(
+            f"prediction_error={prediction_error} is outside the {verb!r} band "
+            f"({allowed}). Use the verb whose band matches the PE: "
+            "confirm for PE<0.2, update for 0.2<=PE<0.85, supersede for PE>=0.85."
         )

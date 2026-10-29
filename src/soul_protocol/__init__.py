@@ -30,9 +30,29 @@
 # Updated: feat/decision-traces — Added decision-trace payload models and
 #   helpers (AgentProposal, HumanCorrection, DecisionGraduation, build/trace
 #   helpers, cluster_correction_patterns). See RFC PR #164, Workstream D.
+# Updated: 2026-04-29 (#142) — Re-export the soul-optimize / autoresearch
+#   surface (optimize, OptimizeResult, OptimizeStep, KnobProposal, Knob,
+#   the four built-in knobs, default_knobs, Proposer, OptimizeRunner,
+#   score_of) so consumers can build optimization workflows without
+#   reaching into soul_protocol.optimize.*.
 
 from __future__ import annotations
 
+from .optimize import (
+    BondThresholdKnob,
+    Knob,
+    KnobProposal,
+    OceanTraitKnob,
+    OptimizeResult,
+    OptimizeRunner,
+    OptimizeStep,
+    PersonaTextKnob,
+    Proposer,
+    SignificanceThresholdKnob,
+    default_knobs,
+    optimize,
+    score_of,
+)
 from .runtime.bond import Bond
 from .runtime.cognitive.engine import CognitiveEngine, HeuristicEngine
 from .runtime.eternal import (
@@ -50,6 +70,15 @@ from .runtime.exceptions import (
     SoulProtocolError,
     SoulRetireError,
 )
+from .runtime.memory.graph_recall import RecallResults
+from .runtime.memory.graph_types import (
+    EntityType,
+    GraphEdge,
+    GraphNode,
+    RelationType,
+    Subgraph,
+)
+from .runtime.memory.graph_view import GraphView
 from .runtime.memory.strategy import SearchStrategy, TokenOverlapStrategy
 from .runtime.skills import Skill, SkillRegistry
 from .runtime.soul import Soul
@@ -182,6 +211,28 @@ __all__ = [
     "find_corrections_for",
     "trace_decision_chain",
     "cluster_correction_patterns",
+    # v0.5.0 (#108, #190) — Graph traversal + typed entity ontology
+    "EntityType",
+    "RelationType",
+    "GraphNode",
+    "GraphEdge",
+    "Subgraph",
+    "GraphView",
+    "RecallResults",
+    # v0.5.0 (#142) — Soul optimize / autoresearch
+    "optimize",
+    "OptimizeRunner",
+    "OptimizeResult",
+    "OptimizeStep",
+    "KnobProposal",
+    "Knob",
+    "OceanTraitKnob",
+    "PersonaTextKnob",
+    "SignificanceThresholdKnob",
+    "BondThresholdKnob",
+    "default_knobs",
+    "Proposer",
+    "score_of",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0.dev0"

@@ -1,4 +1,21 @@
 # decisions.py — Decision trace payload types and helpers for the Org Journal.
+# Updated: feat/rfc-09-slice-1-decision-vocabulary — add two new builders for
+# the Decision Graph projection vocabulary (RFC 09 Slice 1a):
+#   - ``build_policy_event`` for the ``policy.evaluated`` chain-forming event
+#     (Instinct gate evaluations) — the LAST one before chain close becomes
+#     ``Decision.instinct_policy`` in the projection.
+#   - ``build_completion_event`` for the ``decision.completed`` terminal
+#     event — the canonical chain closer per RFC 09 with a
+#     ``landed`` / ``rejected`` / ``abandoned`` status.
+# Also extends ``trace_decision_chain``'s filter to follow
+# ``decision.completed`` (kept ``decision.graduated`` in the filter — that
+# action is a separate concept, see comment on the filter and on
+# ``ACTION_NAMESPACES`` in journal.py).
+# Updated: feat/rfc07-decision-outcome-attached — extend the
+# ``trace_decision_chain`` decision-action filter to include
+# ``decision.outcome_attached`` so post-close outcome mutations
+# (introduced by RFC 07) surface in the trace alongside the chain
+# proper.
 # Created: feat/decision-traces — Workstream D of the Org Architecture RFC (PR #164).
 #
 # Every agent proposal a human edits or rejects becomes a structured, auditable
@@ -184,6 +201,119 @@ def build_correction_event(
     )
 
 
+CompletionStatus = Literal["landed", "rejected", "abandoned"]
+"""Terminal status emitted on a ``decision.completed`` event (RFC 09).
+
+- ``landed``: the chain reached its intended outcome (action taken, decision
+  applied, draft sent).
+- ``rejected``: the chain closed because a reviewer / policy rejected the
+  proposal.
+- ``abandoned``: the chain closed without an explicit outcome — timed out,
+  superseded, or otherwise dropped.
+"""
+
+
+def build_policy_event(
+    *,
+    actor: Actor,
+    scope: list[str],
+    correlation_id: UUID,
+    policy_name: str,
+    passed: bool,
+    causation_id: UUID | None = None,
+    reason: str | None = None,
+    payload_extras: dict | None = None,
+    ts: datetime | None = None,
+    event_id: UUID | None = None,
+) -> EventEntry:
+    """Build a ``policy.evaluated`` :class:`EventEntry` for the Decision
+    Graph chain (RFC 09).
+
+    Producer is Instinct's gate evaluator. Each policy run produces one
+    event; the LAST ``policy.evaluated`` before chain close becomes the
+    projection's ``Decision.instinct_policy`` field.
+
+    ``causation_id`` typically points back at the preceding
+    ``agent.proposed`` event the policy was evaluated against; it is
+    optional because Instinct can also run pre-proposal sweeps that have
+    no upstream cause in the chain.
+
+    ``payload_extras`` is merged on top of the base payload
+    (``{policy_name, passed, reason?}``) — use it to carry evaluator
+    metadata (rule id, version, evaluator name, latency) without
+    growing the public signature.
+    """
+    payload: dict[str, object] = {"policy_name": policy_name, "passed": passed}
+    if reason is not None:
+        payload["reason"] = reason
+    if payload_extras:
+        # Caller extras win — they're the more specific layer. The base
+        # keys (``policy_name``, ``passed``, ``reason``) are conventions,
+        # not invariants, so an extras dict that overrides them is a
+        # legitimate (if unusual) shape.
+        payload.update(payload_extras)
+    return EventEntry(
+        id=event_id or uuid4(),
+        ts=ts or _now_utc(),
+        actor=actor,
+        action="policy.evaluated",
+        scope=scope,
+        correlation_id=correlation_id,
+        causation_id=causation_id,
+        payload=payload,
+    )
+
+
+def build_completion_event(
+    *,
+    actor: Actor,
+    scope: list[str],
+    correlation_id: UUID,
+    causation_id: UUID | None = None,
+    status: CompletionStatus = "landed",
+    reason: str | None = None,
+    payload_extras: dict | None = None,
+    ts: datetime | None = None,
+    event_id: UUID | None = None,
+) -> EventEntry:
+    """Build a ``decision.completed`` :class:`EventEntry` — the canonical
+    chain terminator per RFC 09.
+
+    Replaces ``decision.graduated`` for Decision Graph chain-close
+    purposes. ``decision.graduated`` retains its original meaning
+    (pattern promotion into semantic / core memory, see
+    :class:`DecisionGraduation`) and is unchanged.
+
+    ``causation_id`` typically points back at the last meaningful event in
+    the chain (the accepted ``human.corrected``, the final
+    ``policy.evaluated``, etc.) but is optional — abandoned / timed-out
+    chains may not have a clear causal predecessor.
+
+    ``status`` defaults to ``"landed"`` (the common happy-path); set to
+    ``"rejected"`` or ``"abandoned"`` for negative closures, and populate
+    ``reason`` to record why.
+
+    ``payload_extras`` merges on top of ``{status, reason?}`` — use it to
+    attach summary metadata (final outcome ref, downstream side-effect
+    ids) without growing the public signature.
+    """
+    payload: dict[str, object] = {"status": status}
+    if reason is not None:
+        payload["reason"] = reason
+    if payload_extras:
+        payload.update(payload_extras)
+    return EventEntry(
+        id=event_id or uuid4(),
+        ts=ts or _now_utc(),
+        actor=actor,
+        action="decision.completed",
+        scope=scope,
+        correlation_id=correlation_id,
+        causation_id=causation_id,
+        payload=payload,
+    )
+
+
 # ----- Journal queries -----------------------------------------------------
 
 
@@ -211,7 +341,26 @@ def trace_decision_chain(journal, correlation_id: UUID) -> list[EventEntry]:
     the same correlation_id are filtered out.
     """
     events = journal.query(correlation_id=correlation_id, limit=10_000)
-    decision_actions = {"agent.proposed", "human.corrected", "decision.graduated"}
+    decision_actions = {
+        "agent.proposed",
+        "human.corrected",
+        # ``decision.graduated`` keeps its original (pattern-promotion)
+        # meaning and stays in the filter so backward-compat chain
+        # traces still surface graduation events on the same
+        # correlation_id. RFC 09's chain-closing terminal is
+        # ``decision.completed`` (below), not this one.
+        "decision.graduated",
+        # RFC 07: outcome-attachment events update an already-emitted
+        # Decision's outcome and belong in the chain so traces surface
+        # the full lifecycle, including post-close mutations.
+        "decision.outcome_attached",
+        # RFC 09: Instinct-gate evaluations are part of the chain — the
+        # last ``policy.evaluated`` before close becomes the
+        # projection's ``Decision.instinct_policy``.
+        "policy.evaluated",
+        # RFC 09: canonical chain terminator. See ``build_completion_event``.
+        "decision.completed",
+    }
     chain = [e for e in events if e.action in decision_actions]
     chain.sort(key=lambda e: e.ts)
     return chain
@@ -273,8 +422,11 @@ __all__ = [
     "HumanCorrection",
     "DecisionGraduation",
     "Disposition",
+    "CompletionStatus",
     "build_proposal_event",
     "build_correction_event",
+    "build_policy_event",
+    "build_completion_event",
     "find_corrections_for",
     "trace_decision_chain",
     "cluster_correction_patterns",

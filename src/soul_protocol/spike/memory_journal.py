@@ -153,6 +153,7 @@ class JournalBackedMemoryStore:
             "emotion": entry.metadata.get("emotion"),
             "tags": entry.metadata.get("tags", []),
             "source": entry.source,
+            "created_at": entry.created_at.isoformat(),
         }
         event = EventEntry(
             id=uuid4(),
@@ -352,7 +353,7 @@ class JournalBackedMemoryStore:
                 p.get("emotion"),
                 tags_json,
                 p.get("source", ""),
-                event.ts.isoformat(),
+                p.get("created_at") or event.ts.isoformat(),
                 event.seq or 0,
             ),
         )
@@ -414,7 +415,7 @@ class JournalBackedMemoryStore:
             source=source or "",
             layer=tier,
             visibility=MemoryVisibility.BONDED,
-            timestamp=datetime.fromisoformat(created_at),
+            created_at=datetime.fromisoformat(created_at),
             metadata={
                 "importance": importance,
                 "emotion": emotion,

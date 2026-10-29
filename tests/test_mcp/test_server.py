@@ -26,6 +26,7 @@ from fastmcp import Client  # noqa: E402
 
 import soul_protocol.mcp.server as server_module  # noqa: E402
 from soul_protocol.mcp.server import mcp  # noqa: E402
+from soul_protocol.runtime.soul import Soul  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -867,7 +868,12 @@ async def test_soul_forget_preview():
 
 
 async def test_soul_forget_confirmed():
-    """soul_forget with confirm=true actually deletes memories."""
+    """soul_forget with confirm=true forgets (weight-decay) memories.
+
+    v0.5.0 (#192): semantic shift from delete to weight-decay. The
+    matched entries stay on disk but stop surfacing in recall — the
+    status reflects that.
+    """
     async with Client(mcp) as client:
         await _birth(client)
         await client.call_tool(
@@ -879,8 +885,8 @@ async def test_soul_forget_confirmed():
             {"query": "Sensitive data", "confirm": True},
         )
         data = json.loads(result.data)
-        assert data["status"] == "deleted"
-        assert data["total_deleted"] >= 0
+        assert data["status"] == "forgotten"
+        assert data["total"] >= 0
 
 
 async def test_soul_edit_core_read():
@@ -978,7 +984,29 @@ async def test_soul_cleanup_dry_run():
         data = json.loads(result.data)
         assert data["status"] in ("dry_run", "clean")
         assert "total_items" in data
+        assert "removed" in data
+        assert "total_removed" in data
         assert "actions" in data
+
+
+async def test_soul_cleanup_orphan_nodes_are_opt_in():
+    """MCP cleanup should not prune orphan graph nodes unless explicitly requested."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        soul = server_module._registry.active_soul
+        assert soul is not None
+        soul._memory._graph.add_entity("DetachedGraphNode", "concept")
+
+        result = await client.call_tool("soul_cleanup", {"dry_run": True})
+        data = json.loads(result.data)
+        assert all(a["action"] != "orphan_nodes" for a in data["actions"])
+
+        result = await client.call_tool(
+            "soul_cleanup",
+            {"dry_run": True, "orphan_nodes": True},
+        )
+        data = json.loads(result.data)
+        assert any(a["action"] == "orphan_nodes" for a in data["actions"])
 
 
 async def test_soul_cleanup_execute():
@@ -997,3 +1025,137 @@ async def test_soul_cleanup_execute():
         data = json.loads(result.data)
         assert data["status"] in ("cleaned", "clean")
         assert "soul" in data
+        assert "removed" in data
+        assert "total_removed" in data
+
+
+async def test_soul_cleanup_execute_writes_backup_when_source_file_exists(tmp_path):
+    """Non-dry-run MCP cleanup mirrors the CLI safety backup for .soul files."""
+    soul = await Soul.birth("BackupBot", archetype="Test Archetype", values=["curiosity"])
+    await soul.remember("User likes Python programming very much", importance=6)
+    await soul.remember("User likes Python programming very much", importance=6)
+    soul_path = tmp_path / "backup-bot.soul"
+    await soul.export(soul_path)
+
+    with _env_context("SOUL_PATH", str(soul_path)):
+        async with Client(mcp) as client:
+            result = await client.call_tool("soul_cleanup", {"dry_run": False})
+            data = json.loads(result.data)
+
+    assert data["status"] == "cleaned"
+    assert data["removed"] == data["total_removed"] == 1
+    assert data["backup"] == str(soul_path.with_suffix(".soul.bak"))
+    assert soul_path.with_suffix(".soul.bak").exists()
+
+
+# --- v0.5.0 (#192) Memory primitive MCP tools ---
+
+
+async def _remember_via_mcp(client, content: str) -> str:
+    result = await client.call_tool(
+        "soul_remember",
+        {"content": content, "importance": 6},
+    )
+    data = json.loads(result.data)
+    return data.get("memory_id") or data.get("id")
+
+
+async def test_soul_confirm_tool():
+    async with Client(mcp) as client:
+        await _birth(client)
+        mid = await _remember_via_mcp(client, "fact to confirm")
+        result = await client.call_tool("soul_confirm", {"memory_id": mid})
+        data = json.loads(result.data)
+        assert data["status"] == "confirmed"
+        assert data["memory_id"] == mid
+
+
+async def test_soul_confirm_unknown():
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool("soul_confirm", {"memory_id": "deadbeef0000"})
+        data = json.loads(result.data)
+        assert data["status"] == "not_found"
+
+
+async def test_soul_update_tool():
+    async with Client(mcp) as client:
+        await _birth(client)
+        mid = await _remember_via_mcp(client, "Atlas ships in May")
+        result = await client.call_tool(
+            "soul_update",
+            {"memory_id": mid, "patch": "Atlas ships in July", "prediction_error": 0.4},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "updated"
+        assert data["new_content"] == "Atlas ships in July"
+
+
+async def test_soul_update_pe_out_of_band():
+    async with Client(mcp) as client:
+        await _birth(client)
+        mid = await _remember_via_mcp(client, "fact")
+        result = await client.call_tool(
+            "soul_update",
+            {"memory_id": mid, "patch": "p", "prediction_error": 0.9},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "error"
+        assert data["error"] == "PredictionErrorOutOfBandError"
+
+
+async def test_soul_supersede_tool():
+    async with Client(mcp) as client:
+        await _birth(client)
+        old = await _remember_via_mcp(client, "old fact")
+        result = await client.call_tool(
+            "soul_supersede",
+            {"old_id": old, "new_content": "new fact", "prediction_error": 0.9},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "superseded"
+        assert data["new_id"] is not None
+
+
+async def test_soul_supersede_low_pe_errors():
+    async with Client(mcp) as client:
+        await _birth(client)
+        old = await _remember_via_mcp(client, "old fact")
+        result = await client.call_tool(
+            "soul_supersede",
+            {"old_id": old, "new_content": "new", "prediction_error": 0.5},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "error"
+        assert data["error"] == "PredictionErrorOutOfBandError"
+
+
+async def test_soul_purge_preview():
+    async with Client(mcp) as client:
+        await _birth(client)
+        mid = await _remember_via_mcp(client, "destroy this")
+        result = await client.call_tool("soul_purge", {"memory_id": mid})
+        data = json.loads(result.data)
+        assert data["status"] == "preview"
+
+
+async def test_soul_purge_apply():
+    async with Client(mcp) as client:
+        await _birth(client)
+        mid = await _remember_via_mcp(client, "destroy this")
+        result = await client.call_tool("soul_purge", {"memory_id": mid, "apply": True})
+        data = json.loads(result.data)
+        assert data["status"] == "purged"
+        assert "prior_payload_hash" in data
+
+
+async def test_soul_reinstate_tool():
+    async with Client(mcp) as client:
+        await _birth(client)
+        mid = await _remember_via_mcp(client, "fact to forget then reinstate")
+        # Forget via the bulk path so the entry is weight-decayed
+        await client.call_tool("soul_forget", {"query": "fact to forget", "confirm": True})
+        result = await client.call_tool("soul_reinstate", {"memory_id": mid})
+        data = json.loads(result.data)
+        assert data["status"] == "reinstated"
+        assert data["weight"] == 1.0

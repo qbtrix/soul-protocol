@@ -1,4 +1,71 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-08-04 (#294) — Wires `--password` flag into `soul export`,
+#   `soul inspect`, and `soul unpack` for AES-256-GCM encryption at rest.
+#   Password is prompt-only (is_flag=True) so it never leaks into shell history.
+# Updated: 2026-07-17 (#286) — Catch unknown-tier ValueError in ``soul archive``;
+#   exit 1 so scripts can detect failure.
+# Updated: 2026-07-18 (#284) — Replaced ~45 private attribute accesses
+#   (soul._memory, m._episodic, m._graph_entities.clear(), etc.) with public
+#   MemoryManager API methods. `repair --rebuild-graph` now calls
+#   manager.rebuild_graph() instead of clearing internals directly.
+# Updated: 2026-07-24 (#247) — `soul recall --json` now emits a `score` field
+#   per result (the entry's ACT-R activation score). Added a `--min-relevance`
+#   flag (0.0-1.0) that plumbs through to recall() as the graded relevance
+#   floor; weak query matches below the floor are dropped. Default 0.0 leaves
+#   recall behaviour unchanged.
+# Updated: 2026-05-05 (#231) — Adds `soul note <path> "<fact>"` — the dedup
+#   pipeline counterpart to `soul remember`. Routes through Soul.note() so
+#   repeated calls with similar content collapse into SKIP / MERGE rather
+#   than accumulating duplicate semantic facts. Flags: --no-dedup (force
+#   blunt write), --no-contradictions (skip contradiction detection,
+#   plumbed for follow-up). Output panel reports CREATED / SKIPPED /
+#   MERGED with the relevant memory IDs and similarity score.
+#
+#   Naming deviation from the brief: the brief named the new command
+#   `soul observe`, but a pre-existing `soul observe` (cognitive
+#   pipeline, --user-input + --agent-output) lives later in this file
+#   and would shadow the new handler at click dispatch time. Registered
+#   as `soul note` to match the runtime method (Soul.note()). The
+#   follow-up issue should rename / consolidate.
+# Updated: 2026-05-02 (#192) — Brain-aligned memory update primitive commands.
+#   - `soul confirm <path> <id>`     refresh activation on a verified memory.
+#   - `soul update <path> <id> --patch <text>`  in-place patch within the
+#     1-hour reconsolidation window. PE band [0.2, 0.85). The CLI calls
+#     recall against the current entry content first so the window opens
+#     in this single invocation.
+#   - `soul purge <path> --id <id> --apply`  hard delete with .soul.bak
+#     and a payload-hash audit entry. Reserved for GDPR / safety paths.
+#   - `soul reinstate <path> <id>`   restore retrieval_weight to 1.0.
+#   - `soul forget` semantics shift to weight-decay (single-id and bulk).
+#     Help text updated; behaviour was a hard delete before.
+#   - `soul upgrade <path> --to 0.5.0 [--dry-run]`  derive the supersedes
+#     back-edge from existing superseded_by. Pydantic v2 backfills the
+#     other new defaults at load time.
+# Updated: 2026-05-02 (#142) — Wire `soul optimize <soul-path> <eval.yaml>` from
+#   cli/optimize.py. Drives the autonomous self-improvement loop: eval → propose
+#   knob change → re-eval → keep/revert. Defaults to dry-run; --apply keeps the
+#   winning trajectory and appends soul.optimize.applied trust chain entries.
+# Updated: 2026-04-30 (#191) — Wire `soul diff <left> <right>` from cli/diff.py.
+#   Renders a structured comparison (identity / OCEAN / state / memories /
+#   bond / skills / trust chain / self-model / evolution) in text, json, or
+#   markdown. Read-only; raises a clean error on schema mismatch.
+# Updated: 2026-04-30 (#203) — `soul prune-chain` lands as the touch-time
+#   pruning stub for v0.5.0. Dry-run preview by default, --apply to execute,
+#   --keep N for explicit length, defaults to Biorhythms.trust_chain_max_entries.
+#   Mirrors the `soul cleanup` / `soul forget` safety pattern.
+# Updated: 2026-04-30 (#201) — ``soul audit`` Rich table now includes a
+#   Summary column derived from each entry's per-action human-readable
+#   description (set at append time via TrustChainManager.append's new
+#   ``summary=`` parameter or the action-keyed default formatter
+#   registry). New ``--no-summary`` flag hides the column for callers
+#   who only want the hash. JSON output always includes ``summary``.
+# Updated: 2026-04-30 (#189) — Wire `soul journal {init,append,query}`
+#   subcommand group from cli/journal.py. Lets shell hooks, CI, and non-Python
+#   runtimes append structured events without spinning up a Python session.
+# Updated: 2026-04-29 (#160) — `soul eval` command for YAML-driven soul-aware
+#   evals. Registers from cli/eval_cmd.py. Runs one .yaml spec or every
+#   .yaml under a directory; passes/fails based on per-case scoring; exit
+#   code 0 = all pass (skipped allowed), 1 = any fail/error.
 # Updated: 2026-04-29 (#42) — Trust chain commands: ``soul verify`` checks
 #   integrity of a soul's signed action history. ``soul audit`` prints a
 #   human-readable timeline; supports --filter <prefix> and --limit; --json
@@ -62,6 +129,7 @@ import asyncio
 import builtins
 import json
 import sys
+import warnings
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -72,6 +140,30 @@ from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+
+
+# Fix #267: Legacy consoles (Windows cp1252, Linux C/POSIX locale, Docker,
+# cron jobs, SSH sessions) cannot render Unicode characters (progress bars,
+# emoji) that Rich outputs. Reconfigure to UTF-8 when the current encoding
+# is not already UTF-8. Gating on encoding instead of platform ensures the
+# fix applies everywhere and the regression test can run on Linux CI too.
+def _ensure_utf8(stream):
+    import codecs
+
+    try:
+        name = codecs.lookup(getattr(stream, "encoding", "") or "ascii").name
+    except (LookupError, TypeError):
+        name = ""
+    if name != "utf-8":
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, OSError, ValueError):
+            pass  # Non-reconfigurable stream (e.g. piped output)
+
+
+_ensure_utf8(sys.stdout)
+_ensure_utf8(sys.stderr)
+
 
 console = Console()
 
@@ -105,12 +197,66 @@ def cli():
     pass
 
 
+async def _awaken_or_fail(
+    path: str | Path,
+    password: str | None = None,
+    *,
+    engine=None,
+) -> Soul:  # noqa: F821
+    """Awaken a soul, catching encryption errors with a friendly CLI message.
+
+    All read commands should use this instead of ``Soul.awaken()`` directly
+    so that encrypted .soul files produce a helpful hint rather than a raw
+    traceback (#294).
+    """
+    from soul_protocol.runtime.exceptions import (
+        SoulDecryptionError,
+        SoulEncryptedError,
+    )
+    from soul_protocol.runtime.soul import Soul
+
+    try:
+        return await Soul.awaken(path, engine=engine, password=password)
+    except SoulEncryptedError:
+        console.print(
+            "[red]Error:[/red] This .soul file is encrypted. "
+            "Pass [cyan]--password[/cyan] to decrypt it."
+        )
+        sys.exit(1)
+    except SoulDecryptionError:
+        console.print(
+            "[red]Error:[/red] Wrong password — decryption failed. "
+            "Check your password and try again."
+        )
+        sys.exit(1)
+
+
 # Org + user subcommands (feat/paw-os-init — Workstream A slice 3, RFC #164)
 from soul_protocol.cli.org import org_group as _org_group  # noqa: E402
 from soul_protocol.cli.org import user_group as _user_group  # noqa: E402
 
 cli.add_command(_org_group)
 cli.add_command(_user_group)
+
+# Journal subcommand group (#189)
+from soul_protocol.cli.journal import journal_group as _journal_group  # noqa: E402
+
+cli.add_command(_journal_group)
+
+# Soul diff command (#191)
+from soul_protocol.cli.diff import diff_cmd as _diff_cmd  # noqa: E402
+
+cli.add_command(_diff_cmd)
+
+# Soul-aware evals (#160) — registers `soul eval` on the cli group.
+from soul_protocol.cli.eval_cmd import register as _register_eval_cmd  # noqa: E402
+
+_register_eval_cmd(cli)
+
+# Soul-optimize / autoresearch (#142) — registers `soul optimize` on the cli group.
+from soul_protocol.cli.optimize import register as _register_optimize_cmd  # noqa: E402
+
+_register_optimize_cmd(cli)
 
 
 @cli.command()
@@ -208,7 +354,7 @@ def birth(
                 f"from config {config_file} ({soul.did})"
             )
         elif from_file:
-            soul = await Soul.awaken(from_file)
+            soul = await _awaken_or_fail(from_file)
             console.print(f"[green]Birthed[/green] {soul.name} from {from_file}")
         else:
             if not name:
@@ -305,7 +451,7 @@ def init(name, archetype, values, from_file, soul_dir, soul_format, setup_target
                     "[yellow]Warning:[/yellow] --from-file ignored; existing soul "
                     f"found at {soul_path}/. Remove the existing soul to replace it."
                 )
-            soul = await Soul.awaken(str(soul_path))
+            soul = await _awaken_or_fail(str(soul_path))
             console.print(
                 f"\n[green]Found[/green] existing soul [bold]{soul.name}[/bold] in {soul_path}/\n"
             )
@@ -317,7 +463,7 @@ def init(name, archetype, values, from_file, soul_dir, soul_format, setup_target
                     return
 
             if from_file:
-                soul = await Soul.awaken(from_file)
+                soul = await _awaken_or_fail(from_file)
                 console.print(f"[green]Loaded[/green] {soul.name} from {from_file}")
             else:
                 if not name:
@@ -388,16 +534,24 @@ def init(name, archetype, values, from_file, soul_dir, soul_format, setup_target
 
 @cli.command()
 @click.argument("path", type=click.Path(exists=True))
-def inspect(path):
+@click.option(
+    "--password",
+    "-p",
+    is_flag=True,
+    help="Decrypt an encrypted .soul file (prompts interactively for password).",
+)
+def inspect(path, password):
     """Inspect a Soul — identity, OCEAN, memory, state, self-model."""
 
-    async def _inspect():
-        from soul_protocol.runtime.soul import Soul
+    password_val = None
+    if password:
+        password_val = click.prompt("Decryption password", hide_input=True)
 
-        soul = await Soul.awaken(path)
+    async def _inspect():
+        soul = await _awaken_or_fail(path, password=password_val)
         age = (datetime.now() - soul.born).days
         p = soul.dna.personality
-        mem = soul._memory
+        mem = soul.memory
 
         # ── Identity panel ──
         identity_lines = [
@@ -456,9 +610,10 @@ def inspect(path):
         )
 
         # ── Memory stats panel ──
-        episodic_ct = len(mem._episodic.entries())
-        semantic_ct = len(mem._semantic.facts())
-        procedural_ct = len(mem._procedural.entries())
+        episodic_ct = len(mem.episodic_entries())
+        semantic_ct = len(mem.semantic_facts())
+        procedural_ct = len(mem.procedural_entries())
+        social_ct = len(mem.social_entries())
         total = soul.memory_count
 
         mem_table = Table(show_header=False, box=None, padding=(0, 2))
@@ -467,6 +622,7 @@ def inspect(path):
         mem_table.add_row("Episodic", str(episodic_ct))
         mem_table.add_row("Semantic", str(semantic_ct))
         mem_table.add_row("Procedural", str(procedural_ct))
+        mem_table.add_row("Social", str(social_ct))
         mem_table.add_row("", "")
         mem_table.add_row("[bold]Total[/bold]", f"[bold]{total}[/bold]")
 
@@ -532,9 +688,7 @@ def status(path):
     """
 
     async def _status():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         soul.recompute_focus()
         mood = soul.state.mood.value
         energy = soul.state.energy
@@ -597,17 +751,55 @@ def status(path):
     default="soul",
     help="Export format",
 )
-def export_cmd(source, output, fmt):
-    """Export a Soul to a different format."""
+@click.option(
+    "--include-keys",
+    is_flag=True,
+    default=False,
+    help="Include private signing key in exported .soul file. "
+    "Only use when migrating between your own devices.",
+)
+@click.option(
+    "--password",
+    "-p",
+    is_flag=True,
+    help="Encrypt the .soul file with AES-256-GCM (prompts interactively for password).",
+)
+def export_cmd(source, output, fmt, include_keys, password):
+    """Export a Soul to a different format.
+
+    When --password is provided, the exported .soul archive is encrypted
+    with AES-256-GCM using a scrypt-derived key. All contents except the
+    manifest are encrypted. Requires the `cryptography` package.
+    """
+    # Prompt for password interactively for security (no inline password args allowed)
+    password_val = None
+    if password:
+        if fmt != "soul":
+            console.print(
+                "[yellow]Warning:[/yellow] --password only applies to .soul format; ignoring."
+            )
+        else:
+            try:
+                from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: F401
+            except ImportError:
+                console.print(
+                    "[red]Error:[/red] The 'cryptography' package is required for encryption.\n"
+                    "Install with: pip install cryptography"
+                )
+                sys.exit(1)
+
+            password_val = click.prompt(
+                "Encryption password",
+                hide_input=True,
+                confirmation_prompt=True,
+            )
 
     async def _export():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(source)
+        soul = await _awaken_or_fail(source)
         out = output or f"{_safe_name(soul.name)}.{fmt}"
 
         if fmt == "soul":
-            await soul.export(out, include_keys=True)
+            await soul.export(out, include_keys=include_keys, password=password_val)
         elif fmt == "json":
             Path(out).write_text(soul.serialize().model_dump_json(indent=2))
         elif fmt == "yaml":
@@ -620,6 +812,12 @@ def export_cmd(source, output, fmt):
             Path(out).write_text(dna_to_markdown(soul.identity, soul.dna))
 
         console.print(f"[green]Exported[/green] {soul.name} to {out} ({fmt})")
+        if fmt == "soul" and not include_keys:
+            console.print(
+                "[dim]Private key not included; pass --include-keys to migrate signing power.[/dim]"
+            )
+        if password_val and fmt == "soul":
+            console.print("[dim]File is encrypted with AES-256-GCM.[/dim]")
 
     asyncio.run(_export())
 
@@ -629,7 +827,13 @@ def export_cmd(source, output, fmt):
 @click.option(
     "--dir", "-d", "soul_dir", default=None, help="Target directory (default: .soul/<name>/)"
 )
-def unpack_cmd(source, soul_dir):
+@click.option(
+    "--password",
+    "-p",
+    is_flag=True,
+    help="Decrypt an encrypted .soul file (prompts interactively for password).",
+)
+def unpack_cmd(source, soul_dir, password):
     """Unpack a .soul file into a browsable directory.
 
     \b
@@ -642,10 +846,12 @@ def unpack_cmd(source, soul_dir):
       soul unpack guardian.soul -d guardian/  # → guardian/
     """
 
-    async def _unpack():
-        from soul_protocol.runtime.soul import Soul
+    password_val = None
+    if password:
+        password_val = click.prompt("Decryption password", hide_input=True)
 
-        soul = await Soul.awaken(source)
+    async def _unpack():
+        soul = await _awaken_or_fail(source, password=password_val)
         target = soul_dir or f".soul/{_safe_name(soul.name)}"
         await soul.save_local(target)
         console.print(f"[green]Unpacked[/green] {soul.name} → {target}/")
@@ -680,9 +886,7 @@ def retire(path, preserve_memories):
     """Retire a Soul with dignity."""
 
     async def _retire():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         name = soul.name
 
         if not click.confirm(f"Are you sure you want to retire {name}?"):
@@ -718,8 +922,8 @@ def delete_cmd(path, yes):
     console.print(f"[yellow]Deleted[/yellow] {path}")
 
 
-@cli.command()
-def list():
+@cli.command("list")
+def list_cmd():
     """List all saved souls."""
 
     async def _list():
@@ -897,16 +1101,19 @@ def archive(path, tiers):
             MockBlockchainProvider,
             MockIPFSProvider,
         )
-        from soul_protocol.runtime.soul import Soul
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         soul_data = Path(path).read_bytes()
 
         manager = EternalStorageManager()
         manager.register(MockIPFSProvider())
         manager.register(MockArweaveProvider())
         manager.register(MockBlockchainProvider())
-        results = await manager.archive(soul_data, soul.did, tiers=tier_list)
+        try:
+            results = await manager.archive(soul_data, soul.did, tiers=tier_list)
+        except ValueError as exc:
+            console.print(f"[red]Archive failed:[/red] {exc}")
+            raise SystemExit(1)
 
         # Persist archive results into the .soul manifest
         _update_soul_manifest(path, results)
@@ -967,6 +1174,7 @@ def recover(reference, tier, output):
             )
         except RuntimeError as exc:
             console.print(f"[red]Recovery failed:[/red] {exc}")
+            raise click.exceptions.ClickException(str(exc))
 
     asyncio.run(_recover())
 
@@ -977,9 +1185,7 @@ def eternal_status(path):
     """Show eternal storage status for a .soul file."""
 
     async def _eternal_status():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
 
         # Read manifest from .soul archive
         eternal_data = {}
@@ -1076,14 +1282,25 @@ def remember_cmd(path, text, importance, emotion, memory_type, domain):
       soul remember aria.soul "Shipped v0.3" --type episodic --importance 8
       soul remember aria.soul "Q3 revenue up 12%" --domain finance --importance 8
     """
+    warnings.warn(
+        "soul remember is deprecated; use 'soul note <path> \"<fact>\"' instead. "
+        "Use '--no-dedup' on note for raw append behavior. "
+        "Scheduled for removal in 0.7.0.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    console.print(
+        "[yellow]DeprecationWarning:[/yellow] `soul remember` is deprecated. "
+        'Use `soul note <path> "<fact>"` (or add `--no-dedup` for raw writes). '
+        "Scheduled for removal in 0.7.0."
+    )
+
     from soul_protocol.runtime.types import MemoryType
 
     tier = MemoryType(memory_type.lower())
 
     async def _remember():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         memory_id = await soul.remember(
             text,
             type=tier,
@@ -1111,6 +1328,140 @@ def remember_cmd(path, text, importance, emotion, memory_type, domain):
         )
 
     asyncio.run(_remember())
+
+
+@cli.command("note")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("text")
+@click.option(
+    "--importance",
+    "-i",
+    type=click.IntRange(1, 10),
+    default=5,
+    help="Importance score 1-10 (default: 5)",
+)
+@click.option("--emotion", "-e", type=str, default=None, help="Emotion tag (e.g. happy, sad)")
+@click.option(
+    "--type",
+    "-t",
+    "memory_type",
+    type=click.Choice(["episodic", "semantic", "procedural", "social"], case_sensitive=False),
+    default="semantic",
+    help="Memory tier (default: semantic). Use episodic for events, procedural for skills, "
+    "social for relationship context.",
+)
+@click.option(
+    "--domain",
+    "-d",
+    type=str,
+    default="default",
+    help="Domain sub-namespace inside the layer (e.g. finance, legal). "
+    "Defaults to 'default' (#41).",
+)
+@click.option(
+    "--no-dedup",
+    "no_dedup",
+    is_flag=True,
+    default=False,
+    help="Bypass dedup and write the memory unconditionally (legacy 'remember' behaviour).",
+)
+@click.option(
+    "--no-contradictions",
+    "no_contradictions",
+    is_flag=True,
+    default=False,
+    help="Skip contradiction detection on stored facts.",
+)
+def note_cmd(path, text, importance, emotion, memory_type, domain, no_dedup, no_contradictions):
+    """Note a fact in a Soul, with dedup against existing memories (#231).
+
+    The brief for #231 originally specified ``soul observe`` for this
+    command, but a pre-existing ``soul observe`` (cognitive pipeline,
+    --user-input + --agent-output) already owns that name. Registered
+    here as ``soul note`` to match the runtime method
+    (:meth:`Soul.note`). The follow-up should reconcile names.
+
+    Like ``soul remember``, but routes the new fact through the dedup
+    pipeline (Jaccard + containment) before writing. Repeated calls with
+    near-identical content collapse into SKIP or MERGE rather than
+    accumulating duplicate entries. Episodic memories bypass dedup
+    (events are unique by time).
+
+    \b
+    Memory tiers:
+      episodic   — events that happened (what, when, where)
+      semantic   — facts the soul knows (default)
+      procedural — skills and how-to knowledge
+      social     — relationship memories (#41)
+
+    \b
+    Examples:
+      soul note aria.soul "User prefers dark mode"
+      soul note aria.soul "Likes Python" --importance 7
+      soul note aria.soul "Had a great day" --type episodic --emotion happy
+      soul note aria.soul "Q3 revenue up 12%" --domain finance --importance 8
+      soul note aria.soul "Always store this raw" --no-dedup
+    """
+    from soul_protocol.runtime.types import MemoryType
+
+    tier = MemoryType(memory_type.lower())
+
+    async def _observe():
+        soul = await _awaken_or_fail(path)
+        result = await soul.note(
+            text,
+            type=tier,
+            importance=importance,
+            emotion=emotion,
+            domain=domain,
+            dedup=not no_dedup,
+            detect_contradictions=False if no_contradictions else None,
+        )
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+
+        action = result["action"]
+        new_id = result["id"]
+        existing_id = result["existing_id"]
+        similarity = result["similarity"]
+
+        # Action -> verb / colour for the panel.
+        if action == "CREATE":
+            verb = "CREATED"
+            border = "green"
+        elif action == "SKIP":
+            verb = "SKIPPED"
+            border = "yellow"
+        else:  # MERGE
+            verb = "MERGED"
+            border = "cyan"
+
+        sim_line = (
+            f"  Similarity  [yellow]{similarity:.2f}[/yellow]\n" if similarity is not None else ""
+        )
+        new_id_line = f"  New ID      [dim]{new_id}[/dim]\n" if new_id else ""
+        existing_line = f"  Existing ID [dim]{existing_id}[/dim]\n" if existing_id else ""
+
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] noted:\n\n"
+                f"  [cyan]{text}[/cyan]\n\n"
+                f"  Action      [magenta]{verb}[/magenta]\n"
+                f"  Tier        [magenta]{tier.value}[/magenta]\n"
+                f"  Domain      [magenta]{domain}[/magenta]\n"
+                f"  Importance  [yellow]{importance}/10[/yellow]\n"
+                f"  Emotion     {emotion or '[dim]none[/dim]'}\n"
+                f"{new_id_line}"
+                f"{existing_line}"
+                f"{sim_line}",
+                title=f"Memory {verb}",
+                border_style=border,
+            )
+        )
+
+    asyncio.run(_observe())
 
 
 @cli.command("recall")
@@ -1171,7 +1522,27 @@ def remember_cmd(path, text, importance, emotion, memory_type, domain):
     default=None,
     help="Filter recall to a specific domain sub-namespace, e.g. 'finance' (#41).",
 )
-def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_id, layer, domain):
+@click.option(
+    "--min-relevance",
+    "min_relevance",
+    type=click.FloatRange(0.0, 1.0),
+    default=0.0,
+    help="Graded relevance floor (0.0-1.0). Drops weak query matches whose "
+    "token overlap is below this fraction. Default 0.0 keeps every match (#247).",
+)
+def recall_cmd(
+    path,
+    query,
+    recent,
+    limit,
+    min_importance,
+    full,
+    as_json,
+    user_id,
+    layer,
+    domain,
+    min_relevance,
+):
     """Query a Soul's memories.
 
     \b
@@ -1184,29 +1555,27 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
       soul recall aria.soul "preferences" --user alice
       soul recall aria.soul "revenue" --layer semantic --domain finance
       soul recall aria.soul "alice" --layer social
+      soul recall aria.soul "python deployment" --min-relevance 0.3
     """
 
     async def _recall():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
 
         if recent is not None:
             # Show N most recent memories across all stores. Apply --user
             # filter post-hoc so the legacy --recent path keeps its
             # cross-tier ordering.
             if layer is not None:
-                all_memories = soul._memory.layer(layer).entries(domain=domain)
+                all_memories = soul.memory.layer(layer).entries(domain=domain)
             else:
                 all_memories = (
-                    soul._memory._episodic.entries()
-                    + soul._memory._semantic.facts()
-                    + soul._memory._procedural.entries()
-                    + soul._memory._social.entries()
+                    soul.memory.episodic_entries()
+                    + soul.memory.semantic_facts()
+                    + soul.memory.procedural_entries()
+                    + soul.memory.social_entries()
                 )
                 # Include custom layers in --recent across-the-board view
-                for store in soul._memory._custom_layers.values():
-                    all_memories.extend(store.values())
+                all_memories.extend(soul.memory.custom_layer_entries())
                 if domain is not None:
                     all_memories = [m for m in all_memories if m.domain == domain]
             if user_id is not None:
@@ -1227,6 +1596,7 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
                 user_id=user_id,
                 layer=layer,
                 domain=domain,
+                relevance_floor=min_relevance,
             )
             title = f'Recall — {soul.name} — "{query}"'
         else:
@@ -1242,6 +1612,10 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
 
         # --json: machine-readable JSON array
         if as_json:
+            # `score` is the entry's ACT-R activation score for this query —
+            # the value recall ranked on (#247). It is null for `--recent`
+            # output, which lists memories chronologically with no query to
+            # score against. Rounded to 4 places for stable, readable output.
             items = [
                 {
                     "type": entry.type.value,
@@ -1252,6 +1626,9 @@ def recall_cmd(path, query, recent, limit, min_importance, full, as_json, user_i
                     "emotion": entry.emotion,
                     "created": entry.created_at.isoformat(),
                     "user_id": entry.user_id,
+                    "score": (
+                        round(entry.recall_score, 4) if entry.recall_score is not None else None
+                    ),
                 }
                 for entry in entries
             ]
@@ -1323,13 +1700,11 @@ def layers_cmd(path, as_json):
     """
 
     async def _layers():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
-        layer_names = soul._memory.known_layers()
+        soul = await _awaken_or_fail(path)
+        layer_names = soul.memory.known_layers()
         layout: dict[str, dict[str, int]] = {}
         for layer_name in layer_names:
-            layout[layer_name] = soul._memory.domains_in_layer(layer_name)
+            layout[layer_name] = soul.memory.domains_in_layer(layer_name)
 
         if as_json:
             click.echo(json.dumps({"soul": soul.name, "layers": layout}, indent=2))
@@ -1492,9 +1867,8 @@ def export_soulspec_cmd(source, output):
 
     async def _export():
         from soul_protocol.runtime.importers.soulspec import SoulSpecImporter
-        from soul_protocol.runtime.soul import Soul
 
-        soul = await Soul.awaken(source)
+        soul = await _awaken_or_fail(source)
         out = output or f"{_safe_name(soul.name)}-soulspec"
         result = await SoulSpecImporter.to_soulspec(soul, out)
         console.print(f"[green]Exported[/green] {soul.name} to SoulSpec directory -> {result}/")
@@ -1559,9 +1933,8 @@ def export_tavernai_cmd(source, output, png):
 
     async def _export():
         from soul_protocol.runtime.importers.tavernai import TavernAIImporter
-        from soul_protocol.runtime.soul import Soul
 
-        soul = await Soul.awaken(source)
+        soul = await _awaken_or_fail(source)
         card = await TavernAIImporter.to_character_card(soul)
 
         out = output or f"{_safe_name(soul.name)}-card.json"
@@ -1596,9 +1969,8 @@ def export_a2a_cmd(source, output, url):
 
     async def _export():
         from soul_protocol.runtime.bridges.a2a import A2AAgentCardBridge
-        from soul_protocol.runtime.soul import Soul
 
-        soul = await Soul.awaken(source)
+        soul = await _awaken_or_fail(source)
         card = A2AAgentCardBridge.soul_to_agent_card(soul, url=url)
         out = output or f"{_safe_name(soul.name)}-agent-card.json"
         Path(out).write_text(json.dumps(card, indent=2, default=str))
@@ -1677,10 +2049,9 @@ def observe_cmd(path, user_input, agent_output, channel, user_id):
     """
 
     async def _observe():
-        from soul_protocol.runtime.soul import Soul
         from soul_protocol.runtime.types import Interaction
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         interaction = Interaction(
             user_input=user_input,
             agent_output=agent_output,
@@ -1724,9 +2095,7 @@ def reflect_cmd(path, no_apply):
     """
 
     async def _reflect():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         result = await soul.reflect(apply=not no_apply)
 
         if result is None:
@@ -1812,9 +2181,7 @@ def dream_cmd(path, since, no_archive, no_synthesize, dry_run, as_json):
     """
 
     async def _dream():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         report = await soul.dream(
             since=since,
             archive=not no_archive,
@@ -1955,10 +2322,9 @@ def feel_cmd(path, mood, energy, focus):
     """
 
     async def _feel():
-        from soul_protocol.runtime.soul import Soul
         from soul_protocol.runtime.types import FOCUS_LEVELS, Mood
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
 
         kwargs = {}
         if mood is not None:
@@ -2020,9 +2386,7 @@ def prompt_cmd(path):
     """
 
     async def _prompt():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         click.echo(soul.to_system_prompt())
 
     asyncio.run(_prompt())
@@ -2050,24 +2414,30 @@ def prompt_cmd(path):
     help="Skip confirmation prompt (requires --apply)",
 )
 def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confirm):
-    """Delete memories by ID, query, entity, or timestamp (GDPR-compliant).
+    """Forget memories — v0.5.0 semantic shift to weight-decay.
 
-    Dry-run by default — shows what would be deleted without touching the
-    soul. Pass --apply to actually execute. A .soul.bak backup is written
-    before any destructive save.
+    \b
+    v0.5.0 (#192) shifted ``soul forget`` from hard delete to non-
+    destructive weight-decay. Entries stay on disk but drop below the
+    recall floor (0.1) so they no longer surface. The shift covers
+    ``--id`` and the bulk query/entity/before paths. To genuinely
+    destroy data (GDPR / safety), use ``soul purge`` — that command
+    keeps the old hard-delete behaviour.
+
+    Dry-run by default — shows what would be forgotten without touching
+    the soul. Pass --apply to commit. A .soul.bak backup is written
+    before the save.
 
     \b
     Examples:
       soul forget .soul/ "credit card"                      # preview by query
-      soul forget .soul/ "credit card" --apply              # prompt + delete
+      soul forget .soul/ "credit card" --apply              # prompt + decay
       soul forget aria.soul --entity "John Doe" --apply --confirm
       soul forget .soul/ --id bf0ee3453983 --apply          # surgical single-id
     """
 
     async def _forget():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         timestamp = None
 
         # Mutually-exclusive selector check — pick exactly one.
@@ -2094,7 +2464,31 @@ def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confi
 
         async def _execute_forget() -> dict:
             if memory_id:
-                return await soul.forget_one(memory_id)
+                # v0.5.0 (#192) — Soul.forget(id) is the new weight-decay verb.
+                # Returns {found, id, action: "forgotten", weight} on hit.
+                # Reshape to the legacy {episodic, semantic, procedural,
+                # total} dict so the CLI count display path keeps working.
+                result = await soul.forget(memory_id)
+                if result.get("found"):
+                    tier = result.get("tier") or ""
+                    return {
+                        "episodic": [memory_id] if tier == "episodic" else [],
+                        "semantic": [memory_id] if tier == "semantic" else [],
+                        "procedural": [memory_id] if tier == "procedural" else [],
+                        "social": [memory_id] if tier == "social" else [],
+                        "total": 1,
+                        "found": True,
+                        "tier": tier,
+                    }
+                return {
+                    "episodic": [],
+                    "semantic": [],
+                    "procedural": [],
+                    "social": [],
+                    "total": 0,
+                    "found": False,
+                    "tier": None,
+                }
             if entity:
                 return await soul.forget_entity(entity)
             if timestamp is not None:
@@ -2106,6 +2500,7 @@ def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confi
                 "episodic": len(res.get("episodic", [])),
                 "semantic": len(res.get("semantic", [])),
                 "procedural": len(res.get("procedural", [])),
+                "social": len(res.get("social", [])),
             }
             if "edges_removed" in res:
                 counts["graph_edges"] = res["edges_removed"]
@@ -2196,7 +2591,7 @@ def forget_cmd(path, query, memory_id, entity, before, apply_changes, skip_confi
     "--type",
     "-t",
     "memory_type",
-    type=click.Choice(["episodic", "semantic", "procedural"], case_sensitive=False),
+    type=click.Choice(["episodic", "semantic", "procedural", "social"], case_sensitive=False),
     default=None,
     help="Tier for the new memory (default: same tier as the old one).",
 )
@@ -2219,9 +2614,7 @@ def supersede_cmd(path, new_content, old_id, reason, importance, emotion, memory
     tier_override = MemoryType(memory_type.lower()) if memory_type else None
 
     async def _supersede():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         result = await soul.supersede(
             old_id,
             new_content,
@@ -2259,6 +2652,365 @@ def supersede_cmd(path, new_content, old_id, reason, importance, emotion, memory
     asyncio.run(_supersede())
 
 
+# ---------------------------------------------------------------------------
+# v0.5.0 (#192) — Brain-aligned memory update primitive CLI commands
+# ---------------------------------------------------------------------------
+
+
+@cli.command("confirm")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("memory_id")
+@click.option(
+    "--user", "user_id", type=str, default=None, help="Optional user_id for the chain entry"
+)
+def confirm_cmd(path, memory_id, user_id):
+    """Refresh a memory you have just verified.
+
+    Bumps activation, restores any decayed weight back toward 1.0, and
+    appends a memory.confirm trust-chain entry. Confirmation is the
+    "this is still right" verb — no PE supplied, no window check.
+
+    \b
+    Examples:
+      soul confirm .soul/ bf0ee3453983
+      soul confirm aria.soul abc123def --user prakash
+    """
+
+    async def _confirm():
+        soul = await _awaken_or_fail(path)
+        result = await soul.confirm(memory_id, user_id=user_id)
+        if not result.get("found"):
+            console.print(
+                f"[red]No memory with id[/red] [bold]{memory_id}[/bold] "
+                f"found in [bold]{soul.name}[/bold]."
+            )
+            raise SystemExit(1)
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] confirmed:\n\n"
+                f"  ID         [dim]{result['id']}[/dim]\n"
+                f"  Tier       [magenta]{result.get('tier', '?')}[/magenta]\n"
+                f"  Weight     [cyan]{result.get('weight', 1.0):.2f}[/cyan]",
+                title="Memory Confirmed",
+                border_style="green",
+            )
+        )
+
+    asyncio.run(_confirm())
+
+
+@cli.command("update")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("memory_id")
+@click.option(
+    "--patch",
+    "patch_text",
+    type=str,
+    required=True,
+    help="Replacement content for the entry",
+)
+@click.option(
+    "--prediction-error",
+    "prediction_error",
+    type=click.FloatRange(0.0, 1.0),
+    default=0.5,
+    show_default=True,
+    help="Caller-supplied prediction error (must be in [0.2, 0.85))",
+)
+@click.option(
+    "--user", "user_id", type=str, default=None, help="Optional user_id for the chain entry"
+)
+def update_cmd(path, memory_id, patch_text, prediction_error, user_id):
+    """Patch a memory in place inside the reconsolidation window.
+
+    The window opens whenever a recall surfaces this id and stays open
+    for one hour. Outside the window, an in-place update is unsafe —
+    the call raises and the caller should switch to ``soul supersede``.
+
+    \b
+    PE bands (locked):
+      - PE  < 0.2   → use ``soul confirm``
+      - PE in [0.2, 0.85) → ``soul update`` (this command)
+      - PE >= 0.85  → use ``soul supersede``
+
+    \b
+    Examples:
+      soul update .soul/ bf0ee3453983 --patch "ships in July, not May"
+      soul update aria.soul abc123def --patch "..." --prediction-error 0.4
+    """
+
+    async def _update():
+        from soul_protocol.runtime.exceptions import (
+            PredictionErrorOutOfBandError,
+            ReconsolidationWindowClosedError,
+        )
+
+        soul = await _awaken_or_fail(path)
+        # The window is per-process. Open it explicitly via recall against
+        # the current content of the entry so the CLI is usable in a single
+        # invocation (the alternative is a separate ``soul recall`` call
+        # before each update).
+        existing, _ = await soul.memory.find_by_id(memory_id)
+        if existing is not None:
+            await soul.recall(existing.content[:100])
+        try:
+            result = await soul.update(
+                memory_id,
+                patch_text,
+                prediction_error=prediction_error,
+                user_id=user_id,
+            )
+        except ReconsolidationWindowClosedError as exc:
+            console.print(f"[red]error:[/red] {exc}")
+            raise SystemExit(1)
+        except PredictionErrorOutOfBandError as exc:
+            console.print(f"[red]error:[/red] {exc}")
+            raise SystemExit(1)
+        if not result.get("found"):
+            console.print(
+                f"[red]No memory with id[/red] [bold]{memory_id}[/bold] "
+                f"found in [bold]{soul.name}[/bold]."
+            )
+            raise SystemExit(1)
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] updated:\n\n"
+                f"  ID         [dim]{result['id']}[/dim]\n"
+                f"  Tier       [magenta]{result.get('tier', '?')}[/magenta]\n"
+                f"  PE         [cyan]{prediction_error:.2f}[/cyan]\n\n"
+                f"  [cyan]{patch_text}[/cyan]",
+                title="Memory Updated",
+                border_style="green",
+            )
+        )
+
+    asyncio.run(_update())
+
+
+@cli.command("purge")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--id", "memory_id", type=str, required=True, help="ID of the memory to hard-delete")
+@click.option(
+    "--apply",
+    "apply_changes",
+    is_flag=True,
+    help="Actually delete the entry. Without this flag, purge is a preview.",
+)
+@click.option(
+    "--user", "user_id", type=str, default=None, help="Optional user_id for the chain entry"
+)
+@click.option(
+    "--confirm",
+    "skip_confirm",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompt (requires --apply)",
+)
+def purge_cmd(path, memory_id, apply_changes, user_id, skip_confirm):
+    """Hard delete a memory (GDPR / privacy / safety).
+
+    Genuinely removes the entry from storage and writes a .soul.bak.
+    The trust chain still records the purge with the prior payload
+    hash, so verifiers can later prove the entry once existed and was
+    deleted without storing the deleted content.
+
+    Use ``soul forget`` for the non-destructive weight-decay path —
+    that is the right verb in almost every case.
+
+    \b
+    Examples:
+      soul purge .soul/ --id bf0ee3453983              # preview only
+      soul purge .soul/ --id bf0ee3453983 --apply --confirm
+    """
+
+    async def _purge():
+        soul = await _awaken_or_fail(path)
+        if not apply_changes:
+            entry, tier = await soul.memory.find_by_id(memory_id)
+            if entry is None:
+                console.print(
+                    f"[dim]Preview:[/dim] no memory with id "
+                    f"[bold]{memory_id}[/bold] in [bold]{soul.name}[/bold]"
+                )
+                return
+            console.print(
+                f"[dim]Preview:[/dim] would purge "
+                f"{tier}/{memory_id} from [bold]{soul.name}[/bold]\n"
+                "[dim]Pass --apply to commit (a .soul.bak backup is written).[/]"
+            )
+            return
+        if not skip_confirm and not click.confirm(f"Permanently purge memory {memory_id}?"):
+            console.print("[dim]Cancelled.[/dim]")
+            return
+        from soul_protocol.runtime.backup import backup_soul_file
+
+        bak = backup_soul_file(path) if not Path(path).is_dir() else None
+        result = await soul.purge(memory_id, user_id=user_id)
+        if not result.get("found"):
+            console.print(
+                f"[red]No memory with id[/red] [bold]{memory_id}[/bold] "
+                f"found in [bold]{soul.name}[/bold]."
+            )
+            raise SystemExit(1)
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+        msg = f"[yellow]Purged[/yellow] {memory_id} from [bold]{soul.name}[/bold]"
+        if bak is not None:
+            msg += f" [dim](backup: {bak.name})[/dim]"
+        console.print(msg)
+        console.print(f"  prior_payload_hash  [dim]{result.get('prior_payload_hash')}[/dim]")
+
+    asyncio.run(_purge())
+
+
+@cli.command("reinstate")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("memory_id")
+@click.option(
+    "--user", "user_id", type=str, default=None, help="Optional user_id for the chain entry"
+)
+def reinstate_cmd(path, memory_id, user_id):
+    """Restore a forgotten memory to full retrieval weight.
+
+    The inverse of ``soul forget``. Sets ``retrieval_weight`` back to
+    1.0 so recall surfaces the entry again. No-op for entries already
+    at full weight; cannot recover a purged entry (the data is gone).
+
+    \b
+    Examples:
+      soul reinstate .soul/ bf0ee3453983
+      soul reinstate aria.soul abc123def --user prakash
+    """
+
+    async def _reinstate():
+        soul = await _awaken_or_fail(path)
+        result = await soul.reinstate(memory_id, user_id=user_id)
+        if not result.get("found"):
+            console.print(
+                f"[red]No memory with id[/red] [bold]{memory_id}[/bold] "
+                f"found in [bold]{soul.name}[/bold] (it may have been purged)."
+            )
+            raise SystemExit(1)
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] reinstated:\n\n"
+                f"  ID         [dim]{result['id']}[/dim]\n"
+                f"  Tier       [magenta]{result.get('tier', '?')}[/magenta]\n"
+                f"  Weight     [cyan]{result.get('weight', 1.0):.2f}[/cyan]",
+                title="Memory Reinstated",
+                border_style="green",
+            )
+        )
+
+    asyncio.run(_reinstate())
+
+
+@cli.command("upgrade")
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--to",
+    "target_version",
+    type=str,
+    default="0.5.0",
+    show_default=True,
+    help="Target soul format version",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Print the migration plan without writing.",
+)
+def upgrade_cmd(path, target_version, dry_run):
+    """Upgrade a soul archive's memory schema to a newer format.
+
+    The 0.4.x → 0.5.0 upgrade adds three new MemoryEntry fields
+    (retrieval_weight, supersedes, prediction_error). Pydantic v2
+    backfills the defaults at load time, so awaken already round-trips
+    an old soul cleanly. The supersedes back-edge is derived from the
+    existing superseded_by reverse map so callers can walk provenance
+    in either direction.
+
+    Idempotent — re-running on a 0.5.0 soul is a no-op.
+
+    \b
+    Examples:
+      soul upgrade aria.soul --to 0.5.0
+      soul upgrade aria.soul --to 0.5.0 --dry-run
+    """
+
+    async def _upgrade():
+        if target_version != "0.5.0":
+            console.print(f"[red]Unsupported target version: {target_version}[/red]")
+            raise SystemExit(1)
+
+        soul = await _awaken_or_fail(path)
+        # Walk every memory and derive the supersedes back-edge from the
+        # existing superseded_by reverse map. Pydantic defaults already
+        # handled retrieval_weight=1.0 and prediction_error=None at load
+        # time, so the back-edge is the only thing we actually persist.
+        all_entries = []
+        all_entries.extend(soul.memory.episodic_entries())
+        all_entries.extend(soul.memory.semantic_facts())
+        all_entries.extend(soul.memory.procedural_entries())
+
+        backedges = 0
+        weight_default_count = 0
+        by_id = {e.id: e for e in all_entries}
+        for entry in all_entries:
+            if entry.superseded_by and entry.superseded_by in by_id:
+                target = by_id[entry.superseded_by]
+                if target.supersedes is None or target.supersedes != entry.id:
+                    if not dry_run:
+                        target.supersedes = entry.id
+                    backedges += 1
+            # Pydantic defaults handle this on load — count for the report only
+            if entry.retrieval_weight == 1.0:
+                weight_default_count += 1
+
+        console.print(
+            Panel(
+                f"[bold]{soul.name}[/bold] upgrade to {target_version}\n\n"
+                f"  Total entries           {len(all_entries)}\n"
+                f"  retrieval_weight=1.0    {weight_default_count}\n"
+                f"  supersedes back-edges   {backedges}\n"
+                f"  prediction_error        None on legacy entries\n",
+                title="Migration Plan" if dry_run else "Migration Applied",
+                border_style="cyan" if dry_run else "green",
+            )
+        )
+
+        if dry_run:
+            console.print("[dim]Dry run — no changes written.[/dim]")
+            return
+
+        from soul_protocol.runtime.backup import backup_soul_file
+
+        bak = backup_soul_file(path) if not Path(path).is_dir() else None
+        if Path(path).is_dir():
+            await soul.save_local(path)
+        else:
+            await soul.export(path, include_keys=True)
+        if bak is not None:
+            console.print(f"[dim]Backup written to {bak.name}[/dim]")
+
+    asyncio.run(_upgrade())
+
+
 @cli.command("edit-core")
 @click.argument("path", type=click.Path(exists=True))
 @click.option("--persona", type=str, default=None, help="Set persona text")
@@ -2274,9 +3026,7 @@ def edit_core_cmd(path, persona, human):
     """
 
     async def _edit_core():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
 
         if persona is None and human is None:
             console.print("[red]Provide at least --persona or --human[/red]")
@@ -2334,9 +3084,7 @@ def evolve_cmd(path, propose, trait, value, reason, approve_id, reject_id, list_
     """
 
     async def _evolve():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
 
         if propose:
             if not all([trait, value, reason]):
@@ -2431,10 +3179,9 @@ def evaluate_cmd(path, user_input, agent_output, domain):
     """
 
     async def _evaluate():
-        from soul_protocol.runtime.soul import Soul
         from soul_protocol.runtime.types import Interaction
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         interaction = Interaction(
             user_input=user_input,
             agent_output=agent_output,
@@ -2493,10 +3240,9 @@ def learn_cmd(path, user_input, agent_output, domain):
     """
 
     async def _learn():
-        from soul_protocol.runtime.soul import Soul
         from soul_protocol.runtime.types import Interaction
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         interaction = Interaction(
             user_input=user_input,
             agent_output=agent_output,
@@ -2546,9 +3292,7 @@ def skills_cmd(path):
     """
 
     async def _skills():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         registry = soul.skills
 
         if not registry.skills:
@@ -2592,9 +3336,7 @@ def bond_cmd(path, strengthen):
     """
 
     async def _bond():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         bond = soul.bond
 
         if strengthen is not None:
@@ -2635,9 +3377,7 @@ def events_cmd(path, recent):
     """
 
     async def _events():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         all_events = soul.general_events
 
         if not all_events:
@@ -2772,97 +3512,57 @@ def health_cmd(path):
     """Audit a soul's health — memory tiers, duplicates, skills, graph, bond."""
 
     async def _health():
-        from soul_protocol.runtime.memory.compression import MemoryCompressor
-        from soul_protocol.runtime.soul import Soul
+        from soul_protocol.runtime.health import audit_health
 
-        soul = await Soul.awaken(path)
-        mm = soul._memory
-
-        episodic = builtins.list(mm._episodic.entries())
-        semantic = builtins.list(mm._semantic.facts())
-        procedural = builtins.list(mm._procedural.entries())
-        graph_nodes = mm._graph.entities()
-        skills = soul.skills.skills
-        evals = soul.evaluator._history
-        total = len(episodic) + len(semantic) + len(procedural)
-
-        # Detect duplicates
-        compressor = MemoryCompressor()
-        all_mems = episodic + semantic + procedural
-        deduped = compressor.deduplicate(all_mems, similarity_threshold=0.8)
-        dup_count = len(all_mems) - len(deduped)
-
-        # Detect low-importance memories
-        low_imp = [m for m in all_mems if m.importance <= 2]
-
-        # Detect stale procedural (evaluation scores)
-        stale_proc = [p for p in procedural if p.content.startswith("Scored ")]
-
-        # Orphan graph nodes (nodes not referenced in any memory)
-        all_content = " ".join(m.content for m in all_mems)
-        orphan_nodes = [
-            n for n in graph_nodes if n.lower() not in all_content.lower() and len(n) > 2
-        ]
-
-        # Bond sanity
-        bond = soul.bond
-        bond_issues = []
-        if bond.bond_strength > 100:
-            bond_issues.append(f"Bond strength {bond.bond_strength:.0f} exceeds 100")
-        if bond.bond_strength < 0:
-            bond_issues.append(f"Bond strength {bond.bond_strength:.0f} is negative")
-
-        # Skill sanity
-        skill_issues = []
-        for s in skills:
-            if s.xp < 0:
-                skill_issues.append(f"Skill {s.id} has negative XP ({s.xp})")
-            if s.level < 1 or s.level > 10:
-                skill_issues.append(f"Skill {s.id} has invalid level ({s.level})")
+        soul = await _awaken_or_fail(path)
+        report = await audit_health(soul)
 
         # Build report
         lines = [
-            f"[bold]{soul.name}[/bold] — Soul Health Report",
+            f"[bold]{report.soul_name}[/bold] — Soul Health Report",
             "",
             "[bold]Memory Tiers[/bold]",
-            f"  Episodic:    {len(episodic):>5}",
-            f"  Semantic:    {len(semantic):>5}",
-            f"  Procedural:  {len(procedural):>5}",
-            f"  [bold]Total:       {total:>5}[/bold]",
+            f"  Episodic:    {report.episodic_count:>5}",
+            f"  Semantic:    {report.semantic_count:>5}",
+            f"  Procedural:  {report.procedural_count:>5}",
+            f"  Social:      {report.social_count:>5}",
+            f"  [bold]Total:       {report.total_memories:>5}[/bold]",
             "",
             "[bold]Knowledge & Skills[/bold]",
-            f"  Graph nodes: {len(graph_nodes):>5}",
-            f"  Skills:      {len(skills):>5}",
-            f"  Eval history:{len(evals):>5}",
+            f"  Graph nodes: {report.graph_node_count:>5}",
+            f"  Skills:      {report.skill_count:>5}",
+            f"  Eval history:{report.eval_history_count:>5}",
             "",
             "[bold]Bond[/bold]",
-            f"  Strength:    {bond.bond_strength:>5.1f}",
-            f"  Interactions:{bond.interaction_count:>5}",
+            f"  Strength:    {report.bond_strength:>5.1f}",
+            f"  Interactions:{report.bond_interactions:>5}",
             "",
             "[bold]Issues Found[/bold]",
         ]
 
         issues_found = 0
-        if dup_count > 0:
-            lines.append(f"  [yellow]⚠ {dup_count} duplicate memories (>80% overlap)[/]")
-            issues_found += 1
-        if low_imp:
-            lines.append(f"  [dim]ℹ {len(low_imp)} low-importance memories (≤2)[/]")
-        if stale_proc:
-            lines.append(f"  [dim]ℹ {len(stale_proc)} evaluation procedural entries[/]")
-        if orphan_nodes and len(orphan_nodes) > 10:
+        if report.duplicate_count > 0:
             lines.append(
-                f"  [yellow]⚠ {len(orphan_nodes)} orphan graph nodes (not in any memory)[/]"
+                f"  [yellow]⚠ {report.duplicate_count} duplicate memories (>80% overlap)[/]"
             )
             issues_found += 1
-        for issue in bond_issues:
+        if report.low_importance_count:
+            lines.append(f"  [dim]ℹ {report.low_importance_count} low-importance memories (≤2)[/]")
+        if report.stale_eval_count:
+            lines.append(f"  [dim]ℹ {report.stale_eval_count} evaluation procedural entries[/]")
+        if report.orphan_node_count > 10:
+            lines.append(
+                f"  [yellow]⚠ {report.orphan_node_count} orphan graph nodes (not in any memory)[/]"
+            )
+            issues_found += 1
+        for issue in report.bond_issues:
             lines.append(f"  [red]✗ {issue}[/]")
             issues_found += 1
-        for issue in skill_issues:
+        for issue in report.skill_issues:
             lines.append(f"  [red]✗ {issue}[/]")
             issues_found += 1
 
-        if issues_found == 0 and not low_imp and not stale_proc:
+        if issues_found == 0 and not report.low_importance_count and not report.stale_eval_count:
             lines.append("  [green]✓ No issues found — soul is healthy[/]")
         elif issues_found == 0:
             lines.append("  [green]✓ No critical issues[/]")
@@ -2909,62 +3609,16 @@ def cleanup_cmd(
     """
 
     async def _cleanup():
-        from soul_protocol.runtime.memory.compression import MemoryCompressor
-        from soul_protocol.runtime.soul import Soul
+        from soul_protocol.runtime.health import execute_cleanup, plan_cleanup
 
-        soul = await Soul.awaken(path)
-        mm = soul._memory
-        actions = []
-
-        # 1. Deduplicate
-        if dedup:
-            compressor = MemoryCompressor()
-            for tier_name, store in [
-                ("episodic", mm._episodic),
-                ("semantic", mm._semantic),
-                ("procedural", mm._procedural),
-            ]:
-                if tier_name == "semantic":
-                    entries = builtins.list(store.facts())
-                else:
-                    entries = builtins.list(store.entries())
-                if not entries:
-                    continue
-                deduped = compressor.deduplicate(entries, similarity_threshold=0.8)
-                removed_ids = {m.id for m in entries} - {m.id for m in deduped}
-                if removed_ids:
-                    actions.append(("dedup", tier_name, removed_ids))
-
-        # 2. Stale evaluation procedurals
-        if stale_evals:
-            procedural = builtins.list(mm._procedural.entries())
-            stale = [p for p in procedural if p.content.startswith("Scored ") and p.importance <= 5]
-            if stale:
-                actions.append(("stale_evals", "procedural", {p.id for p in stale}))
-
-        # 3. Orphan graph nodes
-        if orphan_nodes:
-            all_mems = (
-                builtins.list(mm._episodic.entries())
-                + builtins.list(mm._semantic.facts())
-                + builtins.list(mm._procedural.entries())
-            )
-            all_content = " ".join(m.content for m in all_mems).lower()
-            nodes = mm._graph.entities()
-            orphans = [n for n in nodes if n.lower() not in all_content and len(n) > 2]
-            if orphans:
-                actions.append(("orphan_nodes", "graph", orphans))
-
-        # 4. Low importance
-        if low_importance > 0:
-            for tier_name, store in [("episodic", mm._episodic), ("semantic", mm._semantic)]:
-                if tier_name == "semantic":
-                    entries = builtins.list(store.facts())
-                else:
-                    entries = builtins.list(store.entries())
-                low = [m for m in entries if m.importance <= low_importance]
-                if low:
-                    actions.append(("low_importance", tier_name, {m.id for m in low}))
+        soul = await _awaken_or_fail(path)
+        actions = await plan_cleanup(
+            soul,
+            dedup=dedup,
+            stale_evals=stale_evals,
+            orphan_nodes=orphan_nodes,
+            low_importance=low_importance,
+        )
 
         if not actions:
             console.print("[green]✓ Nothing to clean up — soul is tidy[/]")
@@ -2972,20 +3626,22 @@ def cleanup_cmd(
 
         # Show plan
         total_removals = 0
-        for action_type, target, items in actions:
-            count = len(items)
+        for action in actions:
+            count = action.count
             total_removals += count
-            if action_type == "dedup":
-                console.print(f"  [yellow]Remove {count} duplicates from {target}[/]")
-            elif action_type == "stale_evals":
+            if action.action_type == "dedup":
+                console.print(f"  [yellow]Remove {count} duplicates from {action.tier}[/]")
+            elif action.action_type == "stale_evals":
                 console.print(f"  [yellow]Remove {count} stale evaluation entries[/]")
-            elif action_type == "orphan_nodes":
+            elif action.action_type == "orphan_nodes":
                 console.print(f"  [yellow]Remove {count} orphan graph nodes[/]")
                 if count <= 10:
-                    for n in items:
+                    for n in action.item_ids:
                         console.print(f"    - {n}")
-            elif action_type == "low_importance":
-                console.print(f"  [yellow]Remove {count} low-importance memories from {target}[/]")
+            elif action.action_type == "low_importance":
+                console.print(
+                    f"  [yellow]Remove {count} low-importance memories from {action.tier}[/]"
+                )
 
         console.print(f"\n  [bold]Total: {total_removals} items to remove[/]")
 
@@ -3002,28 +3658,15 @@ def cleanup_cmd(
                 console.print("[dim]Cancelled.[/]")
                 return
 
-        # Execute
-        removed = 0
-        for action_type, target, items in actions:
-            if action_type == "orphan_nodes":
-                for node in items:
-                    mm._graph.remove_entity(node)
-                    removed += 1
-            elif action_type in ("dedup", "stale_evals", "low_importance"):
-                for mid in items:
-                    if target == "episodic":
-                        await mm._episodic.remove(mid)
-                    elif target == "semantic":
-                        await mm._semantic.remove(mid)
-                    elif target == "procedural":
-                        await mm._procedural.remove(mid)
-                    removed += 1
-
         # Back up before the destructive save so an accidental cleanup
         # is recoverable via `cp <path>.bak <path>`.
         from soul_protocol.runtime.backup import backup_soul_file
 
         bak = backup_soul_file(path)
+
+        # Execute
+        removed = await execute_cleanup(soul, actions)
+
         await soul.export(path, include_keys=True)
         msg = f"\n[green]✓ Cleaned {removed} items. Soul saved.[/]"
         if bak is not None:
@@ -3047,50 +3690,24 @@ def repair_cmd(
     """Repair a soul — reset state, rebuild graph, clear stale data."""
 
     async def _repair():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         changes = []
 
         if reset_energy:
-            soul._state.current.energy = 100.0
-            soul._state.current.social_battery = 100.0
+            soul.reset_energy()
             changes.append("Reset energy and social battery to 100%")
 
         if reset_bond:
-            soul._identity.bond.bond_strength = 50.0
+            soul.reset_bond()
             changes.append("Reset bond strength to 50.0")
 
         if rebuild_graph:
-            # Clear and rebuild from all memories
-            mm = soul._memory
-            old_count = len(mm._graph.entities())
-            mm._graph._entities.clear()
-            mm._graph._edges.clear()
-
-            all_mems = builtins.list(mm._episodic.entries()) + builtins.list(mm._semantic.facts())
-            from soul_protocol.runtime.types import Interaction
-
-            for mem in all_mems:
-                # Extract entities from memory content using the heuristic extractor
-                interaction = Interaction(user_input=mem.content, agent_output="")
-                entities = mm.extract_entities(interaction)
-                if entities:
-                    graph_entities = []
-                    for ent in entities:
-                        graph_ent = {
-                            "name": ent["name"],
-                            "entity_type": ent.get("type", "unknown"),
-                        }
-                        graph_entities.append(graph_ent)
-                    await mm.update_graph(graph_entities)
-
-            new_count = len(mm._graph.entities())
-            changes.append(f"Rebuilt graph: {old_count} → {new_count} nodes")
+            mm = soul.memory
+            result = await mm.rebuild_graph()
+            changes.append(f"Rebuilt graph: {result['old_count']} → {result['new_count']} nodes")
 
         if clear_evals:
-            count = len(soul.evaluator._history)
-            soul.evaluator._history.clear()
+            count = soul.clear_eval_history()
             changes.append(f"Cleared {count} evaluation entries")
 
         if clear_skills:
@@ -3099,10 +3716,10 @@ def repair_cmd(
             changes.append(f"Cleared {count} skills")
 
         if clear_procedural:
-            mm = soul._memory
-            procs = builtins.list(mm._procedural.entries())
+            mm = soul.memory
+            procs = mm.procedural_entries()
             for p in procs:
-                await mm._procedural.remove(p.id)
+                await mm.remove_procedural(p.id)
             changes.append(f"Cleared {len(procs)} procedural memories")
 
         if not changes:
@@ -3143,10 +3760,9 @@ def verify_cmd(path, as_json):
     """
 
     async def _verify():
-        from soul_protocol.runtime.soul import Soul
         from soul_protocol.spec.trust import chain_integrity_check
 
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         summary = chain_integrity_check(soul.trust_chain)
 
         # Compute time span (first → last entry)
@@ -3207,7 +3823,14 @@ def verify_cmd(path, as_json):
 )
 @click.option("--limit", type=int, default=None, help="Show only the most recent N entries.")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Emit machine-readable JSON.")
-def audit_cmd(path, action_prefix, limit, as_json):
+@click.option(
+    "--no-summary",
+    "no_summary",
+    is_flag=True,
+    default=False,
+    help="Hide the Summary column and show only the payload hash (#201).",
+)
+def audit_cmd(path, action_prefix, limit, as_json, no_summary):
     """Print a human-readable timeline of signed actions.
 
     \b
@@ -3216,15 +3839,16 @@ def audit_cmd(path, action_prefix, limit, as_json):
       soul audit .soul/ --filter memory.
       soul audit aria.soul --limit 20
       soul audit aria.soul --json
+      soul audit aria.soul --no-summary  # hash-only, hide Summary column
     """
 
     async def _audit():
-        from soul_protocol.runtime.soul import Soul
-
-        soul = await Soul.awaken(path)
+        soul = await _awaken_or_fail(path)
         log = soul.audit_log(action_prefix=action_prefix, limit=limit)
 
         if as_json:
+            # JSON always includes summary — clients can drop it if they don't
+            # want it. --no-summary only affects the human table.
             console.print_json(data={"soul": soul.name, "did": soul.did, "entries": log})
             return
 
@@ -3238,22 +3862,365 @@ def audit_cmd(path, action_prefix, limit, as_json):
         table.add_column("Timestamp", style="dim")
         table.add_column("Action", style="bold")
         table.add_column("Actor", style="green")
+        if not no_summary:
+            table.add_column("Summary", style="white")
         table.add_column("Payload Hash", style="dim")
         for row in log:
             ts = row["timestamp"]
             # Trim microseconds for display
             if "." in ts:
                 ts = ts.split(".", 1)[0] + ts[ts.index("+") :] if "+" in ts else ts.split(".", 1)[0]
-            table.add_row(
+            cells = [
                 str(row["seq"]),
                 ts,
                 row["action"],
                 row["actor_did"],
-                row["payload_hash"][:12] + "…",
-            )
+            ]
+            if not no_summary:
+                cells.append(row.get("summary", "") or "")
+            cells.append(row["payload_hash"][:12] + "…")
+            table.add_row(*cells)
         console.print(table)
 
     asyncio.run(_audit())
+
+
+# ============ soul graph (#108, #190) ============
+
+
+@cli.group()
+def graph():
+    """Inspect the soul's knowledge graph (typed nodes + edges)."""
+
+
+@graph.command("nodes")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--type", "node_type", default=None, help="Filter by entity type.")
+@click.option("--match", "name_match", default=None, help="Substring match on entity name.")
+@click.option("--limit", type=int, default=None, help="Cap the number of rows.")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON.")
+def graph_nodes(path, node_type, name_match, limit, as_json):
+    """List nodes in the soul's knowledge graph."""
+
+    async def _go():
+        soul = await _awaken_or_fail(path)
+        nodes = soul.graph.nodes(type=node_type, name_match=name_match, limit=limit)
+        if as_json:
+            console.print_json(
+                data={
+                    "soul": soul.name,
+                    "count": len(nodes),
+                    "nodes": [n.model_dump() for n in nodes],
+                }
+            )
+            return
+        if not nodes:
+            console.print("[yellow]No matching nodes.[/yellow]")
+            return
+        table = Table(title=f"{soul.name} — Graph Nodes", border_style="blue")
+        table.add_column("ID", style="cyan")
+        table.add_column("Type", style="green")
+        table.add_column("Provenance", style="dim")
+        for node in nodes:
+            prov = ", ".join(node.provenance[:3]) + ("…" if len(node.provenance) > 3 else "")
+            table.add_row(node.id, node.type, prov or "—")
+        console.print(table)
+
+    asyncio.run(_go())
+
+
+@graph.command("edges")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--source", default=None, help="Filter by source entity.")
+@click.option("--target", default=None, help="Filter by target entity.")
+@click.option("--relation", default=None, help="Filter by relation predicate.")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON.")
+def graph_edges(path, source, target, relation, as_json):
+    """List active edges in the soul's knowledge graph."""
+
+    async def _go():
+        soul = await _awaken_or_fail(path)
+        edges = soul.graph.edges(source=source, target=target, relation=relation)
+        if as_json:
+            console.print_json(
+                data={
+                    "soul": soul.name,
+                    "count": len(edges),
+                    "edges": [e.model_dump() for e in edges],
+                }
+            )
+            return
+        if not edges:
+            console.print("[yellow]No matching edges.[/yellow]")
+            return
+        table = Table(title=f"{soul.name} — Graph Edges", border_style="blue")
+        table.add_column("Source", style="cyan")
+        table.add_column("Relation", style="green")
+        table.add_column("Target", style="cyan")
+        table.add_column("Weight", justify="right", style="dim")
+        for edge in edges:
+            w = f"{edge.weight:.2f}" if edge.weight is not None else "—"
+            table.add_row(edge.source, edge.relation, edge.target, w)
+        console.print(table)
+
+    asyncio.run(_go())
+
+
+@graph.command("neighbors")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("node_id")
+@click.option("--depth", type=int, default=1, help="Hops to expand (default: 1).")
+@click.option(
+    "--types",
+    default=None,
+    help="Comma-separated list of types to keep (e.g. 'person,tool').",
+)
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON.")
+def graph_neighbors(path, node_id, depth, types, as_json):
+    """List nodes within ``depth`` hops of NODE_ID."""
+
+    async def _go():
+        soul = await _awaken_or_fail(path)
+        type_list = [t.strip() for t in types.split(",")] if types else None
+        nodes = soul.graph.neighbors(node_id, depth=depth, types=type_list)
+        if as_json:
+            console.print_json(
+                data={
+                    "soul": soul.name,
+                    "start": node_id,
+                    "depth": depth,
+                    "count": len(nodes),
+                    "nodes": [n.model_dump() for n in nodes],
+                }
+            )
+            return
+        if not nodes:
+            console.print(f"[yellow]No neighbors found for {node_id}.[/yellow]")
+            return
+        table = Table(
+            title=f"{soul.name} — neighbors({node_id}, depth={depth})",
+            border_style="blue",
+        )
+        table.add_column("ID", style="cyan")
+        table.add_column("Type", style="green")
+        table.add_column("Hop", justify="right")
+        for node in nodes:
+            table.add_row(node.id, node.type, str(node.depth or 0))
+        console.print(table)
+
+    asyncio.run(_go())
+
+
+@graph.command("path")
+@click.argument("path", type=click.Path(exists=True))
+@click.argument("source_id")
+@click.argument("target_id")
+@click.option("--max-depth", type=int, default=4, help="Maximum hops (default: 4).")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON.")
+def graph_path(path, source_id, target_id, max_depth, as_json):
+    """Find the shortest path of edges from SOURCE_ID to TARGET_ID."""
+
+    async def _go():
+        soul = await _awaken_or_fail(path)
+        chain = soul.graph.path(source_id, target_id, max_depth=max_depth)
+        if as_json:
+            console.print_json(
+                data={
+                    "soul": soul.name,
+                    "source": source_id,
+                    "target": target_id,
+                    "found": chain is not None,
+                    "edges": [e.model_dump() for e in chain] if chain else [],
+                }
+            )
+            return
+        if chain is None:
+            console.print(f"[yellow]No path from {source_id} to {target_id}.[/yellow]")
+            return
+        if not chain:
+            console.print(f"[green]{source_id} == {target_id} (zero-length path)[/green]")
+            return
+        for edge in chain:
+            console.print(f"  {edge.source} -[{edge.relation}]-> {edge.target}")
+
+    asyncio.run(_go())
+
+
+@graph.command("mermaid")
+@click.argument("path", type=click.Path(exists=True))
+def graph_mermaid(path):
+    """Print the soul's full graph as a Mermaid ``graph LR`` block."""
+
+    async def _go():
+        soul = await _awaken_or_fail(path)
+        console.print(soul.graph.to_mermaid())
+
+    asyncio.run(_go())
+
+
+# ============================================================================
+# Trust chain (#203) — touch-time pruning command
+# ============================================================================
+
+
+@cli.command("prune-chain")
+@click.argument("path", type=click.Path(exists=True))
+@click.option(
+    "--apply",
+    "apply_changes",
+    is_flag=True,
+    default=False,
+    help="Actually run the prune. Without this flag, prune-chain previews only.",
+)
+@click.option(
+    "--keep",
+    type=int,
+    default=None,
+    help=(
+        "Length threshold. When the chain has more than KEEP entries, "
+        "non-genesis history is compressed into a single chain.pruned marker. "
+        "Defaults to the soul's Biorhythms.trust_chain_max_entries (when set)."
+    ),
+)
+@click.option(
+    "--reason",
+    type=str,
+    default="manual",
+    help="Free-form label written onto the chain.pruned marker payload.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit machine-readable JSON.",
+)
+def prune_chain_cmd(path, apply_changes, keep, reason, as_json):
+    """Compress old trust-chain history into a signed chain.pruned marker.
+
+    Touch-time stub for the v0.5.0 unbounded-chain pain (#203). Dry-run by
+    default — pass --apply to actually mutate the chain. Genesis (seq=0) is
+    always preserved. The marker carries {count, low_seq, high_seq, reason}
+    so an auditor can reconstruct what was dropped.
+
+    \b
+    Examples:
+      soul prune-chain .soul/                       # preview, uses biorhythm cap
+      soul prune-chain .soul/ --keep 100            # preview, custom threshold
+      soul prune-chain .soul/ --keep 100 --apply    # execute the prune
+      soul prune-chain .soul/ --json --apply        # machine-readable output
+
+    The full archival design (separate trust_chain/archive/ directory with
+    checkpoint entries spanning archive files) is deferred to v0.5.x.
+    """
+
+    async def _prune():
+        soul = await _awaken_or_fail(path)
+        mgr = soul.trust_chain_manager
+
+        # Resolve the keep threshold. CLI override wins; otherwise fall
+        # back to the soul's biorhythm cap. We require at least one of
+        # the two — without it, there is no way to know what to prune.
+        effective_keep = keep
+        if effective_keep is None:
+            effective_keep = mgr.max_entries
+        if effective_keep is None or effective_keep <= 0:
+            msg = (
+                "No --keep value provided and the soul's "
+                "Biorhythms.trust_chain_max_entries is 0 (auto-prune disabled). "
+                "Pass --keep N to preview a manual prune."
+            )
+            if as_json:
+                console.print_json(data={"error": msg, "applied": False})
+            else:
+                console.print(f"[red]✗[/red] {msg}")
+            sys.exit(2)
+
+        preview = mgr.dry_run_prune(keep=effective_keep)
+
+        if preview["count"] == 0:
+            payload = {
+                "soul": soul.name,
+                "did": soul.did,
+                "applied": False,
+                "summary": preview,
+                "chain_length": mgr.length,
+                "keep": effective_keep,
+            }
+            if as_json:
+                console.print_json(data=payload)
+                return
+            console.print(
+                f"[green]Nothing to prune.[/] Chain length {mgr.length} ≤ keep {effective_keep}."
+            )
+            return
+
+        # Show plan
+        if not as_json:
+            console.print(
+                f"[bold]{soul.name}[/bold] — chain length [cyan]{mgr.length}[/cyan], "
+                f"keep [cyan]{effective_keep}[/cyan]"
+            )
+            console.print(
+                f"  Would drop [yellow]{preview['count']}[/yellow] entries "
+                f"(seq [cyan]{preview['low_seq']}[/cyan] → "
+                f"[cyan]{preview['high_seq']}[/cyan])"
+            )
+            console.print(
+                f"  Marker would land at seq [cyan]{preview['marker_seq']}[/cyan] "
+                f"with action [bold]chain.pruned[/bold]"
+            )
+
+        if not apply_changes:
+            preview_payload = {
+                "soul": soul.name,
+                "did": soul.did,
+                "applied": False,
+                "summary": preview,
+                "chain_length": mgr.length,
+                "keep": effective_keep,
+            }
+            if as_json:
+                console.print_json(data=preview_payload)
+                return
+            console.print("\n[dim]Dry run — preview only. Pass --apply to execute.[/]")
+            return
+
+        # Apply the prune
+        result = mgr.prune(keep=effective_keep, reason=reason)
+
+        # Persist the mutated chain back to disk. Mirror `soul cleanup` and
+        # `soul forget`: a directory path is a flat .soul/ folder, a file
+        # path is a portable .soul archive. ``include_keys=True`` so the
+        # private key survives the save (the soul was loaded with one).
+        path_obj = Path(path)
+        if path_obj.is_dir():
+            await soul.save_local(path, include_keys=True)
+        else:
+            await soul.export(path, include_keys=True)
+
+        applied_payload = {
+            "soul": soul.name,
+            "did": soul.did,
+            "applied": True,
+            "summary": result,
+            "chain_length": mgr.length,
+            "keep": effective_keep,
+        }
+        if as_json:
+            console.print_json(data=applied_payload)
+            return
+
+        console.print(
+            f"\n[green]✓[/] Pruned [yellow]{result['count']}[/] entries "
+            f"(seq {result['low_seq']} → {result['high_seq']})."
+        )
+        console.print(
+            f"  Marker at seq [cyan]{result['marker_seq']}[/cyan]; "
+            f"chain length now [cyan]{mgr.length}[/cyan]."
+        )
+
+    asyncio.run(_prune())
 
 
 if __name__ == "__main__":

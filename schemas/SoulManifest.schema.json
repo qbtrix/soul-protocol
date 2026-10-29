@@ -55,6 +55,11 @@
       "title": "Checksum",
       "type": "string"
     },
+    "encrypted": {
+      "default": false,
+      "title": "Encrypted",
+      "type": "boolean"
+    },
     "stats": {
       "additionalProperties": true,
       "title": "Stats",

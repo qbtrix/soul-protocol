@@ -1,4 +1,7 @@
 # tests/test_trust_chain/test_chain_manager.py — TrustChainManager API tests.
+# Updated: 2026-04-29 (#201) — audit_log() now returns a ``summary`` key on
+# every row. Existing assertions about the row shape were broadened to
+# include the new key.
 # Created: 2026-04-29 (#42) — append() correctness, query() prefix matching,
 # persistence round-trip, genesis-from-empty case.
 
@@ -114,7 +117,14 @@ def test_audit_log_shape_and_filtering():
     log = mgr.audit_log(action_prefix="memory.")
     assert len(log) == 2
     for row in log:
-        assert set(row.keys()) == {"seq", "timestamp", "action", "actor_did", "payload_hash"}
+        assert set(row.keys()) == {
+            "seq",
+            "timestamp",
+            "action",
+            "actor_did",
+            "payload_hash",
+            "summary",
+        }
         assert row["action"].startswith("memory.")
 
 
@@ -132,13 +142,20 @@ def test_payload_is_hashed_not_stored():
     """The chain stores only payload_hash; original payload is NOT recoverable."""
     p = Ed25519SignatureProvider.from_seed(b"M" * 32)
     mgr = TrustChainManager(did="did:soul:test", provider=p)
-    secret_payload = {"secret": "do-not-leak", "tokens": ["t1", "t2"]}
+    # Use long, unique sentinels. Short tokens like "t1" give false failures:
+    # they collide by chance with the base64 signature / hex payload_hash that
+    # to_dict() serializes, which vary per run (the signature covers the
+    # timestamp). "do-not-leak-token-1" cannot appear in base64 or hex output.
+    secret_payload = {
+        "secret": "do-not-leak",
+        "tokens": ["do-not-leak-token-1", "do-not-leak-token-2"],
+    }
     e = mgr.append("memory.write", secret_payload)
 
     serialized = mgr.to_dict()
     raw = str(serialized)
     assert "do-not-leak" not in raw
-    assert "t1" not in raw
+    assert "do-not-leak-token-1" not in raw
     assert e.payload_hash  # but the hash is there
 
 
