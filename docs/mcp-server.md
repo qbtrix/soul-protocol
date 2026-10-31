@@ -1,7 +1,9 @@
-<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 39 tools
-     (14 soul/memory + 5 context + 5 psychology + 3 trust chain + 5 memory primitives
+<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 40 tools
+     (15 soul/memory + 5 context + 5 psychology + 3 trust chain + 5 memory primitives
      + 2 maintenance + 1 eval + 1 graph + 1 optimize + 1 core edit + 1 forget), 3 resources,
      2 prompts, auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
+     Updated: 2026-10 — (#320): Added soul_sync (one-call auto-recall + auto-observe).
+     Tool count: 39 → 40.
      Updated: 2026-08-10 — (#290): Fixed soul_health return schema (removed non-existent
      bond_issues/skill_issues keys), fixed soul_cleanup return schema (total_items vs
      removed on different branches, no total_removed/backup_path), corrected cleanup
@@ -101,9 +103,9 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (39)
+## Tools (40)
 
-All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 39 tools break down as: 9 soul management, 5 memory, 5 context (LCM), 5 psychology pipeline (v0.2.7), 3 trust chain (`soul_verify`, `soul_audit`, `soul_prune_chain`), 5 memory update primitives (`soul_confirm`, `soul_update`, `soul_supersede`, `soul_purge`, `soul_reinstate`; v0.5.0 #192), 1 eval (`soul_eval`), 1 graph (`soul_graph_query`), 1 optimize (`soul_optimize`), 2 maintenance (`soul_health`, `soul_cleanup`), 1 core memory editing (`soul_edit_core`), and 1 semantic forget shift (`soul_forget`).
+All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 40 tools break down as: 9 soul management, 6 memory (including `soul_sync`), 5 context (LCM), 5 psychology pipeline (v0.2.7), 3 trust chain (`soul_verify`, `soul_audit`, `soul_prune_chain`), 5 memory update primitives (`soul_confirm`, `soul_update`, `soul_supersede`, `soul_purge`, `soul_reinstate`; v0.5.0 #192), 1 eval (`soul_eval`), 1 graph (`soul_graph_query`), 1 optimize (`soul_optimize`), 2 maintenance (`soul_health`, `soul_cleanup`), 1 core memory editing (`soul_edit_core`), and 1 semantic forget shift (`soul_forget`).
 
 **Multi-soul targeting:** When the server is running with `SOUL_DIR` and multiple souls are loaded, all tools accept an optional `soul` parameter (string) to target a specific soul by name or ID. If omitted, the tool operates on the currently active soul.
 
@@ -169,6 +171,28 @@ Search the soul's memories by natural language query. Results are ranked by ACT-
 | `domain` | `str \| None` | `None` | Restrict recall to one domain sub-namespace (#41), e.g. `"finance"`. |
 
 **Returns:** JSON with `count`, `soul`, and `memories` array. Each memory includes `id`, `type`, `layer`, `domain`, `content`, `importance`, `emotion`, and `user_id`.
+
+---
+
+### `soul_sync`
+
+Capture one conversation turn and optionally recall memories in a single call: auto-recall (when `query` is set) followed by auto-observe through the full psychology pipeline. Backed by `AutoObserveMiddleware`.
+
+`soul_sync` **replaces** a per-turn `soul_observe`; it does not supplement it. Calling both for the same exchange observes the turn twice.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `user_input` | `str` | required | What the user said |
+| `agent_output` | `str` | `""` | What the agent responded (omit for user-only turns) |
+| `query` | `str \| None` | `None` | Recall query. When set, matching memories are recalled *before* the turn is observed. Omit to observe without recall. |
+| `limit` | `int` | `5` | Maximum recall results |
+| `channel` | `str` | `"mcp"` | Source channel identifier |
+| `soul` | `str \| None` | `None` | Target soul name (uses active soul if omitted) |
+| `user_id` | `str \| None` | `None` | Scopes **both** halves (#46). Recall is restricted to this user's memories plus legacy unattributed ones, and every memory written from the turn is stamped with this `user_id` (the per-user bond is strengthened). |
+| `layer` | `str \| None` | `None` | Restrict recall to one layer (#41). Recall only — the observe pipeline decides which layers it writes to. |
+| `domain` | `str \| None` | `None` | Scopes **both** halves (#41). Recall is restricted to this domain, and memories written from the turn are stored in it. When omitted, recall spans all domains and the turn is stored in `"default"`. |
+
+**Returns:** JSON with `status: "observed"`, `soul`, `mood`, `energy`, `user_id`, `recalled` (count), and `memories`. Each memory has the same shape as in `soul_recall`.
 
 ---
 

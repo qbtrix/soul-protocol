@@ -466,6 +466,34 @@ await finance_only.remember("NDA fact", domain="legal")  # raises DomainAccessEr
 
 Wraps a `Soul` and enforces a domain allow-list. Reads silently filter to the allowed list. Writes to a disallowed domain raise `DomainAccessError`. When no domain is given on `remember`/`observe`, the middleware defaults to `allowed_domains[0]`.
 
+#### `AutoObserveMiddleware` (#320)
+
+```python
+from soul_protocol.runtime.middleware import AutoObserveMiddleware
+
+mw = AutoObserveMiddleware(soul, recall_limit=5, default_channel="auto")
+result = await mw.turn(
+    "What's my favorite language?",
+    "You like Python.",
+    query="favorite language",  # optional: recall before observing
+    user_id="alice",
+    domain="finance",
+)
+# {"soul", "mood", "energy", "user_id", "recalled", "memories"}
+```
+
+Wraps a `Soul` so each conversation turn is captured with one call: optional `recall()` (only when `query` is given) followed by a mandatory `observe()`. It backs the MCP `soul_sync` tool and is meant for gateways and SDKs that sit in the request/response path.
+
+| `turn()` kwarg | Effect |
+|---|---|
+| `query` | When set, recalls up to `limit` (default `recall_limit`) memories before observing. |
+| `user_id` | Passed to **both** `recall()` (filter to this user + legacy unattributed) and `observe()` (stamps written memories, strengthens the per-user bond). |
+| `domain` | Passed to **both** `recall()` (filter to this domain) and `observe()` (written memories are stored in it). Omitted → recall spans all domains, writes go to `"default"`. |
+| `layer` | Recall only. |
+| `channel` | Interaction channel; defaults to `default_channel`. |
+
+`memories` uses the same dict shape as MCP `soul_recall`; both go through the exported `memory_to_dict(entry)` helper.
+
 #### `soul.bond_for()`
 
 ```python

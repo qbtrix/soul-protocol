@@ -1,5 +1,7 @@
 # cli/setup.py — Universal agent platform integration for soul-protocol
 # Updated: 2026-03-13 — SOUL_DIR support for multi-soul directories.
+# Updated: 2026-10 (#320) — Instructions recommend soul_sync per turn and say it
+#   replaces (not supplements) a per-turn soul_observe.
 #
 # Supports: Claude Code, Cursor, VS Code/Copilot, Windsurf, Cline, Continue,
 #           Gemini CLI, Codex CLI, Amazon Q, Zed, Claude Desktop.
@@ -32,7 +34,13 @@ for persistent AI memory via MCP.
 2. Call `soul_state` to check current mood and energy
 
 **During work:**
-- `soul_observe` after key decisions, completed tasks, or important conversations
+- Call `soul_sync` after each user/agent exchange — it auto-recalls relevant
+  memories and saves the turn in one call (`user_input`, `agent_output`,
+  optional `query`)
+- `soul_sync` replaces a per-turn `soul_observe`. Don't also call
+  `soul_observe` for an exchange you already synced, or the same turn is
+  observed twice; use it only for interactions that didn't go through
+  `soul_sync`
 - `soul_remember` for facts that should persist across sessions
 
 **On session end:**

@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### `soul_sync` MCP tool and `AutoObserveMiddleware` (#320)
+
+- **New MCP tool `soul_sync`** — one call per exchange: optional auto-recall (when `query` is set) followed by auto-observe through the full pipeline. It replaces a per-turn `soul_observe`; don't call both for the same turn. `user_id` and `domain` scope both the recall and where the observed turn is written; `layer` filters recall only. MCP tool count: 39 → 40.
+- **New `soul_protocol.runtime.middleware.AutoObserveMiddleware`** — the runtime primitive behind `soul_sync`, reusable from gateways and SDKs via `await mw.turn(user_input, agent_output, query=..., user_id=..., domain=...)`.
+- **`memory_to_dict()`** — shared memory → response-dict mapping, now used by both `soul_recall` and `soul_sync` so their memory shapes stay identical.
+- `soul setup` agent instructions recommend `soul_sync` per turn and say it replaces per-turn `soul_observe`.
+
 ### Game profile ships mechanisms; demo defaults move to `examples/game`
 
 Breaking for `soul_protocol.profiles.game` callers:
