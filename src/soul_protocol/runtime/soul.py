@@ -856,7 +856,7 @@ class Soul:
         dspy_optimized_path: str | None = None,
         # F4 — Eternal storage
         eternal: EternalStorageManager | None = None,
-        # Soul Instinct — model-backed deciders (local NLI, LLM...)
+        # Soul Instinct — model-backed deciders (local NLI, Jev, LLM...)
         deciders: Sequence[Decider] | None = None,
         **kwargs,
     ) -> Soul:

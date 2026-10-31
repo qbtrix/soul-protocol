@@ -1,8 +1,8 @@
 # test_decide/test_model_deciders.py — Tests for the model-backed deciders.
 # Created: feat/soul-instinct — NLIContradictionDecider (fake cross-encoder +
 #   embedder: relatedness gate, both directions, first-person normalization),
-#   EngineDecider (scripted LLM) and the shared candidate selection. No network
-#   or model downloads.
+#   EngineDecider (scripted LLM), JevDecider (fake Pydantic AI runner) and the
+#   shared candidate selection. No network or model downloads.
 
 from __future__ import annotations
 
@@ -17,11 +17,13 @@ from soul_protocol.runtime.decide import (
     DeciderChain,
     DecisionKind,
     EngineDecider,
+    JevDecider,
     NLIContradictionDecider,
     SentimentRequest,
     SignificanceRequest,
 )
 from soul_protocol.runtime.decide.candidates import select_candidates
+from soul_protocol.runtime.decide.typesafe import ConflictQuestion, SignificanceQuestion
 from soul_protocol.runtime.types import Interaction, MemoryEntry, MemoryType
 from tests.test_decide.conftest import FakeCrossEncoder, FakeEmbedder, ScriptedEngine
 
@@ -272,6 +274,108 @@ class TestEngineDecider:
         engine = ScriptedEngine(lambda p: "{}")
         assert await EngineDecider(engine).decide(SentimentRequest(text="hi")) is None
         assert engine.prompts == []
+
+
+# ---- Jev (TypeSafe) ----
+
+
+def _jev_runner(contradicts: dict[str, tuple[bool, float]] | None = None, sig=None):
+    calls: list[tuple[str, type]] = []
+
+    async def run(state, output_type):
+        calls.append((state, output_type))
+        if output_type is ConflictQuestion:
+            for needle, (verdict, conf) in (contradicts or {}).items():
+                if needle in state:
+                    return ConflictQuestion(contradicts=verdict), {"contradicts": conf}
+            return ConflictQuestion(contradicts=False), {"contradicts": 0.97}
+        answer, conf = sig
+        return answer, conf
+
+    run.calls = calls
+    return run
+
+
+class TestJevDecider:
+    def test_question_models_carry_docstring_questions(self):
+        assert ConflictQuestion.model_fields["contradicts"].description.startswith(
+            "Does the NEW statement"
+        )
+        assert set(SignificanceQuestion.model_fields) == {
+            "novelty",
+            "emotional_intensity",
+            "goal_relevance",
+            "content_richness",
+        }
+
+    async def test_contradiction_one_question_per_candidate(self):
+        runner = _jev_runner({"steak": (True, 0.93)})
+        decision = await JevDecider(runner=runner).decide(
+            ContradictionRequest(new_content="I'm vegetarian now", existing=[STEAK, DELHI])
+        )
+        assert [f.old_memory_id for f in decision.value.findings] == ["steak"]
+        assert decision.confidence == 0.93  # min over pairs
+        assert len(runner.calls) == 2
+        assert all("NEW: I'm vegetarian now" in s for s, _ in runner.calls)
+
+    async def test_missing_confidence_is_unsure(self):
+        async def run(state, output_type):
+            return ConflictQuestion(contradicts=True), {}
+
+        decision = await JevDecider(runner=run).decide(
+            ContradictionRequest(new_content="x", existing=[STEAK])
+        )
+        assert decision.confidence is None
+        assert decision.value.findings == []
+
+    async def test_significance_maps_rubric_to_scores(self):
+        answer = SignificanceQuestion(
+            novelty=4, emotional_intensity=2, goal_relevance=0, content_richness=4
+        )
+        conf = {
+            "novelty": 0.9,
+            "emotional_intensity": 0.8,
+            "goal_relevance": 0.95,
+            "content_richness": 0.85,
+        }
+        runner = _jev_runner(sig=(answer, conf))
+        decision = await JevDecider(runner=runner).decide(
+            SignificanceRequest(
+                interaction=Interaction.from_pair("I got promoted at Stripe!", "Congrats!"),
+                core_values=["ambition"],
+                recent_contents=["User talked about work"],
+            )
+        )
+        assert decision.value.score.novelty == 1.0
+        assert decision.value.score.emotional_intensity == 0.5
+        assert decision.value.significant is True
+        assert decision.confidence == 0.8
+        state = runner.calls[0][0]
+        assert "ambition" in state and "User talked about work" in state
+
+    async def test_partial_significance_confidence_is_unsure(self):
+        answer = SignificanceQuestion(
+            novelty=1, emotional_intensity=1, goal_relevance=1, content_richness=1
+        )
+        runner = _jev_runner(sig=(answer, {"novelty": 0.9}))
+        decision = await JevDecider(runner=runner).decide(
+            SignificanceRequest(interaction=Interaction.from_pair("hi", "hello"))
+        )
+        assert decision.confidence is None
+
+    async def test_missing_dependency_has_install_hint(self, monkeypatch):
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "pydantic_ai":
+                raise ImportError("no module")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        with pytest.raises(ImportError, match="pydantic-ai-slim"):
+            await JevDecider().decide(ContradictionRequest(new_content="x", existing=[STEAK]))
 
 
 def test_user_aliases_are_normalized():
