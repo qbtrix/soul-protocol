@@ -258,6 +258,11 @@ from soul_protocol.cli.optimize import register as _register_optimize_cmd  # noq
 
 _register_optimize_cmd(cli)
 
+# Soul Instinct (feat/soul-instinct) — registers `soul instinct` on the cli group.
+from soul_protocol.cli.instinct_cmd import register as _register_instinct_cmd  # noqa: E402
+
+_register_instinct_cmd(cli)
+
 
 @cli.command()
 @click.argument("name", required=False)
