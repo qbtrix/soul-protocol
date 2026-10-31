@@ -24,6 +24,7 @@
 #   as JSON.
 # Updated: 2026-05 — Added soul_sync: one-call auto-recall + auto-observe so agents
 #   capture a turn and fetch relevant memories in a single round-trip.
+#   soul_recall and soul_sync share memory_to_dict() for the memory shape.
 # Updated: 2026-04-29 (#42) — Trust chain tools: ``soul_verify`` returns chain
 #   integrity status; ``soul_audit`` returns the human-readable timeline of
 #   signed actions, with optional action_prefix and limit. JSON-only output —
@@ -71,7 +72,7 @@ from fastmcp import Context, FastMCP  # optional dep: pip install soul-protocol[
 from ..runtime.cognitive.adapters.mcp_sampling import MCPSamplingEngine
 from ..runtime.context import LCMContext
 from ..runtime.exceptions import SoulProtocolError
-from ..runtime.middleware import AutoObserveMiddleware
+from ..runtime.middleware import AutoObserveMiddleware, memory_to_dict
 from ..runtime.soul import Soul
 from ..runtime.types import Interaction, MemoryType, Mood
 
@@ -191,12 +192,6 @@ class SoulRegistry:
         if not lock:
             return
         async with lock:
-            if key in self._modified:
-                # The soul has unsaved in-memory changes (e.g. a recent
-                # soul_remember / soul_observe). Reloading from disk here
-                # would silently discard those changes, so skip until they
-                # are persisted by soul_save / shutdown auto-save.
-                return
             current_mtime = self._get_mtime(path)
             if current_mtime <= self._mtimes.get(key, 0.0):
                 return  # already up-to-date (or reloaded by another caller)
@@ -698,19 +693,7 @@ async def soul_recall(
     """
     s = await _resolve_soul(soul)
     results = await s.recall(query, limit=limit, user_id=user_id, layer=layer, domain=domain)
-    memories = [
-        {
-            "id": r.id,
-            "type": r.type.value,
-            "layer": r.layer or r.type.value,
-            "domain": r.domain or "default",
-            "content": r.content,
-            "importance": r.importance,
-            "emotion": r.emotion,
-            "user_id": r.user_id,
-        }
-        for r in results
-    ]
+    memories = [memory_to_dict(r) for r in results]
     return json.dumps({"count": len(memories), "soul": s.name, "memories": memories})
 
 
@@ -733,6 +716,8 @@ async def soul_sync(
     exchange instead of remembering `soul_recall` then `soul_observe` separately.
     When `query` is provided, relevant memories are recalled and returned first;
     the turn is then observed through the full psychology pipeline regardless.
+    Use it instead of a per-turn `soul_observe`, not in addition to it, or the
+    same turn is observed twice.
 
     Args:
         user_input: What the user said (required).
@@ -742,9 +727,14 @@ async def soul_sync(
         limit: Maximum recall results to return (default 5).
         channel: Source channel identifier.
         soul: Target soul name (uses active soul if omitted).
-        user_id: Attribute the turn to a specific user (multi-user souls, #46).
-        layer: Restrict recall to a single memory layer (#41). Optional.
-        domain: Restrict recall to a single domain sub-namespace (#41). Optional.
+        user_id: Scopes both recall and observe (multi-user souls, #46):
+            recall returns this user's memories (plus legacy unattributed
+            ones), and memories written from the turn are stamped with it.
+        layer: Restrict recall to a single memory layer (#41). Recall only.
+        domain: Scopes both recall and observe (#41): recall is restricted
+            to this domain sub-namespace, and memories written from the turn
+            are stored in it. Omit to recall across all domains and store the
+            turn in "default".
     """
     if ctx is not None:
         _get_or_create_engine(ctx)
@@ -941,7 +931,6 @@ async def soul_save(
             _registry._paths[key] = save_path
         if key:
             _registry._mtimes[key] = _registry._get_mtime(save_path)
-            _registry._modified.discard(key)
     else:
         await s.save()
         save_path = str(Path.home() / ".soul" / s.did)

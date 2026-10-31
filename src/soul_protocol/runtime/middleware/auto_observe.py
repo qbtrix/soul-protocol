@@ -5,6 +5,10 @@
 #   auto-observe, returning recalled memories plus the soul's updated state.
 #   This is the reusable runtime primitive behind the MCP ``soul_sync`` tool and
 #   the intended request/response-path hook for gateways and SDKs.
+# Updated: 2026-10 (#320 review) — Added memory_to_dict(), the shared
+#   MemoryEntry -> response-dict mapping used by turn() and the MCP soul_recall
+#   tool so the two response shapes cannot drift. Documented that ``domain``
+#   scopes both recall and the observed turn's writes.
 
 from __future__ import annotations
 
@@ -14,6 +18,25 @@ from soul_protocol.runtime.types import Interaction
 
 if TYPE_CHECKING:
     from soul_protocol.runtime.soul import Soul
+    from soul_protocol.runtime.types import MemoryEntry
+
+
+def memory_to_dict(entry: MemoryEntry) -> dict[str, Any]:
+    """Serialize a recalled memory into the public recall response shape.
+
+    Shared by :meth:`AutoObserveMiddleware.turn` and the MCP ``soul_recall``
+    tool so both return identical memory dicts.
+    """
+    return {
+        "id": entry.id,
+        "type": entry.type.value,
+        "layer": entry.layer or entry.type.value,
+        "domain": entry.domain or "default",
+        "content": entry.content,
+        "importance": entry.importance,
+        "emotion": entry.emotion,
+        "user_id": entry.user_id,
+    }
 
 
 class AutoObserveMiddleware:
@@ -70,9 +93,16 @@ class AutoObserveMiddleware:
             query: Optional recall query. When set, relevant memories are
                 returned before the turn is observed.
             limit: Max recall results (defaults to ``recall_limit``).
-            user_id: Attribute the turn to a user (multi-user souls, #46).
-            layer: Restrict recall to a single layer (#41). Optional.
-            domain: Sub-namespace for the written memories (#41). Optional.
+            user_id: Scopes both halves of the turn (multi-user souls, #46):
+                recall is restricted to this user's memories (plus legacy
+                unattributed ones), and every memory written by the observe
+                step is stamped with it.
+            layer: Restrict recall to a single layer (#41). Recall only;
+                the observe pipeline decides which layers it writes to.
+            domain: Scopes both halves of the turn (#41): recall is
+                restricted to this domain, and memories written by the
+                observe step are stored in it. Omit to recall across all
+                domains and store the turn in ``"default"``.
             channel: Source channel (defaults to ``default_channel``).
 
         Returns:
@@ -88,19 +118,7 @@ class AutoObserveMiddleware:
                 layer=layer,
                 domain=domain,
             )
-            memories = [
-                {
-                    "id": r.id,
-                    "type": r.type.value,
-                    "layer": r.layer or r.type.value,
-                    "domain": r.domain or "default",
-                    "content": r.content,
-                    "importance": r.importance,
-                    "emotion": r.emotion,
-                    "user_id": r.user_id,
-                }
-                for r in results
-            ]
+            memories = [memory_to_dict(r) for r in results]
 
         await self._soul.observe(
             Interaction(

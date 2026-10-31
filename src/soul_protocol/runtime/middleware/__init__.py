@@ -7,7 +7,10 @@
 
 from __future__ import annotations
 
-from soul_protocol.runtime.middleware.auto_observe import AutoObserveMiddleware
+from soul_protocol.runtime.middleware.auto_observe import (
+    AutoObserveMiddleware,
+    memory_to_dict,
+)
 from soul_protocol.runtime.middleware.domain_isolation import (
     DomainIsolationMiddleware,
 )
@@ -15,4 +18,5 @@ from soul_protocol.runtime.middleware.domain_isolation import (
 __all__ = [
     "AutoObserveMiddleware",
     "DomainIsolationMiddleware",
+    "memory_to_dict",
 ]

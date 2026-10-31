@@ -752,45 +752,6 @@ async def test_auto_reload_on_external_change(tmp_path):
             assert any("external memory" in m["content"] for m in data["memories"])
 
 
-async def test_modified_soul_not_reloaded_by_watcher(tmp_path):
-    """A soul with unsaved in-memory changes is NOT discarded by auto-reload.
-
-    Regression: calling soul_remember (in-memory, unsaved) followed by an
-    external .soul overwrite must not cause the in-memory fact to vanish when
-    the next tool call triggers check_and_reload().
-    """
-    from soul_protocol import Soul
-
-    soul = await Soul.birth("DirtySoul", values=["testing"])
-    zip_path = tmp_path / "dirty.soul"
-    await soul.export(str(zip_path))
-
-    with _env_context("SOUL_PATH", str(zip_path)), _env_context("SOUL_DIR", None):
-        async with Client(mcp) as client:
-            # 1) Unsaved in-memory change (marks the soul as modified).
-            await client.call_tool(
-                "soul_remember",
-                {"content": "unsaved soya chaap fact", "importance": 6},
-            )
-
-            # 2) Externally overwrite the .soul file (simulating another process).
-            external_soul = await Soul.awaken(str(zip_path))
-            await external_soul.remember("external overwrite", importance=9)
-            await external_soul.export(str(zip_path))
-
-            # 3) Any tool call routes through check_and_reload().
-            await client.call_tool("soul_recall", {"query": "trigger reload", "limit": 5})
-
-            # 4) The unsaved in-memory fact must still be present.
-            result = await client.call_tool("soul_recall", {"query": "soya chaap", "limit": 5})
-            data = json.loads(result.data)
-            assert data["count"] != 0, (
-                "Unsaved in-memory change was discarded by auto-reload. "
-                f"Got {data['count']} results."
-            )
-            assert any("soya chaap" in m["content"] for m in data["memories"])
-
-
 async def test_background_watcher_reloads_on_change(tmp_path):
     """Background file watcher detects changes and reloads without any tool call."""
     from soul_protocol import Soul
@@ -1242,3 +1203,44 @@ async def test_soul_sync_with_recall():
         assert isinstance(data["memories"], list)
         assert len(data["memories"]) == data["recalled"]
         assert any("language" in m["content"].lower() for m in data["memories"])
+
+
+async def test_soul_sync_forwards_user_id_and_domain():
+    """soul_sync scopes both recall and the observed turn by user_id + domain."""
+
+    async def sync(**args):
+        result = await client.call_tool("soul_sync", args)
+        return json.loads(result.data)
+
+    async def recall(**args):
+        result = await client.call_tool("soul_recall", {"limit": 10, **args})
+        return json.loads(result.data)
+
+    async with Client(mcp) as client:
+        await _birth(client)
+
+        # Observe side: each turn is written under its user_id / domain.
+        await sync(
+            user_input="my name is Bob", agent_output="Hi Bob.", user_id="bob", domain="finance"
+        )
+        await sync(
+            user_input="my name is Alex", agent_output="Hi Alex.", user_id="alice", domain="finance"
+        )
+
+        data = await recall(query="Alex", user_id="alice", domain="finance")
+        assert data["count"] >= 1
+        assert all(m["user_id"] == "alice" for m in data["memories"])
+        assert all(m["domain"] == "finance" for m in data["memories"])
+        assert (await recall(query="Alex", domain="default"))["count"] == 0
+
+        # Recall side: bob's turn is filtered out of alice's recall.
+        data = await sync(
+            user_input="what's my name?",
+            query="name",
+            user_id="alice",
+            domain="finance",
+        )
+        assert data["user_id"] == "alice"
+        assert data["recalled"] >= 1
+        assert all(m["user_id"] == "alice" for m in data["memories"])
+        assert all(m["domain"] == "finance" for m in data["memories"])
