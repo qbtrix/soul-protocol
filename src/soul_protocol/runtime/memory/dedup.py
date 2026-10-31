@@ -98,6 +98,10 @@ def _jaccard_similarity(a: str, b: str) -> float:
     return jaccard
 
 
+# Public name for callers outside this module (e.g. runtime.decide).
+jaccard_similarity = _jaccard_similarity
+
+
 def reconcile_fact(
     new_fact: str,
     existing_facts: list[MemoryEntry],
