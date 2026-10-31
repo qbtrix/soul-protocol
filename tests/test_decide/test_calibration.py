@@ -55,7 +55,7 @@ class TestInstinctCalibration:
         cal = InstinctCalibration()
         for _ in range(10):
             cal.record("nli", "contradiction", 0.9, correct=False)
-        assert cal.calibrate("jev", "contradiction", 0.9) == 0.9
+        assert cal.calibrate("other", "contradiction", 0.9) == 0.9
         assert cal.calibrate("nli", "significance", 0.9) == 0.9
 
     @pytest.mark.parametrize("confidence", [0.0, 0.5, 0.999, 1.0])

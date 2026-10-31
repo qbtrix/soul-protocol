@@ -1,9 +1,9 @@
 # decide/__init__.py — Soul Instinct: pluggable, confidence-aware decision layer.
 # Created: feat/soul-instinct — Exports the Decider protocol, typed request/verdict
 #   models, the rule-based HeuristicDecider, the confidence-gated DeciderChain, and
-#   the model-backed deciders: NLIContradictionDecider (local, offline),
-#   EngineDecider (any CognitiveEngine LLM) and JevDecider (TypeSafe's hosted
-#   decision model). Heavy optional dependencies are imported lazily on first use.
+#   the model-backed deciders: NLIContradictionDecider (local, offline) and
+#   EngineDecider (any CognitiveEngine LLM). Heavy optional dependencies are
+#   imported lazily on first use.
 
 from __future__ import annotations
 
@@ -29,7 +29,6 @@ from soul_protocol.runtime.decide.types import (
     SignificanceRequest,
     SignificanceVerdict,
 )
-from soul_protocol.runtime.decide.typesafe import JevDecider
 
 __all__ = [
     "DEFAULT_MIN_CONFIDENCE",
@@ -48,7 +47,6 @@ __all__ = [
     "EngineDecider",
     "HeuristicDecider",
     "InstinctReviewReport",
-    "JevDecider",
     "NLIContradictionDecider",
     "SentimentRequest",
     "SignificanceRequest",
