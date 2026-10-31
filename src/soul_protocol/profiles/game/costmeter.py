@@ -1,4 +1,8 @@
 # costmeter.py — Cost meter + replay cache at the `generate` seam of the
+#
+# Updated: 2026-09-11 (fix/game-profile-demo-defaults) — PRICING ships empty;
+#   CostMeter takes pricing= (falls back to PRICING). The vendor rate table
+#   moved to examples/game.
 #   npc.soul grudge kernel.
 #
 # Created: 2026-07-02 (experiment/npc-soul-grudge-kernel) — Two SMALL composable
@@ -42,15 +46,12 @@ import json
 import time
 from pathlib import Path
 
-# $ per 1M tokens as (input_rate, output_rate). claude-cli (local, no key) and
-# gemini-nano (on-device) are $0 — the meter still counts their tokens so
-# project() can re-price the same session under a paid model.
-PRICING: dict[str, tuple[float, float]] = {
-    "deepseek-v3.2": (0.14, 0.28),
-    "gemini-flash-lite": (0.10, 0.40),
-    "gemini-nano": (0.0, 0.0),
-    "claude-cli": (0.0, 0.0),
-}
+# $ per 1M tokens as {model: (input_rate, output_rate)}. The profile ships no
+# vendor rates: pass ``pricing=`` to CostMeter, or populate this dict once at
+# startup and every meter built without ``pricing=`` reads it. A $0 entry is
+# still metered for tokens so project() can re-price under a paid model.
+# (examples/game carries a sample table.)
+PRICING: dict[str, tuple[float, float]] = {}
 
 
 def _estimate_tokens(text: str) -> int:
@@ -61,14 +62,19 @@ def _estimate_tokens(text: str) -> int:
 class CostMeter:
     """Awaitable passthrough that meters an async ``generate(prompt) -> str``.
 
-    ``meter = CostMeter(generate, model="deepseek-v3.2")`` — then use ``meter``
-    anywhere the raw callable went: ``await meter(prompt)``. Per non-cached call
-    it records estimated tokens in/out, latency, and $ cost from PRICING.
+    ``meter = CostMeter(generate, model="deepseek-v3.2", pricing=RATES)`` — then
+    use ``meter`` anywhere the raw callable went: ``await meter(prompt)``. Per
+    non-cached call it records estimated tokens in/out, latency, and $ cost
+    from ``pricing`` (``{model: (in_rate, out_rate)}`` per 1M tokens; defaults
+    to the module-level ``PRICING``, which is empty until you fill it).
     """
 
-    def __init__(self, generate, model: str = "claude-cli") -> None:
-        if model not in PRICING:
-            raise ValueError(f"unknown model {model!r}; expected one of {sorted(PRICING)}")
+    def __init__(
+        self, generate, model: str, pricing: dict[str, tuple[float, float]] | None = None
+    ) -> None:
+        self.pricing = PRICING if pricing is None else pricing
+        if model not in self.pricing:
+            raise ValueError(f"unknown model {model!r}; expected one of {sorted(self.pricing)}")
         self._generate = generate
         self.model = model
         self.calls = 0  # metered (real model) calls
@@ -92,7 +98,7 @@ class CostMeter:
 
         tokens_in = _estimate_tokens(prompt)
         tokens_out = _estimate_tokens(reply)
-        in_rate, out_rate = PRICING[self.model]
+        in_rate, out_rate = self.pricing[self.model]
         self.calls += 1
         self.tokens_in += tokens_in
         self.tokens_out += tokens_out
@@ -123,9 +129,9 @@ class CostMeter:
 
     def project(self, model: str) -> float:
         """What the SAME recorded traffic would cost under another model."""
-        if model not in PRICING:
-            raise ValueError(f"unknown model {model!r}; expected one of {sorted(PRICING)}")
-        in_rate, out_rate = PRICING[model]
+        if model not in self.pricing:
+            raise ValueError(f"unknown model {model!r}; expected one of {sorted(self.pricing)}")
+        in_rate, out_rate = self.pricing[model]
         return (self.tokens_in * in_rate + self.tokens_out * out_rate) / 1_000_000
 
 

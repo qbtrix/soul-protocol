@@ -1,4 +1,8 @@
 # __init__.py — soul_protocol.profiles.game: the Game Profile public API.
+# Updated: 2026-09-11 (fix/game-profile-demo-defaults) — The profile now
+#   ships mechanisms only: GrudgeKernel.birth requires name/archetype, the
+#   templated lines are name-aware, PRICING is empty, DEFAULT_ZONE is "start".
+#   Bjorn, the tavern and the vendor rates live in examples/game.
 # Created: 2026-07-02 (experiment/npc-soul-grudge-kernel) — graduates the
 #   examples/npc_soul_grudge experiment into the first Soul Protocol profile.
 #   Re-exports the two roles (GrudgeKernel = npc, PlayerSoul = player), the

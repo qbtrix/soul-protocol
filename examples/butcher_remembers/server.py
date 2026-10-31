@@ -53,6 +53,7 @@ import asyncio
 import json
 import os
 import re
+import sys
 import tempfile
 import threading
 import time
@@ -71,6 +72,10 @@ from soul_protocol.profiles.game import (
 )
 
 ROOT = Path(__file__).resolve().parent
+# Runnable as a script from anywhere and loadable by path from the tests.
+sys.path.insert(0, str(ROOT.parent.parent))
+from examples.game import PRICING, TAVERN, birth_bjorn  # noqa: E402
+
 DEFAULT_PORT = 8777
 
 # Static whitelist: path -> (filename in this folder, content type). Nothing
@@ -183,7 +188,7 @@ def build_engine(requested: str):
                  warning and fall back to templated — never crash the demo.
     """
     if requested == "claude":
-        meter = CostMeter(claude_cli_generate, model="claude-cli")
+        meter = CostMeter(claude_cli_generate, model="claude-cli", pricing=PRICING)
         return "claude", LLMDialogueEngine(meter), meter
     if requested == "deepseek":
         if not os.environ.get("DEEPSEEK_API_KEY"):
@@ -193,7 +198,7 @@ def build_engine(requested: str):
                 flush=True,
             )
             return "templated", None, None
-        meter = CostMeter(deepseek_generate, model="deepseek-v3.2")
+        meter = CostMeter(deepseek_generate, model="deepseek-v3.2", pricing=PRICING)
         return "deepseek", LLMDialogueEngine(meter), meter
     return "templated", None, None
 
@@ -253,9 +258,7 @@ async def replace_npc(world: GameWorld, kernel: GrudgeKernel) -> str:
 
 async def build_world(session_path: str | None = None, dialogue_engine=None) -> GameWorld:
     """The Butcher world: two npc.souls + one player.soul, zoned for the canvas."""
-    bjorn = await GrudgeKernel.birth(
-        name="Bjorn", archetype="The Butcher", dialogue_engine=dialogue_engine
-    )
+    bjorn = await birth_bjorn(dialogue_engine)
     astrid = await GrudgeKernel.birth(
         name="Astrid",
         archetype="The Innkeeper",
@@ -263,7 +266,7 @@ async def build_world(session_path: str | None = None, dialogue_engine=None) -> 
         dialogue_engine=dialogue_engine,
     )
     ragnar = await PlayerSoul.birth(name="Ragnar")
-    world = GameWorld([bjorn, astrid], [ragnar], session_path=session_path)
+    world = GameWorld([bjorn, astrid], [ragnar], session_path=session_path, start_zone=TAVERN)
     world.move("Bjorn", "stall")
     world.move("Astrid", "tables")
     world.move("Ragnar", "door")

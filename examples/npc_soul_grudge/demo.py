@@ -39,6 +39,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -51,6 +52,9 @@ from soul_protocol.profiles.game import (
     TemplatedDialogueEngine,
     claude_cli_generate,
 )
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from examples.game import BJORN_PERSONA, PRICING, ButcherDialogueEngine, birth_bjorn  # noqa: E402
 
 # Stable fake player DIDs — in a real game these are the player.soul identities.
 RAGNAR = "did:soul:player:ragnar"  # the wrongdoer
@@ -76,7 +80,7 @@ async def step(kernel: GrudgeKernel, did: str, name: str, text: str, kind: str) 
 
 async def main() -> None:
     rule("SESSION 1 — Bjorn meets Ragnar, and Ragnar wrongs him")
-    kernel = await GrudgeKernel.birth()
+    kernel = await birth_bjorn()
     print(f"Bjorn born: {kernel.soul.name} the {kernel.soul.archetype}  (did={kernel.soul.did})")
     print(f"Starting bond with Ragnar: {kernel.bond_strength(RAGNAR):.1f}")
 
@@ -116,7 +120,9 @@ async def main() -> None:
         del kernel  # the in-memory NPC is gone; only the file remains
 
         rule("SESSION 2 — a fresh process AWAKENS Bjorn from the file")
-        reborn = await GrudgeKernel.awaken(soul_path)
+        reborn = await GrudgeKernel.awaken(
+            soul_path, dialogue_engine=ButcherDialogueEngine(), persona=BJORN_PERSONA
+        )
         ragnar_bond_after = reborn.bond_strength(RAGNAR)
         ragnar_grudge_after = await reborn.grudge_level(RAGNAR)
         print(f"Awakened {reborn.soul.name} from disk  (memories={reborn.soul.memory_count})")
@@ -204,9 +210,9 @@ async def run_live_section() -> None:
     print("no API key needed here. ~10s per line. Falls back to templated on error.\n")
 
     # The meter wraps the raw generate at the seam — every live line is priced.
-    meter = CostMeter(claude_cli_generate, model="claude-cli")
+    meter = CostMeter(claude_cli_generate, model="claude-cli", pricing=PRICING)
     engine = LLMDialogueEngine(meter)
-    kernel = await GrudgeKernel.birth(dialogue_engine=engine)
+    kernel = await birth_bjorn(engine)
 
     print(f"Bjorn born: {kernel.soul.name} the {kernel.soul.archetype}")
     print(f"Starting bond with Ragnar: {kernel.bond_strength(RAGNAR):.1f}")
@@ -222,7 +228,9 @@ async def run_live_section() -> None:
         del kernel
 
         # Same meter across the reload — the summary covers the WHOLE session.
-        reborn = await GrudgeKernel.awaken(soul_path, dialogue_engine=LLMDialogueEngine(meter))
+        reborn = await GrudgeKernel.awaken(
+            soul_path, dialogue_engine=LLMDialogueEngine(meter), persona=BJORN_PERSONA
+        )
         grievances = await reborn.grievances(RAGNAR)
         print(
             f"Awakened Bjorn from disk — grudge={await reborn.grudge_level(RAGNAR)}, "
@@ -282,7 +290,7 @@ async def run_reputation_section() -> None:
 
     # Ragnar is a real player.soul now, not just a DID. He wrongs Bjorn; the deed
     # is written to BOTH souls — Bjorn's grievance AND Ragnar's own reputation.
-    bjorn = await GrudgeKernel.birth()
+    bjorn = await birth_bjorn()
     ragnar = await PlayerSoul.birth(name="Ragnar")
     await bjorn.record(RAGNAR, "I framed you to the guards.", kind="betrayal", player_soul=ragnar)
     await bjorn.record(RAGNAR, "*steals sausages*", kind="theft", player_soul=ragnar)
