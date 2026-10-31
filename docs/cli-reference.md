@@ -1,4 +1,6 @@
 <!-- Covers: CLI installation, all 51 commands with usage examples, options tables, and output descriptions.
+     Updated: feat/soul-instinct (#322) — Added `soul instinct`, the read-only
+       comparison of the old contradiction rules vs Soul Instinct's local model.
      Updated: 2026-08-10 — (#290): Fixed recall -n short flag, corrected archive -t
      syntax, verified unpack/delete/export signatures against Click definitions.
      Updated: 2026-04-29 — v0.5.0 (#142): Added `soul optimize` for the autonomous
@@ -906,6 +908,40 @@ soul dream .soul/ --no-archive --no-synthesize
 3. **Consolidate** — Archive old memories, deduplicate semantic facts, merge duplicate graph entities, prune expired/duplicate edges
 4. **Synthesize** — Convert detected patterns into procedural memories, analyze OCEAN trait drift from behavioral data
 5. **Report** — Full `DreamReport` with all findings and actions taken
+
+When the soul has uncertain [Soul Instinct](soul-instinct.md) decisions and an LLM engine, `dream()` also reviews them (see `review_instincts`).
+
+---
+
+### `soul instinct`
+
+Try [Soul Instinct](soul-instinct.md) on a soul, **read-only**. For each message it shows which memory the old rule-based contradiction check would replace, which memory the local NLI model would replace, and how sure the model is. The soul is never saved.
+
+```bash
+soul instinct                                   # the soul in the current folder
+soul instinct shekhar.soul                      # interactive: type messages, empty line to quit
+soul instinct shekhar.soul -m "I hate dosa now" # check one message and exit
+soul instinct shekhar.soul -m "I moved to Pune" -m "I'm vegetarian now"
+soul instinct aria.soul --alias Aria --alias "Aria Sharma"
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | No | Soul file or directory. When omitted, uses the single `*.soul` (or `soul.json`) in the current folder. Steps into the nested `name.soul/<did>/` layout that `soul save` writes. |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-m, --message TEXT` | Check this message and exit. Repeatable. Without it the command is interactive. |
+| `--alias TEXT` | A name that means "you" in memories (e.g. facts stored as "Shekhar loves dosa"). Repeatable. Defaults to the soul's name. |
+| `--password TEXT` | Password for an encrypted `.soul` file. |
+
+**Requires:** `pip install 'soul-protocol[embeddings-st]'`. The first run downloads two small models (about 380 MB) to the Hugging Face cache and prints a notice before it starts. Later runs work offline.
+
+**Output:** a line per message comparing `Old rules` and `Instinct`, with the replaced memory, the model's confidence, and the time taken.
 
 ---
 

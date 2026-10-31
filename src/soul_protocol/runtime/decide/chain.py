@@ -6,6 +6,11 @@
 #   breaks because a model backend is offline or uncertain. Every consulted
 #   decider is recorded on Decision.attempts, and an optional per-soul
 #   InstinctCalibration adjusts raw confidences using past review outcomes.
+# Updated: feat/soul-instinct (#322 review) — Contradiction answers from a decider
+#   now add to the rules instead of replacing them: when a decider's contradiction
+#   verdict is accepted, the rule-based heuristic findings are merged in (recorded
+#   as a "merged" attempt). A confident "nothing contradicts" from a model can no
+#   longer switch off the negation / verb-fact rules for that input.
 
 from __future__ import annotations
 
@@ -45,7 +50,7 @@ class DeciderChain:
 
     Usage::
 
-        chain = DeciderChain([my_local_decider, jev_decider])
+        chain = DeciderChain([my_local_decider, llm_decider])
         decision = await chain.contradictions("User is vegetarian", memories)
         decision.value.findings   # typed
         decision.source           # which backend answered
@@ -59,6 +64,11 @@ class DeciderChain:
         fallback: Final decider, always accepted. Defaults to HeuristicDecider.
         calibration: Optional learned calibration; when given, each decider's
             raw confidence is replaced by its calibrated value before gating.
+        merge_contradiction_rules: When True (default), an accepted
+            contradiction answer is merged with the rule-based heuristic
+            findings, so a decider adds contradictions but never removes ones
+            the rules catch. Only the cheap heuristics are merged, never an
+            LLM fallback. Set False to let an accepted decider replace the rules.
     """
 
     name = "chain"
@@ -70,6 +80,7 @@ class DeciderChain:
         min_confidence: float = DEFAULT_MIN_CONFIDENCE,
         fallback: Decider | None = None,
         calibration: InstinctCalibration | None = None,
+        merge_contradiction_rules: bool = True,
     ) -> None:
         if not 0.0 <= min_confidence <= 1.0:
             raise ValueError(f"min_confidence must be in [0, 1], got {min_confidence}")
@@ -77,6 +88,13 @@ class DeciderChain:
         self._fallback: Decider = fallback if fallback is not None else HeuristicDecider()
         self._calibration = calibration
         self.min_confidence = min_confidence
+        self._contradiction_rules: Decider | None = None
+        if merge_contradiction_rules:
+            self._contradiction_rules = (
+                self._fallback
+                if isinstance(self._fallback, HeuristicDecider)
+                else HeuristicDecider()
+            )
 
     @property
     def deciders(self) -> list[Decider]:
@@ -131,6 +149,8 @@ class DeciderChain:
                 )
             )
             if accepted:
+                if request.kind == DecisionKind.CONTRADICTION:
+                    decision = await self._merge_contradiction_rules(request, decision, attempts)
                 return decision.model_copy(update={"attempts": attempts})
             logger.debug(
                 "Decider %r unsure on %s (confidence=%s < %.2f), trying next",
@@ -146,6 +166,41 @@ class DeciderChain:
                 f"Fallback decider {self._fallback.name!r} abstained on {request.kind}"
             )
         return decision.model_copy(update={"attempts": attempts})
+
+    async def _merge_contradiction_rules(
+        self,
+        request: DecisionRequest,
+        decision: Decision[Any],
+        attempts: list[DecisionAttempt],
+    ) -> Decision[Any]:
+        """Add the heuristic findings a confident decider did not report.
+
+        The decider's own findings come first and win on the same memory id.
+        When the rules add anything, a ``merged`` attempt records what they said.
+        """
+        if self._contradiction_rules is None:
+            return decision
+        try:
+            rules = await self._contradiction_rules.decide(request)
+        except Exception:
+            logger.warning("Contradiction rules failed during merge", exc_info=True)
+            return decision
+        if rules is None:
+            return decision
+        known = {f.old_memory_id for f in decision.value.findings}
+        extra = [f for f in rules.value.findings if f.old_memory_id not in known]
+        if not extra:
+            return decision
+        attempts.append(
+            DecisionAttempt(
+                source=self._contradiction_rules.name,
+                outcome="merged",
+                value=ContradictionVerdict(findings=extra).model_dump(mode="json"),
+            )
+        )
+        return decision.model_copy(
+            update={"value": ContradictionVerdict(findings=[*decision.value.findings, *extra])}
+        )
 
     # ---- Typed convenience helpers ----
 

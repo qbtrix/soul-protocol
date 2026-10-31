@@ -1,4 +1,11 @@
 # memory/manager.py — MemoryManager facade orchestrating all memory subsystems.
+# Updated: feat/soul-instinct — observe() routes sentiment, significance, dedup
+#   and contradiction through a DeciderChain (fallback = the previous path, so no
+#   behaviour change without deciders). Decisions made by or against a model
+#   decider leave a metadata["instinct"] marker; uncertain ones lower the memory's
+#   confidence and save original_confidence so review can restore it. Contradiction
+#   findings the rules added under a confident model "no" are marked uncertain.
+#   observe()'s instinct.uncertain counts memories marked in that call (no scan).
 # Updated: 2026-07-18 (#284) — Added public tier access API: episodic_entries(),
 #   semantic_facts(), procedural_entries(), social_entries(), graph_entities(),
 #   graph_edges(), clear_graph(), rebuild_graph(), custom_layer_entries().
@@ -692,6 +699,8 @@ class MemoryManager:
         # cognitive path. Empty by default: decisions are unchanged.
         self._deciders: list[Decider] = []
         self._instinct = InstinctState()
+        # IDs of memories marked uncertain by the current observe() call.
+        self._uncertain_marked: set[str] = set()
 
         self._core_manager = CoreMemoryManager(core)
         self._episodic = EpisodicStore(max_entries=settings.episodic_max_entries)
@@ -907,13 +916,23 @@ class MemoryManager:
                 for old_id in model_flagged | applied
             }
         if decision.confidence is not None:
+            # A confident decider answered; the chain may have merged extra
+            # rule findings into it. Those are applied (the rules have always
+            # applied them) but the model disagreed, so they are left uncertain
+            # for review rather than silently attributed to the model.
+            accepted = next((a for a in decision.attempts if a.outcome == "accepted"), None)
+            model_flagged = (
+                {f["old_memory_id"] for f in accepted.value.get("findings", [])}
+                if accepted is not None and accepted.value is not None
+                else applied
+            )
             return {
                 old_id: {
                     **base,
-                    "uncertain": False,
+                    "uncertain": old_id not in model_flagged,
                     "source": decision.source,
                     "confidence": decision.confidence,
-                    "model_verdict": True,
+                    "model_verdict": old_id in model_flagged,
                     "applied": True,
                 }
                 for old_id in applied
@@ -921,11 +940,28 @@ class MemoryManager:
         return {}
 
     def _stamp_instinct(self, entry: MemoryEntry, marker: dict) -> None:
-        """Record an instinct marker on a memory (uncertain markers lower confidence)."""
-        entry.metadata = {**entry.metadata, INSTINCT_METADATA_KEY: marker}
+        """Record an instinct marker on a memory (uncertain markers lower confidence).
+
+        The memory's confidence before any instinct lowering is kept as
+        ``original_confidence`` so review_instincts() can put it back. If an
+        unreviewed marker is replaced, its saved original carries over.
+        """
+        previous = entry.metadata.get(INSTINCT_METADATA_KEY)
+        original = entry.confidence
+        if (
+            isinstance(previous, dict)
+            and not previous.get("reviewed")
+            and previous.get("original_confidence") is not None
+        ):
+            original = previous["original_confidence"]
+        entry.metadata = {
+            **entry.metadata,
+            INSTINCT_METADATA_KEY: {**marker, "original_confidence": original},
+        }
         confidence = marker.get("confidence")
         if marker.get("uncertain") and confidence is not None:
             entry.confidence = min(entry.confidence, max(0.0, min(1.0, confidence)))
+            self._uncertain_marked.add(entry.id)
 
     def _stamp_episodic_instinct(self, episodic_id: str, marker: dict | None) -> None:
         if marker is None:
@@ -1184,6 +1220,7 @@ class MemoryManager:
         # no deciders attached the chain's fallback is the original cognitive
         # path, so results are identical to the pre-instinct pipeline.
         decider, raw_decider = self._decision_chains()
+        self._uncertain_marked = set()
 
         # --- 1. Detect sentiment ---
         somatic = (await decider.sentiment(interaction.user_input)).value
@@ -1445,7 +1482,7 @@ class MemoryManager:
             result["instinct"] = {
                 "significance_source": sig_decision.source,
                 "significance_confidence": sig_decision.confidence,
-                "uncertain": len(self.instinct_entries()),
+                "uncertain": len(self._uncertain_marked),
             }
         return result
 

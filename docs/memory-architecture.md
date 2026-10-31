@@ -5,6 +5,8 @@
      extraction taxonomy, dedup pipeline, abstract generation.
      v0.2.5 additions: memory visibility tiers (PUBLIC/BONDED/PRIVATE),
      contradiction pipeline with ContradictionDetector in observe(),
+     Soul Instinct (feat/soul-instinct, #322): observe() decisions go through
+     a DeciderChain; older soul-protocol drops the instinct block on re-save.
      Long Context Memory (LCM) with ContextStore and 3-level compaction,
      real embedding providers (SentenceTransformer, OpenAI, Ollama).
      v0.2.9 additions: archival memory wiring (auto-compress old episodics),
@@ -337,6 +339,8 @@ Visibility is persisted in the `.soul` file and survives export/import round-tri
 ## Psychology Pipeline (observe())
 
 The `observe()` method runs five psychology-informed steps on every interaction. The pipeline is routed through `CognitiveProcessor`, which delegates to either an LLM (`CognitiveEngine`) or built-in heuristics (`HeuristicEngine`).
+
+**Soul Instinct:** `observe()` now asks its four decisions (sentiment, significance, dedup, contradiction) through a `DeciderChain`. Attached model deciders answer first and are used only when confident; otherwise the chain falls back to the path described below, so a soul without deciders behaves exactly as before. Contradiction answers from a decider are merged with the heuristic findings, never used instead of them. Its settings and learned calibration are saved as `SoulConfig.instinct`. An older soul-protocol ignores that block and drops it, calibration included, if it re-saves a newer soul. See [Soul Instinct](soul-instinct.md).
 
 ### Step 1: Sentiment Detection (Damasio's Somatic Marker Hypothesis)
 

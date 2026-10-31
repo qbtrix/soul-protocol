@@ -2,6 +2,9 @@
 # Created: feat/soul-instinct — Covers: confident answers accepted, unsure /
 #   abstaining / crashing / unsupported deciders skipped, ordering, the heuristic
 #   fallback, custom fallbacks, typed helpers, and request validation.
+# Updated: feat/soul-instinct (#322 review) — A confident contradiction answer is
+#   merged with the heuristic findings instead of replacing them; covers the merge,
+#   the "merged" attempt, no-op when the rules agree, and the opt-out flag.
 
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ from soul_protocol.runtime.decide import (
     Decision,
     DecisionKind,
     DecisionRequest,
+    DedupVerdict,
     HeuristicDecider,
 )
 from soul_protocol.runtime.types import Interaction, MemoryEntry, MemoryType
@@ -133,15 +137,65 @@ async def test_first_confident_decider_wins(memories):
     assert (unsure.calls, sure.calls, never.calls) == (1, 1, 0)
 
 
-async def test_confident_no_contradiction_is_respected(memories):
-    """A confident 'no findings' answer is accepted, not overridden by rules."""
-    fake = FakeDecider(confidence=0.95, flag_id=None)
+async def test_confident_no_contradiction_keeps_rule_findings(memories):
+    """A confident 'no findings' answer can't switch the negation rules off."""
+    fake = FakeDecider(confidence=1.0, flag_id=None)
     decision = await DeciderChain([fake]).contradictions(
-        "User dislikes steak",  # heuristic negation rules would flag this
+        "User dislikes steak",  # heuristic negation rules flag this
         memories,
     )
     assert decision.source == "fake"
+    assert [f.old_memory_id for f in decision.value.findings] == ["old1"]
+    assert [a.outcome for a in decision.attempts] == ["accepted", "merged"]
+    merged = decision.attempts[1]
+    assert merged.source == "heuristic"
+    assert [f["old_memory_id"] for f in merged.value["findings"]] == ["old1"]
+    # The decider's own verdict is still on record, unchanged.
+    assert decision.attempts[0].value == {"findings": []}
+
+
+async def test_merge_keeps_decider_finding_when_rules_agree(memories):
+    fake = FakeDecider(confidence=0.95, flag_id="old1")
+    decision = await DeciderChain([fake]).contradictions("User dislikes steak", memories)
+    assert [f.old_memory_id for f in decision.value.findings] == ["old1"]
+    assert decision.value.findings[0].confidence == 0.95  # the decider's, not the rules'
+    assert [a.outcome for a in decision.attempts] == ["accepted"]
+
+
+async def test_merge_is_a_no_op_when_rules_find_nothing(memories):
+    fake = FakeDecider(confidence=0.95, flag_id=None)
+    decision = await DeciderChain([fake]).contradictions("User likes cricket", memories)
     assert decision.value.findings == []
+    assert [a.outcome for a in decision.attempts] == ["accepted"]
+
+
+async def test_merge_can_be_turned_off(memories):
+    fake = FakeDecider(confidence=0.95, flag_id=None)
+    chain = DeciderChain([fake], merge_contradiction_rules=False)
+    decision = await chain.contradictions("User dislikes steak", memories)
+    assert decision.source == "fake"
+    assert decision.value.findings == []
+
+
+async def test_merge_only_applies_to_contradiction(memories):
+    """Dedup answers still replace the rules (only contradiction is merged)."""
+
+    class SureDedup:
+        name = "sure-dedup"
+
+        def supports(self, kind):
+            return kind == DecisionKind.DEDUP
+
+        async def decide(self, request):
+            return Decision(
+                kind=DecisionKind.DEDUP,
+                value=DedupVerdict(action="CREATE"),
+                confidence=0.99,
+                source=self.name,
+            )
+
+    decision = await DeciderChain([SureDedup()]).dedup("User loves steak", memories)
+    assert decision.value.action == "CREATE"  # rules alone would say SKIP
 
 
 async def test_empty_chain_behaves_like_heuristic(memories):

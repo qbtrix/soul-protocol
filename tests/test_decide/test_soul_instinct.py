@@ -3,6 +3,11 @@
 #   marking, crash/abstain fallbacks, review_instincts() restoring and applying
 #   contradictions, calibration learning, persistence through export/awaken, the
 #   dream() review hook, personality modulation, and the read-only decide() API.
+# Updated: feat/soul-instinct (#322 review) — A confident "no contradiction" no
+#   longer switches the rules off (the reviewer's steak repro); rule-only
+#   supersedes are left uncertain. Review restores the memory's original
+#   confidence instead of writing the reviewer's. observe() reports only the
+#   uncertain markers it stamped.
 
 from __future__ import annotations
 
@@ -114,6 +119,40 @@ class TestObservePipeline:
         assert marker["applied"] is False
         assert [e.id for e in soul.uncertain_memories()] == [steak_id]
 
+    async def test_confident_no_contradiction_keeps_rule_supersede(self):
+        """Reviewer's repro: rules alone supersede "loves steak" on "dislikes steak".
+
+        A decider that confidently answers "nothing contradicts" must not turn
+        that off, and the disagreement must be left for review.
+        """
+        plain = await Soul.birth("Plain")
+        blind = KeywordContradictionDecider("blind", confidence=1.0, trigger="no-such-trigger")
+        smart = await Soul.birth("Smart", deciders=[blind])
+        ids = {}
+        for soul in (plain, smart):
+            ids[soul.name] = await soul.remember("User loves steak")
+            await soul.observe(Interaction.from_pair("User dislikes steak", "Noted"))
+
+        assert _fact(plain, ids["Plain"]).superseded
+        steak = _fact(smart, ids["Smart"])
+        assert steak.superseded
+        assert blind.calls > 0
+        marker = steak.metadata[INSTINCT_METADATA_KEY]
+        assert marker["source"] == "blind"
+        assert marker["uncertain"] is True
+        assert marker["model_verdict"] is False
+        assert marker["applied"] is True
+        assert [e.id for e in smart.uncertain_memories()] == [steak.id]
+
+    async def test_observe_reports_uncertain_marked_in_this_call(self):
+        soul = await Soul.birth("Count", deciders=[KeywordContradictionDecider(confidence=0.4)])
+        await soul.remember("User loves steak")
+        first = await soul._memory.observe(Interaction.from_pair("I'm vegetarian now", "ok"))
+        second = await soul._memory.observe(Interaction.from_pair("Nice weather", "Yes"))
+        assert first["instinct"]["uncertain"] == 1
+        assert second["instinct"]["uncertain"] == 0  # not a running total
+        assert len(soul.uncertain_memories()) == 1
+
     async def test_crashing_decider_never_breaks_observe(self):
         broken = KeywordContradictionDecider(error=ConnectionError("API down"))
         soul = await Soul.birth("Resilient", deciders=[broken])
@@ -148,7 +187,11 @@ class TestReview:
     async def test_review_applies_missed_contradiction_and_learns(self):
         soul = await Soul.birth("Learner", deciders=[KeywordContradictionDecider(confidence=0.4)])
         steak_id = await soul.remember("User loves steak")
+        _fact(soul, steak_id).confidence = 0.8
         await soul.observe(Interaction.from_pair("I'm vegetarian now", "Got it!"))
+        marker = _fact(soul, steak_id).metadata[INSTINCT_METADATA_KEY]
+        assert _fact(soul, steak_id).confidence == pytest.approx(0.4)
+        assert marker["original_confidence"] == 0.8
 
         report = await soul.review_instincts(
             reviewer=_reviewer_decider(contradicted=True, confidence=0.92)
@@ -157,9 +200,11 @@ class TestReview:
         assert (report.reviewed, report.corrected, report.superseded) == (1, 1, 1)
         steak = _fact(soul, steak_id)
         assert steak.superseded
-        assert steak.confidence == 0.92
+        # The memory's own confidence comes back; the reviewer's stays in the marker.
+        assert steak.confidence == 0.8
         assert steak.metadata[INSTINCT_METADATA_KEY]["uncertain"] is False
         assert steak.metadata[INSTINCT_METADATA_KEY]["reviewed"]["by"] == "llm"
+        assert steak.metadata[INSTINCT_METADATA_KEY]["reviewed"]["confidence"] == 0.92
         assert soul.uncertain_memories() == []
         # The unsure model was right → its 0.4-band answers are trusted more.
         cal = soul.instinct.calibration
@@ -180,6 +225,9 @@ class TestReview:
         restored = _fact(soul, steak_id)
         assert not restored.superseded
         assert restored.superseded_by is None
+        assert (
+            restored.confidence == restored.metadata[INSTINCT_METADATA_KEY]["original_confidence"]
+        )
         # The model said "contradiction" and the reviewer disagreed → wrong.
         assert soul.instinct.calibration.accuracy("keyword", "contradiction") == 0.0
 
@@ -364,3 +412,27 @@ class TestUserAliases:
         path = tmp_path / "alias.soul"
         await soul.export(str(path))
         assert (await Soul.awaken(str(path))).instinct.settings.user_aliases == ["Shekhar"]
+
+
+class TestOriginalConfidence:
+    def _manager_and_entry(self, confidence: float):
+        from soul_protocol.runtime.memory.manager import MemoryManager
+        from soul_protocol.runtime.types import CoreMemory, MemorySettings, MemoryType
+
+        manager = MemoryManager(core=CoreMemory(), settings=MemorySettings())
+        entry = MemoryEntry(type=MemoryType.SEMANTIC, content="User loves steak")
+        entry.confidence = confidence
+        return manager, entry
+
+    def test_second_marker_keeps_first_original(self):
+        manager, entry = self._manager_and_entry(0.9)
+        manager._stamp_instinct(entry, {"uncertain": True, "confidence": 0.5})
+        manager._stamp_instinct(entry, {"uncertain": True, "confidence": 0.3})
+        assert entry.confidence == 0.3
+        assert entry.metadata[INSTINCT_METADATA_KEY]["original_confidence"] == 0.9
+
+    def test_confident_marker_leaves_confidence_alone(self):
+        manager, entry = self._manager_and_entry(0.9)
+        manager._stamp_instinct(entry, {"uncertain": False, "confidence": 0.2})
+        assert entry.confidence == 0.9
+        assert entry.metadata[INSTINCT_METADATA_KEY]["original_confidence"] == 0.9

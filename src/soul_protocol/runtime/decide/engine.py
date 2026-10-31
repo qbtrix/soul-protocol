@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from soul_protocol.runtime.cognitive.engine import _parse_json
+from soul_protocol.runtime.cognitive.engine import parse_json
 from soul_protocol.runtime.decide.candidates import select_candidates
 from soul_protocol.runtime.decide.types import (
     ContradictionFinding,
@@ -28,7 +28,7 @@ from soul_protocol.runtime.memory.attention import (
     is_significant,
     overall_significance,
 )
-from soul_protocol.runtime.memory.rerank import _sanitize_for_prompt
+from soul_protocol.runtime.memory.rerank import sanitize_for_prompt
 from soul_protocol.runtime.memory.search import tokenize
 from soul_protocol.runtime.types import SignificanceScore
 
@@ -130,12 +130,10 @@ class EngineDecider:
                 reason="no live memories to compare",
             )
         old = "\n".join(
-            f"[{i + 1}] {_sanitize_for_prompt(e.content)}" for i, e in enumerate(candidates)
+            f"[{i + 1}] {sanitize_for_prompt(e.content)}" for i, e in enumerate(candidates)
         )
-        prompt = _CONTRADICTION_PROMPT.format(
-            new=_sanitize_for_prompt(request.new_content), old=old
-        )
-        answer = _ContradictionAnswer.model_validate(_parse_json(await self._engine.think(prompt)))
+        prompt = _CONTRADICTION_PROMPT.format(new=sanitize_for_prompt(request.new_content), old=old)
+        answer = _ContradictionAnswer.model_validate(parse_json(await self._engine.think(prompt)))
 
         findings: list[ContradictionFinding] = []
         seen: set[int] = set()
@@ -162,13 +160,13 @@ class EngineDecider:
         prompt = _SIGNIFICANCE_PROMPT.format(
             values=", ".join(request.core_values) or "none specified",
             recent="\n".join(
-                f"- {_sanitize_for_prompt(r, 100)}" for r in request.recent_contents[-5:]
+                f"- {sanitize_for_prompt(r, 100)}" for r in request.recent_contents[-5:]
             )
             or "none",
-            user=_sanitize_for_prompt(interaction.user_input, 1000),
-            agent=_sanitize_for_prompt(interaction.agent_output, 1000),
+            user=sanitize_for_prompt(interaction.user_input, 1000),
+            agent=sanitize_for_prompt(interaction.agent_output, 1000),
         )
-        answer = _SignificanceAnswer.model_validate(_parse_json(await self._engine.think(prompt)))
+        answer = _SignificanceAnswer.model_validate(parse_json(await self._engine.think(prompt)))
         score = SignificanceScore(
             novelty=answer.novelty,
             emotional_intensity=answer.emotional_intensity,

@@ -7,6 +7,10 @@
 #     - significance: the verdict is recorded (memories are never deleted here).
 #   Each review is also a lesson: whether the unsure model was right is recorded in
 #   the soul's InstinctCalibration, so that decider's future confidence is adjusted.
+# Updated: feat/soul-instinct (#322 review) — Review no longer overwrites the
+#   memory's own confidence with the reviewer's. Once reviewed, the memory gets
+#   back the original_confidence saved in its marker before instinct lowered it;
+#   the reviewer's confidence stays in marker["reviewed"].
 
 from __future__ import annotations
 
@@ -125,7 +129,12 @@ async def review_instincts(
                 "reviewed": {"by": reviewer.name, "verdict": truth, "confidence": confidence},
             },
         }
-        entry.confidence = confidence if confidence is not None else 1.0
+        # The uncertainty is resolved: restore the confidence the memory had
+        # before instinct lowered it. The reviewer's own confidence is kept in
+        # marker["reviewed"]; it says how sure the reviewer is, not the memory.
+        original = marker.get("original_confidence")
+        if original is not None:
+            entry.confidence = original
     return report
 
 

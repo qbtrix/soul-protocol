@@ -2,7 +2,7 @@
 # Created: feat/soul-instinct — Every decision the memory pipeline makes (is this
 #   significant? what mood? does it contradict? is it a duplicate?) gets one typed
 #   request model and one typed verdict model, so any backend (heuristic rules, a
-#   local classifier, a hosted decision model such as Jev, or an LLM) can answer
+#   local classifier, a hosted decision model, or an LLM) can answer
 #   the same question in the same shape. ``Decision`` wraps the verdict with the
 #   backend's confidence and name so callers can gate on confidence.
 
@@ -110,7 +110,7 @@ class DedupVerdict(BaseModel):
 
 V = TypeVar("V", SignificanceVerdict, SomaticMarker, ContradictionVerdict, DedupVerdict)
 
-AttemptOutcome = Literal["accepted", "unsure", "abstained", "error"]
+AttemptOutcome = Literal["accepted", "unsure", "abstained", "error", "merged"]
 
 
 class DecisionAttempt(BaseModel):
@@ -119,7 +119,9 @@ class DecisionAttempt(BaseModel):
     Attributes:
         source: Decider name.
         outcome: ``accepted`` (answer used), ``unsure`` (answered below the
-            confidence bar), ``abstained`` (returned None) or ``error`` (raised).
+            confidence bar), ``abstained`` (returned None), ``error`` (raised)
+            or ``merged`` (contradiction rules whose extra findings were added
+            to an accepted answer; ``value`` holds only those extra findings).
         confidence: The decider's raw confidence, if it answered.
         effective_confidence: Confidence after per-soul calibration.
         value: The decider's verdict as a plain dict, if it answered. Kept
@@ -146,7 +148,8 @@ class Decision(BaseModel, Generic[V]):
         source: Name of the decider that produced the answer.
         reason: Optional short human-readable explanation.
         attempts: Set by DeciderChain — every non-fallback decider consulted
-            before this answer, in order.
+            before this answer, in order, plus a ``merged`` entry when the
+            contradiction rules added findings to an accepted answer.
     """
 
     kind: DecisionKind

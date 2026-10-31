@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from soul_protocol.runtime.memory.dedup import _jaccard_similarity
+from soul_protocol.runtime.memory.dedup import jaccard_similarity
 from soul_protocol.runtime.types import MemoryEntry
 
 DEFAULT_MAX_CANDIDATES: int = 20
@@ -26,7 +26,7 @@ def select_candidates(
         if not e.superseded and e.superseded_by is None and e.content.strip() != new_content.strip()
     ]
     live.sort(
-        key=lambda e: (_jaccard_similarity(new_content, e.content), e.created_at),
+        key=lambda e: (jaccard_similarity(new_content, e.content), e.created_at),
         reverse=True,
     )
     return live[:max_candidates]

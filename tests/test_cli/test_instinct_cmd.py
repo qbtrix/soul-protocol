@@ -2,6 +2,8 @@
 # Created: feat/soul-instinct — Path resolution (explicit, nested `soul save`
 #   layout, auto-detect in the current folder, ambiguous/missing) and command
 #   registration. The model-backed run itself is covered by the live NLI tests.
+# Updated: feat/soul-instinct (#322 review) — _quiet_model_loading() restores the
+#   env vars, warnings filter and log level it changed.
 
 from __future__ import annotations
 
@@ -9,7 +11,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from soul_protocol.cli.instinct_cmd import _find_soul
+from soul_protocol.cli.instinct_cmd import _find_soul, _quiet_model_loading
 from soul_protocol.cli.main import cli
 
 
@@ -59,3 +61,25 @@ def test_command_is_registered():
     result = CliRunner().invoke(cli, ["instinct", "--help"])
     assert result.exit_code == 0
     assert "read-only" in result.output
+
+
+def test_quiet_model_loading_restores_process_state(monkeypatch):
+    import logging
+    import os
+    import warnings
+
+    monkeypatch.delenv("TRANSFORMERS_VERBOSITY", raising=False)
+    monkeypatch.setenv("TOKENIZERS_PARALLELISM", "true")
+    soul_logger = logging.getLogger("soul_protocol")
+    level_before = soul_logger.level
+    filters_before = list(warnings.filters)
+
+    with _quiet_model_loading():
+        assert os.environ["TRANSFORMERS_VERBOSITY"] == "error"
+        assert os.environ["TOKENIZERS_PARALLELISM"] == "true"  # setdefault: user value kept
+        assert soul_logger.level == logging.ERROR
+
+    assert "TRANSFORMERS_VERBOSITY" not in os.environ
+    assert os.environ["TOKENIZERS_PARALLELISM"] == "true"
+    assert soul_logger.level == level_before
+    assert warnings.filters == filters_before

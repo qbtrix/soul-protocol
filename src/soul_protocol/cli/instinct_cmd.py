@@ -5,6 +5,10 @@
 #   after the one-time model load is instant. Never saves the soul.
 #   Finds the soul automatically when run inside a folder holding one, and
 #   accepts the nested ``name.soul/<did>/`` layout that ``soul save`` produces.
+# Updated: feat/soul-instinct (#322 review) — Model-loading quieting is a context
+#   manager now: HF env vars, the warnings filter and the log level are restored
+#   when the command ends instead of leaking into the process. The first run
+#   prints a one-line notice with the download size before fetching the models.
 
 from __future__ import annotations
 
@@ -13,6 +17,8 @@ import logging
 import os
 import time
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import click
@@ -21,6 +27,13 @@ from rich.console import Console
 console = Console()
 
 _NLI_MODELS = ("cross-encoder--nli-deberta-v3-xsmall", "sentence-transformers--all-MiniLM-L6-v2")
+# Combined download size of _NLI_MODELS (weights + tokenizers, measured).
+_NLI_DOWNLOAD_SIZE = "about 380 MB"
+_QUIET_ENV = {
+    "TRANSFORMERS_VERBOSITY": "error",
+    "HF_HUB_DISABLE_PROGRESS_BARS": "1",
+    "TOKENIZERS_PARALLELISM": "false",
+}
 
 
 def _find_soul(path: str | None) -> Path:
@@ -47,16 +60,46 @@ def _find_soul(path: str | None) -> Path:
     return target
 
 
-def _quiet_model_loading() -> None:
-    """Hide model-loading noise and skip network checks when models are cached."""
-    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-    hub = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
-    if all((hub / f"models--{m}").exists() for m in _NLI_MODELS):
-        os.environ.setdefault("HF_HUB_OFFLINE", "1")
-    warnings.filterwarnings("ignore")
-    logging.getLogger("soul_protocol").setLevel(logging.ERROR)
+def _hf_hub() -> Path:
+    return Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
+
+
+def _models_cached() -> bool:
+    hub = _hf_hub()
+    return all((hub / f"models--{m}").exists() for m in _NLI_MODELS)
+
+
+@contextmanager
+def _quiet_model_loading() -> Iterator[None]:
+    """Hide model-loading noise and skip network checks when models are cached.
+
+    The env vars, warnings filter and soul_protocol log level it changes are
+    put back on exit, so code running the command in-process is not affected.
+    """
+    env = dict(_QUIET_ENV)
+    if _models_cached():
+        env["HF_HUB_OFFLINE"] = "1"
+    saved_env = {key: os.environ.get(key) for key in env}
+    for key, value in env.items():
+        os.environ.setdefault(key, value)
+    soul_logger = logging.getLogger("soul_protocol")
+    saved_level = soul_logger.level
+    soul_logger.setLevel(logging.ERROR)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            yield
+    finally:
+        soul_logger.setLevel(saved_level)
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _quiet_transformers() -> None:
+    """Silence transformers' own logger; call once sentence_transformers is imported."""
     try:
         from transformers.utils import logging as hf_logging
 
@@ -108,17 +151,23 @@ def register(cli):
           soul instinct shekhar.soul
           soul instinct shekhar.soul -m "I hate dosa now"
         """
-        _quiet_model_loading()  # before any ML import: env vars are read at import time
-        try:
-            import sentence_transformers  # noqa: F401
-        except ImportError:
-            console.print(
-                "[red]Error:[/red] Soul Instinct's local AI is not installed.\n"
-                "Install it with: [cyan]pip install 'soul-protocol[embeddings-st]'[/cyan]"
-            )
-            raise SystemExit(1) from None
-
-        asyncio.run(_run(_find_soul(path), list(messages), list(aliases), password))
+        # Entered before any ML import: the env vars are read at import time.
+        with _quiet_model_loading():
+            try:
+                import sentence_transformers  # noqa: F401
+            except ImportError:
+                console.print(
+                    "[red]Error:[/red] Soul Instinct's local AI is not installed.\n"
+                    "Install it with: [cyan]pip install 'soul-protocol[embeddings-st]'[/cyan]"
+                )
+                raise SystemExit(1) from None
+            _quiet_transformers()
+            if not _models_cached():
+                console.print(
+                    f"[yellow]First run:[/yellow] downloading the local AI models "
+                    f"({_NLI_DOWNLOAD_SIZE}) to {_hf_hub()}. Later runs work offline."
+                )
+            asyncio.run(_run(_find_soul(path), list(messages), list(aliases), password))
 
 
 async def _run(path: Path, messages: list[str], aliases: list[str], password: str | None) -> None:
