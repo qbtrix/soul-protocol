@@ -437,6 +437,19 @@ SOUL_PATH=aria.soul soul-mcp
 
 ---
 
+## Soul Dashboard
+
+```bash
+pip install soul-protocol[gateway]
+SOUL_PATH=aria.soul soul-api        # or SOUL_DIR=./souls (loads the first soul found)
+```
+
+Open <http://127.0.0.1:8000/dashboard> to browse the soul's memories, personality, skills, evolution, and trust chain. The same server exposes read-only `/api/*` JSON endpoints, `/remember`, `/recall`, `/observe`, and an OpenAI-compatible `/v1/chat/completions` proxy (configured via `SOUL_LLM_BASE_URL`, `SOUL_LLM_API_KEY`, `SOUL_LLM_MODEL`).
+
+`soul-api` binds to `127.0.0.1:8000` and has **no authentication**. Anyone who can reach the port can read and write the soul, so don't expose it on a public interface.
+
+---
+
 ## Comparison
 
 **vs Mem0**: Mem0 does vector retrieval. Soul Protocol adds identity, personality, significance gating, emotional memory, and a portable file format. In head-to-head benchmarks, Soul Protocol scored 8.5 vs. Mem0's 6.0 overall, with the largest gap in emotional continuity (9.2 vs. 7.0).

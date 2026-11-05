@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Soul Dashboard + gateway server (#317)
+
+- **New:** `soul_protocol.gateway` — a Starlette app that serves a personal Soul Dashboard at `/dashboard` (Overview, Memory, Personality, Skills, Evolution, Communication tabs) backed by read-only `/api/*` JSON endpoints, plus `/privacy` and `/terms` pages. Binds to `127.0.0.1` by default; there is no built-in auth.
+- **New:** REST write endpoints (`/remember`, `/recall`, `/observe`, `/turn`) and an OpenAI-compatible `/v1/chat/completions` proxy that auto-recalls memories and forwards to `SOUL_LLM_BASE_URL`. POST bodies must be `application/json` (415 otherwise) so cross-site `text/plain` requests can't skip the CORS preflight.
+- **New:** `gateway` extra (`pip install soul-protocol[gateway]`) and a `soul-api` console script.
+
 ### Game profile ships mechanisms; demo defaults move to `examples/game`
 
 Breaking for `soul_protocol.profiles.game` callers:
