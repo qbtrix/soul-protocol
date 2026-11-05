@@ -156,6 +156,25 @@
       "title": "BondTarget",
       "type": "object"
     },
+    "CalibrationBin": {
+      "description": "Review outcomes for decisions made at one confidence band.",
+      "properties": {
+        "correct": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Correct",
+          "type": "integer"
+        },
+        "total": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "title": "CalibrationBin",
+      "type": "object"
+    },
     "CommunicationStyle": {
       "description": "How the soul communicates.",
       "properties": {
@@ -357,6 +376,67 @@
         "name"
       ],
       "title": "Identity",
+      "type": "object"
+    },
+    "InstinctCalibration": {
+      "description": "Learned reliability of each decider, keyed ``\"<source>:<kind>\"``.\n\nEvery reviewed decision lands in one of ``CALIBRATION_BINS`` confidence\nbands. The calibrated confidence for a band is its observed accuracy,\nsmoothed toward the raw confidence by ``CALIBRATION_PRIOR_STRENGTH``.",
+      "properties": {
+        "sources": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/CalibrationBin"
+            },
+            "type": "array"
+          },
+          "title": "Sources",
+          "type": "object"
+        }
+      },
+      "title": "InstinctCalibration",
+      "type": "object"
+    },
+    "InstinctSettings": {
+      "description": "Per-soul settings for the Soul Instinct decision layer.\n\nOnly take effect when model-backed deciders are attached to the soul;\na soul without deciders behaves exactly as before.",
+      "properties": {
+        "min_confidence": {
+          "default": 0.7,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Min Confidence",
+          "type": "number"
+        },
+        "personality_modulation": {
+          "default": false,
+          "title": "Personality Modulation",
+          "type": "boolean"
+        },
+        "review_during_dream": {
+          "default": true,
+          "title": "Review During Dream",
+          "type": "boolean"
+        },
+        "user_aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "User Aliases",
+          "type": "array"
+        }
+      },
+      "title": "InstinctSettings",
+      "type": "object"
+    },
+    "InstinctState": {
+      "description": "Soul Instinct state persisted inside the .soul file.",
+      "properties": {
+        "settings": {
+          "$ref": "#/$defs/InstinctSettings"
+        },
+        "calibration": {
+          "$ref": "#/$defs/InstinctCalibration"
+        }
+      },
+      "title": "InstinctState",
       "type": "object"
     },
     "LifecycleState": {
@@ -667,6 +747,9 @@
           },
           "title": "Bonds Per User",
           "type": "object"
+        },
+        "instinct": {
+          "$ref": "#/$defs/InstinctState"
         }
       },
       "required": [

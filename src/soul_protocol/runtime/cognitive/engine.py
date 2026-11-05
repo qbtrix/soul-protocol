@@ -238,6 +238,10 @@ def _parse_json(text: str) -> dict | list:
     raise json.JSONDecodeError("No valid JSON found", text, 0)
 
 
+# Public name for callers outside this module (e.g. runtime.decide).
+parse_json = _parse_json
+
+
 def _clamp(value: float, low: float, high: float) -> float:
     """Clamp a value between low and high."""
     return max(low, min(high, float(value)))

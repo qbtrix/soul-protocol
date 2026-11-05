@@ -213,10 +213,10 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from soul_protocol.spec.learning import LearningEvent
 from soul_protocol.spec.trace import RetrievalTrace, TraceCandidate
@@ -263,6 +263,12 @@ from .types import (
     SoulConfig,
     SoulState,
 )
+
+if TYPE_CHECKING:
+    from .decide.protocol import Decider
+    from .decide.review import InstinctReviewReport
+    from .decide.types import Decision, DecisionKind
+    from .types import InstinctState
 
 logger = logging.getLogger(__name__)
 
@@ -494,6 +500,7 @@ class Soul:
         use_dspy: bool = False,
         dspy_model: str | None = None,
         dspy_optimized_path: str | None = None,
+        deciders: Sequence[Decider] | None = None,
     ) -> None:
         self._config = config
         self._identity = config.identity
@@ -528,6 +535,11 @@ class Soul:
             personality=config.dna.personality,
             dspy_processor=self._dspy_processor,
         )
+        # Soul Instinct — deciders are runtime-only (like the engine); the
+        # settings and learned calibration persist in the .soul file.
+        self._instinct: InstinctState = config.instinct
+        self._deciders: list[Decider] = list(deciders or [])
+        self._memory.set_instinct(self._deciders, self._instinct)
         self._state = StateManager(config.state, biorhythms=config.dna.biorhythms)
         self._evolution = EvolutionManager(config.evolution)
         # Restore skills from config (persisted since v0.2.7)
@@ -844,6 +856,8 @@ class Soul:
         dspy_optimized_path: str | None = None,
         # F4 — Eternal storage
         eternal: EternalStorageManager | None = None,
+        # Soul Instinct — model-backed deciders (local NLI, Jev, LLM...)
+        deciders: Sequence[Decider] | None = None,
         **kwargs,
     ) -> Soul:
         """Birth a new Soul.
@@ -876,6 +890,7 @@ class Soul:
                 Falls back silently to heuristic if dspy is not available.
             dspy_model: DSPy-compatible LM model string (default: claude-haiku-4-5).
             dspy_optimized_path: Path to pre-optimized DSPy module weights.
+            deciders: Optional Soul Instinct deciders (see ``Soul.use_deciders``).
             **kwargs: Additional arguments reserved for future use. Ignored with
                 a warning so typoed configuration arguments are visible without
                 breaking forward compatibility.
@@ -936,6 +951,7 @@ class Soul:
             use_dspy=use_dspy,
             dspy_model=dspy_model,
             dspy_optimized_path=dspy_optimized_path,
+            deciders=deciders,
         )
 
         # Initialize core memory
@@ -955,6 +971,7 @@ class Soul:
         cls,
         config_path: str | Path,
         engine: CognitiveEngine | Callable | str | None = None,
+        deciders: Sequence[Decider] | None = None,
     ) -> Soul:
         """Birth a soul from a YAML/JSON config file.
 
@@ -964,6 +981,7 @@ class Soul:
         Args:
             config_path: Path to a .yaml/.yml/.json file with soul parameters.
             engine: Optional CognitiveEngine for LLM-enhanced cognition.
+            deciders: Optional Soul Instinct deciders (see ``Soul.use_deciders``).
 
         Returns:
             A newly birthed Soul configured from the file.
@@ -995,6 +1013,7 @@ class Soul:
         logger.info("Birthing soul from config: %s", path)
         return await cls.birth(
             engine=engine,
+            deciders=deciders,
             **data,
         )
 
@@ -1044,9 +1063,11 @@ class Soul:
             core_memory=old_soul.get_core_memory().model_copy(),
             evolution=old_soul._evolution.config.model_copy(deep=True),
             lifecycle=LifecycleState.ACTIVE,
+            # Learned decider calibration carries over, like memories do.
+            instinct=old_soul.instinct.model_copy(deep=True),
         )
 
-        soul = cls(config)
+        soul = cls(config, deciders=old_soul.deciders)
 
         # Carry forward memories from the old soul
         memory_data = old_soul._memory.to_dict()
@@ -1057,6 +1078,7 @@ class Soul:
                 core_values=config.identity.core_values,
                 personality=config.dna.personality,
             )
+            soul._memory.set_instinct(soul._deciders, soul._instinct)
 
         logger.info(
             "Soul reincarnated: name=%s, incarnation=%d, old_did=%s, new_did=%s",
@@ -1075,6 +1097,7 @@ class Soul:
         search_strategy: SearchStrategy | None = None,
         password: str | None = None,
         eternal: EternalStorageManager | None = None,
+        deciders: Sequence[Decider] | None = None,
     ) -> Soul:
         """Awaken a Soul from a .soul file, directory, soul.json, soul.yaml, or soul.md.
 
@@ -1084,6 +1107,8 @@ class Soul:
             engine: Optional CognitiveEngine for LLM-enhanced cognition.
             search_strategy: Optional SearchStrategy for pluggable retrieval (v0.2.2).
             password: Optional password for decrypting encrypted .soul archives.
+            deciders: Optional Soul Instinct deciders (see ``Soul.use_deciders``).
+                The learned calibration is restored from the file either way.
         """
         from .exceptions import (
             SoulCorruptError,
@@ -1143,6 +1168,7 @@ class Soul:
                         await soul_from_md(path.read_text()),
                         engine=engine,
                         search_strategy=search_strategy,
+                        deciders=deciders,
                     )
                 else:
                     raise ValueError(f"Unknown soul format: {path.suffix}")
@@ -1157,7 +1183,12 @@ class Soul:
                 raise SoulFileNotFoundError(str(path)) from e
 
         resolved_engine = _resolve_engine(engine)
-        soul = cls(config, engine=resolved_engine, search_strategy=search_strategy)
+        soul = cls(
+            config,
+            engine=resolved_engine,
+            search_strategy=search_strategy,
+            deciders=deciders,
+        )
         soul._lifecycle = LifecycleState.ACTIVE
 
         # If full memory data was included, replace the default memory manager
@@ -1170,6 +1201,7 @@ class Soul:
                 search_strategy=search_strategy,
                 personality=config.dna.personality,
             )
+            soul._memory.set_instinct(soul._deciders, soul._instinct)
 
         # v0.4.0 (#42) — Restore trust chain + keystore from the archive.
         # Legacy souls have no trust_chain entry, in which case the chain
@@ -2906,6 +2938,103 @@ class Soul:
             await self._memory.consolidate(result, soul_name=self.name)
         return result
 
+    # ============ Soul Instinct ============
+
+    @property
+    def deciders(self) -> list[Decider]:
+        """Model-backed deciders consulted before the soul's original decision path."""
+        return list(self._deciders)
+
+    @property
+    def instinct(self) -> InstinctState:
+        """Persisted Soul Instinct settings and learned decider calibration."""
+        return self._instinct
+
+    def use_deciders(self, deciders: Sequence[Decider]) -> None:
+        """Attach Soul Instinct deciders, most preferred first.
+
+        Every observe() decision (sentiment, significance, contradiction,
+        dedup) is offered to these deciders first; an answer is used only when
+        its calibrated confidence meets ``instinct.settings.min_confidence``.
+        Otherwise the soul's original path (LLM engine or heuristics) decides.
+        Pass an empty list to detach. Deciders are runtime-only and are not
+        saved; the learned calibration is.
+
+        Example::
+
+            from soul_protocol.runtime.decide.nli import NLIContradictionDecider
+            soul.use_deciders([NLIContradictionDecider()])
+        """
+        self._deciders = list(deciders)
+        self._memory.set_instinct(self._deciders, self._instinct)
+
+    def _default_reviewer(self) -> Decider | None:
+        """An LLM reviewer built from the soul's engine, or None without one."""
+        from .cognitive.engine import HeuristicEngine
+
+        if self._engine is None or isinstance(self._engine, HeuristicEngine):
+            return None
+        from .decide.engine import EngineDecider
+
+        return EngineDecider(self._engine)
+
+    async def decide(self, kind: DecisionKind | str, text: str) -> Decision:
+        """Ask the soul's instinct one question about ``text``. Read-only.
+
+        Args:
+            kind: ``"sentiment"``, ``"significance"``, ``"contradiction"`` or ``"dedup"``.
+            text: The statement to judge. Contradiction and dedup compare it
+                against the soul's current semantic facts.
+
+        Returns:
+            A typed Decision with the verdict, confidence, deciding source and
+            every decider consulted (``attempts``).
+        """
+        return await self._memory.decide(str(kind), text, self._identity.core_values)
+
+    def uncertain_memories(self) -> list[MemoryEntry]:
+        """Memories decided while a model decider was unsure and not yet reviewed."""
+        return self._memory.instinct_entries(uncertain_only=True)
+
+    async def review_instincts(
+        self,
+        reviewer: Decider | None = None,
+        *,
+        include_confident: bool = False,
+        limit: int = 50,
+    ) -> InstinctReviewReport:
+        """Re-check uncertain instinct decisions with a stronger reviewer.
+
+        Wrongly superseded memories are restored, missed contradictions are
+        applied, and each outcome updates the soul's calibration so the
+        deciders that were unsure are trusted more (or less) next time.
+
+        Args:
+            reviewer: Decider to treat as ground truth. Defaults to an
+                EngineDecider over the soul's LLM engine; with no engine
+                nothing is reviewed.
+            include_confident: Also review confident model decisions.
+            limit: Maximum memories reviewed in this pass.
+        """
+        from .decide.review import review_instincts
+
+        report = await review_instincts(
+            self._memory,
+            reviewer if reviewer is not None else self._default_reviewer(),
+            self._instinct.calibration,
+            core_values=self._identity.core_values,
+            include_confident=include_confident,
+            limit=limit,
+        )
+        logger.info(
+            "Instinct review: reviewed=%d corrected=%d restored=%d errors=%d",
+            report.reviewed,
+            report.corrected,
+            report.restored,
+            report.errors,
+        )
+        return report
+
     async def dream(
         self,
         *,
@@ -2915,6 +3044,7 @@ class Soul:
         consolidate_graph: bool = True,
         synthesize: bool = True,
         dry_run: bool = False,
+        review_instincts: bool | None = None,
     ) -> DreamReport:
         """Run an offline dream cycle — batch consolidation of accumulated memories.
 
@@ -2936,6 +3066,10 @@ class Soul:
                 no graph mutation, no new procedural memories. The returned
                 DreamReport shows what *would* happen so callers can preview
                 before committing.
+            review_instincts: Re-check uncertain Soul Instinct decisions with
+                the soul's LLM engine (see ``review_instincts()``). None (default)
+                follows ``instinct.settings.review_during_dream``. Skipped on
+                dry runs and when the soul has no LLM engine.
 
         Returns:
             DreamReport with all findings and actions taken (or the preview
@@ -2956,6 +3090,18 @@ class Soul:
             synthesize=synthesize,
             dry_run=dry_run,
         )
+
+        should_review = (
+            self._instinct.settings.review_during_dream
+            if review_instincts is None
+            else review_instincts
+        )
+        if should_review and not dry_run and self.uncertain_memories():
+            reviewer = self._default_reviewer()
+            if reviewer is not None:
+                review = await self.review_instincts(reviewer)
+                report.instinct_reviewed = review.reviewed
+                report.instinct_corrected = review.corrected
 
         logger.info(
             "Soul.dream() complete: episodes=%d, clusters=%d, procedures=%d",
@@ -3470,4 +3616,5 @@ class Soul:
             evaluation_history=[r.model_dump(mode="json") for r in self._evaluator._history],
             interaction_count=self._interaction_count,
             bonds_per_user=self._bonds.all_bonds(),
+            instinct=self._instinct,
         )

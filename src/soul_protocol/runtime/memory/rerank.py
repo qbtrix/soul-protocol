@@ -50,6 +50,9 @@ def _sanitize_for_prompt(text: str, max_len: int = 200) -> str:
     return t
 
 
+# Public name for callers outside this module (e.g. runtime.decide).
+sanitize_for_prompt = _sanitize_for_prompt
+
 _RERANK_PROMPT = """\
 You are reranking memories for a soul. Pick the {limit} most relevant to the context below.
 
