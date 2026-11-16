@@ -1,5 +1,7 @@
 # gateway/__init__.py - REST API gateway + OpenAI-compatible LLM proxy.
 # Exports: create_app(), run()
+# Updated: 2026-11-14 — run() passes the loaded soul's path to create_app so
+#   consent revokes and consented reads/writes are saved to disk.
 
 import asyncio
 import os
@@ -10,11 +12,9 @@ from soul_protocol.gateway.app import create_app
 __all__ = ["create_app", "run"]
 
 
-def _load_soul(path: str | None, directory: str | None):
-    from soul_protocol.runtime.soul import Soul
-
+def _resolve_soul_path(path: str | None, directory: str | None) -> str:
     if path:
-        return asyncio.run(Soul.awaken(path))
+        return path
     if not directory:
         raise RuntimeError("Set SOUL_PATH (or SOUL_DIR) to run soul-api")
     root = Path(directory)
@@ -27,7 +27,7 @@ def _load_soul(path: str | None, directory: str | None):
     )
     if not candidates:
         raise RuntimeError(f"No souls found in SOUL_DIR: {directory}")
-    return asyncio.run(Soul.awaken(str(candidates[0])))
+    return str(candidates[0])
 
 
 def run(
@@ -45,8 +45,11 @@ def run(
     """
     import uvicorn
 
-    soul = _load_soul(
+    from soul_protocol.runtime.soul import Soul
+
+    path = _resolve_soul_path(
         soul_path or os.environ.get("SOUL_PATH"),
         soul_dir or os.environ.get("SOUL_DIR"),
     )
-    uvicorn.run(create_app(soul), host=host, port=port)
+    soul = asyncio.run(Soul.awaken(path))
+    uvicorn.run(create_app(soul, soul_path=path), host=host, port=port)

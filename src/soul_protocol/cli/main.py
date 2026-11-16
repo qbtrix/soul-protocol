@@ -1,4 +1,5 @@
 # cli/main.py — Click CLI for the Soul Protocol (org + user groups + runtime commands)
+# Updated: 2026-11-14 — Registers the `soul consent` group (cli/consent.py).
 # Updated: 2026-08-04 (#294) — Wires `--password` flag into `soul export`,
 #   `soul inspect`, and `soul unpack` for AES-256-GCM encryption at rest.
 #   Password is prompt-only (is_flag=True) so it never leaks into shell history.
@@ -242,6 +243,11 @@ cli.add_command(_user_group)
 from soul_protocol.cli.journal import journal_group as _journal_group  # noqa: E402
 
 cli.add_command(_journal_group)
+
+# Consent passes — `soul consent {grant,list,revoke,log}`
+from soul_protocol.cli.consent import consent_group as _consent_group  # noqa: E402
+
+cli.add_command(_consent_group)
 
 # Soul diff command (#191)
 from soul_protocol.cli.diff import diff_cmd as _diff_cmd  # noqa: E402

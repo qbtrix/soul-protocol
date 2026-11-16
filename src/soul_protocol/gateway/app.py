@@ -4,6 +4,13 @@
 #   auto-recalls memories, injects them into the system prompt, forwards to an
 #   upstream LLM, and auto-observes the turn. Starlette + httpx keep it
 #   dependency-light (both already present as FastMCP transitive deps).
+# Updated: 2026-11-14 — Consent passes. /recall and /remember honour an
+#   ``X-Consent-Token`` header (403 with a reason when refused). New
+#   GET /api/consents (passes + access log + chain check) and POST
+#   /api/consents/revoke. With ``soul_path`` set, consent changes and
+#   consented reads/writes are saved to disk right away. Unknown-token
+#   denials record nothing and trigger no save. Password-encrypted .soul
+#   files are refused as soul_path (a save would write them unencrypted).
 # Updated: 2026-10-29 (#318 review) — POST bodies must be application/json
 #   (415 otherwise) so cross-site text/plain POSTs can't skip CORS preflight;
 #   non-integer importance/limit return 400 and /recall + /turn cap limit at
@@ -26,6 +33,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
+from ..runtime.exceptions import ConsentDeniedError, ConsentError
 from ..runtime.soul import Soul
 from ..runtime.types import Interaction, MemoryType
 from ._dashboard import DASHBOARD_HTML
@@ -191,6 +199,21 @@ def _handles_bad_request(handler):
     return wrapper
 
 
+def _is_encrypted_archive(path: str) -> bool:
+    """True when ``path`` is a .soul zip whose manifest says it is encrypted."""
+    import json
+    import zipfile
+
+    if not os.path.isfile(path):
+        return False
+    try:
+        with zipfile.ZipFile(path) as zf:
+            manifest = json.loads(zf.read("manifest.json"))
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+        return False
+    return bool(manifest.get("encrypted"))
+
+
 def _json(data: Any, status: int = 200) -> JSONResponse:
     return JSONResponse(data, status_code=status)
 
@@ -289,6 +312,7 @@ def create_app(
     llm_config: LLMProxyConfig | None = None,
     llm_client: httpx.AsyncClient | None = None,
     observe_mode: str = "fire_and_forget",
+    soul_path: str | None = None,
 ) -> Starlette:
     """Build a Starlette app exposing a Soul over REST + an OpenAI-compatible LLM proxy.
 
@@ -301,6 +325,9 @@ def create_app(
         llm_config: Upstream LLM config (defaults to ``LLMProxyConfig.from_env()``).
         llm_client: Optional ``httpx.AsyncClient`` (inject a mock transport in tests).
         observe_mode: ``"fire_and_forget"`` (default) or ``"await"`` for tests.
+        soul_path: Where the soul was loaded from. When set, consent changes
+            (revokes, consented reads/writes, denials) are saved there at once
+            so they survive a restart. When ``None`` they stay in memory.
 
     Usage::
 
@@ -308,8 +335,43 @@ def create_app(
         import uvicorn
         uvicorn.run(create_app(soul), host="127.0.0.1", port=8000)
     """
+    if soul_path and _is_encrypted_archive(soul_path):
+        raise ValueError(
+            "soul_path points to a password-encrypted .soul file. The gateway cannot "
+            "re-encrypt it on save, so it would be written unencrypted. Use a soul "
+            "directory or an unencrypted .soul file."
+        )
     config = llm_config or LLMProxyConfig.from_env()
     owns_client = llm_client is None
+    save_lock = asyncio.Lock()
+
+    async def persist_consent(error: ConsentError | None = None) -> None:
+        """Save the soul after a consent-related change (no-op without soul_path).
+
+        Nothing is saved for bad input or unknown tokens: neither records
+        anything, and saving on junk requests would let anyone force writes.
+        """
+        if not soul_path:
+            return
+        if error is not None and (
+            not isinstance(error, ConsentDeniedError) or error.reason == "unknown_token"
+        ):
+            return
+        async with save_lock:
+            if os.path.isdir(soul_path):
+                await soul.save_local(soul_path)
+            else:
+                # Keep the private key so the soul can still sign after a restart.
+                await soul.export(soul_path, include_keys=True)
+
+    def consent_token(request: Request) -> str | None:
+        token = request.headers.get("x-consent-token", "").strip()
+        return token or None
+
+    def consent_error(exc: ConsentError) -> JSONResponse:
+        if isinstance(exc, ConsentDeniedError):
+            return _json({"error": str(exc), "reason": exc.reason}, status=403)
+        return _json({"error": str(exc)}, status=400)
 
     @asynccontextmanager
     async def lifespan(app: Starlette):
@@ -348,6 +410,21 @@ def create_app(
         except ValueError:
             return _json({"error": f"invalid memory_type: {memory_type_name}"}, status=400)
         importance = _int_param(body.get("importance"), "importance", 5, 1, 10)
+        token = consent_token(request)
+        if token:
+            try:
+                memory_id = await soul.consent_session(token).remember(
+                    content,
+                    type=memory_type,
+                    importance=importance,
+                    emotion=_str_param(body.get("emotion"), "emotion"),
+                    domain=_str_param(body.get("domain"), "domain"),
+                )
+            except ConsentError as exc:
+                await persist_consent(exc)
+                return consent_error(exc)
+            await persist_consent()
+            return _json({"memory_id": memory_id, "soul": soul.name})
         memory_id = await soul.remember(
             content,
             type=memory_type,
@@ -363,6 +440,26 @@ def create_app(
         if not query:
             return _json({"error": "query is required"}, status=400)
         limit = _int_param(body.get("limit"), "limit", 5, 1, 200)
+        token = consent_token(request)
+        if token:
+            if body.get("user_id") is not None or body.get("layer") is not None:
+                return _json(
+                    {"error": "user_id and layer cannot be combined with a consent token"},
+                    status=400,
+                )
+            try:
+                results = await soul.consent_session(token).recall(
+                    query,
+                    limit=limit,
+                    domain=_str_param(body.get("domain"), "domain"),
+                )
+            except ConsentError as exc:
+                await persist_consent(exc)
+                return consent_error(exc)
+            await persist_consent()
+            return _json(
+                {"count": len(results), "soul": soul.name, "memories": _memories_payload(results)}
+            )
         results = await soul.recall(
             query,
             limit=limit,
@@ -657,6 +754,41 @@ def create_app(
             }
         )
 
+    async def api_consents(request: Request) -> JSONResponse:
+        limit = _int_param(request.query_params.get("limit"), "limit", 50, 1, 1000)
+        report = soul.verify_consent_log()
+        chain_ok, chain_failure = soul.verify_chain()
+        return _json(
+            {
+                "passes": [p.public_view() for p in soul.consent_passes(include_inactive=True)],
+                "events": [e.public_view() for e in soul.consent_events(limit=limit)],
+                "verification": {
+                    "chain_valid": chain_ok,
+                    "chain_failure": chain_failure,
+                    "total": report["total"],
+                    "verified": report["verified"],
+                    "unverified": report["unverified"],
+                    "missing": report["missing"],
+                    "ok": chain_ok and report["ok"],
+                },
+                "persisted": bool(soul_path),
+            }
+        )
+
+    async def api_consent_revoke(request: Request) -> JSONResponse:
+        body = await _body(request)
+        pass_id = _str_param(body.get("pass_id"), "pass_id")
+        if not pass_id:
+            return _json({"error": "pass_id is required"}, status=400)
+        try:
+            consent_pass = soul.revoke_consent(
+                pass_id, reason=_str_param(body.get("reason"), "reason", "") or ""
+            )
+        except ConsentError as exc:
+            return _json({"error": str(exc)}, status=404)
+        await persist_consent()
+        return _json({"pass": consent_pass.public_view(), "persisted": bool(soul_path)})
+
     async def api_self_model(request: Request) -> JSONResponse:
         sm = soul.self_model
         images = {}
@@ -709,6 +841,12 @@ def create_app(
         Route("/api/evolution", api_evolution, methods=["GET"]),
         Route("/api/evaluations", api_evaluations, methods=["GET"]),
         Route("/api/trust-chain", api_trust_chain, methods=["GET"]),
+        Route("/api/consents", _handles_bad_request(api_consents), methods=["GET"]),
+        Route(
+            "/api/consents/revoke",
+            _handles_bad_request(api_consent_revoke),
+            methods=["POST"],
+        ),
         Route("/api/self-model", api_self_model, methods=["GET"]),
         Route("/api/metadata", api_metadata, methods=["GET"]),
     ]

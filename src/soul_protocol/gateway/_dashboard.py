@@ -6,6 +6,9 @@
 #   are disabled under prefers-reduced-motion. All dynamic text is HTML-escaped
 #   before insertion.
 #   Only the existing read-only /api/* endpoints are used.
+# Updated: 2026-11-14 — Consents section: consent passes with status and a
+#   Revoke button (POST /api/consents/revoke, the dashboard's only write),
+#   plus the consent access log and its trust-chain check.
 
 DASHBOARD_HTML = r"""<!doctype html>
 <html lang="en" data-theme="dark" data-pref="system">
@@ -220,6 +223,20 @@ canvas{display:block}
 .tl-detail{margin:2px 0 4px;padding:8px 10px;font-size:12px;background:var(--inset);border:1px solid var(--border);border-radius:6px}
 .tl-detail .hash{font-family:var(--mono);font-size:11px;word-break:break-all;color:var(--muted);margin:4px 0 8px}
 
+.cp-list{display:flex;flex-direction:column;gap:8px}
+.cp{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:6px;padding:10px 12px}
+.cp-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cp-app{font-weight:600;font-size:14px;overflow-wrap:anywhere}
+.cp-meta{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.cp-side{display:flex;gap:8px;align-items:center}
+.tag.active,.tag.grant,.tag.read,.tag.write{--c:var(--good)}.tag.expired,.tag.revoke{--c:var(--warn)}.tag.revoked,.tag.denied,.tag.bad{--c:var(--danger)}
+.btn.danger{background:transparent;color:var(--danger);border-color:var(--danger);font-weight:500}
+.btn.danger:hover{background:color-mix(in srgb,var(--danger) 12%,transparent)}
+.cl{list-style:none;margin:0;padding:0}
+.cl li{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
+.cl .when{color:var(--muted);font-size:12px;min-width:132px}
+.cl .what{flex:1;min-width:180px;overflow-wrap:anywhere}
+.verify{font-size:12px;margin:0 0 12px}.verify.ok{color:var(--good)}.verify.bad{color:var(--danger)}
 .kv{display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
 .kv:last-child{border:0}
 .kv-list{margin-top:14px;border-top:1px solid var(--border)}
@@ -270,7 +287,8 @@ canvas{display:block}
       <button role="tab" data-tab="skills" aria-selected="false">Skills and Evolution <kbd>3</kbd></button>
       <button role="tab" data-tab="comms" aria-selected="false">Communication <kbd>4</kbd></button>
       <button role="tab" data-tab="trust" aria-selected="false">Trust Chain <kbd>5</kbd></button>
-      <button role="tab" data-tab="meta" aria-selected="false">Metadata <kbd>6</kbd></button>
+      <button role="tab" data-tab="consents" aria-selected="false">Consents <kbd>6</kbd></button>
+      <button role="tab" data-tab="meta" aria-selected="false">Metadata <kbd>7</kbd></button>
     </nav>
     <div class="side-foot">
       <div class="refresh-opts">
@@ -422,6 +440,20 @@ canvas{display:block}
       </div>
     </section>
 
+    <!-- Consents -->
+    <section class="view" id="v-consents" aria-label="Consents">
+      <div class="panel">
+        <div class="panel-head"><h2>Consent Passes</h2></div>
+        <p class="cp-meta" style="margin:0 0 12px">Apps can only use the memory domains you granted, until the pass expires or you revoke it. Grant passes with <code>soul consent grant</code>.</p>
+        <div class="cp-list" id="cp-list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Access Log</h2></div>
+        <p class="verify" id="cp-verify"></p>
+        <ol class="cl" id="cp-log"></ol>
+      </div>
+    </section>
+
     <!-- Metadata -->
     <section class="view" id="v-meta" aria-label="Metadata">
       <div class="two">
@@ -449,7 +481,7 @@ canvas{display:block}
   <div class="modal">
     <div class="modal-head"><h3 id="help-title">Keyboard Shortcuts</h3><button type="button" class="x" id="help-close" aria-label="Close">&times;</button></div>
     <div class="help-grid">
-      <span class="kbd">1-6</span><span>Switch Section</span>
+      <span class="kbd">1-7</span><span>Switch Section</span>
       <span class="kbd">/</span><span>Search Memories</span>
       <span class="kbd">r</span><span>Refresh Now</span>
       <span class="kbd">t</span><span>Cycle Theme: Auto, Light, Dark</span>
@@ -505,7 +537,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>{if(doc
 function cycleTheme(){const order=["system","light","dark"];const cur=document.documentElement.dataset.pref||"system";const next=order[(order.indexOf(cur)+1)%3];setTheme(next);toast("Theme: "+(next==="system"?"Auto":cap(next)));}
 
 /* Navigation */
-const TABS=["overview","memories","skills","comms","trust","meta"];
+const TABS=["overview","memories","skills","comms","trust","consents","meta"];
 function showTab(name,focus){
   if(!TABS.includes(name))name="overview";
   $$(".nav button").forEach(b=>b.setAttribute("aria-selected",String(b.dataset.tab===name)));
@@ -770,6 +802,53 @@ function renderTrust(){
 }
 $("#tc-search").addEventListener("input",renderTrust);
 
+/* Consents */
+let consents={passes:[],events:[],verification:null,persisted:false};
+function fmtWhen(d){if(!d)return"-";const t=new Date(d);return isNaN(t)?String(d):t.toLocaleString("en",{year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});}
+async function loadConsents(){const d=await load("/api/consents");if(!d)return;consents=d;renderConsents();}
+function renderConsents(){
+  const ps=consents.passes||[];
+  $("#cp-list").innerHTML=ps.map(p=>{
+    const st=p.signature_valid?p.status:"bad";
+    const label=p.signature_valid?titleCase(p.status):"Bad Signature";
+    const when=p.status==="revoked"?"Revoked "+fmtWhen(p.revoked_at):(p.status==="expired"?"Expired ":"Expires ")+fmtWhen(p.expires_at);
+    return '<div class="cp"><div class="cp-main"><span class="cp-app">'+esc(p.app_id)+'</span>'
+      +'<span class="cp-meta">'+esc((p.domains||[]).join(", "))+' &middot; '+esc(p.access==="read_write"?"Read and Write":"Read Only")+' &middot; '+esc(when)+'</span>'
+      +(p.note?'<span class="cp-meta">'+esc(p.note)+'</span>':"")
+      +'<span class="cp-meta">'+esc(p.id)+'</span></div>'
+      +'<div class="cp-side"><span class="tag '+esc(st)+'">'+esc(label)+'</span>'
+      +(p.status==="active"?'<button type="button" class="btn danger" data-revoke="'+esc(p.id)+'" data-app="'+esc(p.app_id)+'">Revoke</button>':"")
+      +'</div></div>';
+  }).join("")||empty("No consent passes yet");
+  $$("#cp-list [data-revoke]").forEach(b=>b.addEventListener("click",()=>revokePass(b.dataset.revoke,b.dataset.app,b)));
+  const v=consents.verification;
+  const ve=$("#cp-verify");
+  if(v&&(v.total||v.missing)){const ok=v.ok;ve.className="verify "+(ok?"ok":"bad");ve.textContent=(v.chain_valid?"Trust chain valid. ":"Trust chain INVALID. ")+v.verified+" of "+v.total+" log entries match signed entries"+(v.missing?"; "+v.missing+" signed "+(v.missing===1?"entry is":"entries are")+" missing from the log":"")+(ok?".":". Run soul consent log --verify for details.");}
+  else{ve.className="verify";ve.textContent="";}
+  const ev=consents.events||[];
+  $("#cp-log").innerHTML=ev.map(e=>{
+    const app=e.app_id||"Unknown App",doms=(e.domains||[]).join(", ");
+    let what;
+    if(e.kind==="read")what=app+" read "+e.count+" "+(e.count===1?"memory":"memories")+(doms?" from "+doms:"");
+    else if(e.kind==="write")what=app+" stored a memory in "+doms;
+    else if(e.kind==="grant")what=app+" was granted "+doms;
+    else if(e.kind==="revoke")what=app+" access revoked"+(e.reason?" ("+e.reason+")":"");
+    else what=app+" was refused: "+String(e.reason||"").replace(/_/g," ");
+    return '<li><span class="when">'+esc(fmtWhen(e.at))+'</span><span class="tag '+esc(e.kind)+'">'+esc(titleCase(e.kind))+'</span><span class="what">'+esc(what)+'</span></li>';
+  }).join("")||'<li class="none">'+empty("No app has used a consent pass yet")+'</li>';
+}
+async function revokePass(id,app,btn){
+  if(!confirm("Revoke access for "+app+"? Its next request will be refused."))return;
+  btn.disabled=true;
+  try{
+    const r=await fetch("/api/consents/revoke",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pass_id:id,reason:"revoked from dashboard"})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.error||r.status);
+    toast(d.persisted?"Access revoked":"Revoked (not saved: gateway has no soul path)");
+    await Promise.all([loadConsents(),loadTrust()]);
+  }catch(e){btn.disabled=false;toast("Revoke failed: "+e.message);}
+}
+
 /* Metadata */
 async function loadMeta(){
   const d=await load("/api/metadata");if(!d)return;
@@ -783,7 +862,7 @@ let busy=false,timer=null;
 async function refresh(manual){
   if(busy)return;busy=true;online=true;
   const btn=$("#refresh");btn.disabled=true;
-  await Promise.all([loadIdentity(),loadState(),loadStats(),loadPersonality(),loadMemories(),loadTopMemories(),loadSkills(),loadEvolution(),loadEvaluations(),loadComms(),loadSelfModel(),loadTrust(),loadMeta()]);
+  await Promise.all([loadIdentity(),loadState(),loadStats(),loadPersonality(),loadMemories(),loadTopMemories(),loadSkills(),loadEvolution(),loadEvaluations(),loadComms(),loadSelfModel(),loadTrust(),loadConsents(),loadMeta()]);
   $("#updated").innerHTML='<span class="dot'+(online?"":" off")+'"></span>'+(online?"Updated "+new Date().toLocaleTimeString():"Connection lost, retrying");
   btn.disabled=false;busy=false;
   if(manual&&online)toast("Refreshed");
@@ -810,7 +889,7 @@ addEventListener("keydown",e=>{
     return;
   }
   if(typing)return;
-  if(e.key>="1"&&e.key<="6"){showTab(TABS[Number(e.key)-1]);}
+  if(e.key>="1"&&e.key<="7"){showTab(TABS[Number(e.key)-1]);}
   else if(e.key==="/"){e.preventDefault();showTab("memories");$("#search").focus();}
   else if(e.key==="r"){refresh(true);}
   else if(e.key==="t"){cycleTheme();}
