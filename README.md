@@ -1,4 +1,10 @@
 <!-- README.md — soul-protocol open standard -->
+<!-- Updated: 2026-11-16 — Refreshed for work since v0.4.0: consent passes,
+     --password encryption, Soul Dashboard, soul eval / optimize / diff /
+     journal / observe, memory update primitives, trust-chain pruning + key
+     rotation, game profile, cross-runtime tests. CLI 44 → 60 commands,
+     MCP 24 → 43 tools (counted from the code). .soul file table lists
+     trust_chain/, keys/ and consent/. -->
 <!-- Updated: 2026-04-29 (v0.4.0) — Identity bundle release: multi-user souls
      (#46), user-defined memory layers + domain isolation (#41), Ed25519-signed
      trust chain (#42). Plus rolled-in polish: density-driven focus (#194),
@@ -50,6 +56,8 @@ AI memory systems optimize for retrieval: find the most similar text, stuff it i
 Soul Protocol gives AI agents persistent identity with psychology-informed memory. Your agent remembers selectively, forms emotional bonds, develops skills, and maintains a personality that evolves over time. The entire state exports as a portable `.soul` file. Switch LLMs, switch platforms, keep the soul.
 
 **v0.4.0 — Identity bundle (April 2026):** one soul can serve multiple users without bleeding context (`soul.observe(user_id=...)`), memory layers are open strings instead of a fixed enum (build a custom `social` or `finance` layer), domain isolation enforces who can read/write which slice, and every learning event, memory mutation, and bond change appends a signed entry to a verifiable trust chain. Read [docs/trust-chain.md](docs/trust-chain.md) for the threat model.
+
+**Since v0.4.0 (unreleased):** consent passes give apps time-limited, revocable access to chosen memory domains, with every access signed onto the trust chain. Also: password-encrypted `.soul` files from the CLI, a local Soul Dashboard, YAML evals and a self-improvement loop, brain-aligned memory update verbs, and trust-chain pruning and key rotation. See [CHANGELOG.md](CHANGELOG.md).
 
 As of v0.3.1, the protocol also covers the layer *above* a single soul: an org-scoped append-only event journal, a root governance agent, scope-tagged memory, decision traces (`agent.proposed` → `human.corrected` → `decision.graduated`), and a zero-copy retrieval router for federating external data without copying it into the org boundary.
 
@@ -103,8 +111,11 @@ soul_protocol/
 │                           Per-soul types + org-layer types (journal, decisions, retrieval).
 ├── runtime/                Reference implementation. Opinionated, batteries-included.
 ├── engine/                 Org-layer engine: SQLite WAL journal, retrieval router, credential broker.
-├── cli/                    44-command CLI (incl. `soul org`, `soul template`, `soul user`, `soul create`)
-└── mcp/                    MCP server (24 tools, 3 resources)
+├── cli/                    60-command CLI (incl. `soul org`, `soul consent`, `soul eval`, `soul journal`)
+├── mcp/                    MCP server (43 tools, 3 resources)
+├── gateway/                Soul Dashboard + REST API + OpenAI-compatible proxy (`soul-api`)
+├── eval/ optimize/         YAML evals and the eval-driven self-improvement loop
+└── profiles/               Domain profiles built on the runtime (e.g. `profiles.game`)
 ```
 
 **`spec/`** defines what any runtime must implement: Identity, MemoryStore, MemoryEntry, SoulContainer, `.soul` file format, EmbeddingProvider, EternalStorageProvider. v0.3 added org-layer spec types (`EventEntry`, `Actor`, `DataRef`, `AgentProposal`, `HumanCorrection`, `DecisionGraduation`, `RetrievalRequest`/`Result`, `RetrievalTrace`). Depends on Pydantic only.
@@ -135,7 +146,10 @@ Like HTTP and nginx. The spec defines the contract. The runtime is one implement
 | **Format importers** | `SoulSpecImporter` (SOUL.md), `TavernAIImporter` (Character Card V2, incl. PNG) |
 | **Graph traversal** | BFS, shortest path, neighborhood, subgraph, and `progressive_context()` (L0/L1/L2) |
 | **Vector search** | Pluggable EmbeddingProvider. Real backends: sentence-transformers, OpenAI, Ollama. |
-| **Encryption** | AES-256-GCM encryption at rest for .soul files (scrypt key derivation) |
+| **Encryption** | AES-256-GCM encryption at rest for .soul files (scrypt key derivation). `soul export --password`; read commands take `--password` too |
+| **Trust chain** | Ed25519-signed, hash-linked history of memory writes, bonds, evolution and learning. `soul verify` / `soul audit`, readable summaries, touch-time pruning, key rotation |
+| **Consent passes** | Time-limited, domain-scoped, revocable app access to memory. PRIVATE memories never shared; every grant, read and denial is signed. See [docs/consent-passes.md](docs/consent-passes.md) |
+| **Memory update verbs** | `confirm`, `update`, `supersede`, `purge`, `reinstate` gated by prediction error, plus `soul note` / `soul observe` with dedup |
 | **GDPR deletion** | Targeted memory deletion with cascade logic and audit trail |
 | **Eternal storage** | Archive to decentralized storage (mock providers, production planned) |
 | **Portability** | `.soul` ZIP archive. JSON inside. Rename to .zip and read it. |
@@ -148,8 +162,13 @@ Like HTTP and nginx. The spec defines the contract. The runtime is one implement
 | **Zero-Copy federation** | `RetrievalRouter` + `CredentialBroker`. Resolves `DataRef` payloads against registered adapters; only the receipt crosses the boundary. |
 | **RetrievalTrace** | Every `recall()` and `smart_recall()` emits a trace (query, candidates, rerank decisions) on `Soul.last_retrieval`. |
 | **Role archetypes** | Bundled Arrow, Flash, Cyborg, Analyst templates. `soul template list` / `soul create --template arrow`. |
-| **CLI** | 44 commands. Rich TUI output. |
-| **MCP** | 24 tools + 3 resources for Claude Code, Cursor, or any MCP client |
+| **Evals + optimize** | YAML eval specs for memory-driven agents (`soul eval`), and an eval-driven loop that tunes the soul and keeps only changes that help (`soul optimize`) |
+| **Soul diff** | `soul diff` compares two souls: identity, memory, bonds, skills, trust chain |
+| **Game profile** | `soul_protocol.profiles.game`: NPC and player souls that remember across reloads, plus a pacing director. Playable demo in `examples/butcher_remembers` |
+| **Cross-runtime tests** | `tests/cross_runtime/` checks `.soul` portability across PocketPaw, LangChain and CrewAI |
+| **Dashboard** | Local web dashboard and REST/OpenAI-compatible gateway (`soul-api`) |
+| **CLI** | 60 commands. Rich TUI output. |
+| **MCP** | 43 tools + 3 resources for Claude Code, Cursor, or any MCP client |
 
 ---
 
@@ -308,6 +327,11 @@ A ZIP archive containing everything:
 | `memory/procedural.json` | Learned patterns |
 | `memory/graph.json` | Temporal entity relationships |
 | `memory/self_model.json` | Klein self-concept domains |
+| `trust_chain/chain.json` | Signed action history (plus one `entry_NNN.json` per entry) |
+| `keys/public.key` | Public key for verifying the chain (`private.key` only with `--include-keys`) |
+| `consent/consent.json` | Consent passes and the access log (only if a pass was ever granted) |
+
+Encrypted exports (`--password`) store each file as `.enc` and keep `manifest.json` readable.
 
 Rename to `.zip`, open with any archive tool. Move between platforms. Back up anywhere. Version in git.
 
@@ -397,7 +421,7 @@ Archive souls to decentralized storage (local, IPFS, Arweave, blockchain). Curre
 soul <command> [options]
 ```
 
-See [CLI Reference](docs/cli-reference.md) for all 44 commands. Highlights:
+See [CLI Reference](docs/cli-reference.md) for all 60 commands. Highlights:
 
 | Command | Description |
 |---|---|
@@ -405,11 +429,17 @@ See [CLI Reference](docs/cli-reference.md) for all 44 commands. Highlights:
 | `birth` | Birth a new soul (OCEAN flags, config files) |
 | `inspect` | Full TUI: identity, OCEAN bars, state, memory, self-model |
 | `status` | Quick check: mood, energy, memory count |
-| `export` | Export to .soul, .json, .yaml, or .md |
+| `export` | Export to .soul, .json, .yaml, or .md (`--password` to encrypt) |
 | `inject` | Inject soul context into an agent platform's config file |
 | `migrate` | Convert SOUL.md to .soul format |
 | `recall` | Query a soul's memories |
 | `remember` | Store a memory in a soul |
+| `note` / `observe` | Store a fact or a full interaction, deduplicated against what the soul already knows |
+| `verify` / `audit` | Check the trust chain's signatures; print a readable timeline |
+| `consent grant` / `list` / `revoke` / `log` | Manage app access to memory domains |
+| `eval` / `optimize` | Run YAML evals against a soul; tune it from eval results |
+| `diff` | Compare two souls |
+| `journal init` / `append` / `query` | Write to and query an org journal from shell scripts |
 | `retire` | Retire a soul (preserves memories) |
 | `list` | List saved souls in ~/.soul/ |
 | `unpack` | Unpack a .soul file into a browsable directory |
@@ -433,7 +463,7 @@ pip install soul-protocol[mcp]
 SOUL_PATH=aria.soul soul-mcp
 ```
 
-24 tools and 3 resources for Claude Code, Cursor, or any MCP-compatible client. See [integrations](docs/integrations.md).
+43 tools and 3 resources for Claude Code, Cursor, or any MCP-compatible client: memory, state, evolution, trust chain (`soul_verify`, `soul_audit`), consent (`soul_consent_*`), evals and more. See [MCP Server](docs/mcp-server.md) and [integrations](docs/integrations.md).
 
 ---
 
@@ -444,9 +474,11 @@ pip install soul-protocol[gateway]
 SOUL_PATH=aria.soul soul-api        # or SOUL_DIR=./souls (loads the first soul found)
 ```
 
-Open <http://127.0.0.1:8000/dashboard> to browse the soul's memories, personality, skills, evolution, and trust chain. The same server exposes read-only `/api/*` JSON endpoints, `/remember`, `/recall`, `/observe`, and an OpenAI-compatible `/v1/chat/completions` proxy (configured via `SOUL_LLM_BASE_URL`, `SOUL_LLM_API_KEY`, `SOUL_LLM_MODEL`).
+Open <http://127.0.0.1:8000/dashboard> to browse the soul's memories, personality, skills, evolution, trust chain, and consent passes (with a Revoke button). The same server exposes `/api/*` JSON endpoints (read-only apart from `POST /api/consents/revoke`), `/remember`, `/recall`, `/observe`, and an OpenAI-compatible `/v1/chat/completions` proxy (configured via `SOUL_LLM_BASE_URL`, `SOUL_LLM_API_KEY`, `SOUL_LLM_MODEL`).
 
 `soul-api` binds to `127.0.0.1:8000` and has **no authentication**. Anyone who can reach the port can read and write the soul, so don't expose it on a public interface.
+
+Apps that should only see part of the soul can be given a consent token instead. `/recall` and `/remember` with an `X-Consent-Token` header are limited to that pass's domains and logged. See [Consent Passes](docs/consent-passes.md).
 
 ---
 
@@ -494,6 +526,11 @@ await soul.observe(Interaction(
 - [Memory Architecture](docs/memory-architecture.md) -- five tiers, activation, compression
 - [CLI Reference](docs/cli-reference.md) -- all commands and options
 - [MCP Server](docs/mcp-server.md) -- tools, resources, setup
+- [Trust Chain](docs/trust-chain.md) -- signed action history, threat model, key management
+- [Consent Passes](docs/consent-passes.md) -- time-limited, revocable app access to memory
+- [Encryption](docs/encryption.md) -- AES-256-GCM `.soul` files, `--password`
+- [Eval Format](docs/eval-format.md) and [Soul Optimize](docs/soul-optimize.md) -- YAML evals and the self-improvement loop
+- [Memory Update Primitives](docs/rfc-memory-update-primitives.md) -- confirm, update, supersede, purge, reinstate
 - [Gap Analysis](docs/GAP-ANALYSIS.md) -- what's built vs. what's planned
 - [JSON Schemas](schemas/) -- cross-language `.soul` file validation
 
