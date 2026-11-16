@@ -1,5 +1,5 @@
 <!-- README.md — soul-protocol open standard -->
-<!-- Updated: 2026-11-16 — Refreshed for work since v0.4.0: consent passes,
+<!-- Updated: 2026-11-16 — Refreshed for v0.5.0 plus unreleased work: consent passes,
      --password encryption, Soul Dashboard, soul eval / optimize / diff /
      journal / observe, memory update primitives, trust-chain pruning + key
      rotation, game profile, cross-runtime tests. CLI 44 → 60 commands,
@@ -57,7 +57,9 @@ Soul Protocol gives AI agents persistent identity with psychology-informed memor
 
 **v0.4.0 — Identity bundle (April 2026):** one soul can serve multiple users without bleeding context (`soul.observe(user_id=...)`), memory layers are open strings instead of a fixed enum (build a custom `social` or `finance` layer), domain isolation enforces who can read/write which slice, and every learning event, memory mutation, and bond change appends a signed entry to a verifiable trust chain. Read [docs/trust-chain.md](docs/trust-chain.md) for the threat model.
 
-**Since v0.4.0 (unreleased):** consent passes give apps time-limited, revocable access to chosen memory domains, with every access signed onto the trust chain. Also: password-encrypted `.soul` files from the CLI, a local Soul Dashboard, YAML evals and a self-improvement loop, brain-aligned memory update verbs, and trust-chain pruning and key rotation. See [CHANGELOG.md](CHANGELOG.md).
+**v0.5.0 (October 2026):** password-encrypted `.soul` files from the CLI (`--password`), brain-aligned memory update verbs (confirm, update, supersede, purge, reinstate) and dedup-aware `soul note` / `soul observe`, YAML evals and a self-improvement loop (`soul eval`, `soul optimize`), `soul diff`, trust-chain hardening (pruning, key rotation, readable audit summaries), the game profile, and a cross-runtime test suite. See [CHANGELOG.md](CHANGELOG.md).
+
+**Unreleased:** a local Soul Dashboard (`soul-api`), and consent passes that give apps time-limited, revocable access to chosen memory domains, with every access signed onto the trust chain.
 
 As of v0.3.1, the protocol also covers the layer *above* a single soul: an org-scoped append-only event journal, a root governance agent, scope-tagged memory, decision traces (`agent.proposed` → `human.corrected` → `decision.graduated`), and a zero-copy retrieval router for federating external data without copying it into the org boundary.
 
