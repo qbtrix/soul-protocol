@@ -1,5 +1,12 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
-# 36 tools (31 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# 43 tools (38 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-11-14 — Consent passes. New soul_consent_grant / _list /
+#   _revoke / _log tools; soul_recall and soul_remember accept an optional
+#   consent_token that limits the call to that pass's domains and signs it
+#   onto the trust chain. Grants, revokes and consented reads/writes (and
+#   their denials) are saved to disk immediately. _auto_save_one now keeps
+#   the private key in .soul zips when the soul holds one, so a save no
+#   longer leaves the soul unable to sign.
 # Updated: 2026-07-18 (#284) — Replaced ~12 private attribute accesses with
 #   public MemoryManager API (episodic_entries(), semantic_facts(), etc.).
 #   MCP tools no longer reach into _m._episodic or _m._graph internals.
@@ -68,7 +75,7 @@ from fastmcp import Context, FastMCP  # optional dep: pip install soul-protocol[
 
 from ..runtime.cognitive.adapters.mcp_sampling import MCPSamplingEngine
 from ..runtime.context import LCMContext
-from ..runtime.exceptions import SoulProtocolError
+from ..runtime.exceptions import ConsentDeniedError, ConsentError, SoulProtocolError
 from ..runtime.soul import Soul
 from ..runtime.types import Interaction, MemoryType, Mood
 
@@ -208,6 +215,22 @@ class SoulRegistry:
                     flush=True,
                 )
 
+    async def save_now(self, name: str | None = None) -> str | None:
+        """Write a soul to its registered path immediately.
+
+        Returns the path, or None when the soul has no known path (it is
+        then marked modified and saved on shutdown).
+        """
+        key = name.lower() if name else self._active
+        path = self._paths.get(key) if key else None
+        if not key or not path or key not in self._souls:
+            self.mark_modified(name)
+            return None
+        await _auto_save_one(self._souls[key], path, self._formats.get(key, "directory"))
+        self._mtimes[key] = self._get_mtime(path)
+        self._modified.discard(key)
+        return path
+
     def clear(self) -> None:
         """Reset all state."""
         self._souls.clear()
@@ -286,7 +309,9 @@ async def _auto_save_one(soul: Soul, path: str, fmt: str) -> None:
     """Save a single soul to the appropriate format."""
     p = Path(path)
     if fmt == "zip" or p.suffix == ".soul":
-        await soul.export(str(p))
+        # Keep the private key when the soul has one; dropping it here would
+        # leave the reloaded soul unable to sign (trust chain, consent).
+        await soul.export(str(p), include_keys=soul.can_sign)
     else:
         await soul.save_local(str(p))
 
@@ -629,6 +654,7 @@ async def soul_remember(
     emotion: str | None = None,
     soul: str | None = None,
     domain: str = "default",
+    consent_token: str | None = None,
 ) -> str:
     """Store a memory directly.
 
@@ -640,17 +666,39 @@ async def soul_remember(
         soul: Target soul name (uses active soul if omitted)
         domain: Sub-namespace inside the layer (#41). Defaults to "default".
             Use values like "finance" or "legal" to scope memories.
+        consent_token: Optional consent pass token (from soul_consent_grant).
+            When set, the write must fit the pass (read_write access and an
+            allowed domain) and is signed as consent.write. If ``domain`` is
+            left at "default" and the pass does not include "default", the
+            pass's first domain is used.
     """
     s = await _resolve_soul(soul)
     mt = _validate_memory_type(memory_type)
     importance = max(1, min(10, importance))
-    memory_id = await s.remember(
-        content,
-        type=mt,
-        importance=importance,
-        emotion=emotion,
-        domain=domain,
-    )
+    if consent_token:
+        consent_pass = s.consent.find_by_token(consent_token)
+        if consent_pass and domain == "default" and "default" not in consent_pass.domains:
+            domain = consent_pass.domains[0]
+        try:
+            memory_id = await s.consent_session(consent_token).remember(
+                content,
+                domain=domain,
+                type=mt,
+                importance=importance,
+                emotion=emotion,
+            )
+        except ConsentError as exc:
+            await _save_consent_change(soul, exc)
+            raise ValueError(str(exc)) from exc
+        await _save_consent_change(soul)
+    else:
+        memory_id = await s.remember(
+            content,
+            type=mt,
+            importance=importance,
+            emotion=emotion,
+            domain=domain,
+        )
     _registry.mark_modified(soul)
     return json.dumps(
         {
@@ -671,6 +719,7 @@ async def soul_recall(
     user_id: str | None = None,
     layer: str | None = None,
     domain: str | None = None,
+    consent_token: str | None = None,
 ) -> str:
     """Search the soul's memories by natural language query.
 
@@ -686,9 +735,26 @@ async def soul_recall(
             custom layer name.
         domain: When set, restrict recall to a single domain sub-namespace
             (#41), e.g. "finance" or "legal".
+        consent_token: Optional consent pass token (from soul_consent_grant).
+            When set, only the pass's domains are searched, PRIVATE memories
+            are excluded, and the read is signed as consent.read. Expired,
+            revoked, unknown or out-of-scope requests are refused and logged.
+            Cannot be combined with user_id or layer.
     """
     s = await _resolve_soul(soul)
-    results = await s.recall(query, limit=limit, user_id=user_id, layer=layer, domain=domain)
+    if consent_token:
+        if user_id is not None or layer is not None:
+            raise ValueError("user_id and layer cannot be combined with consent_token")
+        try:
+            results = await s.consent_session(consent_token).recall(
+                query, limit=limit, domain=domain
+            )
+        except ConsentError as exc:
+            await _save_consent_change(soul, exc)
+            raise ValueError(str(exc)) from exc
+        await _save_consent_change(soul)
+    else:
+        results = await s.recall(query, limit=limit, user_id=user_id, layer=layer, domain=domain)
     memories = [
         {
             "id": r.id,
@@ -1840,6 +1906,146 @@ async def soul_audit(
     s = await _resolve_soul(soul)
     log = s.audit_log(action_prefix=action_prefix, limit=limit)
     return json.dumps({"soul": s.name, "did": s.did, "entries": log})
+
+
+# --- Consent pass tools (4 tools) ---
+
+
+async def _save_consent_change(soul: str | None, error: ConsentError | None = None) -> str | None:
+    """Save a consent change (grant, revoke, signed read/write/denial) now.
+
+    Waiting for shutdown would lose signed audit entries on a crash, or when
+    an external edit triggers check_and_reload. Unknown-token denials record
+    nothing, so there is nothing to save for them.
+    """
+    if isinstance(error, ConsentDeniedError) and error.reason == "unknown_token":
+        return None
+    if not isinstance(error, ConsentDeniedError) and error is not None:
+        return None  # bad input (ConsentError) changes nothing
+    return await _registry.save_now(soul)
+
+
+@mcp.tool
+async def soul_consent_grant(
+    app_id: str,
+    domains: list[str],
+    duration: str = "7d",
+    access: str = "read",
+    note: str = "",
+    soul: str | None = None,
+) -> str:
+    """Give an app time-limited access to some of the soul's memory domains.
+
+    Owner tool: only call this when the user asked to grant access. Returns
+    the pass and its token. The token is shown only once. Give it to the
+    app, which passes it as ``consent_token`` to soul_recall / soul_remember.
+    The token appears in this tool's output (and so in the agent transcript);
+    use ``soul consent grant`` on the CLI to keep it out of agent context.
+
+    Args:
+        app_id: Short app name, e.g. "fitness-app".
+        domains: Memory domains the app may use, e.g. ["health"].
+        duration: How long the pass lasts: 30m, 12h, 7d or 2w (max 365 days).
+        access: "read" (default) or "read_write".
+        note: Optional note shown in listings.
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    try:
+        consent_pass, token = s.grant_consent(
+            app_id, domains, duration=duration, access=access, note=note
+        )
+    except ConsentError as exc:
+        raise ValueError(str(exc)) from exc
+    saved_to = await _save_consent_change(soul)
+    return json.dumps(
+        {
+            "soul": s.name,
+            "pass": consent_pass.public_view(),
+            "token": token,
+            "saved_to": saved_to,
+            "warning": "Store this token now. It cannot be shown again.",
+        }
+    )
+
+
+@mcp.tool
+async def soul_consent_list(
+    include_inactive: bool = False,
+    app_id: str | None = None,
+    soul: str | None = None,
+) -> str:
+    """List consent passes (active only unless include_inactive). Tokens are never shown.
+
+    Args:
+        include_inactive: Also list expired and revoked passes.
+        app_id: Only passes for this app.
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    passes = s.consent_passes(include_inactive=include_inactive, app_id=app_id)
+    return json.dumps(
+        {"soul": s.name, "count": len(passes), "passes": [p.public_view() for p in passes]}
+    )
+
+
+@mcp.tool
+async def soul_consent_revoke(
+    pass_id: str,
+    reason: str = "",
+    soul: str | None = None,
+) -> str:
+    """Revoke a consent pass immediately. The app's next request is refused.
+
+    Args:
+        pass_id: The pass id (starts with "cp_"), from soul_consent_list.
+        reason: Optional reason, kept in the access log.
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    try:
+        consent_pass = s.revoke_consent(pass_id, reason=reason)
+    except ConsentError as exc:
+        raise ValueError(str(exc)) from exc
+    saved_to = await _save_consent_change(soul)
+    return json.dumps({"soul": s.name, "pass": consent_pass.public_view(), "saved_to": saved_to})
+
+
+@mcp.tool
+async def soul_consent_log(
+    limit: int = 50,
+    app_id: str | None = None,
+    verify: bool = False,
+    soul: str | None = None,
+) -> str:
+    """Show the consent access log: grants, revokes, reads, writes and denials.
+
+    Args:
+        limit: Most recent N events (1-1000).
+        app_id: Only events for this app.
+        verify: Also check every log line against the signed trust chain.
+        soul: Target soul name (uses active soul if omitted).
+    """
+    s = await _resolve_soul(soul)
+    events = s.consent_events(limit=max(1, min(1000, limit)), app_id=app_id)
+    result: dict[str, Any] = {
+        "soul": s.name,
+        "count": len(events),
+        "events": [e.public_view() for e in events],
+    }
+    if verify:
+        report = s.verify_consent_log()
+        chain_ok, chain_failure = s.verify_chain()
+        result["verification"] = {
+            "chain_valid": chain_ok,
+            "chain_failure": chain_failure,
+            "total": report["total"],
+            "verified": report["verified"],
+            "unverified": report["unverified"],
+            "missing": report["missing"],
+            "ok": chain_ok and report["ok"],
+        }
+    return json.dumps(result)
 
 
 @mcp.tool
