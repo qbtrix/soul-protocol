@@ -104,7 +104,7 @@ soul_protocol/
 ├── runtime/                Reference implementation. Opinionated, batteries-included.
 ├── engine/                 Org-layer engine: SQLite WAL journal, retrieval router, credential broker.
 ├── cli/                    44-command CLI (incl. `soul org`, `soul template`, `soul user`, `soul create`)
-└── mcp/                    MCP server (24 tools, 3 resources)
+└── mcp/                    MCP server (40 tools, 3 resources, 2 prompts)
 ```
 
 **`spec/`** defines what any runtime must implement: Identity, MemoryStore, MemoryEntry, SoulContainer, `.soul` file format, EmbeddingProvider, EternalStorageProvider. v0.3 added org-layer spec types (`EventEntry`, `Actor`, `DataRef`, `AgentProposal`, `HumanCorrection`, `DecisionGraduation`, `RetrievalRequest`/`Result`, `RetrievalTrace`). Depends on Pydantic only.
@@ -149,7 +149,7 @@ Like HTTP and nginx. The spec defines the contract. The runtime is one implement
 | **RetrievalTrace** | Every `recall()` and `smart_recall()` emits a trace (query, candidates, rerank decisions) on `Soul.last_retrieval`. |
 | **Role archetypes** | Bundled Arrow, Flash, Cyborg, Analyst templates. `soul template list` / `soul create --template arrow`. |
 | **CLI** | 44 commands. Rich TUI output. |
-| **MCP** | 24 tools + 3 resources for Claude Code, Cursor, or any MCP client |
+| **MCP** | 40 tools + 3 resources + 2 prompts for Claude Code, Cursor, or any MCP client |
 
 ---
 
@@ -433,7 +433,7 @@ pip install soul-protocol[mcp]
 SOUL_PATH=aria.soul soul-mcp
 ```
 
-24 tools and 3 resources for Claude Code, Cursor, or any MCP-compatible client. See [integrations](docs/integrations.md).
+40 tools (35 soul + 5 context), 3 resources, and 2 prompts for Claude Code, Cursor, or any MCP-compatible client — including `soul_sync`, a one-call auto-recall + auto-observe convenience tool. See [integrations](docs/integrations.md).
 
 ---
 

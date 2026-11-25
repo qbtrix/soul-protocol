@@ -22,6 +22,9 @@
 #   the active soul (no birth, no seed) so agents can self-evaluate their
 #   current state. Accepts yaml_path or yaml_string. Returns the EvalResult
 #   as JSON.
+# Updated: 2026-05 — Added soul_sync: one-call auto-recall + auto-observe so agents
+#   capture a turn and fetch relevant memories in a single round-trip.
+#   soul_recall and soul_sync share memory_to_dict() for the memory shape.
 # Updated: 2026-04-29 (#42) — Trust chain tools: ``soul_verify`` returns chain
 #   integrity status; ``soul_audit`` returns the human-readable timeline of
 #   signed actions, with optional action_prefix and limit. JSON-only output —
@@ -69,6 +72,7 @@ from fastmcp import Context, FastMCP  # optional dep: pip install soul-protocol[
 from ..runtime.cognitive.adapters.mcp_sampling import MCPSamplingEngine
 from ..runtime.context import LCMContext
 from ..runtime.exceptions import SoulProtocolError
+from ..runtime.middleware import AutoObserveMiddleware, memory_to_dict
 from ..runtime.soul import Soul
 from ..runtime.types import Interaction, MemoryType, Mood
 
@@ -689,20 +693,65 @@ async def soul_recall(
     """
     s = await _resolve_soul(soul)
     results = await s.recall(query, limit=limit, user_id=user_id, layer=layer, domain=domain)
-    memories = [
-        {
-            "id": r.id,
-            "type": r.type.value,
-            "layer": r.layer or r.type.value,
-            "domain": r.domain or "default",
-            "content": r.content,
-            "importance": r.importance,
-            "emotion": r.emotion,
-            "user_id": r.user_id,
-        }
-        for r in results
-    ]
+    memories = [memory_to_dict(r) for r in results]
     return json.dumps({"count": len(memories), "soul": s.name, "memories": memories})
+
+
+@mcp.tool
+async def soul_sync(
+    user_input: str,
+    agent_output: str = "",
+    query: str | None = None,
+    limit: int = 5,
+    channel: str = "mcp",
+    soul: str | None = None,
+    user_id: str | None = None,
+    layer: str | None = None,
+    domain: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Capture a conversation turn and optionally recall memories in one call.
+
+    Combines auto-recall + auto-observe so agents only need a single call per
+    exchange instead of remembering `soul_recall` then `soul_observe` separately.
+    When `query` is provided, relevant memories are recalled and returned first;
+    the turn is then observed through the full psychology pipeline regardless.
+    Use it instead of a per-turn `soul_observe`, not in addition to it, or the
+    same turn is observed twice.
+
+    Args:
+        user_input: What the user said (required).
+        agent_output: What the agent responded (optional; omit for user-only turns).
+        query: Optional recall query. When set, relevant memories are returned
+            alongside the observation result. Omit to observe without recall.
+        limit: Maximum recall results to return (default 5).
+        channel: Source channel identifier.
+        soul: Target soul name (uses active soul if omitted).
+        user_id: Scopes both recall and observe (multi-user souls, #46):
+            recall returns this user's memories (plus legacy unattributed
+            ones), and memories written from the turn are stamped with it.
+        layer: Restrict recall to a single memory layer (#41). Recall only.
+        domain: Scopes both recall and observe (#41): recall is restricted
+            to this domain sub-namespace, and memories written from the turn
+            are stored in it. Omit to recall across all domains and store the
+            turn in "default".
+    """
+    if ctx is not None:
+        _get_or_create_engine(ctx)
+    s = await _resolve_soul(soul)
+    result = await AutoObserveMiddleware(s).turn(
+        user_input,
+        agent_output,
+        query=query,
+        limit=limit,
+        user_id=user_id,
+        layer=layer,
+        domain=domain,
+        channel=channel,
+    )
+    _registry.mark_modified(soul)
+    result["status"] = "observed"
+    return json.dumps(result)
 
 
 @mcp.tool

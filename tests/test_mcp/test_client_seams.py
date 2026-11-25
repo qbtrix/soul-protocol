@@ -58,6 +58,7 @@ EXPECTED_MCP_TOOLS = {
     "soul_state",
     "soul_supersede",
     "soul_switch",
+    "soul_sync",
     "soul_update",
     "soul_verify",
 }

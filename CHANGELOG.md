@@ -104,6 +104,13 @@ Bjorn the Butcher (name, archetype, persona, scripted lines as `ButcherDialogueE
 
 - **Social tier included in deletion paths (#291)** — `forget()`, `forget_entity()`, `forget_before()`, `purge_by_id()`, `remove()`, and `count()` now include the social memory tier. Previously these functions iterated only episodic → semantic → procedural, silently skipping social memories added via `SocialStore` (#41). The return dict from bulk `forget()` and `forget_entity()` gains a `social` key (additive — existing `episodic` / `semantic` / `procedural` / `total` keys are unchanged). `soul status`, `soul forget`, `soul health` CLI commands and the `soul_forget` / `soul_health` MCP tools now report social counts. `_memory_lookup_sync` (provenance walker) and `supersede --type` also updated. A `_all_stores()` helper centralises tier iteration so future tiers are automatically included.
 
+### `soul_sync` MCP tool and `AutoObserveMiddleware` (#320)
+
+- **New MCP tool `soul_sync`** — one call per exchange: optional auto-recall (when `query` is set) followed by auto-observe through the full pipeline. It replaces a per-turn `soul_observe`; don't call both for the same turn. `user_id` and `domain` scope both the recall and where the observed turn is written; `layer` filters recall only. MCP tool count: 39 → 40.
+- **New `soul_protocol.runtime.middleware.AutoObserveMiddleware`** — the runtime primitive behind `soul_sync`, reusable from gateways and SDKs via `await mw.turn(user_input, agent_output, query=..., user_id=..., domain=...)`.
+- **`memory_to_dict()`** — shared memory → response-dict mapping, now used by both `soul_recall` and `soul_sync` so their memory shapes stay identical.
+- `soul setup` agent instructions recommend `soul_sync` per turn and say it replaces per-turn `soul_observe`.
+
 ### Game profile ships mechanisms; demo defaults move to `examples/game`
 
 Breaking for `soul_protocol.profiles.game` callers:

@@ -1159,3 +1159,88 @@ async def test_soul_reinstate_tool():
         data = json.loads(result.data)
         assert data["status"] == "reinstated"
         assert data["weight"] == 1.0
+
+
+# --- soul_sync MCP tool ---
+
+
+async def test_soul_sync_observe_only():
+    """soul_sync captures a turn and observes without a recall query."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        result = await client.call_tool(
+            "soul_sync",
+            {"user_input": "I love Python", "agent_output": "Python is great!"},
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "observed"
+        assert data["soul"] == "TestBot"
+        assert data["recalled"] == 0
+        assert data["memories"] == []
+        assert "mood" in data
+        assert "energy" in data
+
+
+async def test_soul_sync_with_recall():
+    """soul_sync recalls relevant memories when a query is provided."""
+    async with Client(mcp) as client:
+        await _birth(client)
+        await client.call_tool(
+            "soul_remember",
+            {"content": "The user's favorite language is Python", "importance": 8},
+        )
+        result = await client.call_tool(
+            "soul_sync",
+            {
+                "user_input": "What's my favorite language?",
+                "agent_output": "You like Python.",
+                "query": "favorite language",
+            },
+        )
+        data = json.loads(result.data)
+        assert data["status"] == "observed"
+        assert data["recalled"] >= 1
+        assert isinstance(data["memories"], list)
+        assert len(data["memories"]) == data["recalled"]
+        assert any("language" in m["content"].lower() for m in data["memories"])
+
+
+async def test_soul_sync_forwards_user_id_and_domain():
+    """soul_sync scopes both recall and the observed turn by user_id + domain."""
+
+    async def sync(**args):
+        result = await client.call_tool("soul_sync", args)
+        return json.loads(result.data)
+
+    async def recall(**args):
+        result = await client.call_tool("soul_recall", {"limit": 10, **args})
+        return json.loads(result.data)
+
+    async with Client(mcp) as client:
+        await _birth(client)
+
+        # Observe side: each turn is written under its user_id / domain.
+        await sync(
+            user_input="my name is Bob", agent_output="Hi Bob.", user_id="bob", domain="finance"
+        )
+        await sync(
+            user_input="my name is Alex", agent_output="Hi Alex.", user_id="alice", domain="finance"
+        )
+
+        data = await recall(query="Alex", user_id="alice", domain="finance")
+        assert data["count"] >= 1
+        assert all(m["user_id"] == "alice" for m in data["memories"])
+        assert all(m["domain"] == "finance" for m in data["memories"])
+        assert (await recall(query="Alex", domain="default"))["count"] == 0
+
+        # Recall side: bob's turn is filtered out of alice's recall.
+        data = await sync(
+            user_input="what's my name?",
+            query="name",
+            user_id="alice",
+            domain="finance",
+        )
+        assert data["user_id"] == "alice"
+        assert data["recalled"] >= 1
+        assert all(m["user_id"] == "alice" for m in data["memories"])
+        assert all(m["domain"] == "finance" for m in data["memories"])
