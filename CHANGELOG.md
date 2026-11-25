@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **MCP saves of `.soul` zips no longer strip the private key.** `soul_save`, shutdown auto-save and other MCP writes re-exported zips with the default `include_keys=False`, so the owner's soul lost `keys/private.key` and could no longer sign trust-chain entries. A zip now keeps the key only if it already had one; zips shared without a key stay without one. Directory souls were not affected.
+
+---
+
 ## [0.5.0] — 2026-10-28
 
 ### Game profile ships mechanisms; demo defaults move to `examples/game`
