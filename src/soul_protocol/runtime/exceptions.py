@@ -3,6 +3,8 @@
 #   SoulRetireError for proper error handling in awaken(), export(), retire().
 # Updated: feat/onboarding-full — added SoulProtectedError, raised when callers try
 #   to delete or retire a root governance soul (Org Architecture RFC #164, layer 1).
+# Updated: 2026-11-14 — added ConsentError and ConsentDeniedError for consent
+#   passes (runtime/consent): time-limited, domain-scoped, revocable app access.
 # Updated: 2026-04-29 (#41) — added DomainAccessError, raised by
 #   :class:`soul_protocol.runtime.middleware.DomainIsolationMiddleware` when
 #   the wrapped soul tries to write to a domain outside the allowed list.
@@ -158,3 +160,38 @@ class PredictionErrorOutOfBandError(SoulProtocolError):
             f"({allowed}). Use the verb whose band matches the PE: "
             "confirm for PE<0.2, update for 0.2<=PE<0.85, supersede for PE>=0.85."
         )
+
+
+class ConsentError(SoulProtocolError):
+    """Raised when a consent pass cannot be issued, found, or revoked.
+
+    Examples: an empty domain list, an expiry in the past, granting on a
+    soul loaded without its private key (passes must be signed), or
+    revoking a pass id that does not exist.
+    """
+
+
+class ConsentDeniedError(ConsentError):
+    """Raised when an app's request is refused under its consent pass.
+
+    The refusal is already recorded as a ``consent.denied`` event before
+    this is raised. ``reason`` is a short machine-friendly string such as
+    ``"expired"``, ``"revoked"``, ``"unknown_token"``, ``"domain_not_allowed"``,
+    ``"write_not_allowed"``, or ``"audit_unavailable"``.
+    """
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        pass_id: str | None = None,
+        app_id: str | None = None,
+        detail: str = "",
+    ) -> None:
+        self.reason = reason
+        self.pass_id = pass_id
+        self.app_id = app_id
+        self.detail = detail
+        who = f" for app {app_id!r}" if app_id else ""
+        extra = f": {detail}" if detail else ""
+        super().__init__(f"Consent denied{who} ({reason}){extra}")

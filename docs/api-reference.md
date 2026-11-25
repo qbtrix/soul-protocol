@@ -1706,6 +1706,24 @@ from soul_protocol.spec.trust import (
 
 ---
 
+## Consent passes
+
+`soul.consent` is a `ConsentManager` (`soul_protocol.runtime.consent`). See [Consent Passes](consent-passes.md).
+
+| Member | Description |
+|---|---|
+| `grant(app_id, domains, *, duration=None, expires_at=None, access="read", note="") -> (ConsentPass, str)` | Issue a signed pass; returns it with the token (shown once). Give exactly one of `duration` (`timedelta` or `"7d"`) or `expires_at`. Raises `ConsentError`. |
+| `revoke(pass_id, *, reason="") -> ConsentPass` | Revoke now. Works without the private key (unsigned). |
+| `session(token) -> ConsentSession` | The app's view. `await recall(query, *, limit=10, domain=None)` and `await remember(content, *, domain=None, type=SEMANTIC, importance=5, emotion=None)`. Each call re-checks the pass and raises `ConsentDeniedError` (with `.reason`) when refused. |
+| `passes(*, include_inactive=False, app_id=None)` | Issued passes, newest first. |
+| `events(*, limit=None, app_id=None)` | The access log, newest first. |
+| `verify() -> dict` | `{ok, verified, unverified, pruned, missing, missing_entries, trims, trims_verified, pending_denials, unknown_token_denials, ...}` |
+| `get(pass_id)` / `registry` | Direct access to a pass / the underlying `ConsentRegistry`. |
+
+`Soul.can_sign` is `True` when the soul holds its private key. Consented reads and writes require it.
+
+---
+
 ## Soul Diff (#191)
 
 Structured comparison between two souls. Lives in `soul_protocol.runtime.diff` with re-exports at the package level.

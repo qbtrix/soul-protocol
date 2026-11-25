@@ -9,6 +9,10 @@
 #     5. soul.py          — birth, awaken, to_system_prompt, feel, save/load
 #   Each mixin would be a separate file; Soul inherits from all of them.
 #   Do this as a dedicated multi-PR effort — not as a drive-by.
+# Updated: 2026-11-25 — Consent passes (runtime/consent). Two new public
+#   members: ``consent`` (a ConsentManager: grant, revoke, session, passes,
+#   events, verify) and ``can_sign``. The registry is persisted as
+#   consent/consent.json; awaken() restores it, save/save_local/export write it.
 # Updated: 2026-08-08 (#292) — Entity-derived skills now tagged with
 #   SkillSource.ENTITY so they are excluded from public_profile() and A2A cards.
 #   observe() entity extraction path passes source=SkillSource.ENTITY to Skill().
@@ -224,6 +228,7 @@ from soul_protocol.spec.trust import TrustChain
 
 from .bond import Bond, BondRegistry
 from .cognitive.engine import CognitiveEngine
+from .consent import ConsentManager, ConsentRegistry
 from .crypto.ed25519 import Ed25519SignatureProvider
 from .crypto.keystore import (
     Keystore,
@@ -613,6 +618,10 @@ class Soul:
         )
         self._bonds.set_on_change(self._on_bond_change)
 
+        # Consent passes: which apps may use which memory domains, until when.
+        # awaken() replaces this with the registry stored in the soul.
+        self._consent: ConsentManager = ConsentManager(self)
+
     # ============ Trust chain helpers ============
 
     def _restore_trust_chain(self, memory_data: dict) -> None:
@@ -817,6 +826,21 @@ class Soul:
             action_prefix=action_prefix,
             limit=limit,
         )
+
+    @property
+    def can_sign(self) -> bool:
+        """True when this soul holds its private key and can sign new entries."""
+        return bool(self._signature_provider.public_key) and not isinstance(
+            self._signature_provider, _PublicOnlyProvider
+        )
+
+    # ============ Consent passes ============
+
+    @property
+    def consent(self) -> ConsentManager:
+        """Consent passes for this soul: ``grant``, ``revoke``, ``session``,
+        ``passes``, ``events`` and ``verify``. See docs/consent-passes.md."""
+        return self._consent
 
     # ============ Lifecycle ============
 
@@ -1177,6 +1201,7 @@ class Soul:
         # Done after MemoryManager swap so any future reactive logic that
         # depends on memory state runs on the final manager.
         soul._restore_trust_chain(memory_data)
+        soul._consent = ConsentManager(soul, ConsentRegistry.from_dict(memory_data.get("consent")))
 
         # F4 — Wire eternal storage
         soul._eternal = eternal
@@ -3346,6 +3371,8 @@ class Soul:
         memory_data = self._memory.to_dict()
         memory_data["trust_chain"] = self._trust_chain_manager.to_dict()
         memory_data["keys"] = self._keystore.to_archive_files(include_private=include_keys)
+        if not self._consent.registry.is_empty():
+            memory_data["consent"] = self._consent.registry.to_dict()
         return memory_data
 
     async def archive(self, tiers: list[str] | None = None) -> list:
@@ -3405,6 +3432,9 @@ class Soul:
                 password=password,
                 trust_chain_data=trust_chain_data,
                 key_files=key_files,
+                consent_data=(
+                    None if self._consent.registry.is_empty() else self._consent.registry.to_dict()
+                ),
             )
             write_bytes_atomic(Path(path), data, keep_backup=False)
             logger.info(

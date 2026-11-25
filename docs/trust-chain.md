@@ -12,6 +12,7 @@ This page covers:
 - [Sharing a soul without leaking the signing key](#sharing-a-soul-without-leaking-the-signing-key)
 - [On-disk layout](#on-disk-layout)
 - [Chain pruning](#chain-pruning)
+- [Consent actions](#consent-actions)
 - [API quick reference](#api-quick-reference)
 
 ## Why a trust chain
@@ -77,7 +78,7 @@ What is NOT in the chain:
 
 - **The actual payload contents.** Only `payload_hash`. So a chain entry says "the soul wrote 3 memories with IDs `m1, m2, m3`" — not the text of those memories. The text lives in `memory/episodic.json` etc., outside the chain. The `summary` field is a short prose description, not the payload — it's the human-readable equivalent of the action namespace, not a recovery of the data.
 - **PII or content from the user side.** If the action.payload had a user's email in it, only the hash of the JSON containing that email is on chain. The hash is not reversible.
-- **Recall results.** Recall is read-only — it doesn't mutate state, so it doesn't need a chain entry. (You can layer a separate retrieval-trace receipt on top via `RetrievalTrace`.)
+- **Recall results.** Recall is read-only — it doesn't mutate state, so it doesn't need a chain entry. (You can layer a separate retrieval-trace receipt on top via `RetrievalTrace`.) The exception is a read made under a consent pass, which is signed as `consent.read` — see [Consent actions](#consent-actions).
 
 This is intentional: the chain stays compact (kilobytes per thousand entries instead of megabytes), and verification only needs the action sequence, not the action data.
 
@@ -193,6 +194,8 @@ keys/
   public.key
   private.key        — only when include_keys=True
   previous.keys      — newline-separated base64; only when previous_public_keys is non-empty (#204)
+consent/
+  consent.json       — consent passes + readable access log; only when a pass was ever granted
 ```
 
 The per-entry JSON files are for human inspection and debugging — `chain.json` is what the runtime reads. Chains are not encrypted independently of the soul; if the surrounding soul archive is password-encrypted (`Soul.export(password=...)`), the chain entries are encrypted at rest too.
@@ -259,6 +262,21 @@ This is the touch-time stub. The full archival design lands in a later v0.5.x re
 - Verification across the active + archived chain split
 
 The stub trades full retention for simplicity: a single signed marker preserves the audit metadata about what was dropped (count, seq range, reason), but the original entries themselves are gone. An operator who needs full retention should either set the cap to 0 (unbounded) or wait for the v0.5.x archival release.
+
+## Consent actions
+
+[Consent passes](consent-passes.md) add six actions. Each carries the SHA-256 of one line in `consent/consent.json`, so the readable access log can be checked against the chain in both directions (`soul consent log --verify`).
+
+| Action | When | Payload (hashed) |
+|---|---|---|
+| `consent.grant` | A pass is issued | `{kind, at, pass_id, app_id, domains, count, memory_ids, reason}`; `reason` holds the access level and expiry |
+| `consent.revoke` | A pass is revoked | Same shape **without** `reason`. The entry's timestamp equals `at`, so the runtime can rebuild the payload from the pass and check revocation against the chain itself |
+| `consent.read` | An app recalls under a pass | Includes the ids of the memories returned |
+| `consent.write` | An app stores a memory under a `read_write` pass | Includes the new memory id |
+| `consent.denied` | A request under a real pass is refused | `count` is how many refusals the line stands for: one line per pass and reason per hour, repeats folded in. Unknown tokens are counted, never signed |
+| `consent.trim` | The access log drops old lines past its cap | `{at, seqs}`: the chain seqs of the dropped lines |
+
+A soul without its private key still revokes (unsigned) but refuses consented reads and writes, because they could not be signed. Chain pruning removes old `consent.*` entries like any others; the access log reports lines that point at pruned entries as `pruned` rather than failing.
 
 ## API quick reference
 

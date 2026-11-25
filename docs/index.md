@@ -32,6 +32,7 @@ A soul remembers. A soul grows. A soul migrates.
 | [Org Journal Spec](org-journal-spec.md) | Framework-agnostic protocol: journal, root agent, retrieval router, credential broker |
 | [Decision Traces](decision-traces.md) | `agent.proposed` → `human.corrected` → `decision.graduated` event chains |
 | [Trust Chain](trust-chain.md) | Verifiable action history — Ed25519-signed Merkle-style chain, threat model, key management (v0.4.0) |
+| [Consent Passes](consent-passes.md) | Time-limited, domain-scoped, revocable app access to memory, with every access signed onto the trust chain |
 | [Manual Testing](manual-testing.md) | Hands-on validation for the v0.3 org-layer primitives |
 | [Eval Format](eval-format.md) | YAML-driven soul-aware evals — seed memories, OCEAN, bonds, mood; five scoring kinds (v0.5.0, #160) |
 | [Soul Optimize](soul-optimize.md) | Autonomous self-improvement loop — eval → propose → re-eval → keep/revert (v0.5.0, #142) |

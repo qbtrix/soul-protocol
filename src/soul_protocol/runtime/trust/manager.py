@@ -1,4 +1,6 @@
 # trust/manager.py — TrustChainManager: runtime owner of a soul's trust chain.
+# Updated: 2026-11-14 — summary formatters for consent.grant / consent.revoke /
+#   consent.read / consent.write / consent.denied / consent.trim (runtime/consent).
 # Updated: 2026-04-29 (#201) — append() accepts an optional ``summary`` string
 # stored on the resulting TrustEntry. When ``summary=None``, falls back to
 # an action-keyed formatter registry (``_SUMMARY_FORMATTERS``) so common
@@ -115,6 +117,38 @@ def _fmt_learning_event(p: dict) -> str:
     return p.get("summary") or "learning event"
 
 
+def _consent_domains(p: dict) -> str:
+    return ", ".join(p.get("domains") or []) or "all granted domains"
+
+
+def _fmt_consent_grant(p: dict) -> str:
+    return f"{p.get('app_id') or '?'} may use {_consent_domains(p)}"
+
+
+def _fmt_consent_revoke(p: dict) -> str:
+    return f"revoked {p.get('pass_id') or '?'} ({p.get('app_id') or '?'})"
+
+
+def _fmt_consent_read(p: dict) -> str:
+    count = p.get("count", 0)
+    noun = "memory" if count == 1 else "memories"
+    return f"{p.get('app_id') or '?'} read {count} {noun} from {_consent_domains(p)}"
+
+
+def _fmt_consent_write(p: dict) -> str:
+    return f"{p.get('app_id') or '?'} wrote to {_consent_domains(p)}"
+
+
+def _fmt_consent_denied(p: dict) -> str:
+    count = p.get("count") or 1
+    times = f" x{count}" if isinstance(count, int) and count > 1 else ""
+    return f"denied {p.get('app_id') or 'unknown app'}: {p.get('reason') or '?'}{times}"
+
+
+def _fmt_consent_trim(p: dict) -> str:
+    return f"trimmed {len(p.get('seqs') or [])} consent log lines"
+
+
 _SUMMARY_FORMATTERS: dict[str, SummaryFormatter] = {
     "memory.write": _fmt_memory_write,
     "memory.forget": _fmt_memory_forget,
@@ -124,6 +158,12 @@ _SUMMARY_FORMATTERS: dict[str, SummaryFormatter] = {
     "evolution.proposed": _fmt_evolution_proposed,
     "evolution.applied": _fmt_evolution_applied,
     "learning.event": _fmt_learning_event,
+    "consent.grant": _fmt_consent_grant,
+    "consent.revoke": _fmt_consent_revoke,
+    "consent.read": _fmt_consent_read,
+    "consent.write": _fmt_consent_write,
+    "consent.denied": _fmt_consent_denied,
+    "consent.trim": _fmt_consent_trim,
 }
 
 
