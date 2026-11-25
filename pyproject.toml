@@ -72,6 +72,8 @@ lcm = []  # Zero new deps — sqlite3 is stdlib, Pydantic is already core
 embeddings-st = ["sentence-transformers>=2.0.0"]
 embeddings-openai = ["openai>=1.0.0"]
 embeddings-ollama = ["ollama>=0.4.0"]
+# JevDecider (TypeSafe hosted decision model). Sends memory text to TypeSafe's API.
+decide-jev = ["pydantic-ai-slim[typesafe]>=2.66.0"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
