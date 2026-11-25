@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Consent passes (runtime + CLI)
+
+- **New:** `soul.consent` (`ConsentManager`) lets an app use chosen memory domains for a limited time. `soul.consent.grant(app_id, domains, duration="7d", access="read")` returns a pass signed with the soul's Ed25519 key and a token (only its SHA-256 is stored). `soul.consent.session(token)` gives the app `recall()` and, for `read_write` passes, `remember()`. Every call re-checks the pass: revocation (against the signed chain as well as the file), expiry, signature, issuing soul and current key, domain and access. Results stay in the granted domains (via `DomainIsolationMiddleware`) and PRIVATE memories are never returned. App writes are tagged `provenance=agent`, `source="app:<id>"`; social writes are refused; an unaudited write is purged.
+- **New:** grants, revokes, reads, writes and denials are signed onto the trust chain as `consent.*`. Reads and writes that can't be signed are refused (`audit_unavailable`). The readable access log in `consent/consent.json` is verified against the chain in both directions (`soul.consent.verify()`). Unknown tokens are only counted; repeated denials are folded to one signed line per pass and reason per hour; grant/revoke lines are never trimmed; trims are signed as `consent.trim`; lines whose chain entries were pruned are reported as `pruned`.
+- **New:** `soul consent grant|list|revoke|log` CLI (`--password` for encrypted files; `log --verify` exits 1 on any mismatch).
+- **New:** `ConsentError`, `ConsentDeniedError` (with `.reason`), `Soul.can_sign`.
+- **Storage:** optional `consent/consent.json` in `.soul` archives and soul directories, documented in `spec/SOUL-FORMAT-SPEC.md` §5.7 and RFC-004. Souls that never granted a pass are unchanged.
+- MCP tools and the gateway `X-Consent-Token` header follow in a separate PR.
+
+---
+
 ## [0.5.0] — 2026-10-28
 
 ### Game profile ships mechanisms; demo defaults move to `examples/game`

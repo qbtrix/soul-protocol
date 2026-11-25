@@ -1,5 +1,8 @@
 <!-- SOUL-FORMAT-SPEC.md — Formal specification of the .soul file format -->
 <!-- Created: 2026-03-02 — Initial specification, format version 1.0.0 -->
+<!-- Updated: 2026-11-25 — Runtime extension directories (trust_chain/, keys/,
+     consent/) documented in 3.5, 3.6 and 5.7. Readers that don't know them
+     ignore them; nothing required changed. -->
 
 # Digital Soul Protocol: `.soul` File Format Specification
 
@@ -99,7 +102,7 @@ All JSON files SHOULD be pretty-printed with 2-space indentation for human reada
 
 ### 3.5 Archive Root
 
-All files are stored at the archive root or in the `memory/` subdirectory. There MUST NOT be any top-level directory wrapper (i.e., the archive must not contain `soul-name/soul.json` — it must contain `soul.json` directly).
+Core files are stored at the archive root or in the `memory/` subdirectory. Runtimes MAY add extension directories (`trust_chain/`, `keys/`, `consent/`; see [5.7](#57-runtime-extension-directories)); readers MUST ignore directories they don't understand. There MUST NOT be any top-level directory wrapper (i.e., the archive must not contain `soul-name/soul.json` — it must contain `soul.json` directly).
 
 ### 3.6 Archive Layout
 
@@ -117,6 +120,10 @@ archive.soul (ZIP)
 |   |-- graph.json         OPTIONAL
 |   |-- self_model.json    OPTIONAL
 |   |-- general_events.json OPTIONAL
+|-- trust_chain/          OPTIONAL (runtime extension)
+|-- keys/                 OPTIONAL (runtime extension)
+|-- consent/              OPTIONAL (runtime extension)
+|   |-- consent.json
 ```
 
 ---
@@ -553,6 +560,18 @@ A JSON array of `GeneralEvent` objects representing autobiographical groupings b
   }
 ]
 ```
+
+### 5.7 Runtime extension directories
+
+These directories are written by the Python reference runtime. They are OPTIONAL, and a reader that doesn't implement them MUST ignore them. A writer that re-exports a soul without understanding them (for example the minimal `soul_protocol.spec.soul_file.pack_soul`) drops them; for `consent/` that is safe, because a soul without its consent file serves no app access (fail closed).
+
+| Path | Contents |
+|---|---|
+| `trust_chain/chain.json` (+ `entry_NNN.json`) | Ed25519-signed, hash-linked action history. See `docs/trust-chain.md`. |
+| `keys/public.key`, `keys/private.key`, `keys/previous.keys` | Raw signing keys. `private.key` is present only when the exporter opted in. |
+| `consent/consent.json` | Consent passes and their access log: `{version, passes[], events[], trims[], pending_denials, unknown_token_denials}`. Each pass is signed by the soul's key; each log line matches a `consent.*` trust-chain entry. See `docs/consent-passes.md`. |
+
+In encrypted archives each file is stored with an `.enc` suffix like any other.
 
 ---
 

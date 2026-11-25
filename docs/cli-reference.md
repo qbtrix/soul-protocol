@@ -1,4 +1,5 @@
 <!-- Covers: CLI installation, all 51 commands with usage examples, options tables, and output descriptions.
+     Updated: 2026-11-25 — Added the `soul consent` group (grant, list, revoke, log).
      Updated: 2026-08-10 — (#290): Fixed recall -n short flag, corrected archive -t
      syntax, verified unpack/delete/export signatures against Click definitions.
      Updated: 2026-04-29 — v0.5.0 (#142): Added `soul optimize` for the autonomous
@@ -1983,6 +1984,41 @@ When the chain is already at or below `--keep`, the command reports `applied=Fal
 This is the touch-time stub. The full archival design (separate `trust_chain/archive/` directory with checkpoint entries) is deferred to v0.5.x. See [docs/trust-chain.md](trust-chain.md#chain-pruning).
 
 **Exit codes:** 0 on success (whether or not anything was pruned); 2 when no `--keep` is provided AND the soul has no biorhythm cap (auto-prune disabled).
+
+---
+
+## Consent passes
+
+Give apps time-limited access to chosen memory domains. See [Consent Passes](consent-passes.md). Every command takes `PATH` (a `.soul` file or `.soul/` directory), `--password` / `-p` for encrypted `.soul` files, and `--json`.
+
+### `soul consent grant`
+
+```bash
+soul consent grant <path> --app fitness-app --domain health --for 7d
+soul consent grant <path> --app notes --domain work --domain ideas --access read-write
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--app <id>` | required | App id: letters, digits, `.`, `_`, `:`, `@`, `-`. |
+| `--domain <name>` | required | Memory domain the app may use. Repeat for more. `*` is refused. |
+| `--for <duration>` | `7d` | `30m`, `12h`, `7d`, `2w`; at most 365 days. |
+| `--access` | `read` | `read` or `read-write`. |
+| `--note <text>` | | Shown in listings. |
+
+Prints the pass id and the token. The token is shown once; only its hash is stored. The soul must have its private key: a `.soul` exported with the default `include_keys=False` cannot grant passes.
+
+### `soul consent list`
+
+Lists active passes; `--all` adds expired and revoked ones, `--app` filters. Tokens are never shown.
+
+### `soul consent revoke <path> <pass_id>`
+
+Revokes a pass; the app's next request is refused. `--reason` is kept in the log.
+
+### `soul consent log`
+
+Prints grants, reads, writes, revokes and refusals, newest first (`--limit`, `--app`). `--verify` checks every line against the trust chain in both directions and exits 1 if the chain is invalid, a line was edited, or a signed entry is missing from the log.
 
 ---
 

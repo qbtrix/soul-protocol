@@ -1,5 +1,7 @@
 <!-- RFC-004-SOUL-FILE-FORMAT.md — Defines the .soul file format specification: ZIP archive -->
 <!-- structure, manifest format, JSON schemas, pack/unpack operations, and versioning. -->
+<!-- Updated: 2026-11-25 — Runtime layout lists the optional trust_chain/, keys/ and
+     consent/ directories. -->
 
 # RFC-004: Soul File Format
 
@@ -89,7 +91,14 @@ name.soul (ZIP_DEFLATED)
     +-- graph.json             # KnowledgeGraph: entities + directed edges
     +-- self_model.json        # SelfModelManager: Klein domains + relationship notes
     +-- general_events.json    # List of GeneralEvent (Conway theme clusters)
++-- trust_chain/               # Optional: signed action history (chain.json + entry_NNN.json)
++-- keys/                      # Optional: public.key, private.key (opt-in), previous.keys
++-- consent/consent.json       # Optional: consent passes + access log
 ```
+
+The three optional directories are runtime extensions. The spec-layer
+`pack_soul` does not write them, so re-exporting through it drops them.
+Dropping `consent/` fails closed: no pass, no app access.
 
 ### Manifest Format
 
