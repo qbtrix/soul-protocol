@@ -1,5 +1,9 @@
 # soul_protocol.mcp.server — FastMCP server for soul-protocol
 # 36 tools (31 soul + 5 context), 3 resources, 2 prompts for AI agent integration
+# Updated: 2026-11-25 — _auto_save_one keeps keys/private.key in a .soul zip
+#   only when the zip on disk already had it. Previously every MCP save of a
+#   zip dropped the key, so a soul saved by the MCP server could no longer sign
+#   trust-chain entries. Zips without a private key stay without one.
 # Updated: 2026-07-18 (#284) — Replaced ~12 private attribute accesses with
 #   public MemoryManager API (episodic_entries(), semantic_facts(), etc.).
 #   MCP tools no longer reach into _m._episodic or _m._graph internals.
@@ -282,11 +286,28 @@ def _get_or_create_engine(ctx: Context) -> MCPSamplingEngine:
 # ── Helpers ──
 
 
+def _archive_has_private_key(path: Path) -> bool:
+    """True if the .soul zip at ``path`` already contains the private signing key."""
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(path) as zf:
+            names = set(zf.namelist())
+    except (OSError, zipfile.BadZipFile):
+        return False
+    return bool({"keys/private.key", "keys/private.key.enc"} & names)
+
+
 async def _auto_save_one(soul: Soul, path: str, fmt: str) -> None:
-    """Save a single soul to the appropriate format."""
+    """Save a single soul to the appropriate format.
+
+    A .soul zip keeps its private key only if it already had one, so saving
+    never adds a key to a shared (key-less) zip and never strips the key from
+    the owner's own zip.
+    """
     p = Path(path)
     if fmt == "zip" or p.suffix == ".soul":
-        await soul.export(str(p))
+        await soul.export(str(p), include_keys=_archive_has_private_key(p))
     else:
         await soul.save_local(str(p))
 
