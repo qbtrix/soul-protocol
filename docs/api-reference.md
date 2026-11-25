@@ -1,6 +1,9 @@
 <!-- API Reference for soul-protocol v0.2.9+. Covers: Soul class (lifecycle, properties,
      memory, dream, state, evolution, persistence), all Pydantic types, protocols (CognitiveEngine,
      SearchStrategy), implementations (HeuristicEngine, TokenOverlapStrategy), and enums.
+     Updated: feat/soul-instinct (#322) — Added the Soul Instinct section: the
+       deciders= keyword, use_deciders(), deciders, instinct, decide(),
+       uncertain_memories(), review_instincts() and dream(review_instincts=).
      Updated: 2026-08-10 — (#290): Documented grant_xp_for_procedure_use(),
      curate_agent_procedures(), MemoryProvenance enum, Soul.remember() provenance kwarg.
      Updated: 2026-04-29 — v0.5.0 (#142): Added Optimize section documenting
@@ -751,6 +754,67 @@ print(report.summary())  # Human-readable summary
 print(f"Found {len(report.topic_clusters)} topic clusters")
 print(f"Created {report.procedures_created} procedures")
 ```
+
+`dream()` also takes `review_instincts: bool | None = None`. When the soul has uncertain Soul Instinct decisions and an LLM engine, it runs `review_instincts()` as part of the cycle (`None` follows `instinct.settings.review_during_dream`; never on `dry_run`). `DreamReport` gains `instinct_reviewed` and `instinct_corrected`.
+
+### Soul Instinct (decision layer)
+
+Pluggable, confidence-aware deciders for the four `observe()` decisions (significance, sentiment, contradiction, dedup). With no deciders attached, `observe()` decides exactly as before. Full guide: [Soul Instinct](soul-instinct.md).
+
+`Soul.birth()`, `Soul.awaken()` and `Soul.birth_from_config()` accept `deciders: Sequence[Decider] | None = None`, equivalent to calling `use_deciders()` right after.
+
+#### `soul.use_deciders()`
+
+```python
+def use_deciders(self, deciders: Sequence[Decider]) -> None
+```
+
+Attach deciders, most preferred first. Each `observe()` decision is offered to them first; an answer is used only when its calibrated confidence meets `instinct.settings.min_confidence`, otherwise the original path decides. For contradictions, an accepted answer is merged with the rule-based heuristic findings rather than replacing them. Pass `[]` to detach. Deciders are runtime-only and are not saved.
+
+```python
+from soul_protocol.runtime.decide import NLIContradictionDecider
+soul.use_deciders([NLIContradictionDecider()])
+```
+
+#### `soul.deciders` / `soul.instinct`
+
+`soul.deciders` is the list of attached deciders. `soul.instinct` is the persisted `InstinctState`: `settings` (`min_confidence`, `review_during_dream`, `personality_modulation`, `user_aliases`) and the learned `calibration`. It is saved in the `.soul` file as `SoulConfig.instinct`.
+
+#### `soul.decide()`
+
+```python
+async def decide(self, kind: DecisionKind | str, text: str) -> Decision
+```
+
+Ask the soul's decision chain one question about `text`. **Read-only**: nothing is stored or superseded. `kind` is `"sentiment"`, `"significance"`, `"contradiction"` or `"dedup"`; contradiction and dedup compare against the soul's live semantic facts. Returns a `Decision` with `value` (typed verdict), `confidence`, `source` (which decider answered) and `attempts` (every decider consulted).
+
+```python
+decision = await soul.decide("contradiction", "I'm vegetarian now")
+decision.value.findings   # [ContradictionFinding(old_memory_id=..., confidence=0.97)]
+decision.source           # "nli"
+```
+
+#### `soul.uncertain_memories()`
+
+```python
+def uncertain_memories(self) -> list[MemoryEntry]
+```
+
+Memories whose decision was made while a model decider was unsure (or disagreed with the rules) and that have not been reviewed yet. Each carries `metadata["instinct"]` with the decider's name, confidence, `model_verdict`, `applied` and the memory's `original_confidence`.
+
+#### `soul.review_instincts()`
+
+```python
+async def review_instincts(
+    self,
+    reviewer: Decider | None = None,
+    *,
+    include_confident: bool = False,
+    limit: int = 50,
+) -> InstinctReviewReport
+```
+
+Re-check uncertain decisions with a stronger reviewer (default: an `EngineDecider` over the soul's LLM engine; with no engine nothing is reviewed). Missed contradictions are applied, wrongly superseded memories are restored, each reviewed memory gets its `original_confidence` back, and every outcome updates `soul.instinct.calibration`. Returns counts: `reviewed`, `agreed`, `corrected`, `restored`, `superseded`, `skipped`, `errors`.
 
 ### Graph (v0.5.0, #108, #190)
 

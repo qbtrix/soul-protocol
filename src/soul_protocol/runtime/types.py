@@ -1,4 +1,7 @@
 # types.py — All Pydantic data models for the Digital Soul Protocol
+# Updated: feat/soul-instinct — Added InstinctSettings, CalibrationBin,
+#   InstinctCalibration and InstinctState; SoulConfig.instinct persists the
+#   decision layer's settings and learned per-decider calibration.
 # Updated: 2026-07-18 (#285) — MemoryEntry consolidated into spec/memory.py.
 #   runtime/types.py re-exports it for backward compatibility. Removed
 #   duplicate MemoryVisibility, MemoryCategory, MemoryProvenance definitions.
@@ -475,6 +478,92 @@ class LifecycleState(StrEnum):
     RETIRED = "retired"
 
 
+# ============ Soul Instinct (decision layer) ============
+
+CALIBRATION_BINS: int = 10
+# Pseudo-count pulling a sparsely-reviewed bin toward the decider's raw
+# confidence, so one or two reviews can't swing the calibrated value wildly.
+CALIBRATION_PRIOR_STRENGTH: float = 5.0
+
+
+class InstinctSettings(BaseModel):
+    """Per-soul settings for the Soul Instinct decision layer.
+
+    Only take effect when model-backed deciders are attached to the soul;
+    a soul without deciders behaves exactly as before.
+    """
+
+    min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    # When True, OCEAN traits shift min_confidence and the significance gate.
+    personality_modulation: bool = False
+    # When True, Soul.dream() re-checks uncertain decisions with a reviewer.
+    review_during_dream: bool = True
+    # Names that refer to the user in stored memories (e.g. ["Shekhar"] when
+    # facts read "Shekhar loves dosa"). Deciders treat them like "User" so
+    # "I hate dosa" is recognised as being about the same person.
+    user_aliases: list[str] = Field(default_factory=list)
+
+
+class CalibrationBin(BaseModel):
+    """Review outcomes for decisions made at one confidence band."""
+
+    correct: int = Field(default=0, ge=0)
+    total: int = Field(default=0, ge=0)
+
+
+class InstinctCalibration(BaseModel):
+    """Learned reliability of each decider, keyed ``"<source>:<kind>"``.
+
+    Every reviewed decision lands in one of ``CALIBRATION_BINS`` confidence
+    bands. The calibrated confidence for a band is its observed accuracy,
+    smoothed toward the raw confidence by ``CALIBRATION_PRIOR_STRENGTH``.
+    """
+
+    sources: dict[str, list[CalibrationBin]] = Field(default_factory=dict)
+
+    @staticmethod
+    def _key(source: str, kind: str) -> str:
+        return f"{source}:{kind}"
+
+    @staticmethod
+    def _bin_index(confidence: float) -> int:
+        return min(int(max(0.0, confidence) * CALIBRATION_BINS), CALIBRATION_BINS - 1)
+
+    def record(self, source: str, kind: str, confidence: float, correct: bool) -> None:
+        """Record whether a decision made at ``confidence`` turned out correct."""
+        bins = self.sources.setdefault(
+            self._key(source, kind), [CalibrationBin() for _ in range(CALIBRATION_BINS)]
+        )
+        b = bins[self._bin_index(confidence)]
+        b.total += 1
+        if correct:
+            b.correct += 1
+
+    def calibrate(self, source: str, kind: str, confidence: float) -> float:
+        """Return the confidence adjusted by this decider's review history."""
+        bins = self.sources.get(self._key(source, kind))
+        if not bins:
+            return confidence
+        b = bins[self._bin_index(confidence)]
+        k = CALIBRATION_PRIOR_STRENGTH
+        return (b.correct + k * confidence) / (b.total + k)
+
+    def accuracy(self, source: str, kind: str) -> float | None:
+        """Overall reviewed accuracy for a decider, or None if never reviewed."""
+        bins = self.sources.get(self._key(source, kind), [])
+        total = sum(b.total for b in bins)
+        if total == 0:
+            return None
+        return sum(b.correct for b in bins) / total
+
+
+class InstinctState(BaseModel):
+    """Soul Instinct state persisted inside the .soul file."""
+
+    settings: InstinctSettings = Field(default_factory=InstinctSettings)
+    calibration: InstinctCalibration = Field(default_factory=InstinctCalibration)
+
+
 # ============ Full Soul Config ============
 
 
@@ -497,6 +586,8 @@ class SoulConfig(BaseModel):
     # ``identity.bond`` for back-compat; this dict carries any extra per-user
     # bonds that the runtime accumulates. Empty when only one user is bonded.
     bonds_per_user: dict[str, Bond] = Field(default_factory=dict)
+    # Soul Instinct — decision-layer settings and learned decider calibration.
+    instinct: InstinctState = Field(default_factory=InstinctState)
 
 
 # ============ Interaction (input to observe()) ============

@@ -1,4 +1,6 @@
 # dream.py — Offline consolidation engine ("dreaming") for Soul Protocol.
+# Updated: feat/soul-instinct — DreamReport gains instinct_reviewed /
+#   instinct_corrected, filled in when Soul.dream() runs the instinct review.
 # Updated: 2026-04-09 — Added dry_run mode (preview without mutating), switched
 #   _dedup_semantic to soft-delete via superseded_by for audit trail (no more
 #   direct _facts dict mutation), added _find_semantic_duplicates helper that
@@ -103,6 +105,9 @@ class DreamReport:
     # True when the cycle ran in dry-run mode and no destructive mutations
     # were applied. Counters reflect what *would* have happened.
     dry_run: bool = False
+    # Soul Instinct review pass (filled in by Soul.dream()).
+    instinct_reviewed: int = 0
+    instinct_corrected: int = 0
 
     def summary(self) -> str:
         """Human-readable summary of the dream cycle."""
@@ -138,6 +143,11 @@ class DreamReport:
             lines.append(f"  Evolution insights: {len(self.evolution_insights)}")
             for ei in self.evolution_insights:
                 lines.append(f"    - {ei.trait}: {ei.direction} ({ei.evidence})")
+        if self.instinct_reviewed:
+            lines.append(
+                f"  Instinct decisions reviewed: {self.instinct_reviewed} "
+                f"({self.instinct_corrected} corrected)"
+            )
         lines.append(f"  Duration: {self.duration_ms}ms")
         return "\n".join(lines)
 

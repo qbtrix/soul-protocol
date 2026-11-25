@@ -1,7 +1,10 @@
-<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 39 tools
+<!-- Covers: MCP server setup, configuration for Claude Desktop/Cursor, all 41 tools
      (14 soul/memory + 5 context + 5 psychology + 3 trust chain + 5 memory primitives
-     + 2 maintenance + 1 eval + 1 graph + 1 optimize + 1 core edit + 1 forget), 3 resources,
-     2 prompts, auto-detect, MCP Sampling Engine, programmatic usage, and design notes.
+     + 2 maintenance + 1 eval + 1 graph + 1 optimize + 1 core edit + 1 forget
+     + 2 instinct), 3 resources, 2 prompts, auto-detect, MCP Sampling Engine,
+     programmatic usage, and design notes.
+     Updated: feat/soul-instinct — Added soul_decide and soul_instinct_review
+     (Soul Instinct decision layer). Tool count: 39 → 41.
      Updated: 2026-08-10 — (#290): Fixed soul_health return schema (removed non-existent
      bond_issues/skill_issues keys), fixed soul_cleanup return schema (total_items vs
      removed on different branches, no total_removed/backup_path), corrected cleanup
@@ -101,9 +104,9 @@ Add to your MCP settings (`.cursor/mcp.json` or equivalent):
 
 Any client that speaks the Model Context Protocol over stdio can connect. The server uses FastMCP's default stdio transport.
 
-## Tools (39)
+## Tools (41)
 
-All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 39 tools break down as: 9 soul management, 5 memory, 5 context (LCM), 5 psychology pipeline (v0.2.7), 3 trust chain (`soul_verify`, `soul_audit`, `soul_prune_chain`), 5 memory update primitives (`soul_confirm`, `soul_update`, `soul_supersede`, `soul_purge`, `soul_reinstate`; v0.5.0 #192), 1 eval (`soul_eval`), 1 graph (`soul_graph_query`), 1 optimize (`soul_optimize`), 2 maintenance (`soul_health`, `soul_cleanup`), 1 core memory editing (`soul_edit_core`), and 1 semantic forget shift (`soul_forget`).
+All tools are prefixed `soul_` to avoid name collisions when running alongside other MCP servers. The 41 tools break down as: 9 soul management, 5 memory, 5 context (LCM), 5 psychology pipeline (v0.2.7), 3 trust chain (`soul_verify`, `soul_audit`, `soul_prune_chain`), 5 memory update primitives (`soul_confirm`, `soul_update`, `soul_supersede`, `soul_purge`, `soul_reinstate`; v0.5.0 #192), 1 eval (`soul_eval`), 1 graph (`soul_graph_query`), 1 optimize (`soul_optimize`), 2 maintenance (`soul_health`, `soul_cleanup`), 1 core memory editing (`soul_edit_core`), 1 semantic forget shift (`soul_forget`), and 2 Soul Instinct (`soul_decide`, `soul_instinct_review`).
 
 **Multi-soul targeting:** When the server is running with `SOUL_DIR` and multiple souls are loaded, all tools accept an optional `soul` parameter (string) to target a specific soul by name or ID. If omitted, the tool operates on the currently active soul.
 
@@ -193,7 +196,34 @@ Run an offline dream cycle — batch memory consolidation. Reviews accumulated e
 | `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
 | `since` | `str` | `None` | ISO datetime — only review episodes after this time |
 
-**Returns:** JSON `DreamReport` with `topic_clusters`, `detected_procedures`, `behavioral_trends`, `graph_consolidation`, `evolution_insights`, and consolidation stats.
+**Returns:** JSON `DreamReport` with `topic_clusters`, `detected_procedures`, `behavioral_trends`, `graph_consolidation`, `evolution_insights`, and consolidation stats. When the soul has uncertain [Soul Instinct](soul-instinct.md) decisions and an LLM is available, `instinct_reviewed` / `instinct_corrected` report the review pass.
+
+---
+
+### `soul_decide`
+
+Ask the soul's instinct a quick typed question about a statement. Read-only — nothing is stored or superseded. Attached model deciders answer first; the soul's LLM/heuristic path answers when they are unsure. See [Soul Instinct](soul-instinct.md).
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `kind` | `str` | required | `sentiment`, `significance`, `contradiction`, or `dedup` |
+| `text` | `str` | required | The statement to judge |
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+
+**Returns:** JSON with `status`, `soul`, `kind`, `value` (the typed verdict — e.g. `findings` for contradiction, `action`/`target_id` for dedup), `confidence`, `source` (which decider answered), and `attempts` (every decider consulted). Unknown `kind` returns `{"status": "error"}`.
+
+---
+
+### `soul_instinct_review`
+
+Re-check uncertain Soul Instinct decisions with the host LLM (MCP sampling). Memories wrongly marked outdated are restored, missed contradictions are applied, and each outcome updates the soul's per-decider calibration.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `soul` | `str` | `None` | Target soul name (uses active soul if omitted) |
+| `include_confident` | `bool` | `false` | Also review decisions the deciders were confident about |
+
+**Returns:** JSON with `pending_before`, `reviewer`, `reviewed`, `agreed`, `corrected`, `restored`, `superseded`, `skipped`, `errors`, and `corrections`.
 
 ---
 
