@@ -1,4 +1,7 @@
 # storage/file.py — FileStorage backend persisting souls to the local filesystem.
+# Updated: 2026-11-14 — ``consent/consent.json`` (consent passes + access log)
+#   is written when present, read back on load, and pruned with the other
+#   managed directories when it disappears.
 # Updated: 2026-07-12 (#282) — Crash-safe saves via temp-dir + fsync + atomic
 #   replace. Added load-time .bak recovery: when the canonical path is missing
 #   but a sibling .bak exists, the loader auto-promotes it. save_soul_flat()
@@ -388,6 +391,16 @@ def _write_soul_files(
                 encoding="utf-8",
             )
 
+    # Consent passes + consent access log (only when any pass was granted).
+    consent_data = memory_data.get("consent")
+    if consent_data:
+        consent_dir = soul_dir / "consent"
+        consent_dir.mkdir(parents=True, exist_ok=True)
+        (consent_dir / "consent.json").write_text(
+            json.dumps(consent_data, indent=2, default=str),
+            encoding="utf-8",
+        )
+
     # v0.4.0 (#42) — Keystore. Pass-through whatever bytes the Soul layer
     # decides to ship (public always, private only when include_keys=True).
     key_files = memory_data.get("keys")
@@ -595,6 +608,14 @@ async def load_soul_full(path: Path) -> tuple[SoulConfig | None, dict]:
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Could not load trust_chain/chain.json: %s", e)
 
+    # Consent passes + access log. Optional; absent when no pass was granted.
+    consent_file = path / "consent" / "consent.json"
+    if consent_file.exists():
+        try:
+            memory_data["consent"] = json.loads(consent_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Could not load consent/consent.json: %s", e)
+
     # v0.4.0 (#42) — Keystore. public.key alone is enough to verify; private.key
     # is required to append new entries.
     keys_dir = path / "keys"
@@ -672,7 +693,7 @@ async def save_soul_flat(
         _prune_protected = {
             Path(PRIVATE_KEY_FILENAME),  # keys/private.key
         }
-        managed_dirs = ["memory", "trust_chain", "keys"]
+        managed_dirs = ["memory", "trust_chain", "keys", "consent"]
         for mdir_name in managed_dirs:
             mdir = path / mdir_name
             if not mdir.is_dir():

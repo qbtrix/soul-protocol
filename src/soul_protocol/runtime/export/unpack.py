@@ -1,4 +1,6 @@
 # export/unpack.py — Load a SoulConfig from a .soul zip archive.
+# Updated: 2026-11-14 — Read ``consent/consent.json`` (optional) into
+#   ``memory_data["consent"]``.
 # Updated: 2026-07-12 (#283) — Added "archives" to the unpack tier list so
 #   consolidated conversation summaries are restored from .soul archives.
 # Updated: 2026-04-29 (#42) — Read the trust chain (trust_chain/chain.json)
@@ -134,6 +136,14 @@ async def unpack_soul(
         chain_exists = (f"{chain_path}.enc" in names) if is_encrypted else (chain_path in names)
         if chain_exists:
             memory_data["trust_chain"] = json.loads(_read(chain_path))
+
+        # Consent passes + access log. Optional — absent when no pass was granted.
+        consent_path = "consent/consent.json"
+        consent_exists = (
+            (f"{consent_path}.enc" in names) if is_encrypted else (consent_path in names)
+        )
+        if consent_exists:
+            memory_data["consent"] = json.loads(_read(consent_path))
 
         # v0.4.0 (#42) — Keystore (raw 32-byte Ed25519 keys). Public is
         # always optional; private is only present when ``include_keys=True``

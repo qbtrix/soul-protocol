@@ -1,4 +1,6 @@
 # export/pack.py — Create .soul zip archives from a SoulConfig.
+# Updated: 2026-11-14 — Consent passes + access log written to
+#   ``consent/consent.json`` when ``consent_data`` is given (omitted otherwise).
 # Updated: 2026-07-12 (#283) — Added "archives" to the pack tier list so
 #   consolidated conversation summaries survive export round-trips.
 # Updated: 2026-04-29 (#42) — Trust chain is written to ``trust_chain/chain.json``
@@ -39,6 +41,7 @@ async def pack_soul(
     password: str | None = None,
     trust_chain_data: dict | None = None,
     key_files: dict[str, bytes] | None = None,
+    consent_data: dict | None = None,
 ) -> bytes:
     """Create a ``.soul`` zip archive from a ``SoulConfig``.
 
@@ -154,6 +157,15 @@ async def pack_soul(
                     f"trust_chain/entry_{seq:03d}.json",
                     json.dumps(entry, indent=2, default=str),
                 )
+
+        # Consent passes + consent access log. Absent for souls that never
+        # granted a pass, so older readers see an unchanged archive.
+        if consent_data:
+            _write(
+                zf,
+                "consent/consent.json",
+                json.dumps(consent_data, indent=2, default=str),
+            )
 
         # v0.4.0 (#42) — Keystore. public.key always when present; private.key
         # only when the caller (Soul.export) opted into include_keys=True.

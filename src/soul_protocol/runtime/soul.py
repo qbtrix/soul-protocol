@@ -9,6 +9,11 @@
 #     5. soul.py          — birth, awaken, to_system_prompt, feel, save/load
 #   Each mixin would be a separate file; Soul inherits from all of them.
 #   Do this as a dedicated multi-PR effort — not as a drive-by.
+# Updated: 2026-11-14 — Consent passes (runtime/consent). Soul owns a
+#   ConsentRegistry persisted as consent/consent.json; new grant_consent,
+#   revoke_consent, consent_session, consent_passes, consent_events,
+#   verify_consent_log, can_sign and trusted_public_keys. awaken() restores
+#   the registry; save/save_local/export persist it.
 # Updated: 2026-08-08 (#292) — Entity-derived skills now tagged with
 #   SkillSource.ENTITY so they are excluded from public_profile() and A2A cards.
 #   observe() entity extraction path passes source=SkillSource.ENTITY to Skill().
@@ -214,7 +219,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -224,6 +229,15 @@ from soul_protocol.spec.trust import TrustChain
 
 from .bond import Bond, BondRegistry
 from .cognitive.engine import CognitiveEngine
+from .consent import (
+    ConsentEvent,
+    ConsentPass,
+    ConsentRegistry,
+    ConsentSession,
+    grant_pass,
+    parse_duration,
+    revoke_pass,
+)
 from .crypto.ed25519 import Ed25519SignatureProvider
 from .crypto.keystore import (
     Keystore,
@@ -613,6 +627,10 @@ class Soul:
         )
         self._bonds.set_on_change(self._on_bond_change)
 
+        # Consent passes: which apps may use which memory domains, until when.
+        # awaken() replaces this with the registry stored in the soul.
+        self._consent: ConsentRegistry = ConsentRegistry()
+
     # ============ Trust chain helpers ============
 
     def _restore_trust_chain(self, memory_data: dict) -> None:
@@ -817,6 +835,98 @@ class Soul:
             action_prefix=action_prefix,
             limit=limit,
         )
+
+    @property
+    def can_sign(self) -> bool:
+        """True when this soul holds its private key and can sign new entries."""
+        return bool(self._signature_provider.public_key) and not isinstance(
+            self._signature_provider, _PublicOnlyProvider
+        )
+
+    def trusted_public_keys(self) -> set[str]:
+        """Base64 public keys this soul signs or has signed with (current + rotated)."""
+        import base64
+
+        keys = set()
+        if self._signature_provider.public_key:
+            keys.add(self._signature_provider.public_key)
+        for prev_bytes in self._keystore.previous_public_keys:
+            keys.add(base64.b64encode(prev_bytes).decode("ascii"))
+        return keys
+
+    # ============ Consent passes ============
+
+    @property
+    def consent(self) -> ConsentRegistry:
+        """The soul's :class:`ConsentRegistry` (passes + consent access log)."""
+        return self._consent
+
+    def grant_consent(
+        self,
+        app_id: str,
+        domains: list[str],
+        *,
+        duration: timedelta | str | None = None,
+        expires_at: datetime | None = None,
+        access: str = "read",
+        note: str = "",
+    ) -> tuple[ConsentPass, str]:
+        """Let ``app_id`` use ``domains`` until the pass expires or is revoked.
+
+        Give exactly one of ``duration`` (a timedelta or text like ``"7d"``)
+        or ``expires_at``. ``access`` is ``"read"`` (default) or
+        ``"read_write"``. Returns ``(pass, token)``. Hand the token to the
+        app; only its hash is stored, so it cannot be shown again. Signed
+        onto the trust chain as ``consent.grant``.
+
+        Raises :class:`ConsentError` for bad input or when the soul was
+        loaded without its private key.
+        """
+        from .exceptions import ConsentError
+
+        if isinstance(duration, str):
+            try:
+                duration = parse_duration(duration)
+            except ValueError as exc:
+                raise ConsentError(str(exc)) from exc
+        return grant_pass(
+            self,
+            app_id,
+            domains,
+            duration=duration,
+            expires_at=expires_at,
+            access=access,  # type: ignore[arg-type]
+            note=note,
+        )
+
+    def revoke_consent(self, pass_id: str, *, reason: str = "") -> ConsentPass:
+        """Revoke a pass now. Signed as ``consent.revoke`` when the soul can sign."""
+        return revoke_pass(self, pass_id, reason=reason)
+
+    def consent_session(self, token: str) -> ConsentSession:
+        """Return the app-side view of this soul for a consent ``token``.
+
+        The pass is checked on every call (not here), so an unknown,
+        expired or revoked token fails on first use with
+        :class:`ConsentDeniedError`.
+        """
+        return ConsentSession(self, token)
+
+    def consent_passes(
+        self, *, include_inactive: bool = False, app_id: str | None = None
+    ) -> list[ConsentPass]:
+        """Issued passes, newest first. Only active ones unless ``include_inactive``."""
+        return self._consent.passes(include_inactive=include_inactive, app_id=app_id)
+
+    def consent_events(
+        self, *, limit: int | None = None, app_id: str | None = None
+    ) -> list[ConsentEvent]:
+        """The consent access log, newest first."""
+        return self._consent.events(limit=limit, app_id=app_id)
+
+    def verify_consent_log(self) -> dict:
+        """Check every consent log line against the signed trust chain."""
+        return self._consent.verify_events(self.trust_chain)
 
     # ============ Lifecycle ============
 
@@ -1177,6 +1287,7 @@ class Soul:
         # Done after MemoryManager swap so any future reactive logic that
         # depends on memory state runs on the final manager.
         soul._restore_trust_chain(memory_data)
+        soul._consent = ConsentRegistry.from_dict(memory_data.get("consent"))
 
         # F4 — Wire eternal storage
         soul._eternal = eternal
@@ -3346,6 +3457,8 @@ class Soul:
         memory_data = self._memory.to_dict()
         memory_data["trust_chain"] = self._trust_chain_manager.to_dict()
         memory_data["keys"] = self._keystore.to_archive_files(include_private=include_keys)
+        if not self._consent.is_empty():
+            memory_data["consent"] = self._consent.to_dict()
         return memory_data
 
     async def archive(self, tiers: list[str] | None = None) -> list:
@@ -3405,6 +3518,7 @@ class Soul:
                 password=password,
                 trust_chain_data=trust_chain_data,
                 key_files=key_files,
+                consent_data=None if self._consent.is_empty() else self._consent.to_dict(),
             )
             write_bytes_atomic(Path(path), data, keep_backup=False)
             logger.info(

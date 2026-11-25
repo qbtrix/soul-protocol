@@ -1,6 +1,7 @@
 # tests/test_mcp/test_client_seams.py -- MCP registration and thin client seams.
 # Created: 2026-07-24 (#289) -- Guards tools that previously existed only as
 # Python functions, without an in-process FastMCP client smoke test.
+# Updated: 2026-11-14 -- Added the four soul_consent_* tools.
 
 from __future__ import annotations
 
@@ -26,6 +27,10 @@ EXPECTED_MCP_TOOLS = {
     "soul_bond",
     "soul_cleanup",
     "soul_confirm",
+    "soul_consent_grant",
+    "soul_consent_list",
+    "soul_consent_log",
+    "soul_consent_revoke",
     "soul_context_assemble",
     "soul_context_describe",
     "soul_context_expand",
