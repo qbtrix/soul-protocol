@@ -104,6 +104,23 @@ Bjorn the Butcher (name, archetype, persona, scripted lines as `ButcherDialogueE
 
 - **Social tier included in deletion paths (#291)** — `forget()`, `forget_entity()`, `forget_before()`, `purge_by_id()`, `remove()`, and `count()` now include the social memory tier. Previously these functions iterated only episodic → semantic → procedural, silently skipping social memories added via `SocialStore` (#41). The return dict from bulk `forget()` and `forget_entity()` gains a `social` key (additive — existing `episodic` / `semantic` / `procedural` / `total` keys are unchanged). `soul status`, `soul forget`, `soul health` CLI commands and the `soul_forget` / `soul_health` MCP tools now report social counts. `_memory_lookup_sync` (provenance walker) and `supersede --type` also updated. A `_all_stores()` helper centralises tier iteration so future tiers are automatically included.
 
+### Consent passes
+
+- **New:** Consent passes let an app use chosen memory domains for a limited time. `Soul.grant_consent(app_id, domains, duration="7d", access="read")` returns a pass and a token. The pass is signed with the soul's Ed25519 key, and only the token's SHA-256 hash is stored. `Soul.consent_session(token)` gives the app `recall()` and, for `read_write` passes, `remember()`. Every call re-checks the pass: revoked, expired, signature, issuing soul, domain and access. Results are limited to the granted domains, and PRIVATE memories are never returned. `Soul.revoke_consent(pass_id)` takes effect on the app's next call.
+- **New:** Every grant, revoke, read, write and denial is appended to the trust chain as `consent.grant`, `consent.revoke`, `consent.read`, `consent.write` or `consent.denied`. A read or write that cannot be signed (soul loaded without its private key) is refused with `audit_unavailable`. A readable access log (newest 1,000 events) is stored next to the chain. `Soul.verify_consent_log()` checks it in both directions: every line must match a signed entry, and every signed `consent.*` entry must still be in the log, so edited or deleted lines are caught. Requests with an unknown token are counted, but not signed or logged, so junk requests can't grow the chain or push real events out of the log.
+- **New:** `soul consent grant|list|revoke|log` CLI (`--password` for encrypted `.soul` files). `log --verify` exits 1 if the chain fails, any log line fails, or a signed entry is missing from the log.
+- **New:** MCP tools `soul_consent_grant`, `soul_consent_list`, `soul_consent_revoke` and `soul_consent_log`. `soul_recall` and `soul_remember` accept `consent_token`. Grants, revokes, consented reads/writes and their denials are saved to disk immediately.
+- **New:** Gateway `/recall` and `/remember` accept an `X-Consent-Token` header and return 403 with a `reason` when refused. New endpoints: `GET /api/consents` and `POST /api/consents/revoke`. The dashboard has a Consents section with a Revoke button and the access log. `create_app(..., soul_path=...)` (set by `soul-api`) saves consent changes to disk right away; without it they stay in memory as before. A password-encrypted `.soul` file is refused as `soul_path`, because saving would write it unencrypted.
+- **Storage:** New optional `consent/consent.json` in `.soul` archives and soul directories. Souls that never granted a pass are unchanged.
+- **New:** `ConsentError` and `ConsentDeniedError` (with `.reason`), `Soul.can_sign`, `Soul.trusted_public_keys()`.
+- **Fixed:** The MCP server's save of a `.soul` zip (on shutdown, `soul_save`, and now consent changes) dropped the private key, so the reloaded soul could no longer sign trust-chain entries. It now keeps the key when the soul has one. Directory saves were not affected.
+
+### Soul Dashboard + gateway server (#317)
+
+- **New:** `soul_protocol.gateway` — a Starlette app that serves a personal Soul Dashboard at `/dashboard` (Overview, Memory, Personality, Skills, Evolution, Communication tabs) backed by read-only `/api/*` JSON endpoints, plus `/privacy` and `/terms` pages. Binds to `127.0.0.1` by default; there is no built-in auth.
+- **New:** REST write endpoints (`/remember`, `/recall`, `/observe`, `/turn`) and an OpenAI-compatible `/v1/chat/completions` proxy that auto-recalls memories and forwards to `SOUL_LLM_BASE_URL`. POST bodies must be `application/json` (415 otherwise) so cross-site `text/plain` requests can't skip the CORS preflight.
+- **New:** `gateway` extra (`pip install soul-protocol[gateway]`) and a `soul-api` console script.
+
 ### Game profile ships mechanisms; demo defaults move to `examples/game`
 
 Breaking for `soul_protocol.profiles.game` callers:
