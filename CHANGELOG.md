@@ -104,6 +104,12 @@ Bjorn the Butcher (name, archetype, persona, scripted lines as `ButcherDialogueE
 
 - **Social tier included in deletion paths (#291)** — `forget()`, `forget_entity()`, `forget_before()`, `purge_by_id()`, `remove()`, and `count()` now include the social memory tier. Previously these functions iterated only episodic → semantic → procedural, silently skipping social memories added via `SocialStore` (#41). The return dict from bulk `forget()` and `forget_entity()` gains a `social` key (additive — existing `episodic` / `semantic` / `procedural` / `total` keys are unchanged). `soul status`, `soul forget`, `soul health` CLI commands and the `soul_forget` / `soul_health` MCP tools now report social counts. `_memory_lookup_sync` (provenance walker) and `supersede --type` also updated. A `_all_stores()` helper centralises tier iteration so future tiers are automatically included.
 
+### Soul Dashboard + gateway server (#317)
+
+- **New:** `soul_protocol.gateway` — a Starlette app that serves a personal Soul Dashboard at `/dashboard` (Overview, Memory, Personality, Skills, Evolution, Communication tabs) backed by read-only `/api/*` JSON endpoints, plus `/privacy` and `/terms` pages. Binds to `127.0.0.1` by default; there is no built-in auth.
+- **New:** REST write endpoints (`/remember`, `/recall`, `/observe`, `/turn`) and an OpenAI-compatible `/v1/chat/completions` proxy that auto-recalls memories and forwards to `SOUL_LLM_BASE_URL`. POST bodies must be `application/json` (415 otherwise) so cross-site `text/plain` requests can't skip the CORS preflight.
+- **New:** `gateway` extra (`pip install soul-protocol[gateway]`) and a `soul-api` console script.
+
 ### Game profile ships mechanisms; demo defaults move to `examples/game`
 
 Breaking for `soul_protocol.profiles.game` callers:
